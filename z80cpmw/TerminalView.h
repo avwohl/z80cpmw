@@ -58,6 +58,9 @@ public:
     // Force redraw
     void invalidate();
 
+    // Force immediate repaint (bypassing WM_PAINT)
+    void repaint();
+
 private:
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT handleMessage(UINT msg, WPARAM wParam, LPARAM lParam);

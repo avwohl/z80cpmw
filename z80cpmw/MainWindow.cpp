@@ -59,7 +59,7 @@ bool MainWindow::create() {
         0,
         WINDOW_CLASS,
         WINDOW_TITLE,
-        WS_OVERLAPPEDWINDOW,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,  // WS_CLIPCHILDREN prevents drawing over child windows
         CW_USEDEFAULT, CW_USEDEFAULT,
         rect.right - rect.left,
         rect.bottom - rect.top,
@@ -231,18 +231,23 @@ void MainWindow::onSize(int width, int height) {
     SendMessage(m_statusBar, WM_SIZE, 0, 0);
 
     // Get status bar height
-    RECT statusRect;
-    GetWindowRect(m_statusBar, &statusRect);
+    RECT statusRect = {};
+    if (m_statusBar) {
+        GetWindowRect(m_statusBar, &statusRect);
+    }
     int statusHeight = statusRect.bottom - statusRect.top;
 
-    // Resize terminal
+    // Resize terminal - ensure positive dimensions (fallback for WM_SIZE with 0,0)
+    int termWidth = width > 0 ? width : 800;
+    int termHeight = (height - statusHeight) > 0 ? (height - statusHeight) : 500;
+
     if (m_terminal && m_terminal->getHwnd()) {
         SetWindowPos(
             m_terminal->getHwnd(),
             nullptr,
             0, 0,
-            width,
-            height - statusHeight,
+            termWidth,
+            termHeight,
             SWP_NOZORDER
         );
     }
@@ -313,6 +318,23 @@ void MainWindow::onCommand(int id) {
 void MainWindow::onTimer() {
     if (m_emulator && m_emulator->isRunning()) {
         m_emulator->runBatch();
+
+        // Force terminal to repaint after batch processing
+        if (m_terminal) {
+            m_terminal->repaint();
+        }
+
+        // Update status bar with instruction count every ~500ms
+        static int timerCount = 0;
+        if (++timerCount >= 50) {  // 50 * 10ms = 500ms
+            timerCount = 0;
+            char buf[128];
+            sprintf(buf, "Running - PC: 0x%04X  Instructions: %llu",
+                    m_emulator->getProgramCounter(),
+                    m_emulator->getInstructionCount());
+            m_statusText = buf;
+            updateStatusBar();
+        }
     }
 }
 

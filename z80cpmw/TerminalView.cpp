@@ -23,7 +23,7 @@ bool TerminalView::create(HWND parent, int x, int y, int width, int height) {
     if (!g_classRegistered) {
         WNDCLASSEXW wc = {};
         wc.cbSize = sizeof(wc);
-        wc.style = CS_HREDRAW | CS_VREDRAW | CS_OWNDC;
+        wc.style = CS_HREDRAW | CS_VREDRAW;  // Removed CS_OWNDC
         wc.lpfnWndProc = WindowProc;
         wc.hInstance = GetModuleHandle(nullptr);
         wc.hCursor = LoadCursor(nullptr, IDC_IBEAM);
@@ -187,6 +187,14 @@ void TerminalView::invalidate() {
     }
 }
 
+void TerminalView::repaint() {
+    if (!m_hwnd) return;
+
+    // Force repaint through WM_PAINT
+    RedrawWindow(m_hwnd, nullptr, nullptr,
+                 RDW_INVALIDATE | RDW_UPDATENOW | RDW_NOERASE);
+}
+
 LRESULT CALLBACK TerminalView::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     TerminalView* view = nullptr;
 
@@ -194,6 +202,8 @@ LRESULT CALLBACK TerminalView::WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LP
         CREATESTRUCT* cs = reinterpret_cast<CREATESTRUCT*>(lParam);
         view = static_cast<TerminalView*>(cs->lpCreateParams);
         SetWindowLongPtr(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(view));
+        // Set m_hwnd early so handleMessage can use it for DefWindowProc
+        view->m_hwnd = hwnd;
     } else {
         view = reinterpret_cast<TerminalView*>(GetWindowLongPtr(hwnd, GWLP_USERDATA));
     }
@@ -259,10 +269,26 @@ LRESULT TerminalView::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 }
 
 void TerminalView::paint(HDC hdc) {
-    // Double buffering
+    // Get client rect with caching
     RECT clientRect;
     GetClientRect(m_hwnd, &clientRect);
 
+    // Cache valid client rect dimensions (GetClientRect sometimes returns 0 outside WM_PAINT)
+    static int cachedWidth = 0, cachedHeight = 0;
+    if (clientRect.right > 0 && clientRect.bottom > 0) {
+        cachedWidth = clientRect.right;
+        cachedHeight = clientRect.bottom;
+    } else if (cachedWidth > 0 && cachedHeight > 0) {
+        clientRect.right = cachedWidth;
+        clientRect.bottom = cachedHeight;
+    }
+
+    // Don't paint if dimensions are invalid
+    if (clientRect.right <= 0 || clientRect.bottom <= 0) {
+        return;
+    }
+
+    // Double buffering
     HDC memDC = CreateCompatibleDC(hdc);
     HBITMAP memBitmap = CreateCompatibleBitmap(hdc, clientRect.right, clientRect.bottom);
     HBITMAP oldBitmap = (HBITMAP)SelectObject(memDC, memBitmap);

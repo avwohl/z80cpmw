@@ -81,7 +81,6 @@ void EmulatorEngine::initCPU() {
             m_hbios->handlePortDispatch();
             break;
         default:
-            // Unknown port - ignore
             break;
         }
     });
@@ -195,7 +194,9 @@ const std::string& EmulatorEngine::getDiskPath(int unit) const {
 }
 
 void EmulatorEngine::start() {
-    if (m_running) return;
+    if (m_running) {
+        return;
+    }
 
     m_stopRequested = false;
     m_running = true;
