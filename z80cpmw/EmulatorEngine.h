@@ -64,6 +64,7 @@ public:
     // Callbacks
     void setOutputCallback(OutputCharCallback cb) { m_outputCallback = cb; }
     void setStatusCallback(StatusCallback cb) { m_statusCallback = cb; }
+    OutputCharCallback getOutputCallback() const { return m_outputCallback; }
 
     // Execute a batch of instructions (call from timer)
     void runBatch();

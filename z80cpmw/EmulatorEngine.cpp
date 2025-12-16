@@ -19,11 +19,10 @@ extern "C" {
 // Global engine pointer for callbacks (single instance)
 static EmulatorEngine* g_engine = nullptr;
 
-// Output callback wrapper
+// Output callback wrapper - routes emu_console_write_char to the engine's callback
 static void outputCallbackWrapper(uint8_t ch) {
-    if (g_engine) {
-        // Route through the engine's callback
-        // Note: This is called from the emulator thread
+    if (g_engine && g_engine->getOutputCallback()) {
+        g_engine->getOutputCallback()(ch);
     }
 }
 
@@ -31,6 +30,9 @@ EmulatorEngine::EmulatorEngine() {
     g_engine = this;
     initCPU();
     emu_io_init();
+
+    // Connect the global output callback to our wrapper
+    emu_io_set_output_callback(outputCallbackWrapper);
 }
 
 EmulatorEngine::~EmulatorEngine() {
