@@ -42,6 +42,7 @@ EmulatorEngine::~EmulatorEngine() {
 void EmulatorEngine::initCPU() {
     // Create banked memory (512KB ROM + 512KB RAM)
     m_memory = std::make_unique<banked_mem>();
+    m_memory->enable_banking();  // Enable banked memory mode
 
     // Create Z80 CPU
     m_cpu = std::make_unique<qkz80>(m_memory.get());
@@ -56,7 +57,7 @@ void EmulatorEngine::initCPU() {
     // Set up reset callback
     m_hbios->setResetCallback([this](uint8_t resetType) {
         (void)resetType;
-        m_memory->set_current_bank(0);
+        m_memory->select_bank(0);  // Switch to ROM bank 0
         emu_console_clear_queue();
         m_cpu->regs.PC.set_pair16(0);
     });
@@ -75,14 +76,22 @@ bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
         return false;
     }
 
-    // Load ROM into ROM banks (0x00-0x0F)
-    // Each bank is 32KB
-    size_t offset = 0;
-    for (int bank = 0; bank < 16 && offset < size; bank++) {
-        size_t bankSize = std::min(size - offset, (size_t)32768);
-        m_memory->load_rom_bank(bank, data + offset, bankSize);
-        offset += bankSize;
+    // Make sure banking is enabled
+    if (!m_memory->is_banking_enabled()) {
+        m_memory->enable_banking();
     }
+
+    // Clear RAM before loading new ROM
+    m_memory->clear_ram();
+
+    // Copy ROM data directly to the ROM buffer
+    uint8_t* rom = m_memory->get_rom();
+    if (!rom) {
+        return false;
+    }
+
+    size_t copySize = std::min(size, (size_t)banked_mem::ROM_SIZE);
+    memcpy(rom, data, copySize);
 
     // Initialize memory disks after ROM load
     m_hbios->initMemoryDisks();
@@ -182,7 +191,7 @@ void EmulatorEngine::reset() {
     m_cpu->regs.IFF2 = 0;
 
     // Reset to ROM bank 0
-    m_memory->set_current_bank(0);
+    m_memory->select_bank(0);
 
     // Clear input queue
     emu_console_clear_queue();

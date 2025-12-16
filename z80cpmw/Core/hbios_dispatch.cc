@@ -4,6 +4,17 @@
  * Uses emu_io.h for all platform-independent I/O operations.
  */
 
+// Windows compatibility
+#ifdef _WIN32
+#define _CRT_SECURE_NO_WARNINGS
+#include <windows.h>
+#define usleep(us) Sleep((us) / 1000)
+#define strncasecmp _strnicmp
+#define strcasecmp _stricmp
+#else
+#include <unistd.h>
+#endif
+
 #include "hbios_dispatch.h"
 #include "emu_io.h"
 #include "qkz80.h"
@@ -13,7 +24,6 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
-#include <unistd.h>
 
 //=============================================================================
 // Constructor/Destructor

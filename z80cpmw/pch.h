@@ -5,6 +5,9 @@
 
 #pragma once
 
+// Disable CRT secure warnings for fopen, sprintf, etc.
+#define _CRT_SECURE_NO_WARNINGS
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
