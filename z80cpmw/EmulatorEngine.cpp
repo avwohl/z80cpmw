@@ -61,6 +61,44 @@ void EmulatorEngine::initCPU() {
         emu_console_clear_queue();
         m_cpu->regs.PC.set_pair16(0);
     });
+
+    // Set up I/O port callbacks
+    m_cpu->set_port_out_callback([this](uint8_t port, uint8_t value) {
+        switch (port) {
+        case 0x78:  // RAM/ROM bank select
+        case 0x7C:  // Same (both ports work the same on SBC)
+            m_memory->select_bank(value);
+            break;
+        case 0x68:  // UART data output
+            emu_console_write_char(value);
+            if (m_outputCallback) {
+                m_outputCallback(value & 0x7F);
+            }
+            break;
+        case 0xEF:  // HBIOS dispatch port
+            m_hbios->handlePortDispatch();
+            break;
+        default:
+            // Unknown port - ignore
+            break;
+        }
+    });
+
+    m_cpu->set_port_in_callback([this](uint8_t port) -> uint8_t {
+        switch (port) {
+        case 0x68:  // UART data input
+            if (emu_console_has_input()) {
+                return (uint8_t)emu_console_read_char();
+            }
+            return 0;
+        case 0x69:  // UART status
+            // Bit 0 = RX ready (data available)
+            // Bit 1 = TX ready (always ready)
+            return (emu_console_has_input() ? 0x01 : 0x00) | 0x02;
+        default:
+            return 0xFF;
+        }
+    });
 }
 
 bool EmulatorEngine::loadROM(const std::string& path) {

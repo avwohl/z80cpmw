@@ -1913,11 +1913,11 @@ void qkz80::execute(void) {
   {
     qkz80_uint8 port(pull_byte_from_opcode_stream());
     qkz80_uint8 rega(get_reg8(reg_A));
-    if (port == 0x11) {
+    if (port_out_callback) {
+      port_out_callback(port, rega);
+    } else if (port == 0x11) {
       char ch(rega);
       std::cout << ch << std::flush;
-    } else {
-      std::cout << "output to port=" << std::hex << int(port) << " data= " << std::hex << int(rega) << std::endl;
     }
     trace->asm_op("out 0x%0x",port);
     trace->add_reg8(reg_A);
@@ -1956,10 +1956,12 @@ void qkz80::execute(void) {
   {
     qkz80_uint8 port(pull_byte_from_opcode_stream());
     trace->asm_op("in 0x%0x",port);
-    // find input byte for 2sio
     qkz80_uint8 dat(0);
-    if(port == 0x10)
-      dat=2; // transmit buffer empty
+    if (port_in_callback) {
+      dat = port_in_callback(port);
+    } else if (port == 0x10) {
+      dat = 2; // transmit buffer empty (legacy)
+    }
     set_reg8(dat,reg_A);
     return;
   }

@@ -1,0 +1,10 @@
+// Windows compatibility
+#ifdef _WIN32
+#define _CRT_SECURE_NO_WARNINGS
+#include <windows.h>
+#define usleep(us) Sleep((us) / 1000)
+#else
+#include <unistd.h>
+#endif
+
+#include "hbios_dispatch.h"
