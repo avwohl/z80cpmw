@@ -1,0 +1,81 @@
+/*
+ * z80cpmw.rc - Windows resource file
+ */
+
+#include "resource.h"
+#include <windows.h>
+
+// Menu
+IDR_MAINMENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        POPUP "Select &ROM"
+        BEGIN
+            MENUITEM "EMU AVW (Recommended)",   ID_ROM_EMU_AVW
+            MENUITEM "EMU RomWBW",              ID_ROM_EMU_ROMWBW
+            MENUITEM "SBC SIMH",                ID_ROM_SBC_SIMH
+        END
+        MENUITEM SEPARATOR
+        MENUITEM "Load Disk &0...",             ID_FILE_LOADDISK0
+        MENUITEM "Load Disk &1...",             ID_FILE_LOADDISK1
+        MENUITEM SEPARATOR
+        MENUITEM "Save Disk 0...",              ID_FILE_SAVEDISK0
+        MENUITEM "Save Disk 1...",              ID_FILE_SAVEDISK1
+        MENUITEM "Save All Disks",              ID_FILE_SAVEDISKS
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit\tAlt+F4",               ID_FILE_EXIT
+    END
+    POPUP "&Emulator"
+    BEGIN
+        MENUITEM "&Start\tF5",                  ID_EMU_START
+        MENUITEM "S&top\tShift+F5",             ID_EMU_STOP
+        MENUITEM "&Reset\tCtrl+R",              ID_EMU_RESET
+    END
+    POPUP "&View"
+    BEGIN
+        MENUITEM "Font Size 14",                ID_VIEW_FONT14
+        MENUITEM "Font Size 16",                ID_VIEW_FONT16
+        MENUITEM "Font Size 18",                ID_VIEW_FONT18
+        MENUITEM "Font Size 20",                ID_VIEW_FONT20, CHECKED
+        MENUITEM "Font Size 24",                ID_VIEW_FONT24
+        MENUITEM "Font Size 28",                ID_VIEW_FONT28
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&About z80cpmw...",           ID_HELP_ABOUT
+    END
+END
+
+// Version Info
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION 1,0,0,0
+PRODUCTVERSION 1,0,0,0
+FILEFLAGSMASK 0x3fL
+FILEFLAGS 0x0L
+FILEOS VOS_NT_WINDOWS32
+FILETYPE VFT_APP
+FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "avwohl"
+            VALUE "FileDescription", "Z80 CP/M Emulator for Windows"
+            VALUE "FileVersion", "1.0.0.0"
+            VALUE "InternalName", "z80cpmw"
+            VALUE "LegalCopyright", "Copyright (C) 2025"
+            VALUE "OriginalFilename", "z80cpmw.exe"
+            VALUE "ProductName", "z80cpmw"
+            VALUE "ProductVersion", "1.0.0.0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+
+// Manifest for modern visual styles
+1 RT_MANIFEST "z80cpmw.manifest"

@@ -1,0 +1,62 @@
+# Visual Studio files
+.vs/
+*.user
+*.suo
+*.sdf
+*.opensdf
+*.ncb
+*.aps
+*.sln.docstates
+ipch/
+
+# Build outputs
+bin/
+obj/
+Debug/
+Release/
+x64/
+x86/
+*.exe
+*.dll
+*.pdb
+*.ilk
+*.exp
+*.lib
+*.obj
+*.log
+*.tlog
+
+# Intermediate files
+*.o
+*.d
+
+# Package files
+packages/
+*.nupkg
+
+# Test results
+TestResults/
+
+# IDE settings
+.idea/
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Visual Studio cache
+.vs/
+
+# Exclude large binary files that should be downloaded
+# roms/*.rom
+# disks/*.img
