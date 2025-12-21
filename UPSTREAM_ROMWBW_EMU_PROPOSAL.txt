@@ -1,0 +1,32 @@
+Proposal for romwbw_emu - Windows Compatibility
+================================================
+
+The hbios_dispatch.cc file uses Unix-specific headers and functions that
+don't exist on Windows. This simple change adds cross-platform support.
+
+Current Problem:
+----------------
+- #include <unistd.h> - doesn't exist on Windows
+- usleep() - Unix function, not available on Windows
+- strncasecmp() - Unix function, Windows uses _strnicmp
+
+Proposed Change:
+----------------
+At the top of hbios_dispatch.cc (after the initial includes), add:
+
+#ifdef _WIN32
+#define _CRT_SECURE_NO_WARNINGS
+#include <windows.h>
+#define usleep(x) Sleep((x) / 1000)
+#define strncasecmp _strnicmp
+#else
+#include <unistd.h>
+#endif
+
+And remove the unconditional #include <unistd.h> that appears later.
+
+Benefits:
+---------
+1. Allows hbios_dispatch to compile on Windows
+2. No changes to Unix/macOS/iOS builds
+3. Minimal and self-contained fix
