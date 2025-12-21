@@ -224,6 +224,9 @@ void MainWindow::onCreate() {
 
     // Update status
     updateStatusBar();
+
+    // Show startup instructions in terminal
+    showStartupInstructions();
 }
 
 void MainWindow::onDestroy() {
@@ -644,5 +647,43 @@ void MainWindow::loadDefaultDisks() {
             m_emulator->loadDisk(unit, diskPath);
             m_emulator->setDiskPath(unit, diskPath);
         }
+    }
+}
+
+void MainWindow::showStartupInstructions() {
+    if (!m_terminal) return;
+
+    const char* instructions =
+        "\r\n"
+        "  z80cpmw - Z80 CP/M Emulator for Windows\r\n"
+        "  ========================================\r\n"
+        "\r\n"
+        "  Getting Started:\r\n"
+        "\r\n"
+        "  1. Download disk images:\r\n"
+        "     Emulator -> Settings -> select disk -> Download\r\n"
+        "\r\n"
+        "  2. Assign disks to units:\r\n"
+        "     In Settings, select downloaded disks for Disk 0, 1, etc.\r\n"
+        "\r\n"
+        "  3. Start the emulator:\r\n"
+        "     Press F5 or Emulator -> Start\r\n"
+        "\r\n"
+        "  4. At the RomWBW boot menu:\r\n"
+        "     Type 0 and press Enter to boot CP/M from Disk 0\r\n"
+        "     (Or set Boot String to \"0\" in Settings to auto-boot)\r\n"
+        "\r\n"
+        "  File Transfer (R8/W8):\r\n"
+        "     R8 filename - Import file from host (opens file picker)\r\n"
+        "     W8 filename - Export file to host (opens save dialog)\r\n"
+        "\r\n"
+        "  Keyboard Shortcuts:\r\n"
+        "     F5        - Start emulator\r\n"
+        "     Shift+F5  - Stop emulator\r\n"
+        "     Ctrl+R    - Reset emulator\r\n"
+        "\r\n";
+
+    for (const char* p = instructions; *p; ++p) {
+        m_terminal->outputChar(*p);
     }
 }

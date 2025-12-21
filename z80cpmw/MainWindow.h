@@ -67,6 +67,9 @@ private:
     void loadDefaultROM();
     void loadDefaultDisks();
 
+    // Startup help
+    void showStartupInstructions();
+
     HWND m_hwnd = nullptr;
     HWND m_statusBar = nullptr;
     HMENU m_menu = nullptr;

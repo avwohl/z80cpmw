@@ -31,7 +31,7 @@ bool SettingsDialog::show() {
     } dlgTemplate = {};
     #pragma pack(pop)
 
-    dlgTemplate.dlg.style = DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU;
+    dlgTemplate.dlg.style = DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME;
     dlgTemplate.dlg.dwExtendedStyle = 0;
     dlgTemplate.dlg.cdit = 0;  // We'll create controls manually
     dlgTemplate.dlg.x = 0;
@@ -98,28 +98,35 @@ INT_PTR SettingsDialog::handleMessage(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 
 void SettingsDialog::onInitDialog(HWND hwnd) {
     // Resize dialog to proper size
-    RECT rect;
-    GetWindowRect(hwnd, &rect);
-    int width = 500;
-    int height = 550;
+    int width = 620;
+    int height = 580;
     SetWindowPos(hwnd, nullptr,
                  (GetSystemMetrics(SM_CXSCREEN) - width) / 2,
                  (GetSystemMetrics(SM_CYSCREEN) - height) / 2,
                  width, height, SWP_NOZORDER);
 
+    // Get client area for control layout
+    RECT clientRect;
+    GetClientRect(hwnd, &clientRect);
+    int clientWidth = clientRect.right - clientRect.left;
+
     // Create controls manually
-    int y = 10;
-    int labelWidth = 80;
-    int controlWidth = 280;
-    int buttonWidth = 60;
-    int rowHeight = 28;
-    int leftMargin = 10;
+    int y = 15;
+    int labelWidth = 70;
+    int leftMargin = 15;
+    int rightMargin = 15;
+    int rowHeight = 30;
+    int comboWidth = 200;
+    int sliceLabelWidth = 45;
+    int sliceEditWidth = 40;
+    int btnWidth = 65;
+    int btnHeight = 26;
 
     // ROM selection
     CreateWindowW(L"STATIC", L"ROM:", WS_CHILD | WS_VISIBLE,
-                  leftMargin, y + 3, labelWidth, 20, hwnd, nullptr, nullptr, nullptr);
+                  leftMargin, y + 4, labelWidth, 20, hwnd, nullptr, nullptr, nullptr);
     CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                  leftMargin + labelWidth, y, controlWidth, 200, hwnd,
+                  leftMargin + labelWidth, y, comboWidth + 100, 200, hwnd,
                   (HMENU)IDC_ROM_COMBO, nullptr, nullptr);
     y += rowHeight;
 
@@ -127,18 +134,28 @@ void SettingsDialog::onInitDialog(HWND hwnd) {
     for (int i = 0; i < 4; i++) {
         wchar_t label[32];
         swprintf_s(label, L"Disk %d:", i);
+        int x = leftMargin;
+
+        // Label
         CreateWindowW(L"STATIC", label, WS_CHILD | WS_VISIBLE,
-                      leftMargin, y + 3, labelWidth, 20, hwnd, nullptr, nullptr, nullptr);
+                      x, y + 4, labelWidth, 20, hwnd, nullptr, nullptr, nullptr);
+        x += labelWidth;
+
+        // Disk combo
         CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                      leftMargin + labelWidth, y, controlWidth - 195, 200, hwnd,
+                      x, y, comboWidth, 200, hwnd,
                       (HMENU)(IDC_DISK0_COMBO + i), nullptr, nullptr);
+        x += comboWidth + 10;
+
+        // Slices label
+        CreateWindowW(L"STATIC", L"Slices:", WS_CHILD | WS_VISIBLE,
+                      x, y + 4, sliceLabelWidth, 20, hwnd, nullptr, nullptr, nullptr);
+        x += sliceLabelWidth;
 
         // Slice count spin control
-        CreateWindowW(L"STATIC", L"Slices:", WS_CHILD | WS_VISIBLE,
-                      leftMargin + labelWidth + controlWidth - 190, y + 3, 40, 20, hwnd, nullptr, nullptr, nullptr);
         HWND editSlice = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"4",
                       WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_CENTER,
-                      leftMargin + labelWidth + controlWidth - 150, y, 30, 22, hwnd,
+                      x, y, sliceEditWidth, 24, hwnd,
                       (HMENU)(IDC_SLICE0_SPIN + i), nullptr, nullptr);
         HWND spinSlice = CreateWindowW(UPDOWN_CLASSW, nullptr,
                       WS_CHILD | WS_VISIBLE | UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_ARROWKEYS,
@@ -146,96 +163,105 @@ void SettingsDialog::onInitDialog(HWND hwnd) {
         SendMessage(spinSlice, UDM_SETBUDDY, (WPARAM)editSlice, 0);
         SendMessage(spinSlice, UDM_SETRANGE32, 1, 8);
         SendMessage(spinSlice, UDM_SETPOS32, 0, m_settings.diskSlices[i]);
+        x += sliceEditWidth + 10;
 
-        CreateWindowW(L"BUTTON", L"Browse", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                      leftMargin + labelWidth + controlWidth - 115, y, 55, 24, hwnd,
+        // Browse button
+        CreateWindowW(L"BUTTON", L"Browse...", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                      x, y, btnWidth, btnHeight, hwnd,
                       (HMENU)(IDC_DISK0_BROWSE + i), nullptr, nullptr);
+        x += btnWidth + 5;
+
+        // New button
         CreateWindowW(L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                      leftMargin + labelWidth + controlWidth - 55, y, 45, 24, hwnd,
+                      x, y, 50, btnHeight, hwnd,
                       (HMENU)(IDC_DISK0_CREATE + i), nullptr, nullptr);
+
         y += rowHeight;
     }
 
-    y += 5;
+    y += 10;
 
     // Boot string
     CreateWindowW(L"STATIC", L"Boot String:", WS_CHILD | WS_VISIBLE,
-                  leftMargin, y + 3, labelWidth, 20, hwnd, nullptr, nullptr, nullptr);
+                  leftMargin, y + 4, labelWidth, 20, hwnd, nullptr, nullptr, nullptr);
     CreateWindowW(L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-                  leftMargin + labelWidth, y, 100, 22, hwnd,
+                  leftMargin + labelWidth, y, 80, 24, hwnd,
                   (HMENU)IDC_BOOT_STRING, nullptr, nullptr);
     CreateWindowW(L"STATIC", L"(e.g., 0 to auto-boot CP/M)", WS_CHILD | WS_VISIBLE,
-                  leftMargin + labelWidth + 110, y + 3, 200, 20, hwnd, nullptr, nullptr, nullptr);
+                  leftMargin + labelWidth + 90, y + 4, 200, 20, hwnd, nullptr, nullptr, nullptr);
     y += rowHeight;
 
     // Debug checkbox
-    CreateWindowW(L"BUTTON", L"Enable Debug Mode", WS_CHILD | WS_VISIBLE | BS_CHECKBOX,
-                  leftMargin + labelWidth, y, 200, 24, hwnd,
+    CreateWindowW(L"BUTTON", L"Enable Debug Mode", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                  leftMargin + labelWidth, y, 180, 24, hwnd,
                   (HMENU)IDC_DEBUG_CHECK, nullptr, nullptr);
     y += rowHeight + 10;
 
     // Separator
     CreateWindowW(L"STATIC", nullptr, WS_CHILD | WS_VISIBLE | SS_ETCHEDHORZ,
-                  leftMargin, y, width - 30, 2, hwnd, nullptr, nullptr, nullptr);
-    y += 10;
+                  leftMargin, y, clientWidth - leftMargin - rightMargin, 2, hwnd, nullptr, nullptr, nullptr);
+    y += 15;
 
     // Disk catalog section
     CreateWindowW(L"STATIC", L"Download Disk Images:", WS_CHILD | WS_VISIBLE | SS_LEFT,
                   leftMargin, y, 200, 20, hwnd, nullptr, nullptr, nullptr);
     CreateWindowW(L"BUTTON", L"Refresh", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                  width - 90, y - 3, 70, 24, hwnd,
+                  clientWidth - rightMargin - 80, y - 2, 80, btnHeight, hwnd,
                   (HMENU)IDC_REFRESH_BTN, nullptr, nullptr);
-    y += 25;
+    y += 28;
 
     // Catalog list (ListView)
+    int listHeight = 160;
     HWND listView = CreateWindowExW(WS_EX_CLIENTEDGE, WC_LISTVIEWW, nullptr,
                   WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
-                  leftMargin, y, width - 30, 150, hwnd,
+                  leftMargin, y, clientWidth - leftMargin - rightMargin, listHeight, hwnd,
                   (HMENU)IDC_CATALOG_LIST, nullptr, nullptr);
 
     // Set up list view columns
     ListView_SetExtendedListViewStyle(listView, LVS_EX_FULLROWSELECT | LVS_EX_GRIDLINES);
 
+    int listWidth = clientWidth - leftMargin - rightMargin;
     LVCOLUMNW col = {};
     col.mask = LVCF_TEXT | LVCF_WIDTH;
     col.pszText = (LPWSTR)L"Name";
-    col.cx = 150;
+    col.cx = 180;
     ListView_InsertColumn(listView, 0, &col);
     col.pszText = (LPWSTR)L"Description";
-    col.cx = 200;
+    col.cx = listWidth - 180 - 100 - 20;  // Remaining space minus name and status
     ListView_InsertColumn(listView, 1, &col);
     col.pszText = (LPWSTR)L"Status";
-    col.cx = 80;
+    col.cx = 100;
     ListView_InsertColumn(listView, 2, &col);
 
-    y += 155;
+    y += listHeight + 8;
 
     // Download/Delete buttons
     CreateWindowW(L"BUTTON", L"Download", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                  leftMargin, y, 80, 28, hwnd,
+                  leftMargin, y, 90, btnHeight, hwnd,
                   (HMENU)IDC_DOWNLOAD_BTN, nullptr, nullptr);
     CreateWindowW(L"BUTTON", L"Delete", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                  leftMargin + 90, y, 80, 28, hwnd,
+                  leftMargin + 100, y, 70, btnHeight, hwnd,
                   (HMENU)IDC_DELETE_BTN, nullptr, nullptr);
 
     // Progress bar
     CreateWindowW(PROGRESS_CLASSW, nullptr, WS_CHILD | WS_VISIBLE,
-                  leftMargin + 180, y + 4, width - 210, 20, hwnd,
+                  leftMargin + 180, y + 3, clientWidth - leftMargin - rightMargin - 180, 20, hwnd,
                   (HMENU)IDC_DOWNLOAD_PROGRESS, nullptr, nullptr);
-    y += 35;
+    y += 32;
 
     // Status text
     CreateWindowW(L"STATIC", L"", WS_CHILD | WS_VISIBLE,
-                  leftMargin, y, width - 30, 20, hwnd,
+                  leftMargin, y, clientWidth - leftMargin - rightMargin, 20, hwnd,
                   (HMENU)IDC_STATUS_TEXT, nullptr, nullptr);
-    y += 30;
+    y += 28;
 
-    // OK/Cancel buttons
+    // OK/Cancel buttons at bottom
+    int okCancelY = height - 75;
     CreateWindowW(L"BUTTON", L"OK", WS_CHILD | WS_VISIBLE | BS_DEFPUSHBUTTON,
-                  width - 180, height - 70, 80, 28, hwnd,
+                  clientWidth - 180, okCancelY, 80, 30, hwnd,
                   (HMENU)IDOK, nullptr, nullptr);
     CreateWindowW(L"BUTTON", L"Cancel", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                  width - 90, height - 70, 80, 28, hwnd,
+                  clientWidth - 90, okCancelY, 80, 30, hwnd,
                   (HMENU)IDCANCEL, nullptr, nullptr);
 
     // Set font for all controls
