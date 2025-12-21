@@ -7,7 +7,7 @@
 #include "TerminalView.h"
 #include "EmulatorEngine.h"
 #include "DiskCatalog.h"
-#include "SettingsDialog.h"
+#include "SettingsDialogWx.h"
 #include "resource.h"
 
 // External function to set main window for host file dialogs
@@ -488,27 +488,21 @@ void MainWindow::onEmulatorSettings() {
         m_emulator->stop();
     }
 
-    SettingsDialog dialog(m_hwnd, m_diskCatalog.get());
-
-    // Set current settings
-    EmulatorSettings settings;
+    // Use wxWidgets-based settings dialog for proper layout
+    WxEmulatorSettings settings;
     settings.bootString = m_emulator->getBootString();
     settings.debugMode = false;  // TODO: get from emulator
-    dialog.setSettings(settings);
 
-    if (dialog.show()) {
-        // Apply new settings
-        const auto& newSettings = dialog.getSettings();
-
+    if (ShowWxSettingsDialog(m_hwnd, m_diskCatalog.get(), settings)) {
         // Apply boot string
-        m_emulator->setBootString(newSettings.bootString);
+        m_emulator->setBootString(settings.bootString);
 
         // Apply debug mode
-        m_emulator->setDebug(newSettings.debugMode);
+        m_emulator->setDebug(settings.debugMode);
 
         // Load ROM if changed
-        if (!newSettings.romFile.empty()) {
-            std::string romPath = findResourceFile(newSettings.romFile);
+        if (!settings.romFile.empty()) {
+            std::string romPath = findResourceFile(settings.romFile);
             if (!romPath.empty()) {
                 m_emulator->loadROM(romPath);
             }
@@ -516,8 +510,8 @@ void MainWindow::onEmulatorSettings() {
 
         // Load disks
         for (int i = 0; i < 4; i++) {
-            if (!newSettings.diskFiles[i].empty()) {
-                std::string diskPath = m_diskCatalog->getDiskPath(newSettings.diskFiles[i]);
+            if (!settings.diskFiles[i].empty()) {
+                std::string diskPath = m_diskCatalog->getDiskPath(settings.diskFiles[i]);
                 if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
                     m_emulator->loadDisk(i, diskPath);
                 }
