@@ -13,6 +13,8 @@
 #include <cstdarg>
 #include <vector>
 #include <string>
+#include <shlobj.h>
+#include <commdlg.h>
 
 //=============================================================================
 // Callback Interface for GUI Integration
@@ -526,27 +528,75 @@ int emu_dsky_get_key() {
 //=============================================================================
 
 static emu_host_file_state g_hostFileState = HOST_FILE_IDLE;
-static FILE* g_hostReadFile = nullptr;
-static FILE* g_hostWriteFile = nullptr;
+static std::vector<uint8_t> g_hostReadBuffer;
+static size_t g_hostReadPos = 0;
 static std::vector<uint8_t> g_hostWriteBuffer;
 static std::string g_hostWriteFilename;
+static HWND g_mainWindowHwnd = nullptr;
+
+// Set main window handle for file dialogs
+extern "C" void emu_io_set_main_window(HWND hwnd) {
+    g_mainWindowHwnd = hwnd;
+}
+
+// Get user's Downloads folder path
+static std::wstring getDownloadsFolder() {
+    wchar_t* path = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &path))) {
+        std::wstring result(path);
+        CoTaskMemFree(path);
+        return result;
+    }
+    // Fallback to user profile\Downloads
+    wchar_t userProfile[MAX_PATH];
+    if (GetEnvironmentVariableW(L"USERPROFILE", userProfile, MAX_PATH)) {
+        return std::wstring(userProfile) + L"\\Downloads";
+    }
+    return L"";
+}
 
 emu_host_file_state emu_host_file_get_state() {
     return g_hostFileState;
 }
 
 bool emu_host_file_open_read(const char* filename) {
-    // On Windows, we can use a file dialog or just open the file directly
-    // For now, just try to open the file directly
-    if (g_hostReadFile) {
-        fclose(g_hostReadFile);
-        g_hostReadFile = nullptr;
+    // Close any existing read operation
+    g_hostReadBuffer.clear();
+    g_hostReadPos = 0;
+
+    // Show file open dialog defaulting to Downloads folder
+    wchar_t filepath[MAX_PATH] = {};
+
+    // Convert suggested filename to wide string
+    if (filename && *filename) {
+        MultiByteToWideChar(CP_UTF8, 0, filename, -1, filepath, MAX_PATH);
     }
 
-    g_hostReadFile = fopen(filename, "rb");
-    if (g_hostReadFile) {
-        g_hostFileState = HOST_FILE_READING;
-        return true;
+    std::wstring downloadsPath = getDownloadsFolder();
+
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = g_mainWindowHwnd;
+    ofn.lpstrFilter = L"All Files (*.*)\0*.*\0Text Files (*.txt)\0*.txt\0";
+    ofn.lpstrFile = filepath;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrInitialDir = downloadsPath.c_str();
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+    ofn.lpstrTitle = L"R8: Select File to Import to CP/M";
+
+    if (GetOpenFileNameW(&ofn)) {
+        // Read the selected file
+        FILE* f = _wfopen(filepath, L"rb");
+        if (f) {
+            fseek(f, 0, SEEK_END);
+            size_t size = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            g_hostReadBuffer.resize(size);
+            fread(g_hostReadBuffer.data(), 1, size, f);
+            fclose(f);
+            g_hostFileState = HOST_FILE_READING;
+            return true;
+        }
     }
 
     g_hostFileState = HOST_FILE_IDLE;
@@ -554,27 +604,22 @@ bool emu_host_file_open_read(const char* filename) {
 }
 
 bool emu_host_file_open_write(const char* filename) {
-    if (g_hostWriteFile) {
-        fclose(g_hostWriteFile);
-        g_hostWriteFile = nullptr;
-    }
-
     g_hostWriteBuffer.clear();
-    g_hostWriteFilename = filename;
+    g_hostWriteFilename = filename ? filename : "export.txt";
     g_hostFileState = HOST_FILE_WRITING;
     return true;
 }
 
 int emu_host_file_read_byte() {
-    if (g_hostFileState != HOST_FILE_READING || !g_hostReadFile) {
+    if (g_hostFileState != HOST_FILE_READING) {
         return -1;
     }
 
-    int ch = fgetc(g_hostReadFile);
-    if (ch == EOF) {
-        return -1;
+    if (g_hostReadPos >= g_hostReadBuffer.size()) {
+        return -1;  // EOF
     }
-    return ch;
+
+    return g_hostReadBuffer[g_hostReadPos++];
 }
 
 bool emu_host_file_write_byte(uint8_t byte) {
@@ -587,20 +632,42 @@ bool emu_host_file_write_byte(uint8_t byte) {
 }
 
 void emu_host_file_close_read() {
-    if (g_hostReadFile) {
-        fclose(g_hostReadFile);
-        g_hostReadFile = nullptr;
-    }
+    g_hostReadBuffer.clear();
+    g_hostReadPos = 0;
     g_hostFileState = HOST_FILE_IDLE;
 }
 
 void emu_host_file_close_write() {
-    if (g_hostFileState == HOST_FILE_WRITING && !g_hostWriteFilename.empty()) {
-        // Write the buffer to file
-        FILE* f = fopen(g_hostWriteFilename.c_str(), "wb");
-        if (f) {
-            fwrite(g_hostWriteBuffer.data(), 1, g_hostWriteBuffer.size(), f);
-            fclose(f);
+    if (g_hostFileState == HOST_FILE_WRITING && !g_hostWriteBuffer.empty()) {
+        // Show file save dialog defaulting to Downloads folder
+        wchar_t filepath[MAX_PATH] = {};
+
+        // Convert suggested filename to wide string
+        if (!g_hostWriteFilename.empty()) {
+            MultiByteToWideChar(CP_UTF8, 0, g_hostWriteFilename.c_str(), -1, filepath, MAX_PATH);
+        } else {
+            wcscpy_s(filepath, L"export.txt");
+        }
+
+        std::wstring downloadsPath = getDownloadsFolder();
+
+        OPENFILENAMEW ofn = {};
+        ofn.lStructSize = sizeof(ofn);
+        ofn.hwndOwner = g_mainWindowHwnd;
+        ofn.lpstrFilter = L"All Files (*.*)\0*.*\0Text Files (*.txt)\0*.txt\0";
+        ofn.lpstrFile = filepath;
+        ofn.nMaxFile = MAX_PATH;
+        ofn.lpstrInitialDir = downloadsPath.c_str();
+        ofn.Flags = OFN_OVERWRITEPROMPT;
+        ofn.lpstrTitle = L"W8: Save Exported File from CP/M";
+
+        if (GetSaveFileNameW(&ofn)) {
+            // Write the buffer to selected file
+            FILE* f = _wfopen(filepath, L"wb");
+            if (f) {
+                fwrite(g_hostWriteBuffer.data(), 1, g_hostWriteBuffer.size(), f);
+                fclose(f);
+            }
         }
     }
 
@@ -610,10 +677,12 @@ void emu_host_file_close_write() {
 }
 
 void emu_host_file_provide_data(const uint8_t* data, size_t size) {
-    // This is primarily for browser/WASM use where JavaScript provides file data
-    // On Windows, we read directly from files, so this is a no-op
-    (void)data;
-    (void)size;
+    // For providing data after file picker callback
+    g_hostReadBuffer.assign(data, data + size);
+    g_hostReadPos = 0;
+    if (size > 0) {
+        g_hostFileState = HOST_FILE_READING;
+    }
 }
 
 const uint8_t* emu_host_file_get_write_data() {

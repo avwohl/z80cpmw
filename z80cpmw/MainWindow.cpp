@@ -10,6 +10,9 @@
 #include "SettingsDialog.h"
 #include "resource.h"
 
+// External function to set main window for host file dialogs
+extern "C" void emu_io_set_main_window(HWND hwnd);
+
 static const wchar_t* WINDOW_CLASS = L"Z80CPM_MainWindow";
 static const wchar_t* WINDOW_TITLE = L"z80cpmw - Z80 CP/M Emulator";
 static bool g_mainClassRegistered = false;
@@ -155,6 +158,9 @@ void MainWindow::onCreate() {
     icc.dwSize = sizeof(icc);
     icc.dwICC = ICC_BAR_CLASSES;
     InitCommonControlsEx(&icc);
+
+    // Set main window handle for R8/W8 file dialogs
+    emu_io_set_main_window(m_hwnd);
 
     // Create status bar
     m_statusBar = CreateWindowExW(

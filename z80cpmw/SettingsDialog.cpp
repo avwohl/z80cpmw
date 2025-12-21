@@ -123,20 +123,35 @@ void SettingsDialog::onInitDialog(HWND hwnd) {
                   (HMENU)IDC_ROM_COMBO, nullptr, nullptr);
     y += rowHeight;
 
-    // Disk selections (4 units)
+    // Disk selections (4 units) with slice count
     for (int i = 0; i < 4; i++) {
         wchar_t label[32];
         swprintf_s(label, L"Disk %d:", i);
         CreateWindowW(L"STATIC", label, WS_CHILD | WS_VISIBLE,
                       leftMargin, y + 3, labelWidth, 20, hwnd, nullptr, nullptr, nullptr);
         CreateWindowW(L"COMBOBOX", nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_VSCROLL,
-                      leftMargin + labelWidth, y, controlWidth - 130, 200, hwnd,
+                      leftMargin + labelWidth, y, controlWidth - 195, 200, hwnd,
                       (HMENU)(IDC_DISK0_COMBO + i), nullptr, nullptr);
+
+        // Slice count spin control
+        CreateWindowW(L"STATIC", L"Slices:", WS_CHILD | WS_VISIBLE,
+                      leftMargin + labelWidth + controlWidth - 190, y + 3, 40, 20, hwnd, nullptr, nullptr, nullptr);
+        HWND editSlice = CreateWindowExW(WS_EX_CLIENTEDGE, L"EDIT", L"4",
+                      WS_CHILD | WS_VISIBLE | ES_NUMBER | ES_CENTER,
+                      leftMargin + labelWidth + controlWidth - 150, y, 30, 22, hwnd,
+                      (HMENU)(IDC_SLICE0_SPIN + i), nullptr, nullptr);
+        HWND spinSlice = CreateWindowW(UPDOWN_CLASSW, nullptr,
+                      WS_CHILD | WS_VISIBLE | UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_ARROWKEYS,
+                      0, 0, 0, 0, hwnd, (HMENU)(IDC_SLICE0_SPIN + 100 + i), nullptr, nullptr);
+        SendMessage(spinSlice, UDM_SETBUDDY, (WPARAM)editSlice, 0);
+        SendMessage(spinSlice, UDM_SETRANGE32, 1, 8);
+        SendMessage(spinSlice, UDM_SETPOS32, 0, m_settings.diskSlices[i]);
+
         CreateWindowW(L"BUTTON", L"Browse", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                      leftMargin + labelWidth + controlWidth - 125, y, 60, 24, hwnd,
+                      leftMargin + labelWidth + controlWidth - 115, y, 55, 24, hwnd,
                       (HMENU)(IDC_DISK0_BROWSE + i), nullptr, nullptr);
         CreateWindowW(L"BUTTON", L"New", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                      leftMargin + labelWidth + controlWidth - 60, y, 50, 24, hwnd,
+                      leftMargin + labelWidth + controlWidth - 55, y, 45, 24, hwnd,
                       (HMENU)(IDC_DISK0_CREATE + i), nullptr, nullptr);
         y += rowHeight;
     }
@@ -548,7 +563,7 @@ void SettingsDialog::saveSettings(HWND hwnd) {
         }
     }
 
-    // Disks
+    // Disks and slice counts
     for (int i = 0; i < 4; i++) {
         HWND combo = GetDlgItem(hwnd, IDC_DISK0_COMBO + i);
         int sel = (int)SendMessageW(combo, CB_GETCURSEL, 0, 0);
@@ -561,6 +576,14 @@ void SettingsDialog::saveSettings(HWND hwnd) {
         } else {
             m_settings.diskFiles[i] = "";
         }
+
+        // Get slice count from edit control
+        wchar_t sliceStr[16];
+        GetDlgItemTextW(hwnd, IDC_SLICE0_SPIN + i, sliceStr, 16);
+        int slices = _wtoi(sliceStr);
+        if (slices < 1) slices = 1;
+        if (slices > 8) slices = 8;
+        m_settings.diskSlices[i] = slices;
     }
 
     // Boot string
@@ -584,6 +607,13 @@ void SettingsDialog::loadSettings(HWND hwnd) {
             SendMessageW(romCombo, CB_SETCURSEL, i, 0);
             break;
         }
+    }
+
+    // Disk slice counts - update spin controls
+    for (int i = 0; i < 4; i++) {
+        wchar_t sliceStr[16];
+        swprintf_s(sliceStr, L"%d", m_settings.diskSlices[i]);
+        SetDlgItemTextW(hwnd, IDC_SLICE0_SPIN + i, sliceStr);
     }
 
     // Boot string
