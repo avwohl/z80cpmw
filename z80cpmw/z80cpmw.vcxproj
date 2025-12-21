@@ -101,6 +101,8 @@
     <ClCompile Include="TerminalView.cpp" />
     <ClCompile Include="EmulatorEngine.cpp" />
     <ClCompile Include="emu_io_windows.cpp" />
+    <ClCompile Include="DiskCatalog.cpp" />
+    <ClCompile Include="SettingsDialog.cpp" />
     <!-- Emulator Core Files -->
     <ClCompile Include="Core\qkz80.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -124,6 +126,8 @@
     <ClInclude Include="MainWindow.h" />
     <ClInclude Include="TerminalView.h" />
     <ClInclude Include="EmulatorEngine.h" />
+    <ClInclude Include="DiskCatalog.h" />
+    <ClInclude Include="SettingsDialog.h" />
     <ClInclude Include="resource.h" />
     <ClInclude Include="Core\qkz80.h" />
     <ClInclude Include="Core\qkz80_cpu_flags.h" />

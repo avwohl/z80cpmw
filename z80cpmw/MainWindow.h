@@ -12,6 +12,7 @@
 
 class TerminalView;
 class EmulatorEngine;
+class DiskCatalog;
 
 class MainWindow {
 public:
@@ -47,6 +48,7 @@ private:
     void onEmulatorStart();
     void onEmulatorStop();
     void onEmulatorReset();
+    void onEmulatorSettings();
     void onViewFontSize(int size);
     void onHelpAbout();
 
@@ -71,6 +73,7 @@ private:
 
     std::unique_ptr<TerminalView> m_terminal;
     std::unique_ptr<EmulatorEngine> m_emulator;
+    std::unique_ptr<DiskCatalog> m_diskCatalog;
 
     int m_currentRomId = 0;
     int m_currentFontSize = 20;

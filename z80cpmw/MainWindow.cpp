@@ -6,6 +6,8 @@
 #include "MainWindow.h"
 #include "TerminalView.h"
 #include "EmulatorEngine.h"
+#include "DiskCatalog.h"
+#include "SettingsDialog.h"
 #include "resource.h"
 
 static const wchar_t* WINDOW_CLASS = L"Z80CPM_MainWindow";
@@ -15,6 +17,7 @@ static bool g_mainClassRegistered = false;
 MainWindow::MainWindow()
     : m_terminal(std::make_unique<TerminalView>())
     , m_emulator(std::make_unique<EmulatorEngine>())
+    , m_diskCatalog(std::make_unique<DiskCatalog>())
 {
 }
 
@@ -289,6 +292,9 @@ void MainWindow::onCommand(int id) {
     case ID_EMU_RESET:
         onEmulatorReset();
         break;
+    case ID_EMU_SETTINGS:
+        onEmulatorSettings();
+        break;
 
     case ID_VIEW_FONT14:
         onViewFontSize(14);
@@ -463,6 +469,60 @@ void MainWindow::onEmulatorReset() {
         m_terminal->clear();
     }
     m_emulator->reset();
+    updateMenuState();
+}
+
+void MainWindow::onEmulatorSettings() {
+    // Stop emulator while settings dialog is open
+    bool wasRunning = m_emulator && m_emulator->isRunning();
+    if (wasRunning) {
+        m_emulator->stop();
+    }
+
+    SettingsDialog dialog(m_hwnd, m_diskCatalog.get());
+
+    // Set current settings
+    EmulatorSettings settings;
+    settings.bootString = m_emulator->getBootString();
+    settings.debugMode = false;  // TODO: get from emulator
+    dialog.setSettings(settings);
+
+    if (dialog.show()) {
+        // Apply new settings
+        const auto& newSettings = dialog.getSettings();
+
+        // Apply boot string
+        m_emulator->setBootString(newSettings.bootString);
+
+        // Apply debug mode
+        m_emulator->setDebug(newSettings.debugMode);
+
+        // Load ROM if changed
+        if (!newSettings.romFile.empty()) {
+            std::string romPath = findResourceFile(newSettings.romFile);
+            if (!romPath.empty()) {
+                m_emulator->loadROM(romPath);
+            }
+        }
+
+        // Load disks
+        for (int i = 0; i < 4; i++) {
+            if (!newSettings.diskFiles[i].empty()) {
+                std::string diskPath = m_diskCatalog->getDiskPath(newSettings.diskFiles[i]);
+                if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                    m_emulator->loadDisk(i, diskPath);
+                }
+            }
+        }
+
+        m_statusText = "Settings applied";
+        updateStatusBar();
+    }
+
+    if (wasRunning) {
+        m_emulator->start();
+    }
+
     updateMenuState();
 }
 

@@ -20,6 +20,7 @@
 #define ID_EMU_START            2001
 #define ID_EMU_STOP             2002
 #define ID_EMU_RESET            2003
+#define ID_EMU_SETTINGS         2004
 
 // View menu
 #define ID_VIEW_FONT14          3001

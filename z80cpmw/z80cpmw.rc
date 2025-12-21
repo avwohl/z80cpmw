@@ -31,6 +31,8 @@ BEGIN
         MENUITEM "&Start\tF5",                  ID_EMU_START
         MENUITEM "S&top\tShift+F5",             ID_EMU_STOP
         MENUITEM "&Reset\tCtrl+R",              ID_EMU_RESET
+        MENUITEM SEPARATOR
+        MENUITEM "S&ettings...",                ID_EMU_SETTINGS
     END
     POPUP "&View"
     BEGIN

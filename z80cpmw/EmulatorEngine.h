@@ -55,6 +55,7 @@ public:
 
     // Boot string (auto-type at boot menu)
     void setBootString(const std::string& bootStr) { m_bootString = bootStr; }
+    const std::string& getBootString() const { return m_bootString; }
 
     // Debug
     void setDebug(bool enable);
