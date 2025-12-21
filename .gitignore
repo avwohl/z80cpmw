@@ -60,3 +60,9 @@ desktop.ini
 # Exclude large binary files that should be downloaded
 # roms/*.rom
 # disks/*.img
+
+# Upstream repos (pulled for reference)
+upstream/
+
+# Test output artifacts
+nul
