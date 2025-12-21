@@ -5,12 +5,7 @@
  */
 
 #ifdef _WIN32
-#define _CRT_SECURE_NO_WARNINGS
-#include <windows.h>
-#define usleep(x) Sleep((x) / 1000)
-#define strncasecmp _strnicmp
-#else
-#include <unistd.h>
+#include "../pch.h"
 #endif
 
 #include "hbios_dispatch.h"
@@ -734,7 +729,7 @@ void HBIOSDispatch::handleCIO() {
       if (skip_ret && blocking_allowed) {
         // Port-based dispatch on CLI - can block until input available
         while (!emu_console_has_input()) {
-          usleep(1000);  // Sleep 1ms to avoid busy-waiting
+          emu_sleep_ms(1);  // Sleep 1ms to avoid busy-waiting
         }
       } else if (!emu_console_has_input()) {
         // No input available - set waiting flag
@@ -2313,7 +2308,7 @@ bool HBIOSDispatch::bootFromDevice(const char* cmd_str) {
   int boot_unit = 0;
   int boot_slice = 0;
 
-  if (strncasecmp(cmd_str, "HD", 2) == 0 || strncasecmp(cmd_str, "MD", 2) == 0) {
+  if (emu_strncasecmp(cmd_str, "HD", 2) == 0 || emu_strncasecmp(cmd_str, "MD", 2) == 0) {
     // Parse HDn:s or MDn:s
     const char* p = cmd_str + 2;
     boot_unit = atoi(p);

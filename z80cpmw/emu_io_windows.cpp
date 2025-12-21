@@ -41,6 +41,22 @@ extern "C" {
 }
 
 //=============================================================================
+// Platform Utilities Implementation
+//=============================================================================
+
+void emu_sleep_ms(int ms) {
+    Sleep(ms);
+}
+
+int emu_strcasecmp(const char* s1, const char* s2) {
+    return _stricmp(s1, s2);
+}
+
+int emu_strncasecmp(const char* s1, const char* s2, size_t n) {
+    return _strnicmp(s1, s2, n);
+}
+
+//=============================================================================
 // Input Queue
 //=============================================================================
 

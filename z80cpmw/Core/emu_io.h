@@ -18,6 +18,19 @@
 #include <vector>
 
 //=============================================================================
+// Platform Utilities - portable replacements for platform-specific functions
+//=============================================================================
+
+// Sleep for specified milliseconds (portable replacement for usleep/Sleep)
+void emu_sleep_ms(int ms);
+
+// Case-insensitive string compare (portable replacement for strcasecmp/_stricmp)
+int emu_strcasecmp(const char* s1, const char* s2);
+
+// Case-insensitive string compare with length limit (portable strncasecmp/_strnicmp)
+int emu_strncasecmp(const char* s1, const char* s2, size_t n);
+
+//=============================================================================
 // Console I/O - for emulated terminal
 //=============================================================================
 
