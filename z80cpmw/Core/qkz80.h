@@ -66,6 +66,10 @@ class qkz80 {
   qkz80(qkz80_cpu_mem *memory);
   virtual ~qkz80() = default;
 
+  // I/O port operations - override in subclass to intercept
+  virtual void port_out(qkz80_uint8 port, qkz80_uint8 value);
+  virtual qkz80_uint8 port_in(qkz80_uint8 port);
+
   void cpm_setup_memory(void);
 
   qkz80_uint8 compute_sum_half_carry(qkz80_uint16 rega,
@@ -103,10 +107,6 @@ class qkz80 {
   void execute(void);
   void debug_dump_regs(const char* label);
 
-  // I/O port operations - override in subclass to intercept
-  virtual void port_out(qkz80_uint8 port, qkz80_uint8 value);
-  virtual qkz80_uint8 port_in(qkz80_uint8 port);
-
   // Helper functions for Z80 bit operations
   qkz80_uint8 do_rlc(qkz80_uint8 val);
   qkz80_uint8 do_rrc(qkz80_uint8 val);
@@ -117,3 +117,4 @@ class qkz80 {
   qkz80_uint8 do_sll(qkz80_uint8 val);  // undocumented
   qkz80_uint8 do_srl(qkz80_uint8 val);
 };
+

@@ -2142,7 +2142,7 @@ qkz80_uint8 qkz80::do_srl(qkz80_uint8 val) {
   return result;
 }
 
-// Default I/O port implementations - override in subclass for machine-specific behavior
+// Default I/O port implementations - override for machine-specific behavior
 void qkz80::port_out(qkz80_uint8 port, qkz80_uint8 value) {
   (void)port;
   (void)value;
@@ -2151,6 +2151,7 @@ void qkz80::port_out(qkz80_uint8 port, qkz80_uint8 value) {
 
 qkz80_uint8 qkz80::port_in(qkz80_uint8 port) {
   (void)port;
-  // Return 0xFF (floating bus) by default - subclass provides machine-specific I/O
+  // Return 0xFF (floating bus) by default
   return 0xFF;
 }
+
