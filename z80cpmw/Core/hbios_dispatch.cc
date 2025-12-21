@@ -4,10 +4,6 @@
  * Uses emu_io.h for all platform-independent I/O operations.
  */
 
-#ifdef _WIN32
-#include "../pch.h"
-#endif
-
 #include "hbios_dispatch.h"
 #include "emu_io.h"
 #include "qkz80.h"
