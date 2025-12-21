@@ -1,14 +1,9 @@
 #include "qkz80_mem.h"
 #include "qkz80_reg_set.h"
 #include "qkz80_trace.h"
-#include <functional>
 
 class qkz80 {
  public:
-  // I/O port callback types
-  using PortOutCallback = std::function<void(uint8_t port, uint8_t value)>;
-  using PortInCallback = std::function<uint8_t(uint8_t port)>;
-
   enum CPUMode {
     MODE_8080,  // Intel 8080 compatibility mode
     MODE_Z80    // Zilog Z80 mode (default)
@@ -46,18 +41,6 @@ class qkz80 {
   // Cycle counting for interrupt timing
   unsigned long long cycles;  // Total cycles executed
 
-  // I/O port callbacks
-  PortOutCallback port_out_callback;
-  PortInCallback port_in_callback;
-
-  void set_port_out_callback(PortOutCallback cb) {
-    port_out_callback = cb;
-  }
-
-  void set_port_in_callback(PortInCallback cb) {
-    port_in_callback = cb;
-  }
-
   void set_debug(bool new_debug) {
     qkz80_debug=new_debug;
   }
@@ -81,6 +64,7 @@ class qkz80 {
 
   // Constructor takes a memory object pointer
   qkz80(qkz80_cpu_mem *memory);
+  virtual ~qkz80() = default;
 
   void cpm_setup_memory(void);
 
@@ -119,6 +103,10 @@ class qkz80 {
   void execute(void);
   void debug_dump_regs(const char* label);
 
+  // I/O port operations - override in subclass to intercept
+  virtual void port_out(qkz80_uint8 port, qkz80_uint8 value);
+  virtual qkz80_uint8 port_in(qkz80_uint8 port);
+
   // Helper functions for Z80 bit operations
   qkz80_uint8 do_rlc(qkz80_uint8 val);
   qkz80_uint8 do_rrc(qkz80_uint8 val);
@@ -129,4 +117,3 @@ class qkz80 {
   qkz80_uint8 do_sll(qkz80_uint8 val);  // undocumented
   qkz80_uint8 do_srl(qkz80_uint8 val);
 };
-

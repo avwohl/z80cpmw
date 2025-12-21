@@ -26,6 +26,55 @@ static void outputCallbackWrapper(uint8_t ch) {
     }
 }
 
+//=============================================================================
+// RomWBW Z80 - subclass with machine-specific I/O
+//=============================================================================
+
+class RomWBW_Z80 : public qkz80 {
+public:
+    RomWBW_Z80(qkz80_cpu_mem* memory) : qkz80(memory) {}
+
+    void setMemory(banked_mem* mem) { m_memory = mem; }
+    void setHBIOS(HBIOSDispatch* hbios) { m_hbios = hbios; }
+
+    void port_out(qkz80_uint8 port, qkz80_uint8 value) override {
+        switch (port) {
+        case 0x78:  // RAM/ROM bank select
+        case 0x7C:  // Same (both ports work the same on SBC)
+            if (m_memory) m_memory->select_bank(value);
+            break;
+        case 0x68:  // UART data output
+            emu_console_write_char(value);
+            break;
+        case 0xEF:  // HBIOS dispatch port
+            if (m_hbios) m_hbios->handlePortDispatch();
+            break;
+        default:
+            break;
+        }
+    }
+
+    qkz80_uint8 port_in(qkz80_uint8 port) override {
+        switch (port) {
+        case 0x68:  // UART data input
+            if (emu_console_has_input()) {
+                return (uint8_t)emu_console_read_char();
+            }
+            return 0;
+        case 0x69:  // UART status
+            // Bit 0 = RX ready (data available)
+            // Bit 1 = TX ready (always ready)
+            return (emu_console_has_input() ? 0x01 : 0x00) | 0x02;
+        default:
+            return 0xFF;
+        }
+    }
+
+private:
+    banked_mem* m_memory = nullptr;
+    HBIOSDispatch* m_hbios = nullptr;
+};
+
 EmulatorEngine::EmulatorEngine() {
     g_engine = this;
     initCPU();
@@ -46,15 +95,22 @@ void EmulatorEngine::initCPU() {
     m_memory = std::make_unique<banked_mem>();
     m_memory->enable_banking();  // Enable banked memory mode
 
-    // Create Z80 CPU
-    m_cpu = std::make_unique<qkz80>(m_memory.get());
+    // Create RomWBW Z80 CPU (subclass with machine-specific I/O)
+    auto cpu = std::make_unique<RomWBW_Z80>(m_memory.get());
+    cpu->setMemory(m_memory.get());
 
     // Create HBIOS dispatcher
     m_hbios = std::make_unique<HBIOSDispatch>();
-    m_hbios->setCPU(m_cpu.get());
     m_hbios->setMemory(m_memory.get());
     m_hbios->setSkipRet(true);  // I/O port dispatch mode
     m_hbios->setBlockingAllowed(false);  // Non-blocking for GUI
+
+    // Connect CPU to HBIOS
+    cpu->setHBIOS(m_hbios.get());
+
+    // Store CPU (as base class pointer)
+    m_cpu = std::move(cpu);
+    m_hbios->setCPU(m_cpu.get());
 
     // Set up reset callback
     m_hbios->setResetCallback([this](uint8_t resetType) {
@@ -62,43 +118,6 @@ void EmulatorEngine::initCPU() {
         m_memory->select_bank(0);  // Switch to ROM bank 0
         emu_console_clear_queue();
         m_cpu->regs.PC.set_pair16(0);
-    });
-
-    // Set up I/O port callbacks
-    m_cpu->set_port_out_callback([this](uint8_t port, uint8_t value) {
-        switch (port) {
-        case 0x78:  // RAM/ROM bank select
-        case 0x7C:  // Same (both ports work the same on SBC)
-            m_memory->select_bank(value);
-            break;
-        case 0x68:  // UART data output
-            emu_console_write_char(value);
-            if (m_outputCallback) {
-                m_outputCallback(value & 0x7F);
-            }
-            break;
-        case 0xEF:  // HBIOS dispatch port
-            m_hbios->handlePortDispatch();
-            break;
-        default:
-            break;
-        }
-    });
-
-    m_cpu->set_port_in_callback([this](uint8_t port) -> uint8_t {
-        switch (port) {
-        case 0x68:  // UART data input
-            if (emu_console_has_input()) {
-                return (uint8_t)emu_console_read_char();
-            }
-            return 0;
-        case 0x69:  // UART status
-            // Bit 0 = RX ready (data available)
-            // Bit 1 = TX ready (always ready)
-            return (emu_console_has_input() ? 0x01 : 0x00) | 0x02;
-        default:
-            return 0xFF;
-        }
     });
 }
 

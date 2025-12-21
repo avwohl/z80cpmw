@@ -247,6 +247,7 @@ struct HBDisk {
   bool file_backed = false;
   size_t size = 0;
   uint32_t current_lba = 0;   // Current LBA position (set by DIOSEEK)
+  int max_slices = 4;         // Max slices to expose (configurable via --disk0=file:N)
 
   // Partition/slice info (detected from MBR on first EXTSLICE call)
   bool partition_probed = false;     // True if MBR has been parsed
@@ -294,8 +295,10 @@ public:
   bool loadDisk(int unit, const uint8_t* data, size_t size);
   bool loadDiskFromFile(int unit, const std::string& path);
   void closeDisk(int unit);
+  void closeAllDisks();  // Close all disks (call before reconfiguring)
   bool isDiskLoaded(int unit) const;
   const HBDisk& getDisk(int unit) const;
+  void setDiskSliceCount(int unit, int slices);  // Set max slices for a disk (1-8)
 
   // Memory disk initialization (call after ROM is loaded)
   void initMemoryDisks();
@@ -446,8 +449,7 @@ private:
   uint16_t snd_duration = 100;
 
   // Host file transfer state (EMU extension 0xE1-0xE7)
-  void* host_read_file = nullptr;   // File handle for reading (FILE*)
-  void* host_write_file = nullptr;  // File handle for writing (FILE*)
+  // File handles are now managed by emu_io abstraction
   uint8_t host_transfer_mode = 0;   // 0=auto, 1=text, 2=binary
   std::string host_cmd_line;        // Original command line for GETARG
 

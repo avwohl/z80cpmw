@@ -11,6 +11,8 @@
 #include <mutex>
 #include <random>
 #include <cstdarg>
+#include <vector>
+#include <string>
 
 //=============================================================================
 // Callback Interface for GUI Integration
@@ -45,6 +47,7 @@ extern "C" {
 static std::queue<int> g_inputQueue;
 static std::mutex g_inputMutex;
 static std::mt19937 g_rng(std::random_device{}());
+static bool g_debugEnabled = false;
 
 void emu_io_init() {
     // Nothing special needed for Windows GUI
@@ -169,7 +172,12 @@ void emu_aux_out(uint8_t ch) {
 // Debug/Log Output
 //=============================================================================
 
+void emu_set_debug(bool enable) {
+    g_debugEnabled = enable;
+}
+
 void emu_log(const char* fmt, ...) {
+    if (!g_debugEnabled) return;
     char buffer[1024];
     va_list args;
     va_start(args, fmt);
@@ -495,4 +503,120 @@ void emu_dsky_beep(int duration_ms) {
 
 int emu_dsky_get_key() {
     return -1;
+}
+
+//=============================================================================
+// Host File Transfer - for R8/W8 utilities
+//=============================================================================
+
+static emu_host_file_state g_hostFileState = HOST_FILE_IDLE;
+static FILE* g_hostReadFile = nullptr;
+static FILE* g_hostWriteFile = nullptr;
+static std::vector<uint8_t> g_hostWriteBuffer;
+static std::string g_hostWriteFilename;
+
+emu_host_file_state emu_host_file_get_state() {
+    return g_hostFileState;
+}
+
+bool emu_host_file_open_read(const char* filename) {
+    // On Windows, we can use a file dialog or just open the file directly
+    // For now, just try to open the file directly
+    if (g_hostReadFile) {
+        fclose(g_hostReadFile);
+        g_hostReadFile = nullptr;
+    }
+
+    g_hostReadFile = fopen(filename, "rb");
+    if (g_hostReadFile) {
+        g_hostFileState = HOST_FILE_READING;
+        return true;
+    }
+
+    g_hostFileState = HOST_FILE_IDLE;
+    return false;
+}
+
+bool emu_host_file_open_write(const char* filename) {
+    if (g_hostWriteFile) {
+        fclose(g_hostWriteFile);
+        g_hostWriteFile = nullptr;
+    }
+
+    g_hostWriteBuffer.clear();
+    g_hostWriteFilename = filename;
+    g_hostFileState = HOST_FILE_WRITING;
+    return true;
+}
+
+int emu_host_file_read_byte() {
+    if (g_hostFileState != HOST_FILE_READING || !g_hostReadFile) {
+        return -1;
+    }
+
+    int ch = fgetc(g_hostReadFile);
+    if (ch == EOF) {
+        return -1;
+    }
+    return ch;
+}
+
+bool emu_host_file_write_byte(uint8_t byte) {
+    if (g_hostFileState != HOST_FILE_WRITING) {
+        return false;
+    }
+
+    g_hostWriteBuffer.push_back(byte);
+    return true;
+}
+
+void emu_host_file_close_read() {
+    if (g_hostReadFile) {
+        fclose(g_hostReadFile);
+        g_hostReadFile = nullptr;
+    }
+    g_hostFileState = HOST_FILE_IDLE;
+}
+
+void emu_host_file_close_write() {
+    if (g_hostFileState == HOST_FILE_WRITING && !g_hostWriteFilename.empty()) {
+        // Write the buffer to file
+        FILE* f = fopen(g_hostWriteFilename.c_str(), "wb");
+        if (f) {
+            fwrite(g_hostWriteBuffer.data(), 1, g_hostWriteBuffer.size(), f);
+            fclose(f);
+        }
+    }
+
+    g_hostWriteBuffer.clear();
+    g_hostWriteFilename.clear();
+    g_hostFileState = HOST_FILE_IDLE;
+}
+
+void emu_host_file_provide_data(const uint8_t* data, size_t size) {
+    // This is primarily for browser/WASM use where JavaScript provides file data
+    // On Windows, we read directly from files, so this is a no-op
+    (void)data;
+    (void)size;
+}
+
+const uint8_t* emu_host_file_get_write_data() {
+    if (g_hostFileState != HOST_FILE_WRITING) {
+        return nullptr;
+    }
+    return g_hostWriteBuffer.data();
+}
+
+size_t emu_host_file_get_write_size() {
+    if (g_hostFileState != HOST_FILE_WRITING) {
+        return 0;
+    }
+    return g_hostWriteBuffer.size();
+}
+
+const char* emu_host_file_get_write_name() {
+    if (g_hostFileState != HOST_FILE_WRITING) {
+        return nullptr;
+    }
+    return g_hostWriteFilename.c_str();
 }
