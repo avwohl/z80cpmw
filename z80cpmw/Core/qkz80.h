@@ -1,3 +1,6 @@
+#ifndef QKZ80_H
+#define QKZ80_H
+
 #include "qkz80_mem.h"
 #include "qkz80_reg_set.h"
 #include "qkz80_trace.h"
@@ -41,34 +44,44 @@ class qkz80 {
   // Cycle counting for interrupt timing
   unsigned long long cycles;  // Total cycles executed
 
-  void set_debug(bool new_debug) {
-    qkz80_debug=new_debug;
-  }
-
-  void set_cpu_mode(CPUMode mode) {
-    cpu_mode = mode;
-    regs.cpu_mode = (mode == MODE_8080) ? qkz80_reg_set::MODE_8080 : qkz80_reg_set::MODE_Z80;
-  }
-
-  CPUMode get_cpu_mode() const {
-    return cpu_mode;
-  }
-
-  qkz80_uint8 *get_mem(void) {
-    return mem->get_mem();
-  }
-
-  void set_trace(qkz80_trace *new_trace) {
-    trace=new_trace;
-  }
-
   // Constructor takes a memory object pointer
   qkz80(qkz80_cpu_mem *memory);
   virtual ~qkz80() = default;
 
+  virtual void block_io(qkz80_uint8 opcode) {
+    trace->asm_op("ED %02x (block I/O - not implemented)", opcode);
+  }
+    
+  virtual void set_debug(bool new_debug) {
+    qkz80_debug=new_debug;
+  }
+
+  virtual void set_cpu_mode(CPUMode mode) {
+    cpu_mode = mode;
+    regs.cpu_mode = (mode == MODE_8080) ? qkz80_reg_set::MODE_8080 : qkz80_reg_set::MODE_Z80;
+  }
+
+  virtual CPUMode get_cpu_mode() const {
+    return cpu_mode;
+  }
+
+  virtual  qkz80_uint8 *get_mem(void) {
+    return mem->get_mem();
+  }
+
+  virtual void set_trace(qkz80_trace *new_trace) {
+    trace=new_trace;
+  }
+
   // I/O port operations - override in subclass to intercept
   virtual void port_out(qkz80_uint8 port, qkz80_uint8 value);
   virtual qkz80_uint8 port_in(qkz80_uint8 port);
+
+  // HALT instruction - override in subclass to customize behavior
+  virtual void halt(void);
+
+  // Unimplemented opcode handler - override in subclass to customize behavior
+  virtual void unimplemented_opcode(qkz80_uint8 opcode, qkz80_uint16 pc);
 
   void cpm_setup_memory(void);
 
@@ -80,8 +93,6 @@ class qkz80 {
 						    qkz80_uint16 diff,
 						    qkz80_uint16 dat,
 						    qkz80_uint16 carry);
-
-  void halt(void);
   const char *name_condition_code(qkz80_uint8 cond);
   const char *name_reg8(qkz80_uint8 reg8);
   const char *name_reg16(qkz80_uint8 rpair);
@@ -104,8 +115,8 @@ class qkz80 {
   }
 
   void write_2_bytes(qkz80_uint16 store_me,qkz80_uint16 location);
-  void execute(void);
-  void debug_dump_regs(const char* label);
+  virtual void execute(void);
+  virtual void debug_dump_regs(const char* label);
 
   // Helper functions for Z80 bit operations
   qkz80_uint8 do_rlc(qkz80_uint8 val);
@@ -118,3 +129,4 @@ class qkz80 {
   qkz80_uint8 do_srl(qkz80_uint8 val);
 };
 
+#endif // QKZ80_H

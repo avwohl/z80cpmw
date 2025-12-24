@@ -2,6 +2,7 @@
  * EmulatorEngine.h - Z80/RomWBW Emulator Engine
  *
  * Wraps the Z80 CPU and HBIOS to provide a clean interface for the GUI.
+ * Implements HBIOSCPUDelegate for the shared hbios_cpu class.
  */
 
 #pragma once
@@ -13,9 +14,11 @@
 #include <atomic>
 #include <thread>
 #include <memory>
+#include <cstdarg>
+#include "Core/hbios_cpu.h"
 
 // Forward declarations
-class qkz80;
+class hbios_cpu;
 class banked_mem;
 class HBIOSDispatch;
 
@@ -23,10 +26,10 @@ class HBIOSDispatch;
 using OutputCharCallback = std::function<void(uint8_t ch)>;
 using StatusCallback = std::function<void(const std::string& status)>;
 
-class EmulatorEngine {
+class EmulatorEngine : public HBIOSCPUDelegate {
 public:
     EmulatorEngine();
-    ~EmulatorEngine();
+    ~EmulatorEngine() override;
 
     // ROM management
     bool loadROM(const std::string& path);
@@ -73,6 +76,16 @@ public:
     // Get application directory
     static std::string getAppDirectory();
 
+    //=========================================================================
+    // HBIOSCPUDelegate interface implementation
+    //=========================================================================
+    banked_mem* getMemory() override { return m_memory.get(); }
+    HBIOSDispatch* getHBIOS() override { return m_hbios.get(); }
+    void initializeRamBankIfNeeded(uint8_t bank) override;
+    void onHalt() override;
+    void onUnimplementedOpcode(uint8_t opcode, uint16_t pc) override;
+    void logDebug(const char* fmt, ...) override;
+
 private:
     void initCPU();
     void emulatorThread();
@@ -81,7 +94,7 @@ private:
     void processChar(uint8_t ch);
 
     std::unique_ptr<banked_mem> m_memory;
-    std::unique_ptr<qkz80> m_cpu;
+    std::unique_ptr<hbios_cpu> m_cpu;
     std::unique_ptr<HBIOSDispatch> m_hbios;
 
     std::string m_romName;
@@ -110,4 +123,10 @@ private:
     // Instruction count for throttling
     uint64_t m_instructionCount = 0;
     static constexpr int BATCH_SIZE = 100000;
+
+    // RAM bank initialization tracking (bitmask for banks 0x80-0x8F)
+    uint16_t m_initializedRamBanks = 0;
+
+    // Debug flag
+    bool m_debug = false;
 };

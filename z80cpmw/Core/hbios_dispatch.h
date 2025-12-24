@@ -219,6 +219,16 @@ enum HBiosMediaId {
 };
 
 //=============================================================================
+// Emulator I/O State (for state machine operation)
+//=============================================================================
+
+enum HBIOSState {
+  HBIOS_RUNNING = 0,      // Emulator is running normally
+  HBIOS_NEEDS_INPUT,      // Waiting for character input (CIOIN)
+  HBIOS_HALTED,           // Emulator halted (HLT instruction or error)
+};
+
+//=============================================================================
 // Memory Disk (MD) State
 //=============================================================================
 
@@ -275,6 +285,11 @@ struct HBRomApp {
 class qkz80;
 class banked_mem;
 
+// Debug log function pointer type - set to enable debug logging
+// When non-null, called with printf-style arguments for debug output
+// Platforms provide their own implementation (emu_log, NSLog wrapper, etc.)
+typedef void (*DebugLogFn)(const char* fmt, ...);
+
 class HBIOSDispatch {
 public:
   HBIOSDispatch();
@@ -287,9 +302,15 @@ public:
   void setCPU(qkz80* cpu) { this->cpu = cpu; }
   void setMemory(banked_mem* mem) { this->memory = mem; }
 
-  // Enable/disable debug output
-  void setDebug(bool enable) { debug = enable; }
-  bool getDebug() const { return debug; }
+  // Debug output - set function pointer to enable, nullptr to disable
+  // Example: hbios.setDebugLog(emu_log);  // use emu_log for debug output
+  void setDebugLog(DebugLogFn fn) { debug_log = fn; }
+  DebugLogFn getDebugLog() const { return debug_log; }
+
+  // Legacy interface - calls setDebugLog with emu_log or nullptr
+  void setDebug(bool enable);
+  bool getDebug() const { return debug_log != nullptr; }
+  bool getBootInProgress() const { return boot_in_progress; }
 
   // Disk management
   bool loadDisk(int unit, const uint8_t* data, size_t size);
@@ -321,26 +342,12 @@ public:
   // 2. Address registration: state machine for per-handler dispatch addresses
   void handleSignalPort(uint8_t value);
 
-  // Check if PC is at an HBIOS trap address
-  // Returns true if this PC should trigger HBIOS dispatch
-  bool checkTrap(uint16_t pc) const;
-
-  // Get which handler type for a trap PC (or from B register)
-  // Returns: 0=CIO, 1=DIO, 2=RTC, 3=SYS, 4=VDA, 5=SND, -1=not a trap
-  int getTrapType(uint16_t pc) const;
+  // Get handler type from function code in B register
+  // Returns: 0=CIO, 1=DIO, 2=RTC, 3=SYS, 4=VDA, 5=SND, -1=unknown
   static int getTrapTypeFromFunc(uint8_t func);
 
-  // Handle an HBIOS call (when trap is detected)
-  // Reads B,C,D,E,HL from CPU, performs operation, sets A (result)
-  // Returns true if call was handled, false if unknown function
-  bool handleCall(int trap_type);
-
-  // Handle HBIOS call at main entry point (0xFFF0)
-  // Dispatches based on function code in B register
+  // Handle HBIOS call - dispatches based on function code in B register
   bool handleMainEntry();
-
-  // Handle bank call at 0xFFF9 (used for PRTSUM etc.)
-  bool handleBankCall();
 
   // Handle PRTSUM - print device summary (called by boot loader 'D' command)
   void handlePRTSUM();
@@ -357,6 +364,41 @@ public:
   // Check if waiting for console input (CIOIN/VDAKRD called with no data)
   bool isWaitingForInput() const { return waiting_for_input; }
   void clearWaitingForInput() { waiting_for_input = false; }
+
+  //==========================================================================
+  // State Machine I/O Interface
+  // The emulator is a pure state machine. Instead of calling external functions,
+  // it buffers I/O and signals what it needs. The outer loop handles actual I/O.
+  //==========================================================================
+
+  // Get current emulator state
+  HBIOSState getState() const { return emu_state; }
+
+  // Character Output: Get buffered output chars (clears buffer after call)
+  // Caller should display these characters
+  std::vector<uint8_t> getOutputChars();
+
+  // Character Output: Check if there are pending output chars
+  bool hasOutputChars() const { return !output_buffer.empty(); }
+
+  // Character Output: Queue a single output char (for direct UART output)
+  void queueOutputChar(uint8_t ch) { output_buffer.push_back(ch); }
+
+  // Character Input: Provide a character (in response to NEEDS_INPUT state)
+  void provideInputChar(int ch);
+
+  // Character Input: Queue multiple characters
+  void queueInputChars(const uint8_t* data, size_t len);
+  void queueInputChar(int ch);
+
+  // Character Input: Check if input is available
+  bool hasInputChar() const { return !input_buffer.empty(); }
+
+  // Character Input: Read and consume one char (returns -1 if empty)
+  int readInputChar();
+
+  // Character Input: Clear input buffer
+  void clearInputBuffer();
 
   // Set whether blocking I/O is allowed (false for web/WASM)
   void setBlockingAllowed(bool allowed) { blocking_allowed = allowed; }
@@ -387,34 +429,23 @@ public:
   void handleDSKY();  // Display/Keypad
   void handleEXT();   // Extension functions (slice calc)
 
-  // Get dispatch addresses (for debugging)
-  uint16_t getCIODispatch() const { return cio_dispatch; }
-  uint16_t getDIODispatch() const { return dio_dispatch; }
-  uint16_t getRTCDispatch() const { return rtc_dispatch; }
-  uint16_t getSYSDispatch() const { return sys_dispatch; }
-  uint16_t getVDADispatch() const { return vda_dispatch; }
-  uint16_t getSNDDispatch() const { return snd_dispatch; }
-
 private:
   // CPU and memory references (not owned)
   qkz80* cpu = nullptr;
   banked_mem* memory = nullptr;
-  bool debug = false;
+  DebugLogFn debug_log = nullptr;  // Debug function pointer (null = disabled)
 
-  // Trapping control
+  // State machine
+  HBIOSState emu_state = HBIOS_RUNNING;
+  std::vector<uint8_t> output_buffer;  // Buffered output chars (for CIOOUT)
+  std::vector<int> input_buffer;       // Buffered input chars (for CIOIN)
+
+  // Dispatch control
   bool trapping_enabled = false;
   bool waiting_for_input = false;  // Set when CIOIN/VDAKRD needs input
   bool skip_ret = false;           // Skip synthetic RET (for I/O port dispatch)
   bool blocking_allowed = true;    // Can we block for I/O? (false for web/WASM)
-  uint16_t main_entry = 0xFFF0;  // Main HBIOS entry point
-
-  // Dispatch addresses (set via signal port, optional)
-  uint16_t cio_dispatch = 0;
-  uint16_t dio_dispatch = 0;
-  uint16_t rtc_dispatch = 0;
-  uint16_t sys_dispatch = 0;
-  uint16_t vda_dispatch = 0;
-  uint16_t snd_dispatch = 0;
+  uint16_t main_entry = 0xFFF0;    // Main HBIOS entry point
 
   // Signal port state machine
   uint8_t signal_state = 0;
@@ -455,6 +486,11 @@ private:
 
   // Reset callback for SYSRESET
   ResetCallback reset_callback = nullptr;
+
+  // Boot info (saved during SYSBOOT, returned by SYSGET_BOOTINFO)
+  int saved_boot_unit = 0;
+  int saved_boot_slice = 0;
+  bool boot_in_progress = false;  // Set when boot starts, for debugging
 
   // Disks
   HBDisk disks[16];

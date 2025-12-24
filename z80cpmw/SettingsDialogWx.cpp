@@ -33,18 +33,25 @@ SettingsDialogWx::SettingsDialogWx(wxWindow* parent, DiskCatalog* catalog)
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , m_catalog(catalog)
 {
+    OutputDebugStringA("[Settings] Constructor: creating controls\n");
     createControls();
+    OutputDebugStringA("[Settings] Constructor: laying out controls\n");
     layoutControls();
+    OutputDebugStringA("[Settings] Constructor: populating ROM list\n");
     populateROMList();
+    OutputDebugStringA("[Settings] Constructor: populating disk lists\n");
     populateDiskLists();
 
+    OutputDebugStringA("[Settings] Constructor: setting size\n");
     SetMinSize(wxSize(650, 550));
     SetSize(wxSize(750, 650));
     Centre();
 
+    OutputDebugStringA("[Settings] Constructor: starting catalog refresh\n");
     // Start loading catalog
     wxCommandEvent evt;
     onRefreshCatalog(evt);
+    OutputDebugStringA("[Settings] Constructor: done\n");
 }
 
 SettingsDialogWx::~SettingsDialogWx() {
@@ -433,34 +440,98 @@ void SettingsDialogWx::onCancel(wxCommandEvent& event) {
     EndModal(wxID_CANCEL);
 }
 
-// Helper function to show the dialog from Win32 code
-bool ShowWxSettingsDialog(void* parentHwnd, DiskCatalog* catalog, WxEmulatorSettings& settings) {
+// Minimal wxApp for hosting dialogs in a Win32 app
+class MinimalWxApp : public wxApp {
+public:
+    virtual bool OnInit() override { return true; }
+};
+
+// Internal function that does the actual dialog work
+static bool ShowWxSettingsDialogInternal(DiskCatalog* catalog, WxEmulatorSettings& settings) {
+    OutputDebugStringA("[Settings] ShowWxSettingsDialog called\n");
+
     // Initialize wxWidgets if not already done
     static bool wxInitialized = false;
+    static MinimalWxApp* wxAppInstance = nullptr;
     if (!wxInitialized) {
-        wxInitialize();
+        OutputDebugStringA("[Settings] Initializing wxWidgets...\n");
+
+        // Create and set the app instance BEFORE wxEntryStart
+        wxAppInstance = new MinimalWxApp();
+        wxApp::SetInstance(wxAppInstance);
+
+        // Use wxEntryStart for more complete initialization
+        int argc = 0;
+        char* argv[] = { nullptr };
+        if (!wxEntryStart(argc, argv)) {
+            OutputDebugStringA("[Settings] wxEntryStart failed\n");
+            MessageBoxA(nullptr, "wxEntryStart failed", "Settings Error", MB_OK | MB_ICONERROR);
+            delete wxAppInstance;
+            wxAppInstance = nullptr;
+            wxApp::SetInstance(nullptr);
+            return false;
+        }
+
+        // Call OnInit
+        if (!wxAppInstance->OnInit()) {
+            OutputDebugStringA("[Settings] wxApp::OnInit failed\n");
+            MessageBoxA(nullptr, "wxApp::OnInit failed", "Settings Error", MB_OK | MB_ICONERROR);
+            return false;
+        }
+
+        OutputDebugStringA("[Settings] wxWidgets initialized OK\n");
         wxInitialized = true;
     }
 
-    // Create a hidden top-level window as parent if needed
-    wxWindow* parent = nullptr;
-    if (parentHwnd) {
-        parent = new wxFrame(nullptr, wxID_ANY, "", wxDefaultPosition, wxDefaultSize, 0);
-        parent->SetHWND((WXHWND)parentHwnd);
+    OutputDebugStringA("[Settings] Creating dialog...\n");
+    bool result = false;
+    try {
+        // Don't try to parent to Win32 window - just create as top-level
+        OutputDebugStringA("[Settings] About to construct SettingsDialogWx\n");
+        SettingsDialogWx dlg(nullptr, catalog);
+        OutputDebugStringA("[Settings] Dialog constructed, setting settings\n");
+        dlg.setSettings(settings);
+
+        // Center on screen since we don't have a parent
+        dlg.Centre();
+
+        OutputDebugStringA("[Settings] Showing modal dialog\n");
+        result = (dlg.ShowModal() == wxID_OK);
+        OutputDebugStringA("[Settings] Dialog closed\n");
+        if (result) {
+            settings = dlg.getSettings();
+        }
+    }
+    catch (const std::exception& e) {
+        OutputDebugStringA("[Settings] Exception: ");
+        OutputDebugStringA(e.what());
+        OutputDebugStringA("\n");
+        MessageBoxA(nullptr, e.what(), "Settings Exception", MB_OK | MB_ICONERROR);
+    }
+    catch (...) {
+        OutputDebugStringA("[Settings] Unknown exception\n");
+        MessageBoxA(nullptr, "Unknown exception in settings dialog", "Settings Error", MB_OK | MB_ICONERROR);
     }
 
-    SettingsDialogWx dlg(parent, catalog);
-    dlg.setSettings(settings);
-
-    bool result = (dlg.ShowModal() == wxID_OK);
-    if (result) {
-        settings = dlg.getSettings();
-    }
-
-    if (parent) {
-        parent->SetHWND(nullptr);  // Don't let wxWidgets destroy the Win32 window
-        delete parent;
-    }
-
+    OutputDebugStringA("[Settings] Returning\n");
     return result;
+}
+
+// Helper function to show the dialog from Win32 code
+// Uses SEH to catch access violations
+bool ShowWxSettingsDialog(void* parentHwnd, DiskCatalog* catalog, WxEmulatorSettings& settings) {
+    (void)parentHwnd;  // Not used anymore
+
+    __try {
+        return ShowWxSettingsDialogInternal(catalog, settings);
+    }
+    __except(EXCEPTION_EXECUTE_HANDLER) {
+        DWORD code = GetExceptionCode();
+        char msg[256];
+        sprintf_s(msg, "Settings dialog crashed with exception code 0x%08X", code);
+        OutputDebugStringA(msg);
+        OutputDebugStringA("\n");
+        MessageBoxA(nullptr, msg, "Settings Crash", MB_OK | MB_ICONERROR);
+        return false;
+    }
 }

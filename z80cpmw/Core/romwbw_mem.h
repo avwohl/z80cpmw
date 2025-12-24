@@ -183,13 +183,10 @@ public:
             store_banked(addr, byte);
         } else {
             // Upper 32KB: common RAM
-            // Protect HBIOS ident area from ROM init code that zeros common RAM
-            // Ident signature at 0xFE00-0xFE02 and 0xFF00-0xFF02, pointer at 0xFFFC-0xFFFD
-            if ((addr >= 0xFE00 && addr < 0xFE03) ||
-                (addr >= 0xFF00 && addr < 0xFF03) ||
-                (addr >= 0xFFFC && addr <= 0xFFFD)) {
-                return;  // Skip write to protect ident
-            }
+            // NOTE: No write protection - let ROM code handle everything.
+            // The ROM's emu_hbios.asm copies the proxy (including ident bytes)
+            // from 0x0500 to 0xFE00-0xFFFF via LDIR at startup.
+
             uint32_t phys = ((COMMON_BANK & 0x0F) * BANK_SIZE) + (addr - BANK_BOUNDARY);
             ram[phys] = byte;
         }
@@ -244,18 +241,9 @@ public:
         if (!banking_enabled || offset >= BANK_SIZE) return;
 
         if (bank_id & 0x80) {
+            // RAM bank - write directly, no protection needed
+            // The ROM's emu_hbios.asm handles all HBIOS setup
             uint32_t phys = ((bank_id & 0x0F) * BANK_SIZE) + offset;
-            // WORKAROUND: Protect CBIOS DEVMAP at 0x8678-0x867B from HCB copy overlap
-            if (phys >= 0x78678 && phys < 0x7867C) {
-                return;  // Skip write to protect DEVMAP
-            }
-            // Protect HBIOS ident area (phys addresses in bank 0x8F = common)
-            // 0xFE00-0xFE02 = 0x7FE00-0x7FE02, 0xFF00-0xFF02 = 0x7FF00-0x7FF02, 0xFFFC-0xFFFD = 0x7FFFC-0x7FFFD
-            if ((phys >= 0x7FE00 && phys < 0x7FE03) ||
-                (phys >= 0x7FF00 && phys < 0x7FF03) ||
-                (phys >= 0x7FFFC && phys <= 0x7FFFD)) {
-                return;  // Skip write to protect ident
-            }
             ram[phys] = value;
         }
         // ROM writes ignored
@@ -361,19 +349,9 @@ private:
         }
     }
 
-public:
-    // Store PC for debugging
-    uint16_t last_pc = 0;
-    void set_last_pc(uint16_t pc) { last_pc = pc; }
 private:
 
     void store_banked(uint16_t addr, uint8_t byte) {
-        // Debug: trace writes to page zero (BDOS entry at 0x0005)
-        if (addr < 0x0010 && trace_page_zero) {
-            fprintf(stderr, "[MEM WRITE] bank=0x%02X addr=0x%04X byte=0x%02X PC=0x%04X\n",
-                    current_bank, addr, byte, last_pc);
-        }
-
         if (current_bank & 0x80) {
             // Current bank is RAM - write directly
             uint32_t phys = ((current_bank & 0x0F) * BANK_SIZE) + addr;
@@ -388,10 +366,6 @@ private:
         }
     }
 
-public:
-    // Enable/disable page zero trace
-    bool trace_page_zero = false;
-    void set_trace_page_zero(bool enable) { trace_page_zero = enable; }
 };
 
 #endif // ROMWBW_MEM_H

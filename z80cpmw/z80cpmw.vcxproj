@@ -121,6 +121,9 @@
     <ClCompile Include="Core\hbios_dispatch.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="Core\hbios_cpu.cc">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <!-- Header Files -->
@@ -140,6 +143,7 @@
     <ClInclude Include="Core\qkz80_types.h" />
     <ClInclude Include="Core\romwbw_mem.h" />
     <ClInclude Include="Core\hbios_dispatch.h" />
+    <ClInclude Include="Core\hbios_cpu.h" />
     <ClInclude Include="Core\emu_io.h" />
   </ItemGroup>
   <ItemGroup>

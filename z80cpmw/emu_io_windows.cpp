@@ -392,6 +392,59 @@ size_t emu_disk_size(emu_disk_handle handle) {
 }
 
 //=============================================================================
+// Disk Image Creation
+//=============================================================================
+
+bool emu_disk_create(const std::string& path, emu_disk_format format) {
+    size_t size;
+    switch (format) {
+        case EMU_DISK_HD1K_SINGLE:
+            size = EMU_HD1K_SINGLE_SIZE;
+            break;
+        case EMU_DISK_HD1K_COMBO:
+            size = EMU_HD1K_COMBO_SIZE;
+            break;
+        default:
+            return false;
+    }
+
+    FILE* f = fopen(path.c_str(), "wb");
+    if (!f) return false;
+
+    // Write zeros to create the disk image
+    std::vector<uint8_t> zeros(65536, 0);  // 64KB buffer
+    size_t remaining = size;
+    while (remaining > 0) {
+        size_t toWrite = (remaining < zeros.size()) ? remaining : zeros.size();
+        size_t written = fwrite(zeros.data(), 1, toWrite, f);
+        if (written != toWrite) {
+            fclose(f);
+            return false;
+        }
+        remaining -= written;
+    }
+
+    fclose(f);
+    return true;
+}
+
+std::vector<uint8_t> emu_disk_create_memory(emu_disk_format format) {
+    size_t size;
+    switch (format) {
+        case EMU_DISK_HD1K_SINGLE:
+            size = EMU_HD1K_SINGLE_SIZE;
+            break;
+        case EMU_DISK_HD1K_COMBO:
+            size = EMU_HD1K_COMBO_SIZE;
+            break;
+        default:
+            return {};
+    }
+
+    return std::vector<uint8_t>(size, 0);
+}
+
+//=============================================================================
 // Time
 //=============================================================================
 
