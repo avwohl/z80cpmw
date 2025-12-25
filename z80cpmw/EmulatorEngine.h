@@ -73,6 +73,9 @@ public:
     // Execute a batch of instructions (call from timer)
     void runBatch();
 
+    // Flush buffered output to callback (call after runBatch)
+    void flushOutput();
+
     // Get application directory
     static std::string getAppDirectory();
 

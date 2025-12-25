@@ -68,6 +68,10 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>user32.lib;gdi32.lib;comctl32.lib;ole32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PreBuildEvent>
+      <Command>copy /b "$(ProjectDir)MainWindow.cpp"+,, "$(ProjectDir)MainWindow.cpp"</Command>
+      <Message>Updating build timestamp...</Message>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -90,6 +94,10 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>user32.lib;gdi32.lib;comctl32.lib;ole32.lib;winhttp.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <PreBuildEvent>
+      <Command>copy /b "$(ProjectDir)MainWindow.cpp"+,, "$(ProjectDir)MainWindow.cpp"</Command>
+      <Message>Updating build timestamp...</Message>
+    </PreBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <!-- Application Source Files -->
@@ -124,6 +132,9 @@
     <ClCompile Include="Core\hbios_cpu.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="Core\emu_init.cc">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <!-- Header Files -->
@@ -145,6 +156,7 @@
     <ClInclude Include="Core\hbios_dispatch.h" />
     <ClInclude Include="Core\hbios_cpu.h" />
     <ClInclude Include="Core\emu_io.h" />
+    <ClInclude Include="Core\emu_init.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="z80cpmw.rc" />

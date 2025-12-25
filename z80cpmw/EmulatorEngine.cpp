@@ -173,24 +173,16 @@ void EmulatorEngine::start() {
     // Handles: APITYPE patching, HCB copy, HBIOS ident, memory disks, disk tables
     emu_complete_init(m_memory.get(), m_hbios.get(), nullptr);
 
-    // Debug: verify disk unit table was written
-    uint8_t* rom = m_memory->get_rom();
-    FILE* dbg = fopen("C:\\temp\\z80start.txt", "a");
-    if (dbg && rom) {
-        fprintf(dbg, "[START] After emu_complete_init, disk unit table at ROM 0x160:\n");
-        for (int i = 0; i < 8; i++) {
-            uint8_t type = rom[0x160 + i * 4];
-            uint8_t unit = rom[0x160 + i * 4 + 1];
-            if (type != 0xFF) {
-                fprintf(dbg, "  Entry %d: type=0x%02X unit=%d\n", i, type, unit);
-            }
-        }
-        fprintf(dbg, "[START] Disks loaded: ");
-        for (int i = 0; i < 4; i++) {
-            fprintf(dbg, "%d=%s ", i, m_hbios->isDiskLoaded(i) ? "yes" : "no");
-        }
-        fprintf(dbg, "\n");
-        fclose(dbg);
+    // Set up HBIOS proxy at 0xFFF0 in common RAM (bank 0x8F)
+    // Proxy code: OUT (0xEF), A; RET  =>  D3 EF C9
+    // This is required because RST 08 at 0x0008 jumps to 0xFFF0
+    uint8_t* ram = m_memory->get_ram();
+    if (ram) {
+        const uint32_t COMMON_BASE = 0x0F * 0x8000;  // Bank 0x8F = index 15
+        uint32_t proxy_phys = COMMON_BASE + (0xFFF0 - 0x8000);
+        ram[proxy_phys + 0] = 0xD3;  // OUT (n), A
+        ram[proxy_phys + 1] = 0xEF;  // port 0xEF
+        ram[proxy_phys + 2] = 0xC9;  // RET
     }
 
     if (!m_bootString.empty()) {
@@ -246,12 +238,21 @@ uint64_t EmulatorEngine::getInstructionCount() const { return m_instructionCount
 void EmulatorEngine::runBatch() {
     if (!m_running) return;
     std::lock_guard<std::mutex> lock(m_mutex);
+
     for (int i = 0; i < BATCH_SIZE && m_running && !m_stopRequested; i++) {
         m_cpu->execute();
         m_instructionCount++;
     }
     if (m_hbios->isWaitingForInput() && emu_console_has_input()) {
         m_hbios->clearWaitingForInput();
+    }
+}
+
+void EmulatorEngine::flushOutput() {
+    if (!m_hbios || !m_outputCallback) return;
+    std::vector<uint8_t> chars = m_hbios->getOutputChars();
+    for (uint8_t ch : chars) {
+        m_outputCallback(ch);
     }
 }
 

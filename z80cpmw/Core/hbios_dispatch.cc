@@ -738,8 +738,9 @@ void HBIOSDispatch::doRet() {
 }
 
 void HBIOSDispatch::writeConsoleString(const char* str) {
+  // Use direct console output (same path as CIOOUT) for consistent display
   while (*str) {
-    output_buffer.push_back(*str++);
+    emu_console_write_char(*str++);
   }
 }
 
@@ -1413,20 +1414,14 @@ void HBIOSDispatch::handleSYS() {
         }
       }
 
+      // Switch to the requested bank (both ROM and RAM banks)
       memory->select_bank(new_bank);
 
-      // Update PMGMT_CURBNK at 0xFFE0 for RAM banks only
-      // This is needed so code that reads current bank (like CP/M 3's xbnkmov) works correctly
-      // We only update for RAM banks to avoid interfering with ROM bank operations
-      if (new_bank & 0x80) {
-        memory->write_bank(0x8F, 0x7FE0, new_bank);  // 0xFFE0 in common bank (0x8F)
-      }
+      // Update PMGMT_CURBNK at 0xFFE0 in common RAM
+      memory->write_bank(0x8F, 0x7FE0, new_bank);
 
       cur_bank = new_bank;
       cpu->regs.BC.set_low(prev_bank);  // Return previous bank in C
-      if (debug_log) {
-        emu_log("[HBIOS] SYSSETBNK bank=0x%02X (prev=0x%02X)\n", new_bank, prev_bank);
-      }
       break;
     }
 

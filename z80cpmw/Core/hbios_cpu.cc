@@ -42,16 +42,6 @@ void hbios_cpu::port_out(qkz80_uint8 port, qkz80_uint8 value) {
   HBIOSDispatch* hbios = delegate->getHBIOS();
   banked_mem* memory = delegate->getMemory();
 
-  // Debug ALL port writes to file
-  if (port >= 0x78) {
-    static FILE* dbg = nullptr;
-    if (!dbg) dbg = fopen("C:\\temp\\z80debug.txt", "w");
-    if (dbg) {
-      fprintf(dbg, "[PORT OUT] 0x%02X <- 0x%02X  PC=0x%04X\n", port, value, regs.PC.get_pair16());
-      fflush(dbg);
-    }
-  }
-
   switch (port) {
     case 0x78:  // RAM bank select
     case 0x7C:  // ROM bank select
@@ -99,12 +89,9 @@ void hbios_cpu::port_out(qkz80_uint8 port, qkz80_uint8 value) {
       // On entry: A (value) = target bank, IX = call address
       uint16_t call_addr = regs.IX.get_pair16();
 
-      fprintf(stderr, "[PORT 0xED] BNKCALL: IX=0x%04X A=0x%02X\n", call_addr, value);
-
       // Handle known vectors via HBIOSDispatch
       if (call_addr == 0x0406) {
         // PRTSUM - Print device summary
-        fprintf(stderr, "[PORT 0xED] Calling handlePRTSUM\n");
         hbios->handlePRTSUM();
       }
       // Other vectors handled by Z80 proxy code
