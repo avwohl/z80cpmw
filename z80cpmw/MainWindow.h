@@ -70,6 +70,11 @@ private:
     // Startup help
     void showStartupInstructions();
 
+    // Settings persistence
+    void loadSettings();
+    void saveSettings();
+    std::string getSettingsPath();
+
     HWND m_hwnd = nullptr;
     HWND m_statusBar = nullptr;
     HMENU m_menu = nullptr;
@@ -81,6 +86,10 @@ private:
     int m_currentRomId = 0;
     int m_currentFontSize = 20;
     std::string m_statusText = "Ready";
+
+    // Saved disk paths
+    std::string m_diskPaths[4];
+    std::string m_bootString;
 
     UINT_PTR m_emulatorTimer = 0;
     static constexpr int TIMER_INTERVAL_MS = 10;  // 100 Hz

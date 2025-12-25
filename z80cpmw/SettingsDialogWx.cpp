@@ -340,6 +340,7 @@ void SettingsDialogWx::onCatalogLoaded(wxCommandEvent& event) {
     if (event.GetInt()) {
         populateCatalog();
         populateDiskLists();
+        loadSettings();  // Reapply selections after dropdowns are repopulated
         m_statusText->SetLabel("Catalog loaded");
     } else {
         m_statusText->SetLabel("Failed to load catalog: " + event.GetString());

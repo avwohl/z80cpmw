@@ -174,13 +174,10 @@ bool HBIOSDispatch::loadDisk(int unit, const uint8_t* data, size_t size) {
   fprintf(stderr, "[HBIOS] loadDisk: unit=%d size=%zu is_open=%d memory=%p\n",
           unit, size, disks[unit].is_open ? 1 : 0, (void*)memory);
 
-  // Update disk unit table so 'D' command shows new disk
-  if (memory) {
-    fprintf(stderr, "[HBIOS] loadDisk: calling populateDiskUnitTable\n");
-    populateDiskUnitTable();
-  } else {
-    fprintf(stderr, "[HBIOS] loadDisk: memory is NULL, skipping populateDiskUnitTable\n");
-  }
+  // Note: Do NOT call populateDiskUnitTable() here.
+  // The caller should call emu_complete_init() after all disks are loaded,
+  // which will populate the disk unit table once. Calling it multiple times
+  // can cause hangs.
 
   return true;
 }
@@ -209,10 +206,8 @@ bool HBIOSDispatch::loadDiskFromFile(int unit, const std::string& path) {
     debug_log("[HBIOS] Loaded disk %d: %s (%zu bytes)\n", unit, path.c_str(), disks[unit].size);
   }
 
-  // Update disk unit table so 'D' command shows new disk
-  if (memory) {
-    populateDiskUnitTable();
-  }
+  // Note: Do NOT call populateDiskUnitTable() here.
+  // The caller should call emu_complete_init() after all disks are loaded.
 
   return true;
 }
@@ -283,7 +278,14 @@ void HBIOSDispatch::initMemoryDisks() {
     rom[0x0112] = 0x00;
 
     // Copy first 512 bytes (page zero + HCB)
-    memcpy(ram, rom, 512);
+    // Copy page zero + HCB (first 512 bytes) from ROM to shadow RAM (bank 0x80)
+    // and set shadow bits so reads from any ROM bank will see this data
+    uint8_t saved_bank = memory->get_current_bank();
+    memory->select_bank(0x00);  // ROM bank 0 mode
+    for (int i = 0; i < 512; i++) {
+      memory->store_mem(i, rom[i]);  // Writes to shadow RAM and sets shadow bit
+    }
+    memory->select_bank(saved_bank);  // Restore bank
     emu_log("[MD] Copied HCB from ROM to RAM bank 0x80, patched APITYPE=0x00\n");
   }
 
@@ -469,15 +471,24 @@ void HBIOSDispatch::populateDiskUnitTable() {
   }
   emu_log("\n[DISKUT] CB_DEVCNT in ROM (0x10C) = 0x%02X\n", rom[0x10C]);
 
-  // Re-copy the updated HCB from ROM to RAM bank 0x80
-  // This ensures boot loader reads correct data whether it's in ROM or RAM mode
+  // Critical: Copy HCB to shadow RAM and set shadow bits
+  // When romldr runs in ROM bank 1, it reads HCB from addresses 0x100-0x1FF.
+  // Without shadow bits set, these reads go to ROM bank 1 which has different data.
+  // By setting shadow bits, reads from any ROM bank will get the correct HCB data.
   uint8_t* ram = memory->get_ram();
   if (ram) {
-    memcpy(ram, rom, 512);  // Copy first 512 bytes (page zero + HCB)
+    // Copy page zero + HCB (first 512 bytes) from ROM to shadow RAM (bank 0x80)
+    // and set shadow bits so reads from any ROM bank will see this data
+    uint8_t saved_bank = memory->get_current_bank();
+    memory->select_bank(0x00);  // ROM bank 0 mode
+    for (int i = 0; i < 512; i++) {
+      memory->store_mem(i, rom[i]);  // Writes to shadow RAM and sets shadow bit
+    }
+    memory->select_bank(saved_bank);  // Restore bank
     // Also patch APITYPE to HBIOS (0x00) instead of UNA (0xFF)
-    ram[0x0112] = 0x00;
+    memory->store_mem(0x0112, 0x00);
     if (dbg) {
-      fprintf(dbg, "[DISKUT] Re-copied first 512 bytes from ROM to RAM bank 0x80\n");
+      fprintf(dbg, "[DISKUT] Copied HCB to shadow RAM with shadow bits set\n");
     }
   }
 
@@ -1175,20 +1186,35 @@ void HBIOSDispatch::handleDIO() {
       // Returns: D=device type, E=device number within type, C=attributes
       // Device types: 0x00=MD (memory disk), 0x09=HDSK, 0xFF=no device
       // Attributes: bit 5=high capacity (enables multiple slices), bit 6=removable
+
+      // Debug: log ALL DIODEVICE calls to help debug device list issue
+      static FILE* diodbg = nullptr;
+      if (!diodbg) diodbg = fopen("C:\\temp\\z80dio.txt", "a");
+      if (diodbg) {
+        fprintf(diodbg, "[DIODEVICE] unit=%d is_memdisk=%d md_unit=%d is_harddisk=%d hd_unit=%d md0_enabled=%d md1_enabled=%d hd0_open=%d hd1_open=%d\n",
+                raw_unit, is_memdisk ? 1 : 0, md_unit, is_harddisk ? 1 : 0, hd_unit,
+                md_disks[0].is_enabled ? 1 : 0, md_disks[1].is_enabled ? 1 : 0,
+                disks[0].is_open ? 1 : 0, disks[1].is_open ? 1 : 0);
+        fflush(diodbg);
+      }
+
       uint8_t dev_attr = 0x00;
       if (is_memdisk) {
         cpu->regs.DE.set_high(0x00);  // DIODEV_MD (memory disk)
         cpu->regs.DE.set_low(md_unit); // Device number (0=MD0, 1=MD1)
         dev_attr = 0x00;  // Not high capacity, not removable
+        if (diodbg) { fprintf(diodbg, "  -> MD%d type=0x00\n", md_unit); fflush(diodbg); }
       } else if (is_harddisk) {
         cpu->regs.DE.set_high(0x09);  // DIODEV_HDSK (hard disk)
         cpu->regs.DE.set_low(hd_unit); // Device number within type
         dev_attr = 0x20;  // Bit 5 = high capacity (enables multiple slices)
+        if (diodbg) { fprintf(diodbg, "  -> HD%d type=0x09\n", hd_unit); fflush(diodbg); }
       } else {
         // No device at this unit - return error, don't crash
         cpu->regs.DE.set_high(0xFF);  // No device
         cpu->regs.DE.set_low(0xFF);
         result = HBR_NOUNIT;
+        if (diodbg) { fprintf(diodbg, "  -> NO DEVICE (result=NOUNIT)\n"); fflush(diodbg); }
         if (debug_log) {
           emu_log("[HBIOS DIODEVICE] Unit %d: no device found\n", raw_unit);
         }
@@ -1525,6 +1551,15 @@ void HBIOSDispatch::handleSYS() {
           // Count hard disks
           for (int i = 0; i < 16; i++) {
             if (disks[i].is_open) count++;
+          }
+          // Always log DIOCNT to help debug device list
+          static FILE* diocnt_dbg = nullptr;
+          if (!diocnt_dbg) diocnt_dbg = fopen("C:\\temp\\z80dio.txt", "a");
+          if (diocnt_dbg) {
+            fprintf(diocnt_dbg, "[SYSGET_DIOCNT] md0=%d md1=%d hd0=%d hd1=%d total=%d\n",
+                    md_disks[0].is_enabled ? 1 : 0, md_disks[1].is_enabled ? 1 : 0,
+                    disks[0].is_open ? 1 : 0, disks[1].is_open ? 1 : 0, count);
+            fflush(diocnt_dbg);
           }
           if (debug_log) debug_log("[DIOCNT] md_disks: %d,%d hd_disks: %d total=%d\n",
                   md_disks[0].is_enabled ? 1 : 0,

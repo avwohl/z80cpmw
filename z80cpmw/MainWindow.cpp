@@ -210,9 +210,9 @@ void MainWindow::onCreate() {
         onStatusChanged(status);
     });
 
-    // Load default ROM and disks
+    // Load ROM and saved settings (disks, boot string, font size)
     loadDefaultROM();
-    loadDefaultDisks();
+    loadSettings();  // Loads saved disk paths and other settings
 
     // Set menu items
     m_menu = GetMenu(m_hwnd);
@@ -370,6 +370,8 @@ void MainWindow::onFileLoadDisk(int unit) {
         WideCharToMultiByte(CP_UTF8, 0, filename, -1, path, MAX_PATH, nullptr, nullptr);
 
         if (m_emulator->loadDisk(unit, path)) {
+            m_diskPaths[unit] = path;  // Save for persistence
+            saveSettings();
             m_statusText = "Loaded disk " + std::to_string(unit);
             updateStatusBar();
         } else {
@@ -493,6 +495,19 @@ void MainWindow::onEmulatorSettings() {
     settings.bootString = m_emulator->getBootString();
     settings.debugMode = false;  // TODO: get from emulator
 
+    // Pass currently loaded disk filenames to settings dialog
+    for (int i = 0; i < 4; i++) {
+        if (!m_diskPaths[i].empty()) {
+            // Extract filename from full path
+            size_t lastSlash = m_diskPaths[i].find_last_of("\\/");
+            if (lastSlash != std::string::npos) {
+                settings.diskFiles[i] = m_diskPaths[i].substr(lastSlash + 1);
+            } else {
+                settings.diskFiles[i] = m_diskPaths[i];
+            }
+        }
+    }
+
     if (ShowWxSettingsDialog(m_hwnd, m_diskCatalog.get(), settings)) {
         // Apply boot string
         m_emulator->setBootString(settings.bootString);
@@ -508,15 +523,22 @@ void MainWindow::onEmulatorSettings() {
             }
         }
 
-        // Load disks
+        // Load disks and save paths for persistence
         for (int i = 0; i < 4; i++) {
             if (!settings.diskFiles[i].empty()) {
                 std::string diskPath = m_diskCatalog->getDiskPath(settings.diskFiles[i]);
                 if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
                     m_emulator->loadDisk(i, diskPath);
+                    m_diskPaths[i] = diskPath;  // Save for persistence
                 }
             }
         }
+
+        // Save boot string
+        m_bootString = settings.bootString;
+
+        // Save settings to disk
+        saveSettings();
 
         m_statusText = "Settings applied";
         updateStatusBar();
@@ -534,6 +556,7 @@ void MainWindow::onViewFontSize(int size) {
         m_terminal->setFontSize(size);
         m_currentFontSize = size;
         checkFontMenuItem(size);
+        saveSettings();  // Persist font size
     }
 }
 
@@ -647,6 +670,11 @@ void MainWindow::loadDefaultDisks() {
 void MainWindow::showStartupInstructions() {
     if (!m_terminal) return;
 
+    // Build version string with compile date/time
+    char versionLine[128];
+    snprintf(versionLine, sizeof(versionLine),
+        "  Build: %s %s\r\n", __DATE__, __TIME__);
+
     const char* instructions =
         "\r\n"
         "  z80cpmw - Z80 CP/M Emulator for Windows\r\n"
@@ -680,4 +708,99 @@ void MainWindow::showStartupInstructions() {
     for (const char* p = instructions; *p; ++p) {
         m_terminal->outputChar(*p);
     }
+
+    // Output build version
+    for (const char* p = versionLine; *p; ++p) {
+        m_terminal->outputChar(*p);
+    }
+}
+
+std::string MainWindow::getSettingsPath() {
+    std::string appDir = EmulatorEngine::getAppDirectory();
+    return appDir + "\\z80cpmw.ini";
+}
+
+void MainWindow::loadSettings() {
+    std::string path = getSettingsPath();
+    FILE* dbg = fopen("C:\\temp\\z80settings.txt", "a");
+    if (dbg) fprintf(dbg, "[SETTINGS] Loading from %s\n", path.c_str());
+
+    FILE* f = fopen(path.c_str(), "r");
+    if (!f) {
+        if (dbg) { fprintf(dbg, "[SETTINGS] File not found\n"); fclose(dbg); }
+        return;
+    }
+
+    char line[1024];
+    while (fgets(line, sizeof(line), f)) {
+        // Remove trailing newline
+        char* nl = strchr(line, '\n');
+        if (nl) *nl = '\0';
+        char* cr = strchr(line, '\r');
+        if (cr) *cr = '\0';
+
+        // Parse key=value
+        char* eq = strchr(line, '=');
+        if (!eq) continue;
+        *eq = '\0';
+        const char* key = line;
+        const char* value = eq + 1;
+
+        if (strcmp(key, "disk0") == 0) {
+            m_diskPaths[0] = value;
+        } else if (strcmp(key, "disk1") == 0) {
+            m_diskPaths[1] = value;
+        } else if (strcmp(key, "disk2") == 0) {
+            m_diskPaths[2] = value;
+        } else if (strcmp(key, "disk3") == 0) {
+            m_diskPaths[3] = value;
+        } else if (strcmp(key, "bootString") == 0) {
+            m_bootString = value;
+        } else if (strcmp(key, "fontSize") == 0) {
+            m_currentFontSize = atoi(value);
+        }
+    }
+    fclose(f);
+
+    // Apply loaded settings
+    for (int i = 0; i < 4; i++) {
+        if (!m_diskPaths[i].empty()) {
+            if (GetFileAttributesA(m_diskPaths[i].c_str()) != INVALID_FILE_ATTRIBUTES) {
+                bool ok = m_emulator->loadDisk(i, m_diskPaths[i]);
+                if (dbg) fprintf(dbg, "[SETTINGS] Disk %d: %s -> %s\n", i, m_diskPaths[i].c_str(), ok ? "loaded" : "FAILED");
+            } else {
+                if (dbg) fprintf(dbg, "[SETTINGS] Disk %d: %s -> file not found\n", i, m_diskPaths[i].c_str());
+            }
+        }
+    }
+    if (dbg) fclose(dbg);
+
+    if (!m_bootString.empty()) {
+        m_emulator->setBootString(m_bootString);
+    }
+
+    if (m_currentFontSize > 0 && m_terminal) {
+        m_terminal->setFontSize(m_currentFontSize);
+        checkFontMenuItem(m_currentFontSize);
+    }
+}
+
+void MainWindow::saveSettings() {
+    std::string path = getSettingsPath();
+    FILE* f = fopen(path.c_str(), "w");
+    if (!f) return;
+
+    for (int i = 0; i < 4; i++) {
+        if (!m_diskPaths[i].empty()) {
+            fprintf(f, "disk%d=%s\n", i, m_diskPaths[i].c_str());
+        }
+    }
+
+    if (!m_bootString.empty()) {
+        fprintf(f, "bootString=%s\n", m_bootString.c_str());
+    }
+
+    fprintf(f, "fontSize=%d\n", m_currentFontSize);
+
+    fclose(f);
 }

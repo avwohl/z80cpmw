@@ -626,6 +626,47 @@ void qkz80::execute(void) {
       return;
     }
 
+    // IN r,(C) - read port addressed by C into register
+    // ED 40=B, 48=C, 50=D, 58=E, 60=H, 68=L, 70=(HL)*, 78=A
+    case 0x40: case 0x48: case 0x50: case 0x58:
+    case 0x60: case 0x68: case 0x78: {
+      qkz80_uint8 port_num = regs.BC.get_low();
+      qkz80_uint8 val = port_in(port_num);
+      qkz80_uint8 dst = (opcode >> 3) & 0x07;
+      set_reg8(val, dst);
+      // IN affects flags: S, Z, P/V (parity), H=0, N=0, C unchanged
+      regs.set_flags_from_logic8(val, regs.get_carry_as_int(), 0);
+      trace->asm_op("in %s,(c)", name_reg8(dst));
+      return;
+    }
+    case 0x70: {
+      // IN (C) - undocumented, reads port but discards value, affects flags
+      qkz80_uint8 port_num = regs.BC.get_low();
+      qkz80_uint8 val = port_in(port_num);
+      regs.set_flags_from_logic8(val, regs.get_carry_as_int(), 0);
+      trace->asm_op("in (c)");
+      return;
+    }
+
+    // OUT (C),r - write register to port addressed by C
+    // ED 41=B, 49=C, 51=D, 59=E, 61=H, 69=L, 71=0*, 79=A
+    case 0x41: case 0x49: case 0x51: case 0x59:
+    case 0x61: case 0x69: case 0x79: {
+      qkz80_uint8 port_num = regs.BC.get_low();
+      qkz80_uint8 src = (opcode >> 3) & 0x07;
+      qkz80_uint8 val = get_reg8(src);
+      port_out(port_num, val);
+      trace->asm_op("out (c),%s", name_reg8(src));
+      return;
+    }
+    case 0x71: {
+      // OUT (C),0 - undocumented, outputs 0 to port
+      qkz80_uint8 port_num = regs.BC.get_low();
+      port_out(port_num, 0);
+      trace->asm_op("out (c),0");
+      return;
+    }
+
     // Block I/O - simplified (real implementation would need I/O port system)
     case 0xa2: case 0xb2: case 0xaa: case 0xba:
     case 0xa3: case 0xb3: case 0xab: case 0xbb:

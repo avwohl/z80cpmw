@@ -10,6 +10,7 @@
 #include "Core/romwbw_mem.h"
 #include "Core/hbios_dispatch.h"
 #include "Core/emu_io.h"
+#include "Core/emu_init.h"
 
 // External callback setters from emu_io_windows.cpp
 extern "C" {
@@ -63,14 +64,9 @@ void EmulatorEngine::initCPU() {
 }
 
 void EmulatorEngine::initializeRamBankIfNeeded(uint8_t bank) {
-    if (!(bank & 0x80)) return;
-    int bank_index = bank & 0x0F;
-    uint16_t bank_bit = 1 << bank_index;
-    if (m_initializedRamBanks & bank_bit) return;
-    m_initializedRamBanks |= bank_bit;
-    if (m_debug) {
-        emu_log("[EMU] First access to RAM bank 0x%02X\n", bank);
-    }
+    // Use shared initialization to copy page zero and HCB to RAM bank
+    // This is required for CP/M 3 bank switching to work correctly
+    emu_init_ram_bank(m_memory.get(), bank, &m_initializedRamBanks);
 }
 
 void EmulatorEngine::onHalt() {
@@ -101,14 +97,16 @@ bool EmulatorEngine::loadROM(const std::string& path) {
 
 bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
     if (!m_memory || !data || size == 0) return false;
-    if (!m_memory->is_banking_enabled()) m_memory->enable_banking();
-    m_memory->clear_ram();
+
+    // Reset RAM bank initialization tracking
     m_initializedRamBanks = 0;
-    uint8_t* rom = m_memory->get_rom();
-    if (!rom) return false;
-    size_t copySize = std::min(size, (size_t)banked_mem::ROM_SIZE);
-    memcpy(rom, data, copySize);
-    m_hbios->initMemoryDisks();
+
+    // Use shared ROM loading function
+    // Note: emu_complete_init() is called later in start() after disks are loaded
+    if (!emu_load_rom_from_buffer(m_memory.get(), data, size)) {
+        return false;
+    }
+
     return true;
 }
 
@@ -162,9 +160,38 @@ void EmulatorEngine::start() {
     m_stopRequested = false;
     m_running = true;
 
-    // Populate disk unit table in HCB so romldr can discover disks
-    // This must be called right before starting, after all disks are loaded
-    m_hbios->populateDiskUnitTable();
+    // Initialize CPU state for fresh start
+    m_cpu->regs.PC.set_pair16(0);
+    m_cpu->regs.SP.set_pair16(0);
+    m_cpu->regs.IFF1 = 0;
+    m_cpu->regs.IFF2 = 0;
+    m_memory->select_bank(0);
+    m_initializedRamBanks = 0;
+
+    // Complete initialization AFTER all disks are loaded
+    // This ensures disk unit table includes all attached disks
+    // Handles: APITYPE patching, HCB copy, HBIOS ident, memory disks, disk tables
+    emu_complete_init(m_memory.get(), m_hbios.get(), nullptr);
+
+    // Debug: verify disk unit table was written
+    uint8_t* rom = m_memory->get_rom();
+    FILE* dbg = fopen("C:\\temp\\z80start.txt", "a");
+    if (dbg && rom) {
+        fprintf(dbg, "[START] After emu_complete_init, disk unit table at ROM 0x160:\n");
+        for (int i = 0; i < 8; i++) {
+            uint8_t type = rom[0x160 + i * 4];
+            uint8_t unit = rom[0x160 + i * 4 + 1];
+            if (type != 0xFF) {
+                fprintf(dbg, "  Entry %d: type=0x%02X unit=%d\n", i, type, unit);
+            }
+        }
+        fprintf(dbg, "[START] Disks loaded: ");
+        for (int i = 0; i < 4; i++) {
+            fprintf(dbg, "%d=%s ", i, m_hbios->isDiskLoaded(i) ? "yes" : "no");
+        }
+        fprintf(dbg, "\n");
+        fclose(dbg);
+    }
 
     if (!m_bootString.empty()) {
         for (char c : m_bootString) emu_console_queue_char(c);
