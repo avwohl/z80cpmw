@@ -40,7 +40,7 @@ bool MainWindow::create() {
         wc.hInstance = GetModuleHandle(nullptr);
         wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
         wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
-        wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+        wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
         wc.lpszMenuName = MAKEINTRESOURCEW(IDR_MAINMENU);
         wc.lpszClassName = WINDOW_CLASS;
         wc.hIconSm = LoadIcon(nullptr, IDI_APPLICATION);
@@ -189,12 +189,12 @@ void MainWindow::onCreate() {
     GetWindowRect(m_statusBar, &statusRect);
     int statusHeight = statusRect.bottom - statusRect.top;
 
-    // Create terminal view (with 2px bottom padding for readability)
+    // Create terminal view (full height minus status bar)
     m_terminal->create(
         m_hwnd,
         0, 0,
         clientRect.right,
-        clientRect.bottom - statusHeight - 2
+        clientRect.bottom - statusHeight
     );
 
     m_terminal->setFontSize(m_currentFontSize);
@@ -571,11 +571,12 @@ void MainWindow::onHelpAbout() {
         L"z80cpmw - Z80 CP/M Emulator\n"
         L"Version 1.0\n\n"
         L"A RomWBW/HBIOS emulator for Windows.\n\n"
-        L"Based on:\n"
-        L"  - qkz80 Z80 emulator core\n"
-        L"  - RomWBW by Wayne Warthen\n\n"
-        L"License: MIT\n"
-        L"CP/M OS licensed by Lineo for non-commercial use.",
+        L"License: GPL v3\n"
+        L"CP/M OS licensed by Lineo for non-commercial use.\n\n"
+        L"github.com/avwohl/z80cpmw\n"
+        L"github.com/avwohl/romwbw_emu\n"
+        L"github.com/avwohl/cpmemu\n"
+        L"github.com/wwarthen/RomWBW",
         L"About z80cpmw",
         MB_OK | MB_ICONINFORMATION
     );

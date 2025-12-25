@@ -6,11 +6,11 @@
 
 #include "pch.h"
 #include "EmulatorEngine.h"
-#include "Core/hbios_cpu.h"
-#include "Core/romwbw_mem.h"
-#include "Core/hbios_dispatch.h"
-#include "Core/emu_io.h"
-#include "Core/emu_init.h"
+#include "hbios_cpu.h"
+#include "romwbw_mem.h"
+#include "hbios_dispatch.h"
+#include "emu_io.h"
+#include "emu_init.h"
 
 // External callback setters from emu_io_windows.cpp
 extern "C" {

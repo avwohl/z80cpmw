@@ -43,3 +43,6 @@
 
 // Timer
 #define IDT_EMULATOR            7001
+
+// Accelerator table
+#define IDR_ACCELERATORS        8001

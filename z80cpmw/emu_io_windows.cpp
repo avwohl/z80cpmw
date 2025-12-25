@@ -6,7 +6,7 @@
  */
 
 #include "pch.h"
-#include "Core/emu_io.h"
+#include "emu_io.h"
 #include <queue>
 #include <mutex>
 #include <random>

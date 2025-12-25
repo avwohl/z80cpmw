@@ -15,7 +15,7 @@
 #include <thread>
 #include <memory>
 #include <cstdarg>
-#include "Core/hbios_cpu.h"
+#include "hbios_cpu.h"
 
 // Forward declarations
 class hbios_cpu;

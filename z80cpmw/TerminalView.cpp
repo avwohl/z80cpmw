@@ -36,9 +36,9 @@ bool TerminalView::create(HWND parent, int x, int y, int width, int height) {
         g_classRegistered = true;
     }
 
-    // Create window
+    // Create window (no border - parent window provides framing)
     m_hwnd = CreateWindowExW(
-        WS_EX_CLIENTEDGE,
+        0,
         TERMINAL_CLASS,
         L"",
         WS_CHILD | WS_VISIBLE | WS_TABSTOP,

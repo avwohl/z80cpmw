@@ -61,7 +61,7 @@
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -85,7 +85,7 @@
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)Core;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -113,26 +113,27 @@
     <ClCompile Include="SettingsDialogWx.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
-    <!-- Emulator Core Files -->
-    <ClCompile Include="Core\qkz80.cc">
+    <!-- Emulator Core Files (from cpmemu) -->
+    <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="Core\qkz80_errors.cc">
+    <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80_errors.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="Core\qkz80_mem.cc">
+    <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80_mem.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="Core\qkz80_reg_set.cc">
+    <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80_reg_set.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="Core\hbios_dispatch.cc">
+    <!-- Emulator Core Files (from romwbw_emu) -->
+    <ClCompile Include="$(SolutionDir)..\romwbw_emu\src\hbios_dispatch.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="Core\hbios_cpu.cc">
+    <ClCompile Include="$(SolutionDir)..\romwbw_emu\src\hbios_cpu.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
-    <ClCompile Include="Core\emu_init.cc">
+    <ClCompile Include="$(SolutionDir)..\romwbw_emu\src\emu_init.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
   </ItemGroup>
@@ -145,18 +146,20 @@
     <ClInclude Include="DiskCatalog.h" />
     <ClInclude Include="SettingsDialogWx.h" />
     <ClInclude Include="resource.h" />
-    <ClInclude Include="Core\qkz80.h" />
-    <ClInclude Include="Core\qkz80_cpu_flags.h" />
-    <ClInclude Include="Core\qkz80_mem.h" />
-    <ClInclude Include="Core\qkz80_reg_pair.h" />
-    <ClInclude Include="Core\qkz80_reg_set.h" />
-    <ClInclude Include="Core\qkz80_trace.h" />
-    <ClInclude Include="Core\qkz80_types.h" />
-    <ClInclude Include="Core\romwbw_mem.h" />
-    <ClInclude Include="Core\hbios_dispatch.h" />
-    <ClInclude Include="Core\hbios_cpu.h" />
-    <ClInclude Include="Core\emu_io.h" />
-    <ClInclude Include="Core\emu_init.h" />
+    <!-- Headers from cpmemu -->
+    <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80.h" />
+    <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80_cpu_flags.h" />
+    <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80_mem.h" />
+    <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80_reg_pair.h" />
+    <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80_reg_set.h" />
+    <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80_trace.h" />
+    <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80_types.h" />
+    <!-- Headers from romwbw_emu -->
+    <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\romwbw_mem.h" />
+    <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\hbios_dispatch.h" />
+    <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\hbios_cpu.h" />
+    <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\emu_io.h" />
+    <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\emu_init.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="z80cpmw.rc" />

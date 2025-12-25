@@ -47,6 +47,6 @@ Standard keyboard input. Arrow keys send VT100 escape sequences.
 
 ## License
 
-MIT License
+GPL v3 License
 
 CP/M operating system is licensed by Lineo for non-commercial use.
