@@ -37,13 +37,14 @@ bool MainWindow::create() {
         wc.cbSize = sizeof(wc);
         wc.style = CS_HREDRAW | CS_VREDRAW;
         wc.lpfnWndProc = WindowProc;
-        wc.hInstance = GetModuleHandle(nullptr);
-        wc.hIcon = LoadIcon(nullptr, IDI_APPLICATION);
+        HINSTANCE hInst = GetModuleHandle(nullptr);
+        wc.hInstance = hInst;
+        wc.hIcon = LoadIcon(hInst, MAKEINTRESOURCE(IDI_APPICON));
         wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
         wc.hbrBackground = (HBRUSH)GetStockObject(BLACK_BRUSH);
         wc.lpszMenuName = MAKEINTRESOURCEW(IDR_MAINMENU);
         wc.lpszClassName = WINDOW_CLASS;
-        wc.hIconSm = LoadIcon(nullptr, IDI_APPLICATION);
+        wc.hIconSm = LoadIcon(hInst, MAKEINTRESOURCE(IDI_APPICON));
 
         if (!RegisterClassExW(&wc)) {
             return false;

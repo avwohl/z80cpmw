@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  IgnorableNamespaces="uap uap3 rescap desktop">
+
+  <Identity
+    Name="AaronWohl.Z80CPM"
+    Version="1.0.0.0"
+    Publisher="CN=724C9014-DD22-420E-9BB4-F2740D082EB0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>Z80CPM</DisplayName>
+    <PublisherDisplayName>Aaron Wohl</PublisherDisplayName>
+    <Description>A Z80 CPU emulator for running CP/M and other vintage operating systems. Features RomWBW HBIOS compatibility, VT100 terminal emulation, and support for multiple disk images.</Description>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.22621.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application
+      Id="z80cpmw"
+      Executable="z80cpmw.exe"
+      EntryPoint="Windows.FullTrustApplication">
+
+      <uap:VisualElements
+        DisplayName="Z80CPM"
+        Description="Z80 CPU emulator for CP/M and vintage operating systems"
+        BackgroundColor="#1E1E1E"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile
+          Wide310x150Logo="Assets\Wide310x150Logo.png"
+          Square310x310Logo="Assets\Square310x310Logo.png"
+          Square71x71Logo="Assets\Square71x71Logo.png"
+          ShortName="z80cpmw">
+          <uap:ShowNameOnTiles>
+            <uap:ShowOn Tile="square150x150Logo"/>
+            <uap:ShowOn Tile="wide310x150Logo"/>
+            <uap:ShowOn Tile="square310x310Logo"/>
+          </uap:ShowNameOnTiles>
+        </uap:DefaultTile>
+        <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#1E1E1E" />
+      </uap:VisualElements>
+
+      <!-- File type associations for disk images -->
+      <Extensions>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="diskimage">
+            <uap:DisplayName>CP/M Disk Image</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.img</uap:FileType>
+              <uap:FileType>.dsk</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+        <uap:Extension Category="windows.fileTypeAssociation">
+          <uap:FileTypeAssociation Name="romfile">
+            <uap:DisplayName>Z80 ROM File</uap:DisplayName>
+            <uap:SupportedFileTypes>
+              <uap:FileType>.rom</uap:FileType>
+            </uap:SupportedFileTypes>
+          </uap:FileTypeAssociation>
+        </uap:Extension>
+      </Extensions>
+
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Required for full Win32 app functionality -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+
+</Package>

@@ -4,6 +4,9 @@
 
 #pragma once
 
+// Application icon
+#define IDI_APPICON             1
+
 // Main menu IDs
 #define IDR_MAINMENU            100
 

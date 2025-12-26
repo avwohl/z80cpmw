@@ -5,6 +5,9 @@
 #include "resource.h"
 #include <windows.h>
 
+// Application Icon
+IDI_APPICON ICON "z80cpmw.ico"
+
 // Menu
 IDR_MAINMENU MENU
 BEGIN
