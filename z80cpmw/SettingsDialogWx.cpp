@@ -43,8 +43,8 @@ SettingsDialogWx::SettingsDialogWx(wxWindow* parent, DiskCatalog* catalog)
     populateDiskLists();
 
     OutputDebugStringA("[Settings] Constructor: setting size\n");
-    SetMinSize(wxSize(650, 550));
-    SetSize(wxSize(750, 650));
+    SetMinSize(wxSize(800, 650));
+    SetSize(wxSize(900, 750));
     Centre();
 
     OutputDebugStringA("[Settings] Constructor: starting catalog refresh\n");
@@ -77,11 +77,11 @@ void SettingsDialogWx::createControls() {
     m_debugCheck = new wxCheckBox(this, wxID_ANY, "Enable Debug Mode");
 
     // Catalog list
-    m_catalogList = new wxListCtrl(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 180),
+    m_catalogList = new wxListCtrl(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 250),
                                     wxLC_REPORT | wxLC_SINGLE_SEL);
-    m_catalogList->InsertColumn(0, "Name", wxLIST_FORMAT_LEFT, 180);
-    m_catalogList->InsertColumn(1, "Description", wxLIST_FORMAT_LEFT, 300);
-    m_catalogList->InsertColumn(2, "Status", wxLIST_FORMAT_LEFT, 100);
+    m_catalogList->InsertColumn(0, "Name", wxLIST_FORMAT_LEFT, 220);
+    m_catalogList->InsertColumn(1, "Description", wxLIST_FORMAT_LEFT, 450);
+    m_catalogList->InsertColumn(2, "Status", wxLIST_FORMAT_LEFT, 120);
 
     // Catalog buttons
     m_refreshBtn = new wxButton(this, ID_REFRESH_CATALOG, "Refresh");
@@ -93,6 +93,12 @@ void SettingsDialogWx::createControls() {
 
     // Status text
     m_statusText = new wxStaticText(this, wxID_ANY, "Ready");
+
+    // Data directory path (show where disks and file transfers are stored)
+    std::string dataDir = m_catalog ? m_catalog->getDownloadDirectory() : "";
+    m_diskDirText = new wxStaticText(this, wxID_ANY,
+        wxString::Format("Data folder: %s", wxString::FromUTF8(dataDir)));
+    m_diskDirText->SetForegroundColour(wxColour(100, 100, 100));  // Gray text
 }
 
 void SettingsDialogWx::layoutControls() {
@@ -145,7 +151,10 @@ void SettingsDialogWx::layoutControls() {
     catalogHeaderSizer->Add(new wxStaticText(this, wxID_ANY, "Download Disk Images:"), 0, wxALIGN_CENTER_VERTICAL);
     catalogHeaderSizer->AddStretchSpacer();
     catalogHeaderSizer->Add(m_refreshBtn, 0);
-    paddedSizer->Add(catalogHeaderSizer, 0, wxEXPAND | wxBOTTOM, 8);
+    paddedSizer->Add(catalogHeaderSizer, 0, wxEXPAND | wxBOTTOM, 4);
+
+    // Show download directory path
+    paddedSizer->Add(m_diskDirText, 0, wxEXPAND | wxBOTTOM, 8);
 
     // Catalog list
     paddedSizer->Add(m_catalogList, 1, wxEXPAND | wxBOTTOM, 8);

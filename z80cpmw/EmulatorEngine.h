@@ -76,8 +76,12 @@ public:
     // Flush buffered output to callback (call after runBatch)
     void flushOutput();
 
-    // Get application directory
+    // Get application directory (for read-only resources like ROMs)
     static std::string getAppDirectory();
+
+    // Get user data directory (for writable files like settings, downloaded disks)
+    // Uses LocalAppData on Windows, which is writable even for Store apps
+    static std::string getUserDataDirectory();
 
     //=========================================================================
     // HBIOSCPUDelegate interface implementation

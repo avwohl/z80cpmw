@@ -465,6 +465,38 @@ void MainWindow::onSelectROM(int romId) {
 }
 
 void MainWindow::onEmulatorStart() {
+    // If downloads are in progress, wait for them
+    if (m_downloadingDisks) {
+        // Output message to terminal
+        if (m_terminal) {
+            const char* msg = "\r\nPlease wait for disk downloads to complete...\r\n";
+            for (const char* p = msg; *p; ++p) {
+                m_terminal->outputChar(*p);
+            }
+        }
+        return;
+    }
+
+    // Check if any disks are loaded - if not, download and load defaults first
+    bool anyDiskLoaded = false;
+    for (int i = 0; i < 4; i++) {
+        if (m_emulator->isDiskLoaded(i)) {
+            anyDiskLoaded = true;
+            break;
+        }
+    }
+
+    if (!anyDiskLoaded) {
+        // No disks loaded - download defaults before starting
+        downloadAndStartWithDefaults();
+        return;
+    }
+
+    // Normal start with disks already loaded
+    startEmulator();
+}
+
+void MainWindow::startEmulator() {
     if (m_terminal) {
         m_terminal->clear();
     }
@@ -474,6 +506,134 @@ void MainWindow::onEmulatorStart() {
     // Focus terminal
     if (m_terminal && m_terminal->getHwnd()) {
         SetFocus(m_terminal->getHwnd());
+    }
+}
+
+void MainWindow::downloadAndStartWithDefaults() {
+    std::string userDir = EmulatorEngine::getUserDataDirectory();
+    std::string dataDir = userDir + "\\data";
+    std::string combo = dataDir + "\\hd1k_combo.img";
+    std::string games = dataDir + "\\hd1k_games.img";
+
+    // Helper to output string to terminal
+    auto termOutput = [this](const char* msg) {
+        if (m_terminal) {
+            for (const char* p = msg; *p; ++p) {
+                m_terminal->outputChar(*p);
+            }
+        }
+    };
+
+    // Check if combo disk already exists
+    bool comboExists = (GetFileAttributesA(combo.c_str()) != INVALID_FILE_ATTRIBUTES);
+    bool gamesExists = (GetFileAttributesA(games.c_str()) != INVALID_FILE_ATTRIBUTES);
+
+    if (comboExists && gamesExists) {
+        // Both exist, just load them
+        m_diskPaths[0] = combo;
+        m_emulator->loadDisk(0, combo);
+        m_diskPaths[1] = games;
+        m_emulator->loadDisk(1, games);
+        termOutput("Loaded default disks.\r\n");
+        saveSettings();
+        startEmulator();
+        return;
+    }
+
+    // Need to download at least one disk
+    termOutput("\r\nDownloading default disk images...\r\n");
+
+    bool needComboDownload = !comboExists;
+    bool needGamesDownload = !gamesExists;
+
+    // Load existing disk if present
+    if (comboExists) {
+        m_diskPaths[0] = combo;
+        m_emulator->loadDisk(0, combo);
+        termOutput("Disk 0: hd1k_combo.img loaded\r\n");
+    }
+    if (gamesExists) {
+        m_diskPaths[1] = games;
+        m_emulator->loadDisk(1, games);
+        termOutput("Disk 1: hd1k_games.img loaded\r\n");
+    }
+
+    // Download missing disks then start
+    if (needComboDownload) {
+        m_diskCatalog->downloadDisk("hd1k_combo.img",
+            nullptr,
+            [this, combo, games, needGamesDownload](bool success, const std::string& error) {
+                auto termOut = [this](const char* msg) {
+                    if (m_terminal) {
+                        for (const char* p = msg; *p; ++p) {
+                            m_terminal->outputChar(*p);
+                        }
+                    }
+                };
+
+                if (success) {
+                    m_diskPaths[0] = combo;
+                    m_emulator->loadDisk(0, combo);
+                    termOut("  Disk 0: hd1k_combo.img downloaded and loaded\r\n");
+                } else {
+                    termOut("  Disk 0: download failed - ");
+                    termOut(error.c_str());
+                    termOut("\r\n");
+                }
+
+                if (needGamesDownload) {
+                    m_diskCatalog->downloadDisk("hd1k_games.img",
+                        nullptr,
+                        [this, games](bool success2, const std::string& error2) {
+                            auto termOut2 = [this](const char* msg) {
+                                if (m_terminal) {
+                                    for (const char* p = msg; *p; ++p) {
+                                        m_terminal->outputChar(*p);
+                                    }
+                                }
+                            };
+
+                            if (success2) {
+                                m_diskPaths[1] = games;
+                                m_emulator->loadDisk(1, games);
+                                termOut2("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
+                            } else {
+                                termOut2("  Disk 1: download failed - ");
+                                termOut2(error2.c_str());
+                                termOut2("\r\n");
+                            }
+                            saveSettings();
+                            startEmulator();
+                        });
+                } else {
+                    saveSettings();
+                    startEmulator();
+                }
+            });
+    } else if (needGamesDownload) {
+        m_diskCatalog->downloadDisk("hd1k_games.img",
+            nullptr,
+            [this, games](bool success, const std::string& error) {
+                auto termOut = [this](const char* msg) {
+                    if (m_terminal) {
+                        for (const char* p = msg; *p; ++p) {
+                            m_terminal->outputChar(*p);
+                        }
+                    }
+                };
+
+                if (success) {
+                    m_diskPaths[1] = games;
+                    m_emulator->loadDisk(1, games);
+                    termOut("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
+                } else {
+                    termOut("  Disk 1: download failed - ");
+                    termOut(error.c_str());
+                    termOut("\r\n");
+                }
+                saveSettings();
+                startEmulator();
+            });
     }
 }
 
@@ -568,19 +728,23 @@ void MainWindow::onViewFontSize(int size) {
 }
 
 void MainWindow::onHelpAbout() {
-    MessageBoxW(m_hwnd,
+    // Build about text with dynamic data directory path
+    std::string dataDir = EmulatorEngine::getUserDataDirectory();
+    std::wstring dataDirW(dataDir.begin(), dataDir.end());
+
+    std::wstring aboutText =
         L"z80cpmw - Z80 CP/M Emulator\n"
         L"Version 1.0\n\n"
         L"A RomWBW/HBIOS emulator for Windows.\n\n"
+        L"Data Directory:\n" + dataDirW + L"\n\n"
         L"License: GPL v3\n"
         L"CP/M OS licensed by Lineo for non-commercial use.\n\n"
         L"github.com/avwohl/z80cpmw\n"
         L"github.com/avwohl/romwbw_emu\n"
         L"github.com/avwohl/cpmemu\n"
-        L"github.com/wwarthen/RomWBW",
-        L"About z80cpmw",
-        MB_OK | MB_ICONINFORMATION
-    );
+        L"github.com/wwarthen/RomWBW";
+
+    MessageBoxW(m_hwnd, aboutText.c_str(), L"About z80cpmw", MB_OK | MB_ICONINFORMATION);
 }
 
 void MainWindow::updateMenuState() {
@@ -648,15 +812,10 @@ std::string MainWindow::findResourceFile(const std::string& filename) {
 }
 
 void MainWindow::loadDefaultROM() {
-    FILE* dbg = fopen("C:\\temp\\z80settings.txt", "a");
     std::string romPath = findResourceFile("emu_avw.rom");
-    if (dbg) fprintf(dbg, "[ROM] Looking for emu_avw.rom, found: %s\n",
-                     romPath.empty() ? "(not found)" : romPath.c_str());
 
     if (!romPath.empty()) {
-        bool loaded = m_emulator->loadROM(romPath);
-        if (dbg) fprintf(dbg, "[ROM] loadROM result: %s\n", loaded ? "success" : "FAILED");
-        if (loaded) {
+        if (m_emulator->loadROM(romPath)) {
             m_emulator->setROMName("emu_avw.rom");
             m_currentRomId = ID_ROM_EMU_AVW;
         }
@@ -671,7 +830,6 @@ void MainWindow::loadDefaultROM() {
             }
         }
     }
-    if (dbg) fclose(dbg);
 }
 
 void MainWindow::loadDefaultDisks() {
@@ -742,25 +900,22 @@ void MainWindow::showStartupInstructions() {
 }
 
 std::string MainWindow::getSettingsPath() {
-    std::string appDir = EmulatorEngine::getAppDirectory();
-    return appDir + "\\z80cpmw.ini";
+    std::string userDir = EmulatorEngine::getUserDataDirectory();
+    return userDir + "\\z80cpmw.ini";
 }
 
 void MainWindow::loadSettings() {
     std::string path = getSettingsPath();
-    FILE* dbg = fopen("C:\\temp\\z80settings.txt", "a");
-    if (dbg) fprintf(dbg, "[SETTINGS] Loading from %s\n", path.c_str());
 
-    // Set up disk catalog download directory
-    std::string appDir = EmulatorEngine::getAppDirectory();
-    std::string disksDir = appDir + "\\disks";
-    CreateDirectoryA(disksDir.c_str(), nullptr);
-    m_diskCatalog->setDownloadDirectory(disksDir);
+    // Set up data directory for disks and file transfers (use user data dir for Store app compatibility)
+    std::string userDir = EmulatorEngine::getUserDataDirectory();
+    std::string dataDir = userDir + "\\data";
+    CreateDirectoryA(dataDir.c_str(), nullptr);
+    m_diskCatalog->setDownloadDirectory(dataDir);
 
     FILE* f = fopen(path.c_str(), "r");
     if (!f) {
-        // First run - no settings file, load defaults
-        if (dbg) fprintf(dbg, "[SETTINGS] File not found - first run, loading defaults\n");
+        // First run - no settings file
 
         // Helper to output string to terminal
         auto termOutput = [this](const char* msg) {
@@ -771,12 +926,9 @@ void MainWindow::loadSettings() {
             }
         };
 
-        // Show startup instructions first
-        showStartupInstructions();
-
         // Check for default disks and load them if present
-        std::string combo = disksDir + "\\hd1k_combo.img";
-        std::string games = disksDir + "\\hd1k_games.img";
+        std::string combo = dataDir + "\\hd1k_combo.img";
+        std::string games = dataDir + "\\hd1k_games.img";
 
         bool comboLoaded = false;
         bool gamesLoaded = false;
@@ -789,10 +941,8 @@ void MainWindow::loadSettings() {
             m_emulator->loadDisk(0, combo);
             comboLoaded = true;
             termOutput("Disk 0: hd1k_combo.img loaded\r\n");
-            if (dbg) fprintf(dbg, "[SETTINGS] Default disk 0: %s loaded\n", combo.c_str());
         } else {
             needComboDownload = true;
-            if (dbg) fprintf(dbg, "[SETTINGS] Need to download default disk 0: hd1k_combo.img\n");
         }
 
         // Check if games disk exists
@@ -801,18 +951,16 @@ void MainWindow::loadSettings() {
             m_emulator->loadDisk(1, games);
             gamesLoaded = true;
             termOutput("Disk 1: hd1k_games.img loaded\r\n");
-            if (dbg) fprintf(dbg, "[SETTINGS] Default disk 1: %s loaded\n", games.c_str());
         } else {
             needGamesDownload = true;
-            if (dbg) fprintf(dbg, "[SETTINGS] Need to download default disk 1: hd1k_games.img\n");
-        }
-
-        // Show download message if needed
-        if (needComboDownload || needGamesDownload) {
-            termOutput("\r\nDownloading default disk images...\r\n");
         }
 
         // Download missing disks (DiskCatalog can only do one at a time, so chain them)
+        if (needComboDownload || needGamesDownload) {
+            m_downloadingDisks = true;
+            termOutput("\r\nDownloading default disk images (please wait)...\r\n");
+        }
+
         if (needComboDownload) {
             m_diskCatalog->downloadDisk("hd1k_combo.img",
                 nullptr,
@@ -858,11 +1006,18 @@ void MainWindow::loadSettings() {
                                     termOut2(error2.c_str());
                                     termOut2("\r\n");
                                 }
-                                termOut2("\r\nPress F5 to start emulator.\r\n");
+                                m_downloadingDisks = false;
+                                // Only show "Press F5" if emulator not already running
+                                if (!m_emulator->isRunning()) {
+                                    termOut2("\r\nPress F5 to start emulator.\r\n");
+                                }
                                 saveSettings();
                             });
                     } else {
-                        termOut("\r\nPress F5 to start emulator.\r\n");
+                        m_downloadingDisks = false;
+                        if (!m_emulator->isRunning()) {
+                            termOut("\r\nPress F5 to start emulator.\r\n");
+                        }
                         saveSettings();
                     }
                 });
@@ -888,7 +1043,10 @@ void MainWindow::loadSettings() {
                         termOut(error.c_str());
                         termOut("\r\n");
                     }
-                    termOut("\r\nPress F5 to start emulator.\r\n");
+                    m_downloadingDisks = false;
+                    if (!m_emulator->isRunning()) {
+                        termOut("\r\nPress F5 to start emulator.\r\n");
+                    }
                     saveSettings();
                 });
         }
@@ -897,7 +1055,6 @@ void MainWindow::loadSettings() {
         if (!needComboDownload && !needGamesDownload) {
             saveSettings();
         }
-        if (dbg) fclose(dbg);
         return;
     }
 
@@ -936,14 +1093,10 @@ void MainWindow::loadSettings() {
     for (int i = 0; i < 4; i++) {
         if (!m_diskPaths[i].empty()) {
             if (GetFileAttributesA(m_diskPaths[i].c_str()) != INVALID_FILE_ATTRIBUTES) {
-                bool ok = m_emulator->loadDisk(i, m_diskPaths[i]);
-                if (dbg) fprintf(dbg, "[SETTINGS] Disk %d: %s -> %s\n", i, m_diskPaths[i].c_str(), ok ? "loaded" : "FAILED");
-            } else {
-                if (dbg) fprintf(dbg, "[SETTINGS] Disk %d: %s -> file not found\n", i, m_diskPaths[i].c_str());
+                m_emulator->loadDisk(i, m_diskPaths[i]);
             }
         }
     }
-    if (dbg) fclose(dbg);
 
     if (!m_bootString.empty()) {
         m_emulator->setBootString(m_bootString);

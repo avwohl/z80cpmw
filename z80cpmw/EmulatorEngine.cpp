@@ -273,3 +273,31 @@ std::string EmulatorEngine::getAppDirectory() {
     if (lastSlash) *lastSlash = '\0';
     return std::string(path);
 }
+
+std::string EmulatorEngine::getUserDataDirectory() {
+    // Use LocalAppData for user-writable files
+    // This is essential for Microsoft Store apps which can't write to Program Files
+    wchar_t* localAppData = nullptr;
+    std::string userDir;
+
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &localAppData))) {
+        // Convert wide string to UTF-8
+        int len = WideCharToMultiByte(CP_UTF8, 0, localAppData, -1, nullptr, 0, nullptr, nullptr);
+        if (len > 0) {
+            std::string path(len - 1, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, localAppData, -1, &path[0], len, nullptr, nullptr);
+            userDir = path + "\\z80cpmw";
+        }
+        CoTaskMemFree(localAppData);
+    }
+
+    // Fallback to app directory if LocalAppData fails (shouldn't happen)
+    if (userDir.empty()) {
+        userDir = getAppDirectory();
+    }
+
+    // Ensure directory exists
+    CreateDirectoryA(userDir.c_str(), nullptr);
+
+    return userDir;
+}

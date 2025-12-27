@@ -592,20 +592,28 @@ extern "C" void emu_io_set_main_window(HWND hwnd) {
     g_mainWindowHwnd = hwnd;
 }
 
-// Get user's Downloads folder path
-static std::wstring getDownloadsFolder() {
-    wchar_t* path = nullptr;
-    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Downloads, 0, nullptr, &path))) {
-        std::wstring result(path);
-        CoTaskMemFree(path);
-        return result;
+// Get the data folder path (same as EmulatorEngine::getUserDataDirectory() + "\data")
+static std::string getDataFolder() {
+    wchar_t* localAppData = nullptr;
+    std::string dataDir;
+
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &localAppData))) {
+        int len = WideCharToMultiByte(CP_UTF8, 0, localAppData, -1, nullptr, 0, nullptr, nullptr);
+        if (len > 0) {
+            std::string path(len - 1, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, localAppData, -1, &path[0], len, nullptr, nullptr);
+            dataDir = path + "\\z80cpmw\\data";
+        }
+        CoTaskMemFree(localAppData);
     }
-    // Fallback to user profile\Downloads
-    wchar_t userProfile[MAX_PATH];
-    if (GetEnvironmentVariableW(L"USERPROFILE", userProfile, MAX_PATH)) {
-        return std::wstring(userProfile) + L"\\Downloads";
+
+    // Ensure directory exists
+    if (!dataDir.empty()) {
+        CreateDirectoryA((dataDir.substr(0, dataDir.length() - 5)).c_str(), nullptr);  // Create z80cpmw
+        CreateDirectoryA(dataDir.c_str(), nullptr);  // Create data
     }
-    return L"";
+
+    return dataDir;
 }
 
 emu_host_file_state emu_host_file_get_state() {
@@ -617,39 +625,31 @@ bool emu_host_file_open_read(const char* filename) {
     g_hostReadBuffer.clear();
     g_hostReadPos = 0;
 
-    // Show file open dialog defaulting to Downloads folder
-    wchar_t filepath[MAX_PATH] = {};
-
-    // Convert suggested filename to wide string
-    if (filename && *filename) {
-        MultiByteToWideChar(CP_UTF8, 0, filename, -1, filepath, MAX_PATH);
+    if (!filename || !*filename) {
+        g_hostFileState = HOST_FILE_IDLE;
+        return false;
     }
 
-    std::wstring downloadsPath = getDownloadsFolder();
+    // Build full path in data folder
+    std::string dataFolder = getDataFolder();
+    if (dataFolder.empty()) {
+        g_hostFileState = HOST_FILE_IDLE;
+        return false;
+    }
 
-    OPENFILENAMEW ofn = {};
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = g_mainWindowHwnd;
-    ofn.lpstrFilter = L"All Files (*.*)\0*.*\0Text Files (*.txt)\0*.txt\0";
-    ofn.lpstrFile = filepath;
-    ofn.nMaxFile = MAX_PATH;
-    ofn.lpstrInitialDir = downloadsPath.c_str();
-    ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
-    ofn.lpstrTitle = L"R8: Select File to Import to CP/M";
+    std::string fullPath = dataFolder + "\\" + filename;
 
-    if (GetOpenFileNameW(&ofn)) {
-        // Read the selected file
-        FILE* f = _wfopen(filepath, L"rb");
-        if (f) {
-            fseek(f, 0, SEEK_END);
-            size_t size = ftell(f);
-            fseek(f, 0, SEEK_SET);
-            g_hostReadBuffer.resize(size);
-            fread(g_hostReadBuffer.data(), 1, size, f);
-            fclose(f);
-            g_hostFileState = HOST_FILE_READING;
-            return true;
-        }
+    // Read the file directly from data folder
+    FILE* f = fopen(fullPath.c_str(), "rb");
+    if (f) {
+        fseek(f, 0, SEEK_END);
+        size_t size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        g_hostReadBuffer.resize(size);
+        fread(g_hostReadBuffer.data(), 1, size, f);
+        fclose(f);
+        g_hostFileState = HOST_FILE_READING;
+        return true;
     }
 
     g_hostFileState = HOST_FILE_IDLE;
@@ -692,35 +692,18 @@ void emu_host_file_close_read() {
 
 void emu_host_file_close_write() {
     if (g_hostFileState == HOST_FILE_WRITING && !g_hostWriteBuffer.empty()) {
-        // Show file save dialog defaulting to Downloads folder
-        wchar_t filepath[MAX_PATH] = {};
+        // Get the data folder path
+        std::string dataFolder = getDataFolder();
 
-        // Convert suggested filename to wide string
-        if (!g_hostWriteFilename.empty()) {
-            MultiByteToWideChar(CP_UTF8, 0, g_hostWriteFilename.c_str(), -1, filepath, MAX_PATH);
-        } else {
-            wcscpy_s(filepath, L"export.txt");
-        }
+        // Use provided filename or default to export.txt
+        std::string filename = g_hostWriteFilename.empty() ? "export.txt" : g_hostWriteFilename;
+        std::string fullPath = dataFolder + "\\" + filename;
 
-        std::wstring downloadsPath = getDownloadsFolder();
-
-        OPENFILENAMEW ofn = {};
-        ofn.lStructSize = sizeof(ofn);
-        ofn.hwndOwner = g_mainWindowHwnd;
-        ofn.lpstrFilter = L"All Files (*.*)\0*.*\0Text Files (*.txt)\0*.txt\0";
-        ofn.lpstrFile = filepath;
-        ofn.nMaxFile = MAX_PATH;
-        ofn.lpstrInitialDir = downloadsPath.c_str();
-        ofn.Flags = OFN_OVERWRITEPROMPT;
-        ofn.lpstrTitle = L"W8: Save Exported File from CP/M";
-
-        if (GetSaveFileNameW(&ofn)) {
-            // Write the buffer to selected file
-            FILE* f = _wfopen(filepath, L"wb");
-            if (f) {
-                fwrite(g_hostWriteBuffer.data(), 1, g_hostWriteBuffer.size(), f);
-                fclose(f);
-            }
+        // Write the buffer directly to the data folder
+        FILE* f = fopen(fullPath.c_str(), "wb");
+        if (f) {
+            fwrite(g_hostWriteBuffer.data(), 1, g_hostWriteBuffer.size(), f);
+            fclose(f);
         }
     }
 

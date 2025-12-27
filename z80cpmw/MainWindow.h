@@ -49,6 +49,8 @@ private:
     void onEmulatorStop();
     void onEmulatorReset();
     void onEmulatorSettings();
+    void startEmulator();
+    void downloadAndStartWithDefaults();
     void onViewFontSize(int size);
     void onHelpAbout();
 
@@ -93,4 +95,7 @@ private:
 
     UINT_PTR m_emulatorTimer = 0;
     static constexpr int TIMER_INTERVAL_MS = 10;  // 100 Hz
+
+    // Track if initial disk downloads are in progress
+    bool m_downloadingDisks = false;
 };

@@ -72,6 +72,7 @@ private:
     wxButton* m_deleteBtn;
     wxGauge* m_progressBar;
     wxStaticText* m_statusText;
+    wxStaticText* m_diskDirText;
 
     // Custom event IDs
     enum {

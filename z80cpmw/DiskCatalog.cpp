@@ -13,12 +13,27 @@ const std::wstring DiskCatalog::RELEASE_BASE_URL =
     L"https://github.com/avwohl/ioscpm/releases/latest/download/";
 
 DiskCatalog::DiskCatalog() {
-    // Default to app directory\disks
-    char path[MAX_PATH];
-    GetModuleFileNameA(nullptr, path, MAX_PATH);
-    char* lastSlash = strrchr(path, '\\');
-    if (lastSlash) *lastSlash = '\0';
-    m_downloadDir = std::string(path) + "\\disks";
+    // Default to user data directory\data (for Store app compatibility)
+    // Will be overridden by MainWindow::loadSettings() with proper path
+    wchar_t* localAppData = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &localAppData))) {
+        int len = WideCharToMultiByte(CP_UTF8, 0, localAppData, -1, nullptr, 0, nullptr, nullptr);
+        if (len > 0) {
+            std::string path(len - 1, '\0');
+            WideCharToMultiByte(CP_UTF8, 0, localAppData, -1, &path[0], len, nullptr, nullptr);
+            m_downloadDir = path + "\\z80cpmw\\data";
+        }
+        CoTaskMemFree(localAppData);
+    }
+
+    // Fallback to app directory if LocalAppData fails
+    if (m_downloadDir.empty()) {
+        char path[MAX_PATH];
+        GetModuleFileNameA(nullptr, path, MAX_PATH);
+        char* lastSlash = strrchr(path, '\\');
+        if (lastSlash) *lastSlash = '\0';
+        m_downloadDir = std::string(path) + "\\data";
+    }
 }
 
 DiskCatalog::~DiskCatalog() {
