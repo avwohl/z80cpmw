@@ -34,6 +34,7 @@
 #define ID_VIEW_FONT28          3006
 
 // Help menu
+#define ID_HELP_TOPICS          4000
 #define ID_HELP_ABOUT           4001
 
 // ROM selection submenu

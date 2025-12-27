@@ -52,6 +52,7 @@ private:
     void startEmulator();
     void downloadAndStartWithDefaults();
     void onViewFontSize(int size);
+    void onHelpTopics();
     void onHelpAbout();
 
     // Update menu state

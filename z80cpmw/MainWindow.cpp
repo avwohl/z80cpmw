@@ -8,6 +8,7 @@
 #include "EmulatorEngine.h"
 #include "DiskCatalog.h"
 #include "SettingsDialogWx.h"
+#include "HelpWindow.h"
 #include "resource.h"
 
 // External function to set main window for host file dialogs
@@ -328,6 +329,10 @@ void MainWindow::onCommand(int id) {
         break;
     case ID_VIEW_FONT28:
         onViewFontSize(28);
+        break;
+
+    case ID_HELP_TOPICS:
+        onHelpTopics();
         break;
 
     case ID_HELP_ABOUT:
@@ -725,6 +730,10 @@ void MainWindow::onViewFontSize(int size) {
         checkFontMenuItem(size);
         saveSettings();  // Persist font size
     }
+}
+
+void MainWindow::onHelpTopics() {
+    ShowHelpWindow(m_hwnd);
 }
 
 void MainWindow::onHelpAbout() {

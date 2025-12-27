@@ -112,6 +112,7 @@
     <ClCompile Include="EmulatorEngine.cpp" />
     <ClCompile Include="emu_io_windows.cpp" />
     <ClCompile Include="DiskCatalog.cpp" />
+    <ClCompile Include="HelpWindow.cpp" />
     <ClCompile Include="SettingsDialogWx.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -146,6 +147,7 @@
     <ClInclude Include="TerminalView.h" />
     <ClInclude Include="EmulatorEngine.h" />
     <ClInclude Include="DiskCatalog.h" />
+    <ClInclude Include="HelpWindow.h" />
     <ClInclude Include="SettingsDialogWx.h" />
     <ClInclude Include="resource.h" />
     <!-- Headers from cpmemu -->

@@ -48,14 +48,16 @@ BEGIN
     END
     POPUP "&Help"
     BEGIN
+        MENUITEM "&Help Topics\tF1",            ID_HELP_TOPICS
+        MENUITEM SEPARATOR
         MENUITEM "&About z80cpmw...",           ID_HELP_ABOUT
     END
 END
 
 // Version Info
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 1,0,1,0
-PRODUCTVERSION 1,0,1,0
+FILEVERSION 1,0,2,0
+PRODUCTVERSION 1,0,2,0
 FILEFLAGSMASK 0x3fL
 FILEFLAGS 0x0L
 FILEOS VOS_NT_WINDOWS32
@@ -68,12 +70,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "avwohl"
             VALUE "FileDescription", "Z80 CP/M Emulator for Windows"
-            VALUE "FileVersion", "1.0.1.0"
+            VALUE "FileVersion", "1.0.2.0"
             VALUE "InternalName", "z80cpmw"
             VALUE "LegalCopyright", "Copyright (C) 2025"
             VALUE "OriginalFilename", "z80cpmw.exe"
             VALUE "ProductName", "z80cpmw"
-            VALUE "ProductVersion", "1.0.1.0"
+            VALUE "ProductVersion", "1.0.2.0"
         END
     END
     BLOCK "VarFileInfo"
@@ -85,6 +87,7 @@ END
 // Accelerator table for keyboard shortcuts
 IDR_ACCELERATORS ACCELERATORS
 BEGIN
+    VK_F1,      ID_HELP_TOPICS, VIRTKEY
     VK_F5,      ID_EMU_START,   VIRTKEY
     VK_F5,      ID_EMU_STOP,    VIRTKEY, SHIFT
     "R",        ID_EMU_RESET,   VIRTKEY, CONTROL
