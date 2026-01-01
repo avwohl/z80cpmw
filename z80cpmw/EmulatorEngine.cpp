@@ -155,6 +155,12 @@ const std::string& EmulatorEngine::getDiskPath(int unit) const {
     return m_diskPaths[unit];
 }
 
+void EmulatorEngine::setDiskSliceCount(int unit, int slices) {
+    if (unit >= 0 && unit < 4 && m_hbios) {
+        m_hbios->setDiskSliceCount(unit, slices);
+    }
+}
+
 void EmulatorEngine::start() {
     if (m_running) return;
     m_stopRequested = false;

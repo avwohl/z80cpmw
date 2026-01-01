@@ -45,6 +45,7 @@ public:
     bool isDiskLoaded(int unit) const;
     void setDiskPath(int unit, const std::string& path);
     const std::string& getDiskPath(int unit) const;
+    void setDiskSliceCount(int unit, int slices);
 
     // Execution control
     void start();

@@ -17,6 +17,19 @@
 #include <commdlg.h>
 
 //=============================================================================
+// Disk Image Format Definitions
+//=============================================================================
+
+enum emu_disk_format {
+    EMU_DISK_HD1K_SINGLE,  // 8MB single-unit disk
+    EMU_DISK_HD1K_COMBO,   // 128MB combo disk (16 slices)
+};
+
+// HD1K disk sizes (512-byte sectors)
+static const size_t EMU_HD1K_SINGLE_SIZE = 8 * 1024 * 1024;      // 8MB
+static const size_t EMU_HD1K_COMBO_SIZE = 128 * 1024 * 1024;     // 128MB
+
+//=============================================================================
 // Callback Interface for GUI Integration
 //=============================================================================
 

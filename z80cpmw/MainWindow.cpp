@@ -505,6 +505,19 @@ void MainWindow::startEmulator() {
     if (m_terminal) {
         m_terminal->clear();
     }
+
+    // Apply auto slice count based on loaded disk count (1: 8, 2: 4, 3+: 2)
+    int diskCount = 0;
+    for (int i = 0; i < 4; i++) {
+        if (m_emulator->isDiskLoaded(i)) diskCount++;
+    }
+    int autoSlices = (diskCount <= 1) ? 8 : (diskCount == 2) ? 4 : 2;
+    for (int i = 0; i < 4; i++) {
+        if (m_emulator->isDiskLoaded(i)) {
+            m_emulator->setDiskSliceCount(i, autoSlices);
+        }
+    }
+
     m_emulator->start();
     updateMenuState();
 
@@ -696,13 +709,26 @@ void MainWindow::onEmulatorSettings() {
         }
 
         // Load disks and save paths for persistence
+        int diskCount = 0;
         for (int i = 0; i < 4; i++) {
             if (!settings.diskFiles[i].empty()) {
                 std::string diskPath = m_diskCatalog->getDiskPath(settings.diskFiles[i]);
                 if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
                     m_emulator->loadDisk(i, diskPath);
                     m_diskPaths[i] = diskPath;  // Save for persistence
+                    diskCount++;
                 }
+            }
+        }
+
+        // Calculate auto slice count based on disk count (matching CBIOS logic):
+        // 1 disk: 8 slices, 2 disks: 4 slices, 3+ disks: 2 slices
+        int autoSlices = (diskCount <= 1) ? 8 : (diskCount == 2) ? 4 : 2;
+
+        // Apply slice counts to loaded disks
+        for (int i = 0; i < 4; i++) {
+            if (m_emulator->isDiskLoaded(i)) {
+                m_emulator->setDiskSliceCount(i, autoSlices);
             }
         }
 
@@ -851,11 +877,21 @@ void MainWindow::loadDefaultDisks() {
     std::string appDir = EmulatorEngine::getAppDirectory();
     std::string disksDir = appDir + "\\disks";
 
+    int diskCount = 0;
     for (int unit = 0; unit < 2 && unit < (int)defaultDisks.size(); unit++) {
         std::string diskPath = disksDir + "\\" + defaultDisks[unit];
         if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
             m_emulator->loadDisk(unit, diskPath);
             m_emulator->setDiskPath(unit, diskPath);
+            diskCount++;
+        }
+    }
+
+    // Apply auto slice count (1 disk: 8, 2 disks: 4, 3+: 2)
+    int autoSlices = (diskCount <= 1) ? 8 : (diskCount == 2) ? 4 : 2;
+    for (int i = 0; i < 4; i++) {
+        if (m_emulator->isDiskLoaded(i)) {
+            m_emulator->setDiskSliceCount(i, autoSlices);
         }
     }
 }
@@ -1099,11 +1135,21 @@ void MainWindow::loadSettings() {
     fclose(f);
 
     // Apply loaded settings
+    int diskCount = 0;
     for (int i = 0; i < 4; i++) {
         if (!m_diskPaths[i].empty()) {
             if (GetFileAttributesA(m_diskPaths[i].c_str()) != INVALID_FILE_ATTRIBUTES) {
                 m_emulator->loadDisk(i, m_diskPaths[i]);
+                diskCount++;
             }
+        }
+    }
+
+    // Apply auto slice count (1 disk: 8, 2 disks: 4, 3+: 2)
+    int autoSlices = (diskCount <= 1) ? 8 : (diskCount == 2) ? 4 : 2;
+    for (int i = 0; i < 4; i++) {
+        if (m_emulator->isDiskLoaded(i)) {
+            m_emulator->setDiskSliceCount(i, autoSlices);
         }
     }
 
