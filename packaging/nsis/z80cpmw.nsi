@@ -11,7 +11,7 @@
 !define DESCRIPTION "Z80 CPU emulator for CP/M and vintage operating systems"
 !define VERSIONMAJOR 1
 !define VERSIONMINOR 0
-!define VERSIONBUILD 2
+!define VERSIONBUILD 3
 !define HELPURL "https://github.com/avwohl/z80cpmw"
 !define UPDATEURL "https://github.com/avwohl/z80cpmw/releases"
 !define ABOUTURL "https://github.com/avwohl/z80cpmw"
