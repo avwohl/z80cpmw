@@ -7,6 +7,8 @@
 #include "TerminalView.h"
 #include "EmulatorEngine.h"
 #include "DiskCatalog.h"
+#include "DazzlerWindow.h"
+#include "Dazzler.h"
 #include "SettingsDialogWx.h"
 #include "HelpWindow.h"
 #include "resource.h"
@@ -242,6 +244,12 @@ void MainWindow::onDestroy() {
         m_emulatorTimer = 0;
     }
 
+    // Clean up Dazzler window
+    if (m_dazzlerWindow) {
+        m_dazzlerWindow->destroy();
+        m_dazzlerWindow.reset();
+    }
+
     PostQuitMessage(0);
 }
 
@@ -331,6 +339,10 @@ void MainWindow::onCommand(int id) {
         onViewFontSize(28);
         break;
 
+    case ID_VIEW_DAZZLER:
+        onViewDazzler();
+        break;
+
     case ID_HELP_TOPICS:
         onHelpTopics();
         break;
@@ -349,6 +361,11 @@ void MainWindow::onTimer() {
         // Force terminal to repaint after batch processing
         if (m_terminal) {
             m_terminal->repaint();
+        }
+
+        // Update Dazzler window if enabled
+        if (m_dazzlerWindow && m_dazzlerEnabled) {
+            m_dazzlerWindow->repaint();
         }
 
         // Update status bar with instruction count every ~500ms
@@ -712,12 +729,29 @@ void MainWindow::onEmulatorSettings() {
         int diskCount = 0;
         for (int i = 0; i < 4; i++) {
             if (!settings.diskFiles[i].empty()) {
-                std::string diskPath = m_diskCatalog->getDiskPath(settings.diskFiles[i]);
+                std::string diskPath;
+                // Check if this is already an absolute path (from Browse dialog)
+                // or just a filename (from catalog/download directory)
+                bool isAbsolute = (settings.diskFiles[i].length() >= 2 &&
+                                   settings.diskFiles[i][1] == ':') ||
+                                  (settings.diskFiles[i].length() >= 1 &&
+                                   (settings.diskFiles[i][0] == '\\' || settings.diskFiles[i][0] == '/'));
+                if (isAbsolute) {
+                    diskPath = settings.diskFiles[i];
+                } else {
+                    diskPath = m_diskCatalog->getDiskPath(settings.diskFiles[i]);
+                }
                 if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
                     m_emulator->loadDisk(i, diskPath);
                     m_diskPaths[i] = diskPath;  // Save for persistence
                     diskCount++;
                 }
+            } else {
+                // User selected "(None)" - close the disk if one was loaded
+                if (m_emulator->isDiskLoaded(i)) {
+                    m_emulator->closeDisk(i);
+                }
+                m_diskPaths[i].clear();
             }
         }
 
@@ -756,6 +790,50 @@ void MainWindow::onViewFontSize(int size) {
         checkFontMenuItem(size);
         saveSettings();  // Persist font size
     }
+}
+
+void MainWindow::onViewDazzler() {
+    m_dazzlerEnabled = !m_dazzlerEnabled;
+
+    // Update menu checkmark
+    CheckMenuItem(m_menu, ID_VIEW_DAZZLER, m_dazzlerEnabled ? MF_CHECKED : MF_UNCHECKED);
+
+    if (m_dazzlerEnabled) {
+        // Enable Dazzler in emulator
+        m_emulator->enableDazzler(m_dazzlerPort, m_dazzlerScale);
+
+        // Create Dazzler window
+        if (!m_dazzlerWindow) {
+            m_dazzlerWindow = std::make_unique<DazzlerWindow>();
+
+            // Position next to main window
+            RECT mainRect;
+            GetWindowRect(m_hwnd, &mainRect);
+            m_dazzlerWindow->create(m_hwnd, mainRect.right + 10, mainRect.top, m_dazzlerScale);
+        }
+
+        // Connect to emulator's Dazzler
+        if (m_dazzlerWindow && m_emulator->getDazzler()) {
+            m_dazzlerWindow->setDazzler(m_emulator->getDazzler());
+            m_dazzlerWindow->show(true);
+        }
+
+        m_statusText = "Dazzler enabled (port 0x" +
+            std::to_string(m_dazzlerPort) + ")";
+    } else {
+        // Hide and disconnect Dazzler window
+        if (m_dazzlerWindow) {
+            m_dazzlerWindow->show(false);
+            m_dazzlerWindow->setDazzler(nullptr);
+        }
+
+        // Disable Dazzler in emulator
+        m_emulator->disableDazzler();
+
+        m_statusText = "Dazzler disabled";
+    }
+
+    updateStatusBar();
 }
 
 void MainWindow::onHelpTopics() {

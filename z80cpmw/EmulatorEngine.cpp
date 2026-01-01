@@ -11,6 +11,7 @@
 #include "hbios_dispatch.h"
 #include "emu_io.h"
 #include "emu_init.h"
+#include "Dazzler.h"
 
 // External callback setters from emu_io_windows.cpp
 extern "C" {
@@ -124,6 +125,12 @@ bool EmulatorEngine::loadDisk(int unit, const std::string& path) {
 bool EmulatorEngine::loadDiskFromData(int unit, const uint8_t* data, size_t size) {
     if (unit < 0 || unit >= 4) return false;
     return m_hbios->loadDisk(unit, data, size);
+}
+
+void EmulatorEngine::closeDisk(int unit) {
+    if (unit < 0 || unit >= 4) return;
+    m_hbios->closeDisk(unit);
+    m_diskPaths[unit].clear();
 }
 
 bool EmulatorEngine::saveDisk(int unit, const std::string& path) {
@@ -306,4 +313,37 @@ std::string EmulatorEngine::getUserDataDirectory() {
     CreateDirectoryA(userDir.c_str(), nullptr);
 
     return userDir;
+}
+
+void EmulatorEngine::enableDazzler(uint8_t basePort, int scale) {
+    if (m_dazzler) return;  // Already enabled
+
+    m_dazzler = std::make_unique<Dazzler>(basePort);
+    m_dazzler->setScale(scale);
+
+    // Set memory read callback for Dazzler to read framebuffer
+    // This properly handles banked memory (lower 32K from current bank, upper 32K from common)
+    if (m_memory) {
+        m_dazzler->setMemoryReadCallback([this](uint16_t addr) -> uint8_t {
+            return m_memory->fetch_mem(addr);
+        });
+
+        // Set up memory write callback for framebuffer updates
+        m_memory->set_write_callback([this](uint16_t addr, uint8_t value) {
+            if (m_dazzler) {
+                m_dazzler->onMemoryWrite(addr, value);
+            }
+        });
+    }
+}
+
+void EmulatorEngine::disableDazzler() {
+    if (!m_dazzler) return;
+
+    // Clear memory write callback
+    if (m_memory) {
+        m_memory->set_write_callback(nullptr);
+    }
+
+    m_dazzler.reset();
 }

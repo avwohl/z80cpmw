@@ -21,6 +21,7 @@
 class hbios_cpu;
 class banked_mem;
 class HBIOSDispatch;
+class Dazzler;
 
 // Callback types
 using OutputCharCallback = std::function<void(uint8_t ch)>;
@@ -40,6 +41,7 @@ public:
     // Disk management (units 0-3)
     bool loadDisk(int unit, const std::string& path);
     bool loadDiskFromData(int unit, const uint8_t* data, size_t size);
+    void closeDisk(int unit);
     bool saveDisk(int unit, const std::string& path);
     std::vector<uint8_t> getDiskData(int unit);
     bool isDiskLoaded(int unit) const;
@@ -93,6 +95,14 @@ public:
     void onHalt() override;
     void onUnimplementedOpcode(uint8_t opcode, uint16_t pc) override;
     void logDebug(const char* fmt, ...) override;
+    Dazzler* getDazzler() override { return m_dazzler.get(); }
+
+    //=========================================================================
+    // Dazzler support
+    //=========================================================================
+    void enableDazzler(uint8_t basePort = 0x0E, int scale = 2);
+    void disableDazzler();
+    bool isDazzlerEnabled() const { return m_dazzler != nullptr; }
 
 private:
     void initCPU();
@@ -104,6 +114,7 @@ private:
     std::unique_ptr<banked_mem> m_memory;
     std::unique_ptr<hbios_cpu> m_cpu;
     std::unique_ptr<HBIOSDispatch> m_hbios;
+    std::unique_ptr<Dazzler> m_dazzler;
 
     std::string m_romName;
     std::string m_diskPaths[4];

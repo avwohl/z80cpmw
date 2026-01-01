@@ -13,6 +13,8 @@
 class TerminalView;
 class EmulatorEngine;
 class DiskCatalog;
+class DazzlerWindow;
+class Dazzler;
 
 class MainWindow {
 public:
@@ -52,6 +54,7 @@ private:
     void startEmulator();
     void downloadAndStartWithDefaults();
     void onViewFontSize(int size);
+    void onViewDazzler();
     void onHelpTopics();
     void onHelpAbout();
 
@@ -85,6 +88,7 @@ private:
     std::unique_ptr<TerminalView> m_terminal;
     std::unique_ptr<EmulatorEngine> m_emulator;
     std::unique_ptr<DiskCatalog> m_diskCatalog;
+    std::unique_ptr<DazzlerWindow> m_dazzlerWindow;
 
     int m_currentRomId = 0;
     int m_currentFontSize = 20;
@@ -93,6 +97,11 @@ private:
     // Saved disk paths
     std::string m_diskPaths[4];
     std::string m_bootString;
+
+    // Dazzler settings
+    bool m_dazzlerEnabled = false;
+    uint8_t m_dazzlerPort = 0x0E;
+    int m_dazzlerScale = 4;
 
     UINT_PTR m_emulatorTimer = 0;
     static constexpr int TIMER_INTERVAL_MS = 10;  // 100 Hz
