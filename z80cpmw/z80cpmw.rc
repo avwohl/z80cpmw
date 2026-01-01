@@ -45,6 +45,8 @@ BEGIN
         MENUITEM "Font Size 20",                ID_VIEW_FONT20, CHECKED
         MENUITEM "Font Size 24",                ID_VIEW_FONT24
         MENUITEM "Font Size 28",                ID_VIEW_FONT28
+        MENUITEM SEPARATOR
+        MENUITEM "&Dazzler Window",             ID_VIEW_DAZZLER
     END
     POPUP "&Help"
     BEGIN
@@ -56,8 +58,8 @@ END
 
 // Version Info
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION 1,0,3,0
-PRODUCTVERSION 1,0,3,0
+FILEVERSION 1,0,4,0
+PRODUCTVERSION 1,0,4,0
 FILEFLAGSMASK 0x3fL
 FILEFLAGS 0x0L
 FILEOS VOS_NT_WINDOWS32
@@ -70,12 +72,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName", "avwohl"
             VALUE "FileDescription", "Z80 CP/M Emulator for Windows"
-            VALUE "FileVersion", "1.0.3.0"
+            VALUE "FileVersion", "1.0.4.0"
             VALUE "InternalName", "z80cpmw"
             VALUE "LegalCopyright", "Copyright (C) 2025"
             VALUE "OriginalFilename", "z80cpmw.exe"
             VALUE "ProductName", "z80cpmw"
-            VALUE "ProductVersion", "1.0.3.0"
+            VALUE "ProductVersion", "1.0.4.0"
         END
     END
     BLOCK "VarFileInfo"

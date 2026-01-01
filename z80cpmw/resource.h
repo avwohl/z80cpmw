@@ -32,6 +32,7 @@
 #define ID_VIEW_FONT20          3004
 #define ID_VIEW_FONT24          3005
 #define ID_VIEW_FONT28          3006
+#define ID_VIEW_DAZZLER         3010
 
 // Help menu
 #define ID_HELP_TOPICS          4000

@@ -113,6 +113,8 @@
     <ClCompile Include="emu_io_windows.cpp" />
     <ClCompile Include="DiskCatalog.cpp" />
     <ClCompile Include="HelpWindow.cpp" />
+    <ClCompile Include="Dazzler.cpp" />
+    <ClCompile Include="DazzlerWindow.cpp" />
     <ClCompile Include="SettingsDialogWx.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -148,6 +150,8 @@
     <ClInclude Include="EmulatorEngine.h" />
     <ClInclude Include="DiskCatalog.h" />
     <ClInclude Include="HelpWindow.h" />
+    <ClInclude Include="Dazzler.h" />
+    <ClInclude Include="DazzlerWindow.h" />
     <ClInclude Include="SettingsDialogWx.h" />
     <ClInclude Include="resource.h" />
     <!-- Headers from cpmemu -->
