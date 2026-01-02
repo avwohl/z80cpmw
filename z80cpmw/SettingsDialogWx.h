@@ -22,8 +22,14 @@ struct WxEmulatorSettings {
     std::string romFile;
     std::string diskFiles[4];
     int diskSlices[4] = {4, 4, 4, 4};
+    bool diskSlicesAuto[4] = {true, true, true, true};
     std::string bootString;
     bool debugMode = false;
+
+    // Dazzler settings
+    bool dazzlerEnabled = false;
+    int dazzlerPort = 0x0E;
+    int dazzlerScale = 4;
 };
 
 class SettingsDialogWx : public wxDialog {
@@ -46,6 +52,8 @@ private:
     // Event handlers
     void onBrowseDisk(wxCommandEvent& event);
     void onNewDisk(wxCommandEvent& event);
+    void onSliceAutoChanged(wxCommandEvent& event);
+    void onDazzlerEnabledChanged(wxCommandEvent& event);
     void onRefreshCatalog(wxCommandEvent& event);
     void onDownloadDisk(wxCommandEvent& event);
     void onDeleteDisk(wxCommandEvent& event);
@@ -61,11 +69,19 @@ private:
     // Controls
     wxChoice* m_romChoice;
     wxChoice* m_diskChoices[4];
+    wxCheckBox* m_sliceAutoChecks[4];
     wxSpinCtrl* m_sliceSpins[4];
     wxButton* m_browseButtons[4];
     wxButton* m_newButtons[4];
     wxTextCtrl* m_bootStringText;
     wxCheckBox* m_debugCheck;
+
+    // Dazzler controls
+    wxCheckBox* m_dazzlerEnabledCheck;
+    wxSpinCtrl* m_dazzlerPortSpin;
+    wxSpinCtrl* m_dazzlerScaleSpin;
+    wxStaticText* m_dazzlerPortLabel;
+    wxStaticText* m_dazzlerScaleLabel;
     wxListCtrl* m_catalogList;
     wxButton* m_refreshBtn;
     wxButton* m_downloadBtn;
@@ -84,6 +100,11 @@ private:
         ID_NEW_DISK1,
         ID_NEW_DISK2,
         ID_NEW_DISK3,
+        ID_SLICE_AUTO0,
+        ID_SLICE_AUTO1,
+        ID_SLICE_AUTO2,
+        ID_SLICE_AUTO3,
+        ID_DAZZLER_ENABLED,
         ID_REFRESH_CATALOG,
         ID_DOWNLOAD_DISK,
         ID_DELETE_DISK,

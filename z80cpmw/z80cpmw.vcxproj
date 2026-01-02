@@ -61,7 +61,7 @@
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;C:\temp\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;C:\temp\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -86,7 +86,7 @@
       <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
-      <AdditionalIncludeDirectories>$(ProjectDir);$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;C:\temp\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;C:\temp\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -115,6 +115,9 @@
     <ClCompile Include="HelpWindow.cpp" />
     <ClCompile Include="Dazzler.cpp" />
     <ClCompile Include="DazzlerWindow.cpp" />
+    <ClCompile Include="Config.cpp">
+      <PrecompiledHeader>Use</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="SettingsDialogWx.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -152,6 +155,7 @@
     <ClInclude Include="HelpWindow.h" />
     <ClInclude Include="Dazzler.h" />
     <ClInclude Include="DazzlerWindow.h" />
+    <ClInclude Include="Config.h" />
     <ClInclude Include="SettingsDialogWx.h" />
     <ClInclude Include="resource.h" />
     <!-- Headers from cpmemu -->

@@ -17,6 +17,8 @@
 #define ID_FILE_SAVEDISK0       1004
 #define ID_FILE_SAVEDISK1       1005
 #define ID_FILE_SAVEDISKS       1006
+#define ID_FILE_LOADPROFILE     1007
+#define ID_FILE_SAVEPROFILE     1008
 #define ID_FILE_EXIT            1010
 
 // Emulator menu

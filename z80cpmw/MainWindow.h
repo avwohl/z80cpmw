@@ -9,6 +9,7 @@
 #include <windows.h>
 #include <memory>
 #include <string>
+#include "Config.h"
 
 class TerminalView;
 class EmulatorEngine;
@@ -76,10 +77,15 @@ private:
     // Startup help
     void showStartupInstructions();
 
-    // Settings persistence
+    // Settings persistence (via ConfigManager)
     void loadSettings();
     void saveSettings();
-    std::string getSettingsPath();
+    void applyConfig();           // Apply loaded config to emulator state
+    void updateConfigFromState(); // Capture current state to config
+
+    // Profile management
+    void onLoadProfile();
+    void onSaveProfileAs();
 
     HWND m_hwnd = nullptr;
     HWND m_statusBar = nullptr;
@@ -90,18 +96,11 @@ private:
     std::unique_ptr<DiskCatalog> m_diskCatalog;
     std::unique_ptr<DazzlerWindow> m_dazzlerWindow;
 
-    int m_currentRomId = 0;
-    int m_currentFontSize = 20;
+    int m_currentRomId = 0;         // For menu checkmark tracking
     std::string m_statusText = "Ready";
 
-    // Saved disk paths
-    std::string m_diskPaths[4];
-    std::string m_bootString;
-
-    // Dazzler settings
+    // Runtime Dazzler state (config is source of truth for persistence)
     bool m_dazzlerEnabled = false;
-    uint8_t m_dazzlerPort = 0x0E;
-    int m_dazzlerScale = 4;
 
     UINT_PTR m_emulatorTimer = 0;
     static constexpr int TIMER_INTERVAL_MS = 10;  // 100 Hz
