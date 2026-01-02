@@ -27,6 +27,9 @@ BEGIN
         MENUITEM "Save Disk 1...",              ID_FILE_SAVEDISK1
         MENUITEM "Save All Disks",              ID_FILE_SAVEDISKS
         MENUITEM SEPARATOR
+        MENUITEM "Load &Profile...",            ID_FILE_LOADPROFILE
+        MENUITEM "Save Profile &As...",         ID_FILE_SAVEPROFILE
+        MENUITEM SEPARATOR
         MENUITEM "E&xit\tAlt+F4",               ID_FILE_EXIT
     END
     POPUP "&Emulator"

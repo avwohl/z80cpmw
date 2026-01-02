@@ -18,6 +18,11 @@ wxBEGIN_EVENT_TABLE(SettingsDialogWx, wxDialog)
     EVT_BUTTON(ID_NEW_DISK1, SettingsDialogWx::onNewDisk)
     EVT_BUTTON(ID_NEW_DISK2, SettingsDialogWx::onNewDisk)
     EVT_BUTTON(ID_NEW_DISK3, SettingsDialogWx::onNewDisk)
+    EVT_CHECKBOX(ID_SLICE_AUTO0, SettingsDialogWx::onSliceAutoChanged)
+    EVT_CHECKBOX(ID_SLICE_AUTO1, SettingsDialogWx::onSliceAutoChanged)
+    EVT_CHECKBOX(ID_SLICE_AUTO2, SettingsDialogWx::onSliceAutoChanged)
+    EVT_CHECKBOX(ID_SLICE_AUTO3, SettingsDialogWx::onSliceAutoChanged)
+    EVT_CHECKBOX(ID_DAZZLER_ENABLED, SettingsDialogWx::onDazzlerEnabledChanged)
     EVT_BUTTON(ID_REFRESH_CATALOG, SettingsDialogWx::onRefreshCatalog)
     EVT_BUTTON(ID_DOWNLOAD_DISK, SettingsDialogWx::onDownloadDisk)
     EVT_BUTTON(ID_DELETE_DISK, SettingsDialogWx::onDeleteDisk)
@@ -64,6 +69,7 @@ void SettingsDialogWx::createControls() {
     // Disk selections with slices, browse, and new buttons
     for (int i = 0; i < 4; i++) {
         m_diskChoices[i] = new wxChoice(this, wxID_ANY);
+        m_sliceAutoChecks[i] = new wxCheckBox(this, ID_SLICE_AUTO0 + i, "Auto");
         m_sliceSpins[i] = new wxSpinCtrl(this, wxID_ANY, "4", wxDefaultPosition,
                                           wxSize(60, -1), wxSP_ARROW_KEYS, 1, 8, 4);
         m_browseButtons[i] = new wxButton(this, ID_BROWSE_DISK0 + i, "Browse...");
@@ -75,6 +81,15 @@ void SettingsDialogWx::createControls() {
 
     // Debug checkbox
     m_debugCheck = new wxCheckBox(this, wxID_ANY, "Enable Debug Mode");
+
+    // Dazzler controls
+    m_dazzlerEnabledCheck = new wxCheckBox(this, ID_DAZZLER_ENABLED, "Enable Dazzler Graphics Card");
+    m_dazzlerPortLabel = new wxStaticText(this, wxID_ANY, "Port (hex):");
+    m_dazzlerPortSpin = new wxSpinCtrl(this, wxID_ANY, "14", wxDefaultPosition,
+                                        wxSize(70, -1), wxSP_ARROW_KEYS, 0, 255, 0x0E);
+    m_dazzlerScaleLabel = new wxStaticText(this, wxID_ANY, "Scale:");
+    m_dazzlerScaleSpin = new wxSpinCtrl(this, wxID_ANY, "4", wxDefaultPosition,
+                                         wxSize(60, -1), wxSP_ARROW_KEYS, 1, 8, 4);
 
     // Catalog list
     m_catalogList = new wxListCtrl(this, wxID_ANY, wxDefaultPosition, wxSize(-1, 250),
@@ -114,7 +129,7 @@ void SettingsDialogWx::layoutControls() {
     paddedSizer->Add(romSizer, 0, wxEXPAND | wxBOTTOM, 10);
 
     // Disk rows using a flex grid for alignment
-    wxFlexGridSizer* diskGrid = new wxFlexGridSizer(4, 6, 8, 10);
+    wxFlexGridSizer* diskGrid = new wxFlexGridSizer(4, 7, 8, 10);
     diskGrid->AddGrowableCol(1);  // Disk dropdown stretches
 
     for (int i = 0; i < 4; i++) {
@@ -122,14 +137,17 @@ void SettingsDialogWx::layoutControls() {
         diskGrid->Add(new wxStaticText(this, wxID_ANY, label), 0, wxALIGN_CENTER_VERTICAL);
         diskGrid->Add(m_diskChoices[i], 1, wxEXPAND);
 
+        // Slice controls with auto checkbox
         wxBoxSizer* sliceSizer = new wxBoxSizer(wxHORIZONTAL);
         sliceSizer->Add(new wxStaticText(this, wxID_ANY, "Slices:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
+        sliceSizer->Add(m_sliceAutoChecks[i], 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
         sliceSizer->Add(m_sliceSpins[i], 0);
         diskGrid->Add(sliceSizer, 0, wxALIGN_CENTER_VERTICAL);
 
         diskGrid->Add(m_browseButtons[i], 0);
         diskGrid->Add(m_newButtons[i], 0);
         diskGrid->AddSpacer(0);  // Empty cell for alignment
+        diskGrid->AddSpacer(0);  // Extra empty cell for 7-column grid
     }
     paddedSizer->Add(diskGrid, 0, wxEXPAND | wxBOTTOM, 15);
 
@@ -143,7 +161,26 @@ void SettingsDialogWx::layoutControls() {
     // Debug checkbox
     paddedSizer->Add(m_debugCheck, 0, wxBOTTOM, 15);
 
-    // Separator
+    // Separator before Dazzler
+    paddedSizer->Add(new wxStaticLine(this), 0, wxEXPAND | wxBOTTOM, 15);
+
+    // Dazzler section
+    wxStaticBoxSizer* dazzlerBox = new wxStaticBoxSizer(wxVERTICAL, this, "Cromemco Dazzler Graphics Card");
+
+    // Dazzler enable checkbox
+    dazzlerBox->Add(m_dazzlerEnabledCheck, 0, wxBOTTOM, 10);
+
+    // Dazzler port and scale row
+    wxBoxSizer* dazzlerRowSizer = new wxBoxSizer(wxHORIZONTAL);
+    dazzlerRowSizer->Add(m_dazzlerPortLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
+    dazzlerRowSizer->Add(m_dazzlerPortSpin, 0, wxRIGHT, 20);
+    dazzlerRowSizer->Add(m_dazzlerScaleLabel, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
+    dazzlerRowSizer->Add(m_dazzlerScaleSpin, 0);
+    dazzlerBox->Add(dazzlerRowSizer, 0, wxLEFT, 20);
+
+    paddedSizer->Add(dazzlerBox, 0, wxEXPAND | wxBOTTOM, 15);
+
+    // Separator before catalog
     paddedSizer->Add(new wxStaticLine(this), 0, wxEXPAND | wxBOTTOM, 15);
 
     // Catalog section header
@@ -238,7 +275,9 @@ void SettingsDialogWx::loadSettings() {
 
     // Disk selections and slices
     for (int i = 0; i < 4; i++) {
+        m_sliceAutoChecks[i]->SetValue(m_settings.diskSlicesAuto[i]);
         m_sliceSpins[i]->SetValue(m_settings.diskSlices[i]);
+        m_sliceSpins[i]->Enable(!m_settings.diskSlicesAuto[i]);
 
         if (!m_settings.diskFiles[i].empty()) {
             int idx = m_diskChoices[i]->FindString(wxString::FromUTF8(m_settings.diskFiles[i]));
@@ -253,6 +292,18 @@ void SettingsDialogWx::loadSettings() {
 
     // Debug mode
     m_debugCheck->SetValue(m_settings.debugMode);
+
+    // Dazzler settings
+    m_dazzlerEnabledCheck->SetValue(m_settings.dazzlerEnabled);
+    m_dazzlerPortSpin->SetValue(m_settings.dazzlerPort);
+    m_dazzlerScaleSpin->SetValue(m_settings.dazzlerScale);
+
+    // Enable/disable Dazzler controls based on enabled state
+    bool dazzlerEnabled = m_settings.dazzlerEnabled;
+    m_dazzlerPortLabel->Enable(dazzlerEnabled);
+    m_dazzlerPortSpin->Enable(dazzlerEnabled);
+    m_dazzlerScaleLabel->Enable(dazzlerEnabled);
+    m_dazzlerScaleSpin->Enable(dazzlerEnabled);
 }
 
 void SettingsDialogWx::saveSettings() {
@@ -271,6 +322,7 @@ void SettingsDialogWx::saveSettings() {
         } else {
             m_settings.diskFiles[i] = "";
         }
+        m_settings.diskSlicesAuto[i] = m_sliceAutoChecks[i]->GetValue();
         m_settings.diskSlices[i] = m_sliceSpins[i]->GetValue();
     }
 
@@ -279,6 +331,11 @@ void SettingsDialogWx::saveSettings() {
 
     // Debug mode
     m_settings.debugMode = m_debugCheck->GetValue();
+
+    // Dazzler settings
+    m_settings.dazzlerEnabled = m_dazzlerEnabledCheck->GetValue();
+    m_settings.dazzlerPort = m_dazzlerPortSpin->GetValue();
+    m_settings.dazzlerScale = m_dazzlerScaleSpin->GetValue();
 }
 
 void SettingsDialogWx::onBrowseDisk(wxCommandEvent& event) {
@@ -323,6 +380,23 @@ void SettingsDialogWx::onNewDisk(wxCommandEvent& event) {
             wxMessageBox("Failed to create disk image", "Error", wxOK | wxICON_ERROR);
         }
     }
+}
+
+void SettingsDialogWx::onSliceAutoChanged(wxCommandEvent& event) {
+    // Determine which disk unit this checkbox belongs to
+    int unit = event.GetId() - ID_SLICE_AUTO0;
+    if (unit >= 0 && unit < 4) {
+        bool isAuto = m_sliceAutoChecks[unit]->GetValue();
+        m_sliceSpins[unit]->Enable(!isAuto);
+    }
+}
+
+void SettingsDialogWx::onDazzlerEnabledChanged(wxCommandEvent& event) {
+    bool enabled = m_dazzlerEnabledCheck->GetValue();
+    m_dazzlerPortLabel->Enable(enabled);
+    m_dazzlerPortSpin->Enable(enabled);
+    m_dazzlerScaleLabel->Enable(enabled);
+    m_dazzlerScaleSpin->Enable(enabled);
 }
 
 void SettingsDialogWx::onRefreshCatalog(wxCommandEvent& event) {

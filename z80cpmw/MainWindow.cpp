@@ -201,7 +201,7 @@ void MainWindow::onCreate() {
         clientRect.bottom - statusHeight
     );
 
-    m_terminal->setFontSize(m_currentFontSize);
+    m_terminal->setFontSize(20);  // Default, will be updated by loadSettings()
 
     // Set up terminal input callback
     m_terminal->setKeyInputCallback([this](char ch) {
@@ -223,10 +223,10 @@ void MainWindow::onCreate() {
     loadDefaultROM();
     loadSettings();  // Loads saved disk paths and other settings
 
-    // Set menu items
+    // Set menu items (will be updated by loadSettings -> applyConfig)
     m_menu = GetMenu(m_hwnd);
     checkROMMenuItem(ID_ROM_EMU_AVW);
-    checkFontMenuItem(m_currentFontSize);
+    checkFontMenuItem(20);  // Default, applyConfig will update
 
     // Start emulator timer
     m_emulatorTimer = SetTimer(m_hwnd, IDT_EMULATOR, TIMER_INTERVAL_MS, nullptr);
@@ -296,6 +296,12 @@ void MainWindow::onCommand(int id) {
         break;
     case ID_FILE_SAVEDISKS:
         onFileSaveAllDisks();
+        break;
+    case ID_FILE_LOADPROFILE:
+        onLoadProfile();
+        break;
+    case ID_FILE_SAVEPROFILE:
+        onSaveProfileAs();
         break;
     case ID_FILE_EXIT:
         PostMessage(m_hwnd, WM_CLOSE, 0, 0);
@@ -399,7 +405,12 @@ void MainWindow::onFileLoadDisk(int unit) {
         WideCharToMultiByte(CP_UTF8, 0, filename, -1, path, MAX_PATH, nullptr, nullptr);
 
         if (m_emulator->loadDisk(unit, path)) {
-            m_diskPaths[unit] = path;  // Save for persistence
+            // Update config with new disk path
+            auto& cfg = config::ConfigManager::instance().get();
+            config::DiskConfig diskCfg;
+            diskCfg.path = path;
+            diskCfg.slicesAuto = true;
+            cfg.disks[unit] = diskCfg;
             saveSettings();
             m_statusText = "Loaded disk " + std::to_string(unit);
             updateStatusBar();
@@ -565,9 +576,13 @@ void MainWindow::downloadAndStartWithDefaults() {
 
     if (comboExists && gamesExists) {
         // Both exist, just load them
-        m_diskPaths[0] = combo;
+        auto& cfg = config::ConfigManager::instance().get();
+        config::DiskConfig disk0, disk1;
+        disk0.path = combo;
+        disk1.path = games;
+        cfg.disks[0] = disk0;
+        cfg.disks[1] = disk1;
         m_emulator->loadDisk(0, combo);
-        m_diskPaths[1] = games;
         m_emulator->loadDisk(1, games);
         termOutput("Loaded default disks.\r\n");
         saveSettings();
@@ -581,14 +596,23 @@ void MainWindow::downloadAndStartWithDefaults() {
     bool needComboDownload = !comboExists;
     bool needGamesDownload = !gamesExists;
 
+    // Helper to update config disk entry
+    auto setConfigDisk = [](int unit, const std::string& path) {
+        auto& cfg = config::ConfigManager::instance().get();
+        config::DiskConfig disk;
+        disk.path = path;
+        disk.slicesAuto = true;
+        cfg.disks[unit] = disk;
+    };
+
     // Load existing disk if present
     if (comboExists) {
-        m_diskPaths[0] = combo;
+        setConfigDisk(0, combo);
         m_emulator->loadDisk(0, combo);
         termOutput("Disk 0: hd1k_combo.img loaded\r\n");
     }
     if (gamesExists) {
-        m_diskPaths[1] = games;
+        setConfigDisk(1, games);
         m_emulator->loadDisk(1, games);
         termOutput("Disk 1: hd1k_games.img loaded\r\n");
     }
@@ -607,7 +631,11 @@ void MainWindow::downloadAndStartWithDefaults() {
                 };
 
                 if (success) {
-                    m_diskPaths[0] = combo;
+                    auto& cfg = config::ConfigManager::instance().get();
+                    config::DiskConfig disk;
+                    disk.path = combo;
+                    disk.slicesAuto = true;
+                    cfg.disks[0] = disk;
                     m_emulator->loadDisk(0, combo);
                     termOut("  Disk 0: hd1k_combo.img downloaded and loaded\r\n");
                 } else {
@@ -629,7 +657,11 @@ void MainWindow::downloadAndStartWithDefaults() {
                             };
 
                             if (success2) {
-                                m_diskPaths[1] = games;
+                                auto& cfg = config::ConfigManager::instance().get();
+                                config::DiskConfig disk;
+                                disk.path = games;
+                                disk.slicesAuto = true;
+                                cfg.disks[1] = disk;
                                 m_emulator->loadDisk(1, games);
                                 termOut2("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
                             } else {
@@ -658,7 +690,11 @@ void MainWindow::downloadAndStartWithDefaults() {
                 };
 
                 if (success) {
-                    m_diskPaths[1] = games;
+                    auto& cfg = config::ConfigManager::instance().get();
+                    config::DiskConfig disk;
+                    disk.path = games;
+                    disk.slicesAuto = true;
+                    cfg.disks[1] = disk;
                     m_emulator->loadDisk(1, games);
                     termOut("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
                 } else {
@@ -697,15 +733,17 @@ void MainWindow::onEmulatorSettings() {
     settings.bootString = m_emulator->getBootString();
     settings.debugMode = false;  // TODO: get from emulator
 
-    // Pass currently loaded disk filenames to settings dialog
+    // Pass currently loaded disk filenames to settings dialog from config
+    const auto& cfg = config::ConfigManager::instance().get();
     for (int i = 0; i < 4; i++) {
-        if (!m_diskPaths[i].empty()) {
+        if (cfg.disks[i].has_value() && !cfg.disks[i]->path.empty()) {
             // Extract filename from full path
-            size_t lastSlash = m_diskPaths[i].find_last_of("\\/");
+            const std::string& diskPath = cfg.disks[i]->path;
+            size_t lastSlash = diskPath.find_last_of("\\/");
             if (lastSlash != std::string::npos) {
-                settings.diskFiles[i] = m_diskPaths[i].substr(lastSlash + 1);
+                settings.diskFiles[i] = diskPath.substr(lastSlash + 1);
             } else {
-                settings.diskFiles[i] = m_diskPaths[i];
+                settings.diskFiles[i] = diskPath;
             }
         }
     }
@@ -725,7 +763,8 @@ void MainWindow::onEmulatorSettings() {
             }
         }
 
-        // Load disks and save paths for persistence
+        // Load disks and update config
+        auto& cfgMut = config::ConfigManager::instance().get();
         int diskCount = 0;
         for (int i = 0; i < 4; i++) {
             if (!settings.diskFiles[i].empty()) {
@@ -743,7 +782,11 @@ void MainWindow::onEmulatorSettings() {
                 }
                 if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
                     m_emulator->loadDisk(i, diskPath);
-                    m_diskPaths[i] = diskPath;  // Save for persistence
+                    // Update config
+                    config::DiskConfig disk;
+                    disk.path = diskPath;
+                    disk.slicesAuto = true;
+                    cfgMut.disks[i] = disk;
                     diskCount++;
                 }
             } else {
@@ -751,7 +794,7 @@ void MainWindow::onEmulatorSettings() {
                 if (m_emulator->isDiskLoaded(i)) {
                     m_emulator->closeDisk(i);
                 }
-                m_diskPaths[i].clear();
+                cfgMut.disks[i] = std::nullopt;
             }
         }
 
@@ -766,8 +809,8 @@ void MainWindow::onEmulatorSettings() {
             }
         }
 
-        // Save boot string
-        m_bootString = settings.bootString;
+        // Update config boot string
+        cfgMut.bootString = settings.bootString;
 
         // Save settings to disk
         saveSettings();
@@ -786,7 +829,7 @@ void MainWindow::onEmulatorSettings() {
 void MainWindow::onViewFontSize(int size) {
     if (m_terminal) {
         m_terminal->setFontSize(size);
-        m_currentFontSize = size;
+        config::ConfigManager::instance().get().fontSize = size;
         checkFontMenuItem(size);
         saveSettings();  // Persist font size
     }
@@ -798,9 +841,18 @@ void MainWindow::onViewDazzler() {
     // Update menu checkmark
     CheckMenuItem(m_menu, ID_VIEW_DAZZLER, m_dazzlerEnabled ? MF_CHECKED : MF_UNCHECKED);
 
+    // Get Dazzler config (use first one or create default)
+    auto& cfg = config::ConfigManager::instance().get();
+    uint8_t port = 0x0E;
+    int scale = 4;
+    if (!cfg.dazzlers.empty()) {
+        port = cfg.dazzlers[0].port;
+        scale = cfg.dazzlers[0].scale;
+    }
+
     if (m_dazzlerEnabled) {
         // Enable Dazzler in emulator
-        m_emulator->enableDazzler(m_dazzlerPort, m_dazzlerScale);
+        m_emulator->enableDazzler(port, scale);
 
         // Create Dazzler window
         if (!m_dazzlerWindow) {
@@ -809,7 +861,7 @@ void MainWindow::onViewDazzler() {
             // Position next to main window
             RECT mainRect;
             GetWindowRect(m_hwnd, &mainRect);
-            m_dazzlerWindow->create(m_hwnd, mainRect.right + 10, mainRect.top, m_dazzlerScale);
+            m_dazzlerWindow->create(m_hwnd, mainRect.right + 10, mainRect.top, scale);
         }
 
         // Connect to emulator's Dazzler
@@ -819,7 +871,7 @@ void MainWindow::onViewDazzler() {
         }
 
         m_statusText = "Dazzler enabled (port 0x" +
-            std::to_string(m_dazzlerPort) + ")";
+            std::to_string(port) + ")";
     } else {
         // Hide and disconnect Dazzler window
         if (m_dazzlerWindow) {
@@ -832,6 +884,9 @@ void MainWindow::onViewDazzler() {
 
         m_statusText = "Dazzler disabled";
     }
+
+    // Save Dazzler state to config
+    saveSettings();
 
     updateStatusBar();
 }
@@ -1022,241 +1077,233 @@ void MainWindow::showStartupInstructions() {
     }
 }
 
-std::string MainWindow::getSettingsPath() {
-    std::string userDir = EmulatorEngine::getUserDataDirectory();
-    return userDir + "\\z80cpmw.ini";
-}
-
 void MainWindow::loadSettings() {
-    std::string path = getSettingsPath();
-
-    // Set up data directory for disks and file transfers (use user data dir for Store app compatibility)
+    // Set up data directory for disks and file transfers
     std::string userDir = EmulatorEngine::getUserDataDirectory();
     std::string dataDir = userDir + "\\data";
     CreateDirectoryA(dataDir.c_str(), nullptr);
     m_diskCatalog->setDownloadDirectory(dataDir);
 
-    FILE* f = fopen(path.c_str(), "r");
-    if (!f) {
-        // First run - no settings file
+    // Load configuration (handles migration from old INI format automatically)
+    auto& cfgMgr = config::ConfigManager::instance();
+    cfgMgr.load();
 
-        // Helper to output string to terminal
-        auto termOutput = [this](const char* msg) {
-            if (m_terminal) {
-                for (const char* p = msg; *p; ++p) {
-                    m_terminal->outputChar(*p);
-                }
+    // Apply the loaded configuration
+    applyConfig();
+}
+
+void MainWindow::saveSettings() {
+    updateConfigFromState();
+    config::ConfigManager::instance().save();
+}
+
+void MainWindow::applyConfig() {
+    const auto& cfg = config::ConfigManager::instance().get();
+
+    // Apply ROM selection
+    if (!cfg.rom.empty()) {
+        std::string romPath = findResourceFile(cfg.rom);
+        if (!romPath.empty() && m_emulator->loadROM(romPath)) {
+            m_emulator->setROMName(cfg.rom);
+            // Update menu checkmark based on ROM name
+            if (cfg.rom == "emu_avw.rom") {
+                m_currentRomId = ID_ROM_EMU_AVW;
+            } else if (cfg.rom == "emu_romwbw.rom") {
+                m_currentRomId = ID_ROM_EMU_ROMWBW;
+            } else if (cfg.rom == "SBC_simh_std.rom") {
+                m_currentRomId = ID_ROM_SBC_SIMH;
             }
-        };
-
-        // Check for default disks and load them if present
-        std::string combo = dataDir + "\\hd1k_combo.img";
-        std::string games = dataDir + "\\hd1k_games.img";
-
-        bool comboLoaded = false;
-        bool gamesLoaded = false;
-        bool needComboDownload = false;
-        bool needGamesDownload = false;
-
-        // Check if combo disk exists
-        if (GetFileAttributesA(combo.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            m_diskPaths[0] = combo;
-            m_emulator->loadDisk(0, combo);
-            comboLoaded = true;
-            termOutput("Disk 0: hd1k_combo.img loaded\r\n");
-        } else {
-            needComboDownload = true;
-        }
-
-        // Check if games disk exists
-        if (GetFileAttributesA(games.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            m_diskPaths[1] = games;
-            m_emulator->loadDisk(1, games);
-            gamesLoaded = true;
-            termOutput("Disk 1: hd1k_games.img loaded\r\n");
-        } else {
-            needGamesDownload = true;
-        }
-
-        // Download missing disks (DiskCatalog can only do one at a time, so chain them)
-        if (needComboDownload || needGamesDownload) {
-            m_downloadingDisks = true;
-            termOutput("\r\nDownloading default disk images (please wait)...\r\n");
-        }
-
-        if (needComboDownload) {
-            m_diskCatalog->downloadDisk("hd1k_combo.img",
-                nullptr,
-                [this, combo, games, needGamesDownload](bool success, const std::string& error) {
-                    // Helper for terminal output in callback
-                    auto termOut = [this](const char* msg) {
-                        if (m_terminal) {
-                            for (const char* p = msg; *p; ++p) {
-                                m_terminal->outputChar(*p);
-                            }
-                        }
-                    };
-
-                    if (success) {
-                        m_diskPaths[0] = combo;
-                        m_emulator->loadDisk(0, combo);
-                        termOut("  Disk 0: hd1k_combo.img downloaded and loaded\r\n");
-                    } else {
-                        termOut("  Disk 0: download failed - ");
-                        termOut(error.c_str());
-                        termOut("\r\n");
-                    }
-
-                    // Chain games download after combo completes
-                    if (needGamesDownload) {
-                        m_diskCatalog->downloadDisk("hd1k_games.img",
-                            nullptr,
-                            [this, games](bool success2, const std::string& error2) {
-                                auto termOut2 = [this](const char* msg) {
-                                    if (m_terminal) {
-                                        for (const char* p = msg; *p; ++p) {
-                                            m_terminal->outputChar(*p);
-                                        }
-                                    }
-                                };
-
-                                if (success2) {
-                                    m_diskPaths[1] = games;
-                                    m_emulator->loadDisk(1, games);
-                                    termOut2("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
-                                } else {
-                                    termOut2("  Disk 1: download failed - ");
-                                    termOut2(error2.c_str());
-                                    termOut2("\r\n");
-                                }
-                                m_downloadingDisks = false;
-                                // Only show "Press F5" if emulator not already running
-                                if (!m_emulator->isRunning()) {
-                                    termOut2("\r\nPress F5 to start emulator.\r\n");
-                                }
-                                saveSettings();
-                            });
-                    } else {
-                        m_downloadingDisks = false;
-                        if (!m_emulator->isRunning()) {
-                            termOut("\r\nPress F5 to start emulator.\r\n");
-                        }
-                        saveSettings();
-                    }
-                });
-        } else if (needGamesDownload) {
-            // Only games needs download
-            m_diskCatalog->downloadDisk("hd1k_games.img",
-                nullptr,
-                [this, games](bool success, const std::string& error) {
-                    auto termOut = [this](const char* msg) {
-                        if (m_terminal) {
-                            for (const char* p = msg; *p; ++p) {
-                                m_terminal->outputChar(*p);
-                            }
-                        }
-                    };
-
-                    if (success) {
-                        m_diskPaths[1] = games;
-                        m_emulator->loadDisk(1, games);
-                        termOut("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
-                    } else {
-                        termOut("  Disk 1: download failed - ");
-                        termOut(error.c_str());
-                        termOut("\r\n");
-                    }
-                    m_downloadingDisks = false;
-                    if (!m_emulator->isRunning()) {
-                        termOut("\r\nPress F5 to start emulator.\r\n");
-                    }
-                    saveSettings();
-                });
-        }
-
-        // Save settings if no downloads pending (downloads will save when done)
-        if (!needComboDownload && !needGamesDownload) {
-            saveSettings();
-        }
-        return;
-    }
-
-    char line[1024];
-    while (fgets(line, sizeof(line), f)) {
-        // Remove trailing newline
-        char* nl = strchr(line, '\n');
-        if (nl) *nl = '\0';
-        char* cr = strchr(line, '\r');
-        if (cr) *cr = '\0';
-
-        // Parse key=value
-        char* eq = strchr(line, '=');
-        if (!eq) continue;
-        *eq = '\0';
-        const char* key = line;
-        const char* value = eq + 1;
-
-        if (strcmp(key, "disk0") == 0) {
-            m_diskPaths[0] = value;
-        } else if (strcmp(key, "disk1") == 0) {
-            m_diskPaths[1] = value;
-        } else if (strcmp(key, "disk2") == 0) {
-            m_diskPaths[2] = value;
-        } else if (strcmp(key, "disk3") == 0) {
-            m_diskPaths[3] = value;
-        } else if (strcmp(key, "bootString") == 0) {
-            m_bootString = value;
-        } else if (strcmp(key, "fontSize") == 0) {
-            m_currentFontSize = atoi(value);
+            checkROMMenuItem(m_currentRomId);
         }
     }
-    fclose(f);
 
-    // Apply loaded settings
+    // Apply debug mode
+    m_emulator->setDebug(cfg.debug);
+
+    // Apply boot string
+    if (!cfg.bootString.empty()) {
+        m_emulator->setBootString(cfg.bootString);
+    }
+
+    // Apply font size
+    if (cfg.fontSize > 0 && m_terminal) {
+        m_terminal->setFontSize(cfg.fontSize);
+        checkFontMenuItem(cfg.fontSize);
+    }
+
+    // Load disks
     int diskCount = 0;
     for (int i = 0; i < 4; i++) {
-        if (!m_diskPaths[i].empty()) {
-            if (GetFileAttributesA(m_diskPaths[i].c_str()) != INVALID_FILE_ATTRIBUTES) {
-                m_emulator->loadDisk(i, m_diskPaths[i]);
+        if (cfg.disks[i].has_value()) {
+            const auto& disk = cfg.disks[i].value();
+            if (!disk.path.empty() && GetFileAttributesA(disk.path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                m_emulator->loadDisk(i, disk.path);
                 diskCount++;
             }
         }
     }
 
-    // Apply auto slice count (1 disk: 8, 2 disks: 4, 3+: 2)
-    int autoSlices = (diskCount <= 1) ? 8 : (diskCount == 2) ? 4 : 2;
+    // Apply slice counts
     for (int i = 0; i < 4; i++) {
         if (m_emulator->isDiskLoaded(i)) {
-            m_emulator->setDiskSliceCount(i, autoSlices);
+            int slices = cfg.getEffectiveSlices(i, diskCount);
+            m_emulator->setDiskSliceCount(i, slices);
         }
     }
 
-    if (!m_bootString.empty()) {
-        m_emulator->setBootString(m_bootString);
-    }
+    // Apply Dazzler settings (if any configured)
+    if (!cfg.dazzlers.empty()) {
+        const auto& daz = cfg.dazzlers[0];
+        if (daz.enabled) {
+            m_dazzlerEnabled = true;
+            m_emulator->enableDazzler(daz.port, daz.scale);
 
-    if (m_currentFontSize > 0 && m_terminal) {
-        m_terminal->setFontSize(m_currentFontSize);
-        checkFontMenuItem(m_currentFontSize);
+            // Create Dazzler window
+            if (!m_dazzlerWindow) {
+                m_dazzlerWindow = std::make_unique<DazzlerWindow>();
+                RECT mainRect;
+                GetWindowRect(m_hwnd, &mainRect);
+                m_dazzlerWindow->create(m_hwnd, mainRect.right + 10, mainRect.top, daz.scale);
+            }
+            if (m_dazzlerWindow && m_emulator->getDazzler()) {
+                m_dazzlerWindow->setDazzler(m_emulator->getDazzler());
+                m_dazzlerWindow->show(true);
+            }
+            CheckMenuItem(m_menu, ID_VIEW_DAZZLER, MF_CHECKED);
+        }
     }
 }
 
-void MainWindow::saveSettings() {
-    std::string path = getSettingsPath();
-    FILE* f = fopen(path.c_str(), "w");
-    if (!f) return;
+void MainWindow::updateConfigFromState() {
+    auto& cfg = config::ConfigManager::instance().get();
 
-    for (int i = 0; i < 4; i++) {
-        if (!m_diskPaths[i].empty()) {
-            fprintf(f, "disk%d=%s\n", i, m_diskPaths[i].c_str());
+    // Capture current ROM
+    // (ROM name is stored in emulator, but we track via m_currentRomId)
+    switch (m_currentRomId) {
+    case ID_ROM_EMU_AVW:
+        cfg.rom = "emu_avw.rom";
+        break;
+    case ID_ROM_EMU_ROMWBW:
+        cfg.rom = "emu_romwbw.rom";
+        break;
+    case ID_ROM_SBC_SIMH:
+        cfg.rom = "SBC_simh_std.rom";
+        break;
+    }
+
+    // Capture debug mode
+    // cfg.debug = m_emulator->isDebug(); // If we had a getter
+
+    // Capture boot string
+    cfg.bootString = m_emulator->getBootString();
+
+    // Capture font size
+    if (m_terminal) {
+        cfg.fontSize = m_terminal->getFontSize();
+    }
+
+    // Capture disk paths (already updated when disks are loaded)
+
+    // Capture Dazzler state
+    if (m_dazzlerEnabled) {
+        if (cfg.dazzlers.empty()) {
+            cfg.dazzlers.push_back(config::DazzlerConfig{});
+        }
+        cfg.dazzlers[0].enabled = true;
+        if (m_emulator->getDazzler()) {
+            cfg.dazzlers[0].port = m_emulator->getDazzler()->getBasePort();
+            cfg.dazzlers[0].scale = m_emulator->getDazzler()->getScale();
+        }
+    } else if (!cfg.dazzlers.empty()) {
+        cfg.dazzlers[0].enabled = false;
+    }
+}
+
+void MainWindow::onLoadProfile() {
+    auto profiles = config::ConfigManager::instance().listProfiles();
+    if (profiles.empty()) {
+        MessageBoxW(m_hwnd, L"No saved profiles found.", L"Load Profile", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    // Simple file dialog to select profile
+    wchar_t filename[MAX_PATH] = {};
+    std::wstring profilesDir = std::wstring(
+        config::ConfigManager::instance().getProfilesDir().begin(),
+        config::ConfigManager::instance().getProfilesDir().end());
+
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = m_hwnd;
+    ofn.lpstrFilter = L"Profile Files (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrInitialDir = profilesDir.c_str();
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
+    ofn.lpstrTitle = L"Load Profile";
+
+    if (GetOpenFileNameW(&ofn)) {
+        // Extract profile name from path
+        wchar_t* lastSlash = wcsrchr(filename, L'\\');
+        std::wstring nameW = lastSlash ? lastSlash + 1 : filename;
+        // Remove .json extension
+        size_t dotPos = nameW.rfind(L'.');
+        if (dotPos != std::wstring::npos) {
+            nameW = nameW.substr(0, dotPos);
+        }
+
+        char nameA[MAX_PATH];
+        WideCharToMultiByte(CP_UTF8, 0, nameW.c_str(), -1, nameA, MAX_PATH, nullptr, nullptr);
+
+        if (config::ConfigManager::instance().loadProfile(nameA)) {
+            applyConfig();
+            m_statusText = "Loaded profile: " + std::string(nameA);
+            updateStatusBar();
+        } else {
+            MessageBoxW(m_hwnd, L"Failed to load profile.", L"Error", MB_OK | MB_ICONERROR);
         }
     }
+}
 
-    if (!m_bootString.empty()) {
-        fprintf(f, "bootString=%s\n", m_bootString.c_str());
+void MainWindow::onSaveProfileAs() {
+    wchar_t filename[MAX_PATH] = {};
+    std::wstring profilesDir = std::wstring(
+        config::ConfigManager::instance().getProfilesDir().begin(),
+        config::ConfigManager::instance().getProfilesDir().end());
+
+    // Ensure profiles directory exists
+    CreateDirectoryW(profilesDir.c_str(), nullptr);
+
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = m_hwnd;
+    ofn.lpstrFilter = L"Profile Files (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filename;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrInitialDir = profilesDir.c_str();
+    ofn.Flags = OFN_OVERWRITEPROMPT;
+    ofn.lpstrTitle = L"Save Profile As";
+    ofn.lpstrDefExt = L"json";
+
+    if (GetSaveFileNameW(&ofn)) {
+        // Extract profile name from path
+        wchar_t* lastSlash = wcsrchr(filename, L'\\');
+        std::wstring nameW = lastSlash ? lastSlash + 1 : filename;
+        // Remove .json extension
+        size_t dotPos = nameW.rfind(L'.');
+        if (dotPos != std::wstring::npos) {
+            nameW = nameW.substr(0, dotPos);
+        }
+
+        char nameA[MAX_PATH];
+        WideCharToMultiByte(CP_UTF8, 0, nameW.c_str(), -1, nameA, MAX_PATH, nullptr, nullptr);
+
+        updateConfigFromState();
+        if (config::ConfigManager::instance().saveAsProfile(nameA)) {
+            m_statusText = "Saved profile: " + std::string(nameA);
+            updateStatusBar();
+        } else {
+            MessageBoxW(m_hwnd, L"Failed to save profile.", L"Error", MB_OK | MB_ICONERROR);
+        }
     }
-
-    fprintf(f, "fontSize=%d\n", m_currentFontSize);
-
-    fclose(f);
 }
