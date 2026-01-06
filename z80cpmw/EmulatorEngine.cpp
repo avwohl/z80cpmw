@@ -62,6 +62,12 @@ void EmulatorEngine::initCPU() {
         m_cpu->regs.PC.set_pair16(0);
         m_initializedRamBanks = 0;
     });
+
+    // Register bank init callback for SYSSETBNK
+    // This ensures SYSSETBNK uses the same initialized_ram_banks bitmap as port I/O
+    m_hbios->setBankInitCallback([this](uint8_t bank) {
+        emu_init_ram_bank(m_memory.get(), bank, &m_initializedRamBanks);
+    });
 }
 
 void EmulatorEngine::initializeRamBankIfNeeded(uint8_t bank) {
