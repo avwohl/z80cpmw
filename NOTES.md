@@ -53,3 +53,55 @@ This location is used because Microsoft Store apps cannot write to Program Files
 - App install directory is read-only
 - All writable files go to LocalAppData
 - ROMs are read from app install directory (read-only resources)
+
+## Unified RAM Bank Initialization (January 2026)
+
+### For iOS/Mac Port
+
+romwbw_emu commit b162fe9 unified the two independent RAM bank initialization systems into one.
+
+**The Problem:** Previously there were two paths that could initialize RAM banks:
+1. Port I/O path - via `initializeRamBankIfNeeded()` delegate method
+2. SYSSETBNK path - via HBIOS function 0xF1 in hbios_dispatch.cc
+
+Each had its own `initialized_ram_banks` bitmap, leading to potential double-initialization
+and the SYSSETBNK path was missing the CBIOS page zero stamp at 0x40-0x55.
+
+**The Fix:** `HBIOSDispatch` now owns the single bitmap and exposes it via:
+```cpp
+uint16_t* getInitializedBanksBitmap() { return &initialized_ram_banks; }
+```
+
+**What to Do for iOS/Mac:**
+
+1. **Remove** any local `initialized_ram_banks` variable from your emulator class
+
+2. **Update** `initializeRamBankIfNeeded()` to use the shared bitmap:
+```cpp
+// BEFORE:
+void initializeRamBankIfNeeded(uint8_t bank) override {
+    emu_init_ram_bank(&memory, bank, &initialized_ram_banks);
+}
+
+// AFTER:
+void initializeRamBankIfNeeded(uint8_t bank) override {
+    emu_init_ram_bank(&memory, bank, hbios.getInitializedBanksBitmap());
+}
+```
+
+3. **Update** any places that reset the bitmap (reset callbacks, ROM loading, etc.):
+```cpp
+// BEFORE:
+initialized_ram_banks = 0;
+
+// AFTER:
+*hbios.getInitializedBanksBitmap() = 0;
+```
+
+4. **Pull** the updated `hbios_dispatch.h` and `hbios_dispatch.cc` from romwbw_emu
+
+**Benefits:**
+- Single bitmap tracks all RAM bank initialization
+- No redundant re-initialization
+- CBIOS page zero stamp (0x40-0x55) is always installed correctly
+- ASSIGN and MODE commands now work via SYSSETBNK path

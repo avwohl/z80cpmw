@@ -60,7 +60,7 @@ void EmulatorEngine::initCPU() {
         m_memory->select_bank(0);
         emu_console_clear_queue();
         m_cpu->regs.PC.set_pair16(0);
-        m_initializedRamBanks = 0;
+        *m_hbios->getInitializedBanksBitmap() = 0;
     });
 
 }
@@ -68,7 +68,7 @@ void EmulatorEngine::initCPU() {
 void EmulatorEngine::initializeRamBankIfNeeded(uint8_t bank) {
     // Use shared initialization to copy page zero and HCB to RAM bank
     // This is required for CP/M 3 bank switching to work correctly
-    emu_init_ram_bank(m_memory.get(), bank, &m_initializedRamBanks);
+    emu_init_ram_bank(m_memory.get(), bank, m_hbios->getInitializedBanksBitmap());
 }
 
 void EmulatorEngine::onHalt() {
@@ -101,7 +101,7 @@ bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
     if (!m_memory || !data || size == 0) return false;
 
     // Reset RAM bank initialization tracking
-    m_initializedRamBanks = 0;
+    *m_hbios->getInitializedBanksBitmap() = 0;
 
     // Use shared ROM loading function
     // Note: emu_complete_init() is called later in start() after disks are loaded
@@ -180,7 +180,7 @@ void EmulatorEngine::start() {
     m_cpu->regs.IFF1 = 0;
     m_cpu->regs.IFF2 = 0;
     m_memory->select_bank(0);
-    m_initializedRamBanks = 0;
+    *m_hbios->getInitializedBanksBitmap() = 0;
 
     // Complete initialization AFTER all disks are loaded
     // This ensures disk unit table includes all attached disks
@@ -221,7 +221,7 @@ void EmulatorEngine::reset() {
     m_cpu->regs.IFF1 = 0;
     m_cpu->regs.IFF2 = 0;
     m_memory->select_bank(0);
-    m_initializedRamBanks = 0;
+    *m_hbios->getInitializedBanksBitmap() = 0;
     emu_console_clear_queue();
     m_hbios->reset();
     m_escapeState = EscapeState::Normal;

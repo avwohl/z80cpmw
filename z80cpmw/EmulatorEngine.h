@@ -143,8 +143,8 @@ private:
     uint64_t m_instructionCount = 0;
     static constexpr int BATCH_SIZE = 100000;
 
-    // RAM bank initialization tracking (bitmask for banks 0x80-0x8F)
-    uint16_t m_initializedRamBanks = 0;
+    // RAM bank initialization now uses HBIOSDispatch's shared bitmap
+    // via m_hbios->getInitializedBanksBitmap() - see "Unified RAM Bank Initialization"
 
     // Debug flag
     bool m_debug = false;
