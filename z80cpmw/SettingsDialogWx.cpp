@@ -18,10 +18,6 @@ wxBEGIN_EVENT_TABLE(SettingsDialogWx, wxDialog)
     EVT_BUTTON(ID_NEW_DISK1, SettingsDialogWx::onNewDisk)
     EVT_BUTTON(ID_NEW_DISK2, SettingsDialogWx::onNewDisk)
     EVT_BUTTON(ID_NEW_DISK3, SettingsDialogWx::onNewDisk)
-    EVT_CHECKBOX(ID_SLICE_AUTO0, SettingsDialogWx::onSliceAutoChanged)
-    EVT_CHECKBOX(ID_SLICE_AUTO1, SettingsDialogWx::onSliceAutoChanged)
-    EVT_CHECKBOX(ID_SLICE_AUTO2, SettingsDialogWx::onSliceAutoChanged)
-    EVT_CHECKBOX(ID_SLICE_AUTO3, SettingsDialogWx::onSliceAutoChanged)
     EVT_CHECKBOX(ID_DAZZLER_ENABLED, SettingsDialogWx::onDazzlerEnabledChanged)
     EVT_BUTTON(ID_REFRESH_CATALOG, SettingsDialogWx::onRefreshCatalog)
     EVT_BUTTON(ID_DOWNLOAD_DISK, SettingsDialogWx::onDownloadDisk)
@@ -66,12 +62,9 @@ void SettingsDialogWx::createControls() {
     // ROM selection
     m_romChoice = new wxChoice(this, wxID_ANY);
 
-    // Disk selections with slices, browse, and new buttons
+    // Disk selections with browse and new buttons
     for (int i = 0; i < 4; i++) {
         m_diskChoices[i] = new wxChoice(this, wxID_ANY);
-        m_sliceAutoChecks[i] = new wxCheckBox(this, ID_SLICE_AUTO0 + i, "Auto");
-        m_sliceSpins[i] = new wxSpinCtrl(this, wxID_ANY, "4", wxDefaultPosition,
-                                          wxSize(60, -1), wxSP_ARROW_KEYS, 1, 8, 4);
         m_browseButtons[i] = new wxButton(this, ID_BROWSE_DISK0 + i, "Browse...");
         m_newButtons[i] = new wxButton(this, ID_NEW_DISK0 + i, "New");
     }
@@ -129,25 +122,15 @@ void SettingsDialogWx::layoutControls() {
     paddedSizer->Add(romSizer, 0, wxEXPAND | wxBOTTOM, 10);
 
     // Disk rows using a flex grid for alignment
-    wxFlexGridSizer* diskGrid = new wxFlexGridSizer(4, 7, 8, 10);
+    wxFlexGridSizer* diskGrid = new wxFlexGridSizer(4, 4, 8, 10);
     diskGrid->AddGrowableCol(1);  // Disk dropdown stretches
 
     for (int i = 0; i < 4; i++) {
         wxString label = wxString::Format("Disk %d:", i);
         diskGrid->Add(new wxStaticText(this, wxID_ANY, label), 0, wxALIGN_CENTER_VERTICAL);
         diskGrid->Add(m_diskChoices[i], 1, wxEXPAND);
-
-        // Slice controls with auto checkbox
-        wxBoxSizer* sliceSizer = new wxBoxSizer(wxHORIZONTAL);
-        sliceSizer->Add(new wxStaticText(this, wxID_ANY, "Slices:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
-        sliceSizer->Add(m_sliceAutoChecks[i], 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 5);
-        sliceSizer->Add(m_sliceSpins[i], 0);
-        diskGrid->Add(sliceSizer, 0, wxALIGN_CENTER_VERTICAL);
-
         diskGrid->Add(m_browseButtons[i], 0);
         diskGrid->Add(m_newButtons[i], 0);
-        diskGrid->AddSpacer(0);  // Empty cell for alignment
-        diskGrid->AddSpacer(0);  // Extra empty cell for 7-column grid
     }
     paddedSizer->Add(diskGrid, 0, wxEXPAND | wxBOTTOM, 15);
 
@@ -273,12 +256,8 @@ void SettingsDialogWx::loadSettings() {
         m_romChoice->SetSelection(0);
     }
 
-    // Disk selections and slices
+    // Disk selections
     for (int i = 0; i < 4; i++) {
-        m_sliceAutoChecks[i]->SetValue(m_settings.diskSlicesAuto[i]);
-        m_sliceSpins[i]->SetValue(m_settings.diskSlices[i]);
-        m_sliceSpins[i]->Enable(!m_settings.diskSlicesAuto[i]);
-
         if (!m_settings.diskFiles[i].empty()) {
             int idx = m_diskChoices[i]->FindString(wxString::FromUTF8(m_settings.diskFiles[i]));
             if (idx != wxNOT_FOUND) {
@@ -314,7 +293,7 @@ void SettingsDialogWx::saveSettings() {
         default: m_settings.romFile = "emu_avw.rom"; break;
     }
 
-    // Disk selections and slices
+    // Disk selections
     for (int i = 0; i < 4; i++) {
         int sel = m_diskChoices[i]->GetSelection();
         if (sel > 0) {
@@ -322,8 +301,6 @@ void SettingsDialogWx::saveSettings() {
         } else {
             m_settings.diskFiles[i] = "";
         }
-        m_settings.diskSlicesAuto[i] = m_sliceAutoChecks[i]->GetValue();
-        m_settings.diskSlices[i] = m_sliceSpins[i]->GetValue();
     }
 
     // Boot string
@@ -379,15 +356,6 @@ void SettingsDialogWx::onNewDisk(wxCommandEvent& event) {
         } else {
             wxMessageBox("Failed to create disk image", "Error", wxOK | wxICON_ERROR);
         }
-    }
-}
-
-void SettingsDialogWx::onSliceAutoChanged(wxCommandEvent& event) {
-    // Determine which disk unit this checkbox belongs to
-    int unit = event.GetId() - ID_SLICE_AUTO0;
-    if (unit >= 0 && unit < 4) {
-        bool isAuto = m_sliceAutoChecks[unit]->GetValue();
-        m_sliceSpins[unit]->Enable(!isAuto);
     }
 }
 

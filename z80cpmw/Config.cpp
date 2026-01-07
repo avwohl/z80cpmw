@@ -18,16 +18,12 @@ namespace config {
 // JSON serialization for DiskConfig
 void to_json(json& j, const DiskConfig& d) {
     j = json{
-        {"path", d.path},
-        {"slicesAuto", d.slicesAuto},
-        {"slicesOverride", d.slicesOverride}
+        {"path", d.path}
     };
 }
 
 void from_json(const json& j, DiskConfig& d) {
     j.at("path").get_to(d.path);
-    d.slicesAuto = j.value("slicesAuto", true);
-    d.slicesOverride = j.value("slicesOverride", 4);
 }
 
 // JSON serialization for DazzlerConfig
@@ -112,19 +108,6 @@ void from_json(const json& j, AppConfig& c) {
             c.dazzlers = hw["dazzler"].get<std::vector<DazzlerConfig>>();
         }
     }
-}
-
-// AppConfig methods
-int AppConfig::getEffectiveSlices(int diskIndex, int loadedDiskCount) const {
-    if (diskIndex < 0 || diskIndex >= 4) return 4;
-    if (!disks[diskIndex].has_value()) return 4;
-
-    const auto& disk = disks[diskIndex].value();
-    if (disk.slicesAuto) {
-        // Auto-calculate: 1 disk -> 8 slices, 2 disks -> 4, 3+ -> 2
-        return (loadedDiskCount <= 1) ? 8 : (loadedDiskCount == 2) ? 4 : 2;
-    }
-    return disk.slicesOverride;
 }
 
 // ConfigManager singleton
@@ -259,7 +242,6 @@ bool ConfigManager::parseOldINI(const std::string& path) {
             if (idx >= 0 && idx < 4 && strlen(value) > 0) {
                 DiskConfig disk;
                 disk.path = value;
-                disk.slicesAuto = true;
                 m_config.disks[idx] = disk;
             }
         } else if (strcmp(key, "bootString") == 0) {

@@ -20,8 +20,6 @@ constexpr int CURRENT_VERSION = 2;
 // Disk unit configuration
 struct DiskConfig {
     std::string path;           // Full path to disk image
-    bool slicesAuto = true;     // Use auto-calculated slice count
-    int slicesOverride = 4;     // Manual slice count (when slicesAuto=false)
 };
 
 // Dazzler graphics card configuration
@@ -49,9 +47,6 @@ struct AppConfig {
 
     // Hardware peripherals
     std::vector<DazzlerConfig> dazzlers;
-
-    // Get effective slice count for a disk (respects auto vs override)
-    int getEffectiveSlices(int diskIndex, int loadedDiskCount) const;
 };
 
 // Singleton configuration manager

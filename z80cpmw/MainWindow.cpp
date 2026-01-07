@@ -12,6 +12,7 @@
 #include "SettingsDialogWx.h"
 #include "HelpWindow.h"
 #include "resource.h"
+#include "Version.h"
 
 // External function to set main window for host file dialogs
 extern "C" void emu_io_set_main_window(HWND hwnd);
@@ -409,7 +410,6 @@ void MainWindow::onFileLoadDisk(int unit) {
             auto& cfg = config::ConfigManager::instance().get();
             config::DiskConfig diskCfg;
             diskCfg.path = path;
-            diskCfg.slicesAuto = true;
             cfg.disks[unit] = diskCfg;
             saveSettings();
             m_statusText = "Loaded disk " + std::to_string(unit);
@@ -534,18 +534,6 @@ void MainWindow::startEmulator() {
         m_terminal->clear();
     }
 
-    // Apply auto slice count based on loaded disk count (1: 8, 2: 4, 3+: 2)
-    int diskCount = 0;
-    for (int i = 0; i < 4; i++) {
-        if (m_emulator->isDiskLoaded(i)) diskCount++;
-    }
-    int autoSlices = (diskCount <= 1) ? 8 : (diskCount == 2) ? 4 : 2;
-    for (int i = 0; i < 4; i++) {
-        if (m_emulator->isDiskLoaded(i)) {
-            m_emulator->setDiskSliceCount(i, autoSlices);
-        }
-    }
-
     m_emulator->start();
     updateMenuState();
 
@@ -601,7 +589,6 @@ void MainWindow::downloadAndStartWithDefaults() {
         auto& cfg = config::ConfigManager::instance().get();
         config::DiskConfig disk;
         disk.path = path;
-        disk.slicesAuto = true;
         cfg.disks[unit] = disk;
     };
 
@@ -634,7 +621,6 @@ void MainWindow::downloadAndStartWithDefaults() {
                     auto& cfg = config::ConfigManager::instance().get();
                     config::DiskConfig disk;
                     disk.path = combo;
-                    disk.slicesAuto = true;
                     cfg.disks[0] = disk;
                     m_emulator->loadDisk(0, combo);
                     termOut("  Disk 0: hd1k_combo.img downloaded and loaded\r\n");
@@ -660,7 +646,6 @@ void MainWindow::downloadAndStartWithDefaults() {
                                 auto& cfg = config::ConfigManager::instance().get();
                                 config::DiskConfig disk;
                                 disk.path = games;
-                                disk.slicesAuto = true;
                                 cfg.disks[1] = disk;
                                 m_emulator->loadDisk(1, games);
                                 termOut2("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
@@ -693,7 +678,6 @@ void MainWindow::downloadAndStartWithDefaults() {
                     auto& cfg = config::ConfigManager::instance().get();
                     config::DiskConfig disk;
                     disk.path = games;
-                    disk.slicesAuto = true;
                     cfg.disks[1] = disk;
                     m_emulator->loadDisk(1, games);
                     termOut("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
@@ -765,7 +749,6 @@ void MainWindow::onEmulatorSettings() {
 
         // Load disks and update config
         auto& cfgMut = config::ConfigManager::instance().get();
-        int diskCount = 0;
         for (int i = 0; i < 4; i++) {
             if (!settings.diskFiles[i].empty()) {
                 std::string diskPath;
@@ -785,9 +768,7 @@ void MainWindow::onEmulatorSettings() {
                     // Update config
                     config::DiskConfig disk;
                     disk.path = diskPath;
-                    disk.slicesAuto = true;
                     cfgMut.disks[i] = disk;
-                    diskCount++;
                 }
             } else {
                 // User selected "(None)" - close the disk if one was loaded
@@ -795,17 +776,6 @@ void MainWindow::onEmulatorSettings() {
                     m_emulator->closeDisk(i);
                 }
                 cfgMut.disks[i] = std::nullopt;
-            }
-        }
-
-        // Calculate auto slice count based on disk count (matching CBIOS logic):
-        // 1 disk: 8 slices, 2 disks: 4 slices, 3+ disks: 2 slices
-        int autoSlices = (diskCount <= 1) ? 8 : (diskCount == 2) ? 4 : 2;
-
-        // Apply slice counts to loaded disks
-        for (int i = 0; i < 4; i++) {
-            if (m_emulator->isDiskLoaded(i)) {
-                m_emulator->setDiskSliceCount(i, autoSlices);
             }
         }
 
@@ -900,9 +870,13 @@ void MainWindow::onHelpAbout() {
     std::string dataDir = EmulatorEngine::getUserDataDirectory();
     std::wstring dataDirW(dataDir.begin(), dataDir.end());
 
+    // Convert version string to wide
+    std::string verStr = VERSION_STRING;
+    std::wstring verStrW(verStr.begin(), verStr.end());
+
     std::wstring aboutText =
         L"z80cpmw - Z80 CP/M Emulator\n"
-        L"Version 1.0\n\n"
+        L"Version " + verStrW + L"\n\n"
         L"A RomWBW/HBIOS emulator for Windows.\n\n"
         L"Data Directory:\n" + dataDirW + L"\n\n"
         L"License: GPL v3\n"
@@ -1010,21 +984,11 @@ void MainWindow::loadDefaultDisks() {
     std::string appDir = EmulatorEngine::getAppDirectory();
     std::string disksDir = appDir + "\\disks";
 
-    int diskCount = 0;
     for (int unit = 0; unit < 2 && unit < (int)defaultDisks.size(); unit++) {
         std::string diskPath = disksDir + "\\" + defaultDisks[unit];
         if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
             m_emulator->loadDisk(unit, diskPath);
             m_emulator->setDiskPath(unit, diskPath);
-            diskCount++;
-        }
-    }
-
-    // Apply auto slice count (1 disk: 8, 2 disks: 4, 3+: 2)
-    int autoSlices = (diskCount <= 1) ? 8 : (diskCount == 2) ? 4 : 2;
-    for (int i = 0; i < 4; i++) {
-        if (m_emulator->isDiskLoaded(i)) {
-            m_emulator->setDiskSliceCount(i, autoSlices);
         }
     }
 }
@@ -1132,22 +1096,12 @@ void MainWindow::applyConfig() {
     }
 
     // Load disks
-    int diskCount = 0;
     for (int i = 0; i < 4; i++) {
         if (cfg.disks[i].has_value()) {
             const auto& disk = cfg.disks[i].value();
             if (!disk.path.empty() && GetFileAttributesA(disk.path.c_str()) != INVALID_FILE_ATTRIBUTES) {
                 m_emulator->loadDisk(i, disk.path);
-                diskCount++;
             }
-        }
-    }
-
-    // Apply slice counts
-    for (int i = 0; i < 4; i++) {
-        if (m_emulator->isDiskLoaded(i)) {
-            int slices = cfg.getEffectiveSlices(i, diskCount);
-            m_emulator->setDiskSliceCount(i, slices);
         }
     }
 
