@@ -1,4 +1,5 @@
 [Files]
+"AppxManifest.xml"                                 "AppxManifest.xml"
 "..\..\bin\Release\z80cpmw.exe"                    "z80cpmw.exe"
 "..\..\bin\Release\wxbase331u_vc_x64_custom.dll"   "wxbase331u_vc_x64_custom.dll"
 "..\..\bin\Release\wxmsw331u_core_vc_x64_custom.dll" "wxmsw331u_core_vc_x64_custom.dll"
