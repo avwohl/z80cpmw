@@ -218,8 +218,8 @@ void SettingsDialog::onInitDialog(HWND hwnd) {
     CreateWindowW(L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
                   leftMargin + labelWidth, y, 100, ctrlHeight, hwnd,
                   (HMENU)IDC_BOOT_STRING, nullptr, nullptr);
-    CreateWindowW(L"STATIC", L"(e.g., 0 to auto-boot CP/M)", WS_CHILD | WS_VISIBLE,
-                  leftMargin + labelWidth + 115, y + 5, 250, 22, hwnd, nullptr, nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"(empty=menu, 0=disk0, 0.2=slice2, C=ROM app)", WS_CHILD | WS_VISIBLE,
+                  leftMargin + labelWidth + 115, y + 5, 320, 22, hwnd, nullptr, nullptr, nullptr);
     y += rowHeight;
 
     // Debug checkbox

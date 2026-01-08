@@ -199,10 +199,9 @@ void EmulatorEngine::start() {
         ram[proxy_phys + 2] = 0xC9;  // RET
     }
 
-    if (!m_bootString.empty()) {
-        for (char c : m_bootString) emu_console_queue_char(c);
-        emu_console_queue_char('\r');
-    }
+    // Configure boot option via NVRAM switches (not character queueing)
+    // Empty string = show boot menu, "0" = disk unit 0, "C" = ROM app C, etc.
+    m_hbios->setBootOption(m_bootString);
     sendStatus("Running");
 }
 
