@@ -138,7 +138,7 @@ void SettingsDialogWx::layoutControls() {
     wxBoxSizer* bootSizer = new wxBoxSizer(wxHORIZONTAL);
     bootSizer->Add(new wxStaticText(this, wxID_ANY, "Boot String:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
     bootSizer->Add(m_bootStringText, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
-    bootSizer->Add(new wxStaticText(this, wxID_ANY, "(e.g., 0 to auto-boot CP/M)"), 0, wxALIGN_CENTER_VERTICAL);
+    bootSizer->Add(new wxStaticText(this, wxID_ANY, "(empty=menu, 0=disk0, 0.2=slice2, C=ROM app)"), 0, wxALIGN_CENTER_VERTICAL);
     paddedSizer->Add(bootSizer, 0, wxEXPAND | wxBOTTOM, 10);
 
     // Debug checkbox
