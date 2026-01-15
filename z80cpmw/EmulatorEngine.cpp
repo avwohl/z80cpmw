@@ -169,6 +169,22 @@ void EmulatorEngine::setDiskSliceCount(int unit, int slices) {
     }
 }
 
+void EmulatorEngine::setDiskIsManifest(int unit, bool isManifest) {
+    if (m_hbios) {
+        m_hbios->setDiskIsManifest(unit, isManifest);
+    }
+}
+
+void EmulatorEngine::setDiskWarningSuppressed(int unit, bool suppressed) {
+    if (m_hbios) {
+        m_hbios->setDiskWarningSuppressed(unit, suppressed);
+    }
+}
+
+bool EmulatorEngine::pollManifestWriteWarning() {
+    return m_hbios ? m_hbios->pollManifestWriteWarning() : false;
+}
+
 void EmulatorEngine::start() {
     if (m_running) return;
     m_stopRequested = false;
@@ -201,7 +217,7 @@ void EmulatorEngine::start() {
 
     // Configure boot option via NVRAM switches (not character queueing)
     // Empty string = show boot menu, "0" = disk unit 0, "C" = ROM app C, etc.
-    m_hbios->setBootOption(m_bootString);
+    m_hbios->setNvramSetting(m_bootString);
     sendStatus("Running");
 }
 
@@ -235,6 +251,21 @@ void EmulatorEngine::sendChar(char ch) { emu_console_queue_char(ch); }
 
 void EmulatorEngine::sendString(const std::string& str) {
     for (char c : str) emu_console_queue_char(c);
+}
+
+void EmulatorEngine::clearNvramSetting() {
+    if (m_hbios) {
+        m_hbios->setNvramSetting("");
+    }
+    m_bootString.clear();
+}
+
+bool EmulatorEngine::hasNvramChange() const {
+    return m_hbios ? m_hbios->hasNvramChange() : false;
+}
+
+std::string EmulatorEngine::getNvramSetting() {
+    return m_hbios ? m_hbios->getNvramSetting() : "";
 }
 
 void EmulatorEngine::setDebug(bool enable) {
@@ -346,4 +377,25 @@ void EmulatorEngine::disableDazzler() {
     }
 
     m_dazzler.reset();
+}
+
+uint8_t EmulatorEngine::handleUnknownPortIn(uint8_t port) {
+    // Handle Dazzler ports if enabled
+    if (m_dazzler) {
+        uint8_t basePort = m_dazzler->getBasePort();
+        if (port >= basePort && port < basePort + 2) {
+            return m_dazzler->portIn(port);
+        }
+    }
+    return 0xFF;  // Floating bus for unknown ports
+}
+
+void EmulatorEngine::handleUnknownPortOut(uint8_t port, uint8_t value) {
+    // Handle Dazzler ports if enabled
+    if (m_dazzler) {
+        uint8_t basePort = m_dazzler->getBasePort();
+        if (port >= basePort && port < basePort + 2) {
+            m_dazzler->portOut(port, value);
+        }
+    }
 }

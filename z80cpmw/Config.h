@@ -20,6 +20,7 @@ constexpr int CURRENT_VERSION = 2;
 // Disk unit configuration
 struct DiskConfig {
     std::string path;           // Full path to disk image
+    bool isManifest = false;    // True if from catalog (may be overwritten on update)
 };
 
 // Dazzler graphics card configuration

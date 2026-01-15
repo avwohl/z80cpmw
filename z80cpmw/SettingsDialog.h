@@ -20,8 +20,8 @@ struct EmulatorSettings {
     std::string romFile;
     std::string diskFiles[4];
     int diskSlices[4] = {4, 4, 4, 4};
-    std::string bootString;
     bool debugMode = false;
+    bool clearBootConfigRequested = false;  // Set when user clicks "Clear Boot Config"
 };
 
 class SettingsDialog {
@@ -92,7 +92,7 @@ private:
 #define IDC_SLICE1_SPIN         215
 #define IDC_SLICE2_SPIN         216
 #define IDC_SLICE3_SPIN         217
-#define IDC_BOOT_STRING         218
+#define IDC_CLEAR_BOOT          218
 #define IDC_DEBUG_CHECK         219
 #define IDC_CATALOG_LIST        220
 #define IDC_DOWNLOAD_BTN        221

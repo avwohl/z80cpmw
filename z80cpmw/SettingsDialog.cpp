@@ -212,14 +212,12 @@ void SettingsDialog::onInitDialog(HWND hwnd) {
 
     y += 15;
 
-    // Boot string
-    CreateWindowW(L"STATIC", L"Boot String:", WS_CHILD | WS_VISIBLE,
-                  leftMargin, y + 5, labelWidth, 22, hwnd, nullptr, nullptr, nullptr);
-    CreateWindowW(L"EDIT", nullptr, WS_CHILD | WS_VISIBLE | WS_BORDER | ES_AUTOHSCROLL,
-                  leftMargin + labelWidth, y, 100, ctrlHeight, hwnd,
-                  (HMENU)IDC_BOOT_STRING, nullptr, nullptr);
-    CreateWindowW(L"STATIC", L"(empty=menu, 0=disk0, 0.2=slice2, C=ROM app)", WS_CHILD | WS_VISIBLE,
-                  leftMargin + labelWidth + 115, y + 5, 320, 22, hwnd, nullptr, nullptr, nullptr);
+    // Clear boot config button
+    CreateWindowW(L"BUTTON", L"Clear Boot Config", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
+                  leftMargin + labelWidth, y, 130, ctrlHeight, hwnd,
+                  (HMENU)IDC_CLEAR_BOOT, nullptr, nullptr);
+    CreateWindowW(L"STATIC", L"(Use 'W' at boot menu to configure autoboot)", WS_CHILD | WS_VISIBLE,
+                  leftMargin + labelWidth + 145, y + 5, 320, 22, hwnd, nullptr, nullptr, nullptr);
     y += rowHeight;
 
     // Debug checkbox
@@ -351,6 +349,13 @@ void SettingsDialog::onCommand(HWND hwnd, int id, int notifyCode) {
     case IDC_DISK2_CREATE:
     case IDC_DISK3_CREATE:
         onCreateDisk(hwnd, id - IDC_DISK0_CREATE);
+        break;
+
+    case IDC_CLEAR_BOOT:
+        m_settings.clearBootConfigRequested = true;
+        MessageBoxW(hwnd, L"Boot configuration will be cleared when you click OK.\n\n"
+                          L"Use 'W' at the boot menu to configure autoboot.",
+                    L"Clear Boot Config", MB_OK | MB_ICONINFORMATION);
         break;
     }
 }
@@ -645,13 +650,6 @@ void SettingsDialog::saveSettings(HWND hwnd) {
         m_settings.diskSlices[i] = slices;
     }
 
-    // Boot string
-    wchar_t bootStr[256];
-    GetDlgItemTextW(hwnd, IDC_BOOT_STRING, bootStr, 256);
-    char narrowBoot[256];
-    WideCharToMultiByte(CP_UTF8, 0, bootStr, -1, narrowBoot, 256, nullptr, nullptr);
-    m_settings.bootString = narrowBoot;
-
     // Debug mode
     m_settings.debugMode = (SendDlgItemMessage(hwnd, IDC_DEBUG_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
 }
@@ -674,10 +672,6 @@ void SettingsDialog::loadSettings(HWND hwnd) {
         swprintf_s(sliceStr, L"%d", m_settings.diskSlices[i]);
         SetDlgItemTextW(hwnd, IDC_SLICE0_SPIN + i, sliceStr);
     }
-
-    // Boot string
-    std::wstring wboot(m_settings.bootString.begin(), m_settings.bootString.end());
-    SetDlgItemTextW(hwnd, IDC_BOOT_STRING, wboot.c_str());
 
     // Debug mode
     SendDlgItemMessage(hwnd, IDC_DEBUG_CHECK, BM_SETCHECK,

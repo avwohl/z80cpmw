@@ -5,30 +5,6 @@
 #include "pch.h"
 #include "Dazzler.h"
 
-// C-linkage wrapper functions for hbios_cpu.cc
-extern "C" {
-    void dazzler_port_out(Dazzler* dazzler, uint8_t port, uint8_t value) {
-        if (dazzler) {
-            dazzler->portOut(port, value);
-        }
-    }
-
-    uint8_t dazzler_port_in(Dazzler* dazzler, uint8_t port) {
-        if (!dazzler) return 0xFF;
-        // Special case: port 0xFF returns base port for range checking
-        if (port == 0xFF) {
-            return dazzler->getBasePort();
-        }
-        return dazzler->portIn(port);
-    }
-
-    void dazzler_on_memory_write(Dazzler* dazzler, uint16_t addr, uint8_t value) {
-        if (dazzler) {
-            dazzler->onMemoryWrite(addr, value);
-        }
-    }
-}
-
 Dazzler::Dazzler(uint8_t basePort)
     : m_basePort(basePort)
     , m_startTime(std::chrono::steady_clock::now())
