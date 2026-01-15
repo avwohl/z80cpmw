@@ -21,8 +21,8 @@ struct DiskEntry;
 struct WxEmulatorSettings {
     std::string romFile;
     std::string diskFiles[4];
-    std::string bootString;
     bool debugMode = false;
+    bool clearBootConfigRequested = false;  // Set when user clicks "Clear Boot Config"
 
     // Dazzler settings
     bool dazzlerEnabled = false;
@@ -51,6 +51,7 @@ private:
     void onBrowseDisk(wxCommandEvent& event);
     void onNewDisk(wxCommandEvent& event);
     void onDazzlerEnabledChanged(wxCommandEvent& event);
+    void onClearBootConfig(wxCommandEvent& event);
     void onRefreshCatalog(wxCommandEvent& event);
     void onDownloadDisk(wxCommandEvent& event);
     void onDeleteDisk(wxCommandEvent& event);
@@ -68,7 +69,7 @@ private:
     wxChoice* m_diskChoices[4];
     wxButton* m_browseButtons[4];
     wxButton* m_newButtons[4];
-    wxTextCtrl* m_bootStringText;
+    wxButton* m_clearBootBtn;
     wxCheckBox* m_debugCheck;
 
     // Dazzler controls
@@ -96,6 +97,7 @@ private:
         ID_NEW_DISK2,
         ID_NEW_DISK3,
         ID_DAZZLER_ENABLED,
+        ID_CLEAR_BOOT_CONFIG,
         ID_REFRESH_CATALOG,
         ID_DOWNLOAD_DISK,
         ID_DELETE_DISK,

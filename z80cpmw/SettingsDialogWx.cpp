@@ -19,6 +19,7 @@ wxBEGIN_EVENT_TABLE(SettingsDialogWx, wxDialog)
     EVT_BUTTON(ID_NEW_DISK2, SettingsDialogWx::onNewDisk)
     EVT_BUTTON(ID_NEW_DISK3, SettingsDialogWx::onNewDisk)
     EVT_CHECKBOX(ID_DAZZLER_ENABLED, SettingsDialogWx::onDazzlerEnabledChanged)
+    EVT_BUTTON(ID_CLEAR_BOOT_CONFIG, SettingsDialogWx::onClearBootConfig)
     EVT_BUTTON(ID_REFRESH_CATALOG, SettingsDialogWx::onRefreshCatalog)
     EVT_BUTTON(ID_DOWNLOAD_DISK, SettingsDialogWx::onDownloadDisk)
     EVT_BUTTON(ID_DELETE_DISK, SettingsDialogWx::onDeleteDisk)
@@ -69,8 +70,8 @@ void SettingsDialogWx::createControls() {
         m_newButtons[i] = new wxButton(this, ID_NEW_DISK0 + i, "New");
     }
 
-    // Boot string
-    m_bootStringText = new wxTextCtrl(this, wxID_ANY, "", wxDefaultPosition, wxSize(80, -1));
+    // Clear boot config button
+    m_clearBootBtn = new wxButton(this, ID_CLEAR_BOOT_CONFIG, "Clear Boot Config");
 
     // Debug checkbox
     m_debugCheck = new wxCheckBox(this, wxID_ANY, "Enable Debug Mode");
@@ -134,11 +135,10 @@ void SettingsDialogWx::layoutControls() {
     }
     paddedSizer->Add(diskGrid, 0, wxEXPAND | wxBOTTOM, 15);
 
-    // Boot string row
+    // Boot config row
     wxBoxSizer* bootSizer = new wxBoxSizer(wxHORIZONTAL);
-    bootSizer->Add(new wxStaticText(this, wxID_ANY, "Boot String:"), 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
-    bootSizer->Add(m_bootStringText, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
-    bootSizer->Add(new wxStaticText(this, wxID_ANY, "(empty=menu, 0=disk0, 0.2=slice2, C=ROM app)"), 0, wxALIGN_CENTER_VERTICAL);
+    bootSizer->Add(m_clearBootBtn, 0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
+    bootSizer->Add(new wxStaticText(this, wxID_ANY, "(Use 'W' at boot menu to configure autoboot)"), 0, wxALIGN_CENTER_VERTICAL);
     paddedSizer->Add(bootSizer, 0, wxEXPAND | wxBOTTOM, 10);
 
     // Debug checkbox
@@ -266,9 +266,6 @@ void SettingsDialogWx::loadSettings() {
         }
     }
 
-    // Boot string
-    m_bootStringText->SetValue(wxString::FromUTF8(m_settings.bootString));
-
     // Debug mode
     m_debugCheck->SetValue(m_settings.debugMode);
 
@@ -302,9 +299,6 @@ void SettingsDialogWx::saveSettings() {
             m_settings.diskFiles[i] = "";
         }
     }
-
-    // Boot string
-    m_settings.bootString = m_bootStringText->GetValue().ToStdString();
 
     // Debug mode
     m_settings.debugMode = m_debugCheck->GetValue();
@@ -365,6 +359,13 @@ void SettingsDialogWx::onDazzlerEnabledChanged(wxCommandEvent& event) {
     m_dazzlerPortSpin->Enable(enabled);
     m_dazzlerScaleLabel->Enable(enabled);
     m_dazzlerScaleSpin->Enable(enabled);
+}
+
+void SettingsDialogWx::onClearBootConfig(wxCommandEvent& event) {
+    m_settings.clearBootConfigRequested = true;
+    wxMessageBox("Boot configuration will be cleared when you click OK.\n\n"
+                 "Use 'W' at the boot menu to configure autoboot.",
+                 "Clear Boot Config", wxOK | wxICON_INFORMATION, this);
 }
 
 void SettingsDialogWx::onRefreshCatalog(wxCommandEvent& event) {

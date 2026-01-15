@@ -49,6 +49,11 @@ public:
     const std::string& getDiskPath(int unit) const;
     void setDiskSliceCount(int unit, int slices);
 
+    // Manifest disk protection (warn when writing to downloaded catalog disks)
+    void setDiskIsManifest(int unit, bool isManifest);
+    void setDiskWarningSuppressed(int unit, bool suppressed);
+    bool pollManifestWriteWarning();
+
     // Execution control
     void start();
     void stop();
@@ -59,9 +64,15 @@ public:
     void sendChar(char ch);
     void sendString(const std::string& str);
 
-    // Boot string (auto-type at boot menu)
+    // NVRAM boot configuration
+    // Set initial boot config (called on startup from saved config)
     void setBootString(const std::string& bootStr) { m_bootString = bootStr; }
-    const std::string& getBootString() const { return m_bootString; }
+    // Clear NVRAM boot config (user requested clear)
+    void clearNvramSetting();
+    // Check if NVRAM was modified (by ROM's SYSCONF utility)
+    bool hasNvramChange() const;
+    // Get current NVRAM setting (clears dirty flag)
+    std::string getNvramSetting();
 
     // Debug
     void setDebug(bool enable);
@@ -95,11 +106,13 @@ public:
     void onHalt() override;
     void onUnimplementedOpcode(uint8_t opcode, uint16_t pc) override;
     void logDebug(const char* fmt, ...) override;
-    Dazzler* getDazzler() override { return m_dazzler.get(); }
+    uint8_t handleUnknownPortIn(uint8_t port) override;
+    void handleUnknownPortOut(uint8_t port, uint8_t value) override;
 
     //=========================================================================
     // Dazzler support
     //=========================================================================
+    Dazzler* getDazzler() { return m_dazzler.get(); }
     void enableDazzler(uint8_t basePort = 0x0E, int scale = 2);
     void disableDazzler();
     bool isDazzlerEnabled() const { return m_dazzler != nullptr; }

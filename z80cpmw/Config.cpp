@@ -18,12 +18,14 @@ namespace config {
 // JSON serialization for DiskConfig
 void to_json(json& j, const DiskConfig& d) {
     j = json{
-        {"path", d.path}
+        {"path", d.path},
+        {"isManifest", d.isManifest}
     };
 }
 
 void from_json(const json& j, DiskConfig& d) {
     j.at("path").get_to(d.path);
+    d.isManifest = j.value("isManifest", false);
 }
 
 // JSON serialization for DazzlerConfig

@@ -385,6 +385,22 @@ void MainWindow::onTimer() {
                     m_emulator->getInstructionCount());
             m_statusText = buf;
             updateStatusBar();
+
+            // Check for NVRAM changes (user configured via ROM's SYSCONF utility)
+            if (m_emulator->hasNvramChange()) {
+                std::string setting = m_emulator->getNvramSetting();
+                config::ConfigManager::instance().get().bootString = setting;
+                saveSettings();
+            }
+
+            // Check for manifest disk write warning
+            if (m_emulator->pollManifestWriteWarning()) {
+                MessageBoxW(m_hwnd,
+                    L"You are writing to a downloaded disk image.\n\n"
+                    L"Changes may be lost if the app downloads a new version of this disk.\n"
+                    L"To preserve your changes, use File -> Save Disk to save a copy.",
+                    L"Disk Write Warning", MB_OK | MB_ICONWARNING);
+            }
         }
     }
 }
@@ -714,7 +730,6 @@ void MainWindow::onEmulatorSettings() {
 
     // Use wxWidgets-based settings dialog for proper layout
     WxEmulatorSettings settings;
-    settings.bootString = m_emulator->getBootString();
     settings.debugMode = false;  // TODO: get from emulator
 
     // Pass currently loaded disk filenames to settings dialog from config
@@ -733,8 +748,11 @@ void MainWindow::onEmulatorSettings() {
     }
 
     if (ShowWxSettingsDialog(m_hwnd, m_diskCatalog.get(), settings)) {
-        // Apply boot string
-        m_emulator->setBootString(settings.bootString);
+        // Handle clear boot config request
+        if (settings.clearBootConfigRequested) {
+            m_emulator->clearNvramSetting();
+            config::ConfigManager::instance().get().bootString.clear();
+        }
 
         // Apply debug mode
         m_emulator->setDebug(settings.debugMode);
@@ -758,16 +776,20 @@ void MainWindow::onEmulatorSettings() {
                                    settings.diskFiles[i][1] == ':') ||
                                   (settings.diskFiles[i].length() >= 1 &&
                                    (settings.diskFiles[i][0] == '\\' || settings.diskFiles[i][0] == '/'));
+                bool isManifestDisk = false;
                 if (isAbsolute) {
                     diskPath = settings.diskFiles[i];
                 } else {
                     diskPath = m_diskCatalog->getDiskPath(settings.diskFiles[i]);
+                    isManifestDisk = true;  // From catalog = manifest disk
                 }
                 if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
                     m_emulator->loadDisk(i, diskPath);
+                    m_emulator->setDiskIsManifest(i, isManifestDisk);
                     // Update config
                     config::DiskConfig disk;
                     disk.path = diskPath;
+                    disk.isManifest = isManifestDisk;
                     cfgMut.disks[i] = disk;
                 }
             } else {
@@ -778,9 +800,6 @@ void MainWindow::onEmulatorSettings() {
                 cfgMut.disks[i] = std::nullopt;
             }
         }
-
-        // Update config boot string
-        cfgMut.bootString = settings.bootString;
 
         // Save settings to disk
         saveSettings();
@@ -999,7 +1018,7 @@ void MainWindow::showStartupInstructions() {
     // Build version string with compile date/time
     char versionLine[128];
     snprintf(versionLine, sizeof(versionLine),
-        "  Build: %s %s\r\n", __DATE__, __TIME__);
+        "  Version %s (%s %s)\r\n", VERSION_STRING, __DATE__, __TIME__);
 
     const char* instructions =
         "\r\n"
@@ -1019,7 +1038,7 @@ void MainWindow::showStartupInstructions() {
         "\r\n"
         "  4. At the RomWBW boot menu:\r\n"
         "     Type 0 and press Enter to boot CP/M from Disk 0\r\n"
-        "     (Or set Boot String to \"0\" in Settings to auto-boot)\r\n"
+        "     (Press W to configure autoboot settings)\r\n"
         "\r\n"
         "  File Transfer (R8/W8):\r\n"
         "     R8 filename - Import file from host (opens file picker)\r\n"
@@ -1101,6 +1120,7 @@ void MainWindow::applyConfig() {
             const auto& disk = cfg.disks[i].value();
             if (!disk.path.empty() && GetFileAttributesA(disk.path.c_str()) != INVALID_FILE_ATTRIBUTES) {
                 m_emulator->loadDisk(i, disk.path);
+                m_emulator->setDiskIsManifest(i, disk.isManifest);
             }
         }
     }
@@ -1148,8 +1168,7 @@ void MainWindow::updateConfigFromState() {
     // Capture debug mode
     // cfg.debug = m_emulator->isDebug(); // If we had a getter
 
-    // Capture boot string
-    cfg.bootString = m_emulator->getBootString();
+    // Note: bootString is saved automatically when NVRAM changes (in onTimer)
 
     // Capture font size
     if (m_terminal) {
