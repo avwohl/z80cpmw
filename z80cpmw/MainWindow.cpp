@@ -403,6 +403,13 @@ void MainWindow::onTimer() {
                     L"Disk Write Warning", MB_OK | MB_ICONWARNING);
             }
         }
+
+        // Periodic disk flush every 20 seconds to ensure writes are committed
+        static int diskFlushCount = 0;
+        if (++diskFlushCount >= 2000) {  // 2000 * 10ms = 20 seconds
+            diskFlushCount = 0;
+            m_emulator->flushAllDisks();
+        }
     }
 }
 
