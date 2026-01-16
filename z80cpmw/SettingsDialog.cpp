@@ -224,6 +224,12 @@ void SettingsDialog::onInitDialog(HWND hwnd) {
     CreateWindowW(L"BUTTON", L"Enable Debug Mode", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
                   leftMargin + labelWidth, y, 200, 26, hwnd,
                   (HMENU)IDC_DEBUG_CHECK, nullptr, nullptr);
+    y += rowHeight;
+
+    // Warn on manifest writes checkbox
+    CreateWindowW(L"BUTTON", L"Warn on Downloaded Disk Writes", WS_CHILD | WS_VISIBLE | BS_AUTOCHECKBOX,
+                  leftMargin + labelWidth, y, 280, 26, hwnd,
+                  (HMENU)IDC_WARN_MANIFEST_CHECK, nullptr, nullptr);
     y += rowHeight + 15;
 
     // Separator
@@ -652,6 +658,9 @@ void SettingsDialog::saveSettings(HWND hwnd) {
 
     // Debug mode
     m_settings.debugMode = (SendDlgItemMessage(hwnd, IDC_DEBUG_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
+
+    // Warn on manifest writes
+    m_settings.warnManifestWrites = (SendDlgItemMessage(hwnd, IDC_WARN_MANIFEST_CHECK, BM_GETCHECK, 0, 0) == BST_CHECKED);
 }
 
 void SettingsDialog::loadSettings(HWND hwnd) {
@@ -676,4 +685,8 @@ void SettingsDialog::loadSettings(HWND hwnd) {
     // Debug mode
     SendDlgItemMessage(hwnd, IDC_DEBUG_CHECK, BM_SETCHECK,
                        m_settings.debugMode ? BST_CHECKED : BST_UNCHECKED, 0);
+
+    // Warn on manifest writes
+    SendDlgItemMessage(hwnd, IDC_WARN_MANIFEST_CHECK, BM_SETCHECK,
+                       m_settings.warnManifestWrites ? BST_CHECKED : BST_UNCHECKED, 0);
 }

@@ -21,6 +21,7 @@ struct EmulatorSettings {
     std::string diskFiles[4];
     int diskSlices[4] = {4, 4, 4, 4};
     bool debugMode = false;
+    bool warnManifestWrites = true;         // Warn when writing to downloaded catalog disks
     bool clearBootConfigRequested = false;  // Set when user clicks "Clear Boot Config"
 };
 
@@ -94,6 +95,7 @@ private:
 #define IDC_SLICE3_SPIN         217
 #define IDC_CLEAR_BOOT          218
 #define IDC_DEBUG_CHECK         219
+#define IDC_WARN_MANIFEST_CHECK 227
 #define IDC_CATALOG_LIST        220
 #define IDC_DOWNLOAD_BTN        221
 #define IDC_DELETE_BTN          222

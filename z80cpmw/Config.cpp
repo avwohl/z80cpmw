@@ -50,7 +50,8 @@ void to_json(json& j, const AppConfig& c) {
         {"core", {
             {"rom", c.rom},
             {"debug", c.debug},
-            {"bootString", c.bootString}
+            {"bootString", c.bootString},
+            {"warnManifestWrites", c.warnManifestWrites}
         }},
         {"display", {
             {"fontSize", c.fontSize},
@@ -82,6 +83,7 @@ void from_json(const json& j, AppConfig& c) {
         c.rom = core.value("rom", "emu_avw.rom");
         c.debug = core.value("debug", false);
         c.bootString = core.value("bootString", "");
+        c.warnManifestWrites = core.value("warnManifestWrites", true);
     }
 
     // Display settings

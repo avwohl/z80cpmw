@@ -398,7 +398,8 @@ void MainWindow::onTimer() {
                 MessageBoxW(m_hwnd,
                     L"You are writing to a downloaded disk image.\n\n"
                     L"Changes may be lost if the app downloads a new version of this disk.\n"
-                    L"To preserve your changes, use File -> Save Disk to save a copy.",
+                    L"To preserve your changes, use File -> Save Disk to save a copy.\n\n"
+                    L"This warning can be disabled in Settings.",
                     L"Disk Write Warning", MB_OK | MB_ICONWARNING);
             }
         }
@@ -734,6 +735,7 @@ void MainWindow::onEmulatorSettings() {
 
     // Pass currently loaded disk filenames to settings dialog from config
     const auto& cfg = config::ConfigManager::instance().get();
+    settings.warnManifestWrites = cfg.warnManifestWrites;
     for (int i = 0; i < 4; i++) {
         if (cfg.disks[i].has_value() && !cfg.disks[i]->path.empty()) {
             // Extract filename from full path
@@ -799,6 +801,12 @@ void MainWindow::onEmulatorSettings() {
                 }
                 cfgMut.disks[i] = std::nullopt;
             }
+        }
+
+        // Apply manifest write warning setting
+        cfgMut.warnManifestWrites = settings.warnManifestWrites;
+        for (int i = 0; i < 4; i++) {
+            m_emulator->setDiskWarningSuppressed(i, !settings.warnManifestWrites);
         }
 
         // Save settings to disk
@@ -1122,6 +1130,13 @@ void MainWindow::applyConfig() {
                 m_emulator->loadDisk(i, disk.path);
                 m_emulator->setDiskIsManifest(i, disk.isManifest);
             }
+        }
+    }
+
+    // Apply manifest write warning suppression setting
+    if (!cfg.warnManifestWrites) {
+        for (int i = 0; i < 4; i++) {
+            m_emulator->setDiskWarningSuppressed(i, true);
         }
     }
 

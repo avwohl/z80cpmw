@@ -76,6 +76,9 @@ void SettingsDialogWx::createControls() {
     // Debug checkbox
     m_debugCheck = new wxCheckBox(this, wxID_ANY, "Enable Debug Mode");
 
+    // Warn on manifest writes checkbox
+    m_warnManifestCheck = new wxCheckBox(this, wxID_ANY, "Warn on Downloaded Disk Writes");
+
     // Dazzler controls
     m_dazzlerEnabledCheck = new wxCheckBox(this, ID_DAZZLER_ENABLED, "Enable Dazzler Graphics Card");
     m_dazzlerPortLabel = new wxStaticText(this, wxID_ANY, "Port (hex):");
@@ -142,7 +145,10 @@ void SettingsDialogWx::layoutControls() {
     paddedSizer->Add(bootSizer, 0, wxEXPAND | wxBOTTOM, 10);
 
     // Debug checkbox
-    paddedSizer->Add(m_debugCheck, 0, wxBOTTOM, 15);
+    paddedSizer->Add(m_debugCheck, 0, wxBOTTOM, 8);
+
+    // Warn on manifest writes checkbox
+    paddedSizer->Add(m_warnManifestCheck, 0, wxBOTTOM, 15);
 
     // Separator before Dazzler
     paddedSizer->Add(new wxStaticLine(this), 0, wxEXPAND | wxBOTTOM, 15);
@@ -269,6 +275,9 @@ void SettingsDialogWx::loadSettings() {
     // Debug mode
     m_debugCheck->SetValue(m_settings.debugMode);
 
+    // Warn on manifest writes
+    m_warnManifestCheck->SetValue(m_settings.warnManifestWrites);
+
     // Dazzler settings
     m_dazzlerEnabledCheck->SetValue(m_settings.dazzlerEnabled);
     m_dazzlerPortSpin->SetValue(m_settings.dazzlerPort);
@@ -302,6 +311,9 @@ void SettingsDialogWx::saveSettings() {
 
     // Debug mode
     m_settings.debugMode = m_debugCheck->GetValue();
+
+    // Warn on manifest writes
+    m_settings.warnManifestWrites = m_warnManifestCheck->GetValue();
 
     // Dazzler settings
     m_settings.dazzlerEnabled = m_dazzlerEnabledCheck->GetValue();
