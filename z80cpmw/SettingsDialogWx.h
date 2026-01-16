@@ -22,6 +22,7 @@ struct WxEmulatorSettings {
     std::string romFile;
     std::string diskFiles[4];
     bool debugMode = false;
+    bool warnManifestWrites = true;         // Warn when writing to downloaded catalog disks
     bool clearBootConfigRequested = false;  // Set when user clicks "Clear Boot Config"
 
     // Dazzler settings
@@ -71,6 +72,7 @@ private:
     wxButton* m_newButtons[4];
     wxButton* m_clearBootBtn;
     wxCheckBox* m_debugCheck;
+    wxCheckBox* m_warnManifestCheck;
 
     // Dazzler controls
     wxCheckBox* m_dazzlerEnabledCheck;

@@ -38,6 +38,7 @@ struct AppConfig {
     std::string rom = "emu_avw.rom";
     bool debug = false;
     std::string bootString;
+    bool warnManifestWrites = true;  // Warn when writing to downloaded catalog disks
 
     // Display settings
     int fontSize = 20;
