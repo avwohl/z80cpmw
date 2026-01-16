@@ -54,6 +54,9 @@ public:
     void setDiskWarningSuppressed(int unit, bool suppressed);
     bool pollManifestWriteWarning();
 
+    // Flush all disk writes to storage
+    void flushAllDisks();
+
     // Execution control
     void start();
     void stop();

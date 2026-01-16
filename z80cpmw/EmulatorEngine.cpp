@@ -56,7 +56,10 @@ void EmulatorEngine::initCPU() {
     m_hbios->setCPU(m_cpu.get());
 
     m_hbios->setResetCallback([this](uint8_t resetType) {
-        (void)resetType;
+        // Flush disks on warm boot (CP/M program exited)
+        if (resetType == 0x01) {
+            m_hbios->flushAllDisks();
+        }
         m_memory->select_bank(0);
         emu_console_clear_queue();
         m_cpu->regs.PC.set_pair16(0);
@@ -183,6 +186,12 @@ void EmulatorEngine::setDiskWarningSuppressed(int unit, bool suppressed) {
 
 bool EmulatorEngine::pollManifestWriteWarning() {
     return m_hbios ? m_hbios->pollManifestWriteWarning() : false;
+}
+
+void EmulatorEngine::flushAllDisks() {
+    if (m_hbios) {
+        m_hbios->flushAllDisks();
+    }
 }
 
 void EmulatorEngine::start() {
