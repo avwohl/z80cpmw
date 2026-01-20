@@ -42,8 +42,9 @@ Standard keyboard input. Arrow keys send VT100 escape sequences.
 
 - [RomWBW](https://github.com/wwarthen/RomWBW) - The original RomWBW project by Wayne Warthen
 - [cpmemu](https://github.com/avwohl/cpmemu) - Portable Z80 CPU emulator core
-- [romwbw_emu](https://github.com/avwohl/romwbw_emu) - CLI emulator for macOS/Linux
+- [romwbw_emu](https://github.com/avwohl/romwbw_emu) - CLI emulator for macOS/Linux, Web version
 - [ioscpm](https://github.com/avwohl/ioscpm) - iOS/macOS version
+- [z80cpmw](https://github.com/avwohl/z80cpmw) - Windows GUI version
 - [cpmdroid](https://github.com/avwohl/cpmdroid) - Android version
 
 ## License
