@@ -105,6 +105,11 @@ private:
     UINT_PTR m_emulatorTimer = 0;
     static constexpr int TIMER_INTERVAL_MS = 10;  // 100 Hz
 
+    // Idle power management: skip timer ticks when guest is polling console
+    // with no input available, to reduce CPU usage from ~95% to ~5%.
+    int m_idleSkipCount = 0;
+    static constexpr int IDLE_SKIP_TICKS = 9;  // Skip 9 of 10 ticks when idle (~100ms effective)
+
     // Track if initial disk downloads are in progress
     bool m_downloadingDisks = false;
 };

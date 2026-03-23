@@ -13,6 +13,7 @@
 #include "HelpWindow.h"
 #include "resource.h"
 #include "Version.h"
+#include "emu_io.h"
 
 // External function to set main window for host file dialogs
 extern "C" void emu_io_set_main_window(HWND hwnd);
@@ -362,6 +363,20 @@ void MainWindow::onCommand(int id) {
 
 void MainWindow::onTimer() {
     if (m_emulator && m_emulator->isRunning()) {
+        // Idle power management: when the guest is polling console status with
+        // no input available (typical CP/M prompt idle loop), skip most timer
+        // ticks to reduce CPU usage. The timer still fires every 10ms so we
+        // respond immediately when input arrives via emu_console_has_input().
+        if (m_emulator->isIdle()) {
+            if (++m_idleSkipCount < IDLE_SKIP_TICKS) {
+                // Still check if input became available so we wake up promptly
+                if (!emu_console_has_input()) return;
+            }
+            m_idleSkipCount = 0;
+        } else {
+            m_idleSkipCount = 0;
+        }
+
         m_emulator->runBatch();
         m_emulator->flushOutput();
 

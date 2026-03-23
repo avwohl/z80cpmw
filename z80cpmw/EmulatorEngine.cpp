@@ -301,6 +301,10 @@ void EmulatorEngine::runBatch() {
     }
 }
 
+bool EmulatorEngine::isIdle() const {
+    return m_hbios && (m_hbios->isConsoleIdle() || m_hbios->isWaitingForInput());
+}
+
 void EmulatorEngine::flushOutput() {
     if (!m_hbios || !m_outputCallback) return;
     std::vector<uint8_t> chars = m_hbios->getOutputChars();

@@ -93,6 +93,11 @@ public:
     // Flush buffered output to callback (call after runBatch)
     void flushOutput();
 
+    // Console idle detection for power management.
+    // Returns true when guest is polling console status with no input available.
+    // Host timer loop should skip batches when idle to reduce CPU usage.
+    bool isIdle() const;
+
     // Get application directory (for read-only resources like ROMs)
     static std::string getAppDirectory();
 
