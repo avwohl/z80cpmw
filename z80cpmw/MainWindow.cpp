@@ -419,12 +419,9 @@ void MainWindow::onTimer() {
             }
         }
 
-        // Periodic disk flush every 20 seconds to ensure writes are committed
-        static int diskFlushCount = 0;
-        if (++diskFlushCount >= 2000) {  // 2000 * 10ms = 20 seconds
-            diskFlushCount = 0;
-            m_emulator->flushAllDisks();
-        }
+        // Periodic disk auto-save: upstream tracks whether writes occurred
+        // and handles 20-second timing internally
+        m_emulator->checkPeriodicFlush();
     }
 }
 

@@ -62,6 +62,7 @@ void EmulatorEngine::initCPU() {
         }
         m_memory->select_bank(0);
         emu_console_clear_queue();
+        m_hbios->clearWaitingState();
         m_cpu->regs.PC.set_pair16(0);
         *m_hbios->getInitializedBanksBitmap() = 0;
     });
@@ -146,9 +147,10 @@ bool EmulatorEngine::saveDisk(int unit, const std::string& path) {
 
 std::vector<uint8_t> EmulatorEngine::getDiskData(int unit) {
     if (unit < 0 || unit >= 4) return {};
-    const auto& disk = m_hbios->getDisk(unit);
-    if (!disk.is_open) return {};
-    return disk.data;
+    const uint8_t* data = m_hbios->getDiskData(unit);
+    size_t size = m_hbios->getDiskDataSize(unit);
+    if (!data || size == 0) return {};
+    return std::vector<uint8_t>(data, data + size);
 }
 
 bool EmulatorEngine::isDiskLoaded(int unit) const {
@@ -189,9 +191,30 @@ bool EmulatorEngine::pollManifestWriteWarning() {
 }
 
 void EmulatorEngine::flushAllDisks() {
-    if (m_hbios) {
-        m_hbios->flushAllDisks();
+    if (!m_hbios) return;
+    m_hbios->flushAllDisks();
+    // Save dirty in-memory disks to their file paths
+    for (int i = 0; i < 4; i++) {
+        if (m_hbios->isDiskDirty(i) && !m_diskPaths[i].empty()) {
+            saveDisk(i, m_diskPaths[i]);
+            m_hbios->clearDiskDirty(i);
+        }
     }
+}
+
+bool EmulatorEngine::checkPeriodicFlush() {
+    if (!m_hbios) return false;
+    if (m_hbios->checkPeriodicFlush()) {
+        // Also save dirty in-memory disks to their file paths
+        for (int i = 0; i < 4; i++) {
+            if (m_hbios->isDiskDirty(i) && !m_diskPaths[i].empty()) {
+                saveDisk(i, m_diskPaths[i]);
+                m_hbios->clearDiskDirty(i);
+            }
+        }
+        return true;
+    }
+    return false;
 }
 
 void EmulatorEngine::start() {

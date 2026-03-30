@@ -54,8 +54,13 @@ public:
     void setDiskWarningSuppressed(int unit, bool suppressed);
     bool pollManifestWriteWarning();
 
-    // Flush all disk writes to storage
+    // Flush all disk writes to storage (also saves dirty in-memory disks to files)
     void flushAllDisks();
+
+    // Periodic disk auto-save using upstream's smart timing
+    // Only flushes when disk writes occurred and 20+ seconds have passed.
+    // Returns true if a flush was performed.
+    bool checkPeriodicFlush();
 
     // Execution control
     void start();
