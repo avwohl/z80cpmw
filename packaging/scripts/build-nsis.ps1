@@ -112,7 +112,9 @@ try {
 # Step 5: Move installer to dist folder
 Write-Host "Step 5: Finalizing..." -ForegroundColor Yellow
 
-$installerName = Get-ChildItem $NsisDir -Filter "z80cpmw-*-setup.exe" | Select-Object -First 1
+$installerName = Get-ChildItem $NsisDir -Filter "z80cpmw-*-setup.exe" |
+                 Sort-Object LastWriteTime -Descending |
+                 Select-Object -First 1
 if ($installerName) {
     $destPath = Join-Path $OutputDir $installerName.Name
     Move-Item $installerName.FullName $destPath -Force
