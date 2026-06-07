@@ -81,8 +81,14 @@ void TerminalView::createFont() {
         DeleteObject(m_font);
     }
 
+    // Scale font height by current monitor DPI. The app is per-monitor DPI v2
+    // aware, so CreateFontW's height parameter is in raw device pixels — without
+    // this multiplier, "size 20" is only 20 physical pixels on a 4K @ 200% screen.
+    UINT dpi = m_hwnd ? GetDpiForWindow(m_hwnd) : 96;
+    int scaledHeight = MulDiv(m_fontSize, dpi, 96);
+
     m_font = CreateFontW(
-        m_fontSize,              // Height
+        scaledHeight,            // Height
         0,                       // Width (0 = auto)
         0,                       // Escapement
         0,                       // Orientation

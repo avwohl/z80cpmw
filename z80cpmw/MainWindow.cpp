@@ -266,7 +266,16 @@ void MainWindow::onSize(int width, int height) {
     }
     int statusHeight = statusRect.bottom - statusRect.top;
 
-    // Resize terminal - ensure positive dimensions (fallback for WM_SIZE with 0,0)
+    // When called via synthetic WM_SIZE (e.g. from setFontSize), lParam is 0,0.
+    // Fall back to the actual client area rather than a hardcoded 800x500,
+    // otherwise the terminal gets clamped and larger fonts clip off-screen.
+    if (width <= 0 || height <= 0) {
+        RECT client;
+        GetClientRect(m_hwnd, &client);
+        width = client.right;
+        height = client.bottom;
+    }
+
     int termWidth = width > 0 ? width : 800;
     int termHeight = (height - statusHeight) > 0 ? (height - statusHeight) : 500;
 
