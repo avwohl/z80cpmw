@@ -56,6 +56,7 @@ private:
     void onRefreshCatalog(wxCommandEvent& event);
     void onDownloadDisk(wxCommandEvent& event);
     void onDeleteDisk(wxCommandEvent& event);
+    void onOpenDataFolder(wxCommandEvent& event);
     void onCatalogLoaded(wxCommandEvent& event);
     void onDownloadProgress(wxCommandEvent& event);
     void onDownloadComplete(wxCommandEvent& event);
@@ -86,7 +87,10 @@ private:
     wxButton* m_deleteBtn;
     wxGauge* m_progressBar;
     wxStaticText* m_statusText;
-    wxStaticText* m_diskDirText;
+    wxStaticText* m_diskDirLabel;
+    wxTextCtrl* m_diskDirText;
+    wxButton* m_openFolderBtn;
+    std::string m_dataFolderPath;
 
     // Custom event IDs
     enum {
@@ -105,7 +109,8 @@ private:
         ID_DELETE_DISK,
         ID_CATALOG_LOADED,
         ID_DOWNLOAD_PROGRESS,
-        ID_DOWNLOAD_COMPLETE
+        ID_DOWNLOAD_COMPLETE,
+        ID_OPEN_DATA_FOLDER
     };
 
     wxDECLARE_EVENT_TABLE();

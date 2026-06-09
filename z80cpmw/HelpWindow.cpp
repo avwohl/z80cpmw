@@ -228,9 +228,15 @@ void HelpWindow::createControls() {
         nullptr
     );
 
-    // Use a monospace font for content
+    // Use a monospace font for content. Scale the height by the window's DPI:
+    // the app is per-monitor DPI v2 aware, so CreateFontW's height is in raw
+    // device pixels. Without this, 16px is tiny on a 4K @ 200% screen, while the
+    // left-hand list (which uses DEFAULT_GUI_FONT) is scaled by the system and
+    // looks correct. See the matching fix in TerminalView::createFont().
+    UINT dpi = GetDpiForWindow(m_hwnd);
+    if (dpi == 0) dpi = 96;
     HFONT hMonoFont = CreateFontW(
-        16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        MulDiv(16, dpi, 96), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         ANSI_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         DEFAULT_QUALITY, FIXED_PITCH | FF_MODERN,
         L"Consolas"

@@ -645,6 +645,67 @@ static std::string getDataFolder() {
     return dataDir;
 }
 
+// True if the name is already a full path (drive-letter, UNC, or rooted), in
+// which case it should be used verbatim instead of being placed in the data
+// folder. Lets R8/W8 accept paths like C:\Users\me\Desktop\getkey2.com.
+static bool isAbsolutePath(const std::string& p) {
+    if (p.size() >= 2 && p[1] == ':') return true;              // C:\ or C:/
+    if (!p.empty() && (p[0] == '\\' || p[0] == '/')) return true; // \server\... or rooted
+    return false;
+}
+
+// Resolve a host filename to a full path: absolute paths are used as-is,
+// bare names are placed in the data folder. Returns empty on failure.
+static std::string resolveHostPath(const std::string& filename) {
+    if (isAbsolutePath(filename)) {
+        return filename;
+    }
+    std::string dataFolder = getDataFolder();
+    if (dataFolder.empty()) {
+        return std::string();
+    }
+    return dataFolder + "\\" + filename;
+}
+
+// Resolve a (possibly virtualized) path to its real on-disk location. For a
+// packaged (MSIX/Store) build, writes to %LOCALAPPDATA% are redirected by the
+// OS to ...\Packages\<family>\LocalCache\Local\..., so the path the app uses
+// is not the path Explorer shows. Opening a handle and asking for the final
+// path name follows that redirection without us having to guess the layout.
+static std::string resolveRealPath(const std::string& path) {
+    if (path.empty()) return path;
+
+    // Must exist before we can open a handle to it.
+    CreateDirectoryA(path.c_str(), nullptr);
+
+    HANDLE h = CreateFileA(path.c_str(), 0,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                           nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return path;
+
+    char buf[1024] = {};
+    DWORD n = GetFinalPathNameByHandleA(h, buf, (DWORD)sizeof(buf),
+                                        FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
+    CloseHandle(h);
+
+    if (n == 0 || n >= sizeof(buf)) return path;
+
+    std::string real(buf, n);
+    // Drop the \\?\ prefix GetFinalPathNameByHandle prepends.
+    if (real.rfind("\\\\?\\", 0) == 0) {
+        real = real.substr(4);
+    }
+    return real;
+}
+
+// Real on-disk location of the data folder (where disks and R8/W8 transfers
+// live), for display in the UI. Cached so callers can keep the pointer briefly.
+extern "C" const char* emu_io_get_data_folder_display() {
+    static std::string cached;
+    cached = resolveRealPath(getDataFolder());
+    return cached.c_str();
+}
+
 emu_host_file_state emu_host_file_get_state() {
     return g_hostFileState;
 }
@@ -659,16 +720,15 @@ bool emu_host_file_open_read(const char* filename) {
         return false;
     }
 
-    // Build full path in data folder
-    std::string dataFolder = getDataFolder();
-    if (dataFolder.empty()) {
+    // Resolve to a full path: absolute paths used as-is, bare names go in the
+    // data folder.
+    std::string fullPath = resolveHostPath(filename);
+    if (fullPath.empty()) {
         g_hostFileState = HOST_FILE_IDLE;
         return false;
     }
 
-    std::string fullPath = dataFolder + "\\" + filename;
-
-    // Read the file directly from data folder
+    // Read the file
     FILE* f = fopen(fullPath.c_str(), "rb");
     if (f) {
         fseek(f, 0, SEEK_END);
@@ -721,15 +781,13 @@ void emu_host_file_close_read() {
 
 void emu_host_file_close_write() {
     if (g_hostFileState == HOST_FILE_WRITING && !g_hostWriteBuffer.empty()) {
-        // Get the data folder path
-        std::string dataFolder = getDataFolder();
-
-        // Use provided filename or default to export.txt
+        // Use provided filename or default to export.txt. Absolute paths are
+        // written verbatim; bare names go in the data folder.
         std::string filename = g_hostWriteFilename.empty() ? "export.txt" : g_hostWriteFilename;
-        std::string fullPath = dataFolder + "\\" + filename;
+        std::string fullPath = resolveHostPath(filename);
 
-        // Write the buffer directly to the data folder
-        FILE* f = fopen(fullPath.c_str(), "wb");
+        // Write the buffer
+        FILE* f = fullPath.empty() ? nullptr : fopen(fullPath.c_str(), "wb");
         if (f) {
             fwrite(g_hostWriteBuffer.data(), 1, g_hostWriteBuffer.size(), f);
             fclose(f);

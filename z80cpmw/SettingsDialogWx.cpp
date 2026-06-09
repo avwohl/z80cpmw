@@ -9,6 +9,9 @@
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
 
+// Real on-disk location of the data folder, resolving MSIX/Store redirection.
+extern "C" const char* emu_io_get_data_folder_display();
+
 wxBEGIN_EVENT_TABLE(SettingsDialogWx, wxDialog)
     EVT_BUTTON(ID_BROWSE_DISK0, SettingsDialogWx::onBrowseDisk)
     EVT_BUTTON(ID_BROWSE_DISK1, SettingsDialogWx::onBrowseDisk)
@@ -23,6 +26,7 @@ wxBEGIN_EVENT_TABLE(SettingsDialogWx, wxDialog)
     EVT_BUTTON(ID_REFRESH_CATALOG, SettingsDialogWx::onRefreshCatalog)
     EVT_BUTTON(ID_DOWNLOAD_DISK, SettingsDialogWx::onDownloadDisk)
     EVT_BUTTON(ID_DELETE_DISK, SettingsDialogWx::onDeleteDisk)
+    EVT_BUTTON(ID_OPEN_DATA_FOLDER, SettingsDialogWx::onOpenDataFolder)
     EVT_BUTTON(wxID_OK, SettingsDialogWx::onOK)
     EVT_BUTTON(wxID_CANCEL, SettingsDialogWx::onCancel)
     EVT_COMMAND(ID_CATALOG_LOADED, wxEVT_COMMAND_TEXT_UPDATED, SettingsDialogWx::onCatalogLoaded)
@@ -106,11 +110,21 @@ void SettingsDialogWx::createControls() {
     // Status text
     m_statusText = new wxStaticText(this, wxID_ANY, "Ready");
 
-    // Data directory path (show where disks and file transfers are stored)
-    std::string dataDir = m_catalog ? m_catalog->getDownloadDirectory() : "";
-    m_diskDirText = new wxStaticText(this, wxID_ANY,
-        wxString::Format("Data folder: %s", wxString::FromUTF8(dataDir)));
-    m_diskDirText->SetForegroundColour(wxColour(100, 100, 100));  // Gray text
+    // Data directory path (where disks and R8/W8 file transfers are stored).
+    // Use the resolved real path so it works even for the sandboxed Store build,
+    // whose %LOCALAPPDATA% writes are redirected into the package's LocalCache.
+    const char* realDir = emu_io_get_data_folder_display();
+    m_dataFolderPath = realDir ? realDir : "";
+    if (m_dataFolderPath.empty() && m_catalog) {
+        m_dataFolderPath = m_catalog->getDownloadDirectory();
+    }
+
+    m_diskDirLabel = new wxStaticText(this, wxID_ANY,
+        "Data folder (disks and R8/W8 transfers):");
+    // Read-only text control so the user can select and copy the path.
+    m_diskDirText = new wxTextCtrl(this, wxID_ANY, wxString::FromUTF8(m_dataFolderPath),
+        wxDefaultPosition, wxDefaultSize, wxTE_READONLY);
+    m_openFolderBtn = new wxButton(this, ID_OPEN_DATA_FOLDER, "Open Folder");
 }
 
 void SettingsDialogWx::layoutControls() {
@@ -179,8 +193,12 @@ void SettingsDialogWx::layoutControls() {
     catalogHeaderSizer->Add(m_refreshBtn, 0);
     paddedSizer->Add(catalogHeaderSizer, 0, wxEXPAND | wxBOTTOM, 4);
 
-    // Show download directory path
-    paddedSizer->Add(m_diskDirText, 0, wxEXPAND | wxBOTTOM, 8);
+    // Show data directory path with a copyable field and an Open Folder button
+    paddedSizer->Add(m_diskDirLabel, 0, wxBOTTOM, 2);
+    wxBoxSizer* dataDirSizer = new wxBoxSizer(wxHORIZONTAL);
+    dataDirSizer->Add(m_diskDirText, 1, wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    dataDirSizer->Add(m_openFolderBtn, 0);
+    paddedSizer->Add(dataDirSizer, 0, wxEXPAND | wxBOTTOM, 8);
 
     // Catalog list
     paddedSizer->Add(m_catalogList, 1, wxEXPAND | wxBOTTOM, 8);
@@ -494,6 +512,14 @@ void SettingsDialogWx::onDeleteDisk(wxCommandEvent& event) {
             wxMessageBox("Failed to delete disk", "Error", wxOK | wxICON_ERROR);
         }
     }
+}
+
+void SettingsDialogWx::onOpenDataFolder(wxCommandEvent& event) {
+    if (m_dataFolderPath.empty()) return;
+    // Open the folder in Explorer. The folder is created on demand by the
+    // resolver, so it should already exist.
+    wxString path = wxString::FromUTF8(m_dataFolderPath);
+    ShellExecuteW(nullptr, L"open", path.wc_str(), nullptr, nullptr, SW_SHOWNORMAL);
 }
 
 void SettingsDialogWx::onOK(wxCommandEvent& event) {
