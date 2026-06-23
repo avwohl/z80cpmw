@@ -74,6 +74,12 @@ private:
     // Parse JSON index (simple parser)
     bool parseIndexJson(const std::string& json, std::vector<HelpTopic>& topics, std::string& error);
 
+    // Local (bundled) help topics, shown even when the online index is
+    // unavailable. Served from the app rather than fetched over the network.
+    void seedLocalTopics();
+    bool isLocalTopic(const std::string& topicId) const;
+    std::string localTopicContent(const std::string& topicId) const;
+
     // Find cached content
     std::string* findCachedContent(const std::string& topicId);
 

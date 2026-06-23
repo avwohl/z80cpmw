@@ -18,6 +18,133 @@ static const wchar_t* HELP_WINDOW_CLASS = L"Z80CPM_HelpWindow";
 static bool g_helpClassRegistered = false;
 static HelpWindow* g_helpWindow = nullptr;
 
+// Id of the bundled "Configuration File" topic (served locally, not fetched).
+static const std::string kLocalConfigTopicId = "local:configuration";
+
+// Markdown for the bundled Configuration topic. Kept in sync with
+// docs/CONFIGURATION.md. Uses indented blocks instead of ``` fences because the
+// in-app markdown renderer (markdownToText) does not understand code fences.
+// Note: backslashes are doubled here so the displayed text matches the doubled
+// backslashes the user actually sees in z80cpmw.json.
+static std::string getLocalConfigHelpMarkdown() {
+    return R"DOC(# Configuration File (z80cpmw.json)
+
+z80cpmw keeps its settings in a JSON file you can edit by hand:
+
+    %LOCALAPPDATA%\z80cpmw\z80cpmw.json
+
+Tip: Emulator > Settings > Open Folder opens the data folder
+(...\z80cpmw\data, where disks and R8/W8 transfers live). The z80cpmw.json file
+is one level up, in the z80cpmw folder. On the Microsoft Store build both live
+under ...\Packages\<package>\LocalCache\Local\z80cpmw\.
+
+Close z80cpmw before editing the file, then restart for changes to take effect.
+
+## Keyboard Map
+
+CP/M is pure ASCII and has no built-in function or navigation keys. Each CP/M
+terminal defined its own escape sequences for them, so there is no single
+standard - the correct bytes depend on the terminal your CP/M software expects
+(VT100, ADM-3A, Televideo, Kaypro, and so on).
+
+z80cpmw lets you bind each special key to whatever bytes you choose, written as
+termcap-style escape strings under "keyboard" in z80cpmw.json:
+
+    "keyboard": {
+      "f1ToCpm": false,
+      "f5ToCpm": false,
+      "keys": {
+        "Insert": "\\E[2~",
+        "F2": "\\EOQ"
+      }
+    }
+
+Because JSON uses the backslash for its own escaping, every backslash is written
+twice in the file. The Escape character (\E in termcap) becomes \\E, so Insert
+is stored as "\\E[2~".
+
+### Escape Syntax
+
+| Notation | Meaning |
+| --- | --- |
+| \E | Escape, 0x1B (written \\E in JSON) |
+| \n \r \t | Newline, Return, Tab |
+| \b \f \s | Backspace, Form-feed, Space |
+| \NNN | One byte in octal, e.g. \033 = Escape |
+| ^X | Control-X, e.g. ^C = 0x03 |
+| ^? | Delete, 0x7F |
+
+Any other character stands for itself. An empty value unbinds that key.
+
+### Bindable Keys
+
+Up, Down, Left, Right, Home, End, Insert, Delete, PageUp, PageDown, and F1
+through F12. Names are case-insensitive; Ins, Del, PgUp and PgDn also work.
+
+### Default Bindings
+
+VT220 / xterm defaults, shown as written in the file (doubled backslashes):
+
+| Key | Sends |
+| --- | --- |
+| Up | \\E[A |
+| Down | \\E[B |
+| Right | \\E[C |
+| Left | \\E[D |
+| Home | \\E[H |
+| End | \\E[F |
+| Insert | \\E[2~ |
+| Delete | ^? |
+| PageUp | \\E[5~ |
+| PageDown | \\E[6~ |
+| F1 | \\EOP |
+| F2 | \\EOQ |
+| F3 | \\EOR |
+| F4 | \\EOS |
+| F5 | \\E[15~ |
+| F6 | \\E[17~ |
+| F7 | \\E[18~ |
+| F8 | \\E[19~ |
+| F9 | \\E[20~ |
+| F10 | \\E[21~ |
+| F11 | \\E[23~ |
+| F12 | \\E[24~ |
+
+Change any line to suit your CP/M program. For example, to make F1-F4 easier to
+parse in a hand-written key reader, give them the same CSI form as the rest:
+
+    "F1": "\\E[11~", "F2": "\\E[12~", "F3": "\\E[13~", "F4": "\\E[14~"
+
+### F1 and F5
+
+F1 opens Help and F5 / Shift+F5 Start and Stop the emulator, so by default those
+keys are not sent to CP/M. To deliver them to CP/M instead, set:
+
+    "f1ToCpm": true     sends F1 to CP/M (Help stays on the Help menu)
+    "f5ToCpm": true     sends F5 and Shift+F5 to CP/M
+
+F10 normally opens the Windows menu bar; z80cpmw delivers it to CP/M when it is
+bound in the keymap.
+
+## Mouse Copy and Paste
+
+Drag with the mouse to select text in the terminal, then right-click for Copy
+and Paste. Ctrl+C and Ctrl+V are left untouched so they still reach CP/M as ^C
+and ^V. Paste works only while the emulator is running.
+
+## Other Settings
+
+| Setting | Meaning |
+| --- | --- |
+| display.fontSize | Terminal font size, in points |
+| core.rom | ROM image to load at startup |
+| core.bootString | Text typed automatically at the boot menu |
+| disks | Disk images assigned to units 0-3 |
+
+Most of these are easier to change from Emulator > Settings.
+)DOC";
+}
+
 // Control IDs
 #define IDC_TOPIC_LIST      1001
 #define IDC_CONTENT_VIEW    1002
@@ -274,20 +401,25 @@ void HelpWindow::fetchIndex() {
         std::string error;
 
         if (!downloadToString(INDEX_URL, json, error)) {
-            // Post message to update UI on main thread
-            PostMessage(m_hwnd, WM_APP, 0, (LPARAM)new std::string("Failed to load help: " + error));
+            // Online index unavailable: still offer the bundled local topics.
+            seedLocalTopics();
+            PostMessage(m_hwnd, WM_APP, 0, (LPARAM)new std::string("Online help unavailable - showing local topics."));
             m_loading = false;
+            PostMessage(m_hwnd, WM_APP + 1, 0, 0);
             return;
         }
 
         std::vector<HelpTopic> topics;
         if (!parseIndexJson(json, topics, error)) {
-            PostMessage(m_hwnd, WM_APP, 0, (LPARAM)new std::string("Failed to parse index: " + error));
+            seedLocalTopics();
+            PostMessage(m_hwnd, WM_APP, 0, (LPARAM)new std::string("Could not parse online index - showing local topics."));
             m_loading = false;
+            PostMessage(m_hwnd, WM_APP + 1, 0, 0);
             return;
         }
 
         m_topics = topics;
+        seedLocalTopics();  // bundled topics appear above the online ones
         m_loading = false;
 
         // Update UI on main thread
@@ -295,7 +427,37 @@ void HelpWindow::fetchIndex() {
     }).detach();
 }
 
+void HelpWindow::seedLocalTopics() {
+    // Ensure the bundled Configuration topic is present (at the top of the list)
+    // without duplicating it across reloads.
+    for (const auto& t : m_topics) {
+        if (t.id == kLocalConfigTopicId) return;
+    }
+    HelpTopic t;
+    t.id = kLocalConfigTopicId;
+    t.title = "Configuration File (z80cpmw.json)";
+    t.description = "Keyboard map and settings";
+    t.filename.clear();  // local: served from the app, not downloaded
+    m_topics.insert(m_topics.begin(), t);
+}
+
+bool HelpWindow::isLocalTopic(const std::string& topicId) const {
+    return topicId == kLocalConfigTopicId;
+}
+
+std::string HelpWindow::localTopicContent(const std::string& topicId) const {
+    if (topicId == kLocalConfigTopicId) return getLocalConfigHelpMarkdown();
+    return std::string();
+}
+
 void HelpWindow::fetchTopic(const std::string& topicId) {
+    // Bundled topics are rendered directly, with no network access.
+    if (isLocalTopic(topicId)) {
+        m_currentTopicId = topicId;
+        displayContent(localTopicContent(topicId));
+        return;
+    }
+
     if (m_loading) return;
 
     // Check cache first

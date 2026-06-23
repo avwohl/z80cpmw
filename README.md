@@ -10,6 +10,8 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
 - Support for CP/M, ZSDOS, and other operating systems
 - Multiple ROM images included
 - Disk image support (up to 64MB hd1k format)
+- Configurable keyboard map for function/navigation keys (termcap-style)
+- Mouse text selection with right-click Copy/Paste
 
 ## Building
 
@@ -36,7 +38,31 @@ Open `z80cpmw.sln` in Visual Studio and build the solution.
 
 ### Keyboard
 
-Standard keyboard input. Arrow keys send VT100 escape sequences.
+Standard keyboard input. Arrow keys, Home/End, Insert, PageUp/PageDown and the
+function keys (F1–F12) send VT100/xterm escape sequences to CP/M. Because CP/M
+is pure ASCII with no standard for these keys, every binding is configurable —
+see **Configuration** below.
+
+By default `F1` opens Help and `F5` / `Shift+F5` start/stop the emulator, so
+those two keys are not passed to CP/M unless you enable them in the config.
+
+### Mouse Copy/Paste
+
+Drag to select text in the terminal, then right-click for **Copy** and
+**Paste**. `Ctrl+C` / `Ctrl+V` are left untouched so they still reach CP/M as
+`^C` / `^V`.
+
+## Configuration
+
+Settings are stored in `%LOCALAPPDATA%\z80cpmw\z80cpmw.json`, which you can edit
+by hand. This includes the keyboard map (`keyboard.keys`, written as termcap-style
+escape strings), the `f1ToCpm` / `f5ToCpm` toggles, fonts, ROM and disk
+assignments. The keyboard map is also viewable in-app from
+**Help → Help Topics → Configuration File**.
+
+See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference,
+including the escape syntax, bindable key names, and the default bindings.
+
 ## Related Projects
 
 - [80un](https://github.com/avwohl/80un) - Unpacker for CP/M compression and archive formats (LBR, ARC, squeeze, crunch, CrLZH)
