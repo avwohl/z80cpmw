@@ -24,6 +24,24 @@ struct DiskConfig {
     bool isManifest = false;    // True if from catalog (may be overwritten on update)
 };
 
+// Main window position and size, so it reopens where the user left it.
+// width/height of 0 means "not saved yet, use the default size". The monitor
+// bounds it was saved on are recorded too: if the monitor layout changed (or
+// the saved spot is now off-screen), the saved position is discarded.
+struct WindowConfig {
+    int x = 0;
+    int y = 0;
+    int width = 0;
+    int height = 0;
+    bool maximized = false;
+
+    // Bounds (virtual-screen coords) of the monitor the window was on when saved.
+    int monLeft = 0;
+    int monTop = 0;
+    int monRight = 0;
+    int monBottom = 0;
+};
+
 // Keyboard configuration: how special keys are delivered to CP/M.
 struct KeyboardConfig {
     // F1 and F5 double as application shortcuts (Help, and emulator Start/Stop).
@@ -62,6 +80,9 @@ struct AppConfig {
 
     // Keyboard / key bindings
     KeyboardConfig keyboard;
+
+    // Main window placement
+    WindowConfig window;
 
     // Disk units (0-3)
     std::optional<DiskConfig> disks[4];

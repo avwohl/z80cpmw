@@ -93,8 +93,78 @@ bool MainWindow::create() {
 }
 
 void MainWindow::show(int cmdShow) {
-    ShowWindow(m_hwnd, cmdShow);
+    // Reopen at the saved position/size if we have one; otherwise use the
+    // default placement the system chose at creation.
+    if (!restoreWindowPlacement()) {
+        ShowWindow(m_hwnd, cmdShow);
+    }
     UpdateWindow(m_hwnd);
+}
+
+bool MainWindow::restoreWindowPlacement() {
+    const auto& w = config::ConfigManager::instance().get().window;
+    if (w.width <= 0 || w.height <= 0) {
+        return false;  // nothing saved yet
+    }
+
+    RECT r = { w.x, w.y, w.x + w.width, w.y + w.height };
+
+    // The saved rectangle must still land on a monitor (it would be off-screen,
+    // e.g. after a display was unplugged, if it does not).
+    HMONITOR hMon = MonitorFromRect(&r, MONITOR_DEFAULTTONULL);
+    if (hMon == nullptr) {
+        return false;
+    }
+
+    // And that monitor must have the same bounds it had when we saved. If the
+    // layout changed (different monitor, moved, or a resolution change), fall
+    // back to the default placement instead of reopening somewhere unexpected.
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (!GetMonitorInfo(hMon, &mi) ||
+        mi.rcMonitor.left   != w.monLeft  ||
+        mi.rcMonitor.top    != w.monTop   ||
+        mi.rcMonitor.right  != w.monRight ||
+        mi.rcMonitor.bottom != w.monBottom) {
+        return false;
+    }
+
+    WINDOWPLACEMENT wp = {};
+    wp.length = sizeof(wp);
+    wp.rcNormalPosition = r;
+    wp.showCmd = w.maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+    return SetWindowPlacement(m_hwnd, &wp) != 0;
+}
+
+void MainWindow::saveWindowPlacement() {
+    if (!m_hwnd) return;
+
+    WINDOWPLACEMENT wp = {};
+    wp.length = sizeof(wp);
+    if (!GetWindowPlacement(m_hwnd, &wp)) return;
+
+    // rcNormalPosition is the restored (non-maximized) rectangle, which is what
+    // we want to reopen at even if the window is currently maximized.
+    auto& w = config::ConfigManager::instance().get().window;
+    w.x = wp.rcNormalPosition.left;
+    w.y = wp.rcNormalPosition.top;
+    w.width = wp.rcNormalPosition.right - wp.rcNormalPosition.left;
+    w.height = wp.rcNormalPosition.bottom - wp.rcNormalPosition.top;
+    w.maximized = (wp.showCmd == SW_SHOWMAXIMIZED) ||
+                  ((wp.flags & WPF_RESTORETOMAXIMIZED) != 0);
+
+    // Record the monitor the window is on, so restore can detect layout changes.
+    HMONITOR hMon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (hMon && GetMonitorInfo(hMon, &mi)) {
+        w.monLeft   = mi.rcMonitor.left;
+        w.monTop    = mi.rcMonitor.top;
+        w.monRight  = mi.rcMonitor.right;
+        w.monBottom = mi.rcMonitor.bottom;
+    }
+
+    config::ConfigManager::instance().save();
 }
 
 int MainWindow::run() {
@@ -176,6 +246,7 @@ LRESULT MainWindow::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_CLOSE:
+        saveWindowPlacement();  // remember where/how big the window is
         if (m_emulator && m_emulator->isRunning()) {
             m_emulator->stop();
         }

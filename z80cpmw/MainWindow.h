@@ -40,6 +40,10 @@ private:
     void onCreate();
     void onDestroy();
     void onSize(int width, int height);
+
+    // Window placement persistence (remembers position/size across runs)
+    bool restoreWindowPlacement();
+    void saveWindowPlacement();
     void onCommand(int id);
     void onTimer();
 

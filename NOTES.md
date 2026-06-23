@@ -1,5 +1,18 @@
 # z80cpmw Development Notes
 
+## Main Window Placement Persistence (June 2026)
+
+The main window reopens at its last position/size. `MainWindow::saveWindowPlacement`
+(called from WM_CLOSE, which File > Exit also routes through) stores
+`rcNormalPosition` + maximized state from GetWindowPlacement into
+`config.window`, plus the bounds of the monitor it was on (MonitorFromWindow).
+`restoreWindowPlacement` (from `show()`) reapplies it via SetWindowPlacement, but
+first discards the saved spot if it no longer lands on any monitor
+(MonitorFromRect == null) or the monitor's bounds changed (display unplugged,
+rearranged, or a resolution change) - in which case the default placement is
+used. Placement is stored in physical pixels and round-trips correctly under
+per-monitor DPI-v2 (verified stable across save/restore/save).
+
 ## Startup Instructions Moved to Scrollable Help (June 2026)
 
 The terminal is a fixed 25x80 grid with no scrollback, so a long startup banner

@@ -44,6 +44,33 @@ void from_json(const json& j, DazzlerConfig& d) {
     d.scale = j.value("scale", 4);
 }
 
+// JSON serialization for WindowConfig
+void to_json(json& j, const WindowConfig& w) {
+    j = json{
+        {"x", w.x},
+        {"y", w.y},
+        {"width", w.width},
+        {"height", w.height},
+        {"maximized", w.maximized},
+        {"monLeft", w.monLeft},
+        {"monTop", w.monTop},
+        {"monRight", w.monRight},
+        {"monBottom", w.monBottom}
+    };
+}
+
+void from_json(const json& j, WindowConfig& w) {
+    w.x = j.value("x", 0);
+    w.y = j.value("y", 0);
+    w.width = j.value("width", 0);
+    w.height = j.value("height", 0);
+    w.maximized = j.value("maximized", false);
+    w.monLeft = j.value("monLeft", 0);
+    w.monTop = j.value("monTop", 0);
+    w.monRight = j.value("monRight", 0);
+    w.monBottom = j.value("monBottom", 0);
+}
+
 // JSON serialization for KeyboardConfig
 void to_json(json& j, const KeyboardConfig& k) {
     j = json{
@@ -77,6 +104,7 @@ void to_json(json& j, const AppConfig& c) {
             {"fontName", c.fontName}
         }},
         {"keyboard", c.keyboard},
+        {"window", c.window},
         {"hardware", {
             {"dazzler", c.dazzlers}
         }}
@@ -129,6 +157,11 @@ void from_json(const json& j, AppConfig& c) {
     // Keyboard
     if (j.contains("keyboard")) {
         c.keyboard = j["keyboard"].get<KeyboardConfig>();
+    }
+
+    // Window placement
+    if (j.contains("window")) {
+        c.window = j["window"].get<WindowConfig>();
     }
 
     // Hardware
