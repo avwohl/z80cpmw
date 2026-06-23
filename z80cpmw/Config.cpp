@@ -5,6 +5,7 @@
 #include "pch.h"
 #include "Config.h"
 #include "EmulatorEngine.h"
+#include "Keymap.h"
 #include "include/nlohmann/json.hpp"
 #include <fstream>
 #include <filesystem>
@@ -43,6 +44,23 @@ void from_json(const json& j, DazzlerConfig& d) {
     d.scale = j.value("scale", 4);
 }
 
+// JSON serialization for KeyboardConfig
+void to_json(json& j, const KeyboardConfig& k) {
+    j = json{
+        {"f1ToCpm", k.f1ToCpm},
+        {"f5ToCpm", k.f5ToCpm},
+        {"keys", k.keys}
+    };
+}
+
+void from_json(const json& j, KeyboardConfig& k) {
+    k.f1ToCpm = j.value("f1ToCpm", false);
+    k.f5ToCpm = j.value("f5ToCpm", false);
+    if (j.contains("keys") && j["keys"].is_object()) {
+        k.keys = j["keys"].get<std::map<std::string, std::string>>();
+    }
+}
+
 // JSON serialization for AppConfig
 void to_json(json& j, const AppConfig& c) {
     j = json{
@@ -57,6 +75,7 @@ void to_json(json& j, const AppConfig& c) {
             {"fontSize", c.fontSize},
             {"fontName", c.fontName}
         }},
+        {"keyboard", c.keyboard},
         {"hardware", {
             {"dazzler", c.dazzlers}
         }}
@@ -105,6 +124,11 @@ void from_json(const json& j, AppConfig& c) {
         }
     }
 
+    // Keyboard
+    if (j.contains("keyboard")) {
+        c.keyboard = j["keyboard"].get<KeyboardConfig>();
+    }
+
     // Hardware
     if (j.contains("hardware")) {
         const auto& hw = j["hardware"];
@@ -140,28 +164,38 @@ bool ConfigManager::load() {
     std::string jsonPath = getConfigPath();
     std::string iniPath = getConfigDir() + "\\z80cpmw.ini";
 
-    // Try JSON config first
+    bool ok = true;
+    bool needSave = false;
+
     if (fs::exists(jsonPath)) {
-        return loadFromFile(jsonPath);
-    }
-
-    // Check for old INI format and migrate
-    if (fs::exists(iniPath)) {
-        if (migrateFromINI()) {
-            // Backup old INI file
-            try {
-                fs::rename(iniPath, iniPath + ".bak");
-            } catch (...) {
-                // Ignore backup errors
-            }
-            return true;
+        // Try JSON config first
+        ok = loadFromFile(jsonPath);
+    } else if (fs::exists(iniPath) && migrateFromINI()) {
+        // Migrated from old INI format; back up the original
+        try {
+            fs::rename(iniPath, iniPath + ".bak");
+        } catch (...) {
+            // Ignore backup errors
         }
+    } else {
+        // No config found, use defaults
+        m_config = AppConfig{};
+        needSave = true;
     }
 
-    // No config found, use defaults and save
-    m_config = AppConfig{};
-    save();
-    return true;
+    // Make the default key bindings visible/editable in z80cpmw.json. Absent on
+    // a fresh install or when upgrading a config written before keymaps existed;
+    // populate them and persist so the user can customize them. Keys still fall
+    // back to built-in defaults at runtime even if this section is removed.
+    if (m_config.keyboard.keys.empty()) {
+        m_config.keyboard.keys = keymap::defaultBindings();
+        needSave = true;
+    }
+
+    if (needSave) {
+        save();
+    }
+    return ok;
 }
 
 bool ConfigManager::save() {

@@ -235,6 +235,16 @@ LRESULT TerminalView::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         handleKeyDown(wParam);
         return 0;
 
+    case WM_SYSKEYDOWN:
+        // F10 normally activates the menu bar (it arrives as a system key, not
+        // WM_KEYDOWN). When it is bound in the keymap, deliver it to CP/M like
+        // the other function keys instead; otherwise let the menu handle it.
+        if (wParam == VK_F10 && m_keymap.find(VK_F10)) {
+            handleKeyDown(wParam);
+            return 0;
+        }
+        break;  // fall through to DefWindowProc for normal Alt/menu handling
+
     case WM_CHAR:
         handleChar(wParam);
         return 0;
@@ -267,6 +277,43 @@ LRESULT TerminalView::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_MOUSEWHEEL: {
         // Could implement scrollback buffer here
+        return 0;
+    }
+
+    case WM_LBUTTONDOWN:
+        SetFocus(m_hwnd);
+        handleLButtonDown(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        return 0;
+
+    case WM_MOUSEMOVE:
+        if (m_selecting) {
+            handleMouseMove(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        }
+        return 0;
+
+    case WM_LBUTTONUP:
+        handleLButtonUp();
+        return 0;
+
+    case WM_CAPTURECHANGED:
+        // Capture was stolen (e.g. by the context menu); stop dragging but keep
+        // any committed selection so Copy still works.
+        m_selecting = false;
+        return 0;
+
+    case WM_CONTEXTMENU: {
+        // lParam is screen coords; (-1,-1) means the keyboard menu key.
+        int sx = GET_X_LPARAM(lParam);
+        int sy = GET_Y_LPARAM(lParam);
+        if (sx == -1 && sy == -1) {
+            RECT rc;
+            GetClientRect(m_hwnd, &rc);
+            POINT p = { rc.left + 4, rc.top + 4 };
+            ClientToScreen(m_hwnd, &p);
+            sx = p.x;
+            sy = p.y;
+        }
+        showContextMenu(sx, sy);
         return 0;
     }
     }
@@ -316,9 +363,15 @@ void TerminalView::paint(HDC hdc) {
             int x = col * m_charWidth;
             int y = row * m_charHeight;
 
-            // Set colors
-            SetTextColor(memDC, cgaToRGB(cell.foreground));
-            SetBkColor(memDC, cgaToRGB(cell.background));
+            // Set colors; selected cells are drawn with fg/bg swapped (inverted),
+            // which fully paints the highlight because SetBkMode is OPAQUE.
+            COLORREF fg = cgaToRGB(cell.foreground);
+            COLORREF bg = cgaToRGB(cell.background);
+            if (isCellSelected(row, col)) {
+                std::swap(fg, bg);
+            }
+            SetTextColor(memDC, fg);
+            SetBkColor(memDC, bg);
 
             // Draw character
             char ch = cell.character;
@@ -350,21 +403,18 @@ void TerminalView::paint(HDC hdc) {
 }
 
 void TerminalView::handleKeyDown(WPARAM wParam) {
-    // Handle special keys
-    char ch = 0;
-
-    switch (wParam) {
-    case VK_UP:    ch = 0x1B; if (m_keyCallback) { m_keyCallback(ch); m_keyCallback('['); m_keyCallback('A'); } return;
-    case VK_DOWN:  ch = 0x1B; if (m_keyCallback) { m_keyCallback(ch); m_keyCallback('['); m_keyCallback('B'); } return;
-    case VK_RIGHT: ch = 0x1B; if (m_keyCallback) { m_keyCallback(ch); m_keyCallback('['); m_keyCallback('C'); } return;
-    case VK_LEFT:  ch = 0x1B; if (m_keyCallback) { m_keyCallback(ch); m_keyCallback('['); m_keyCallback('D'); } return;
-    case VK_HOME:  ch = 0x1B; if (m_keyCallback) { m_keyCallback(ch); m_keyCallback('['); m_keyCallback('H'); } return;
-    case VK_END:   ch = 0x1B; if (m_keyCallback) { m_keyCallback(ch); m_keyCallback('['); m_keyCallback('F'); } return;
-    case VK_DELETE: ch = 0x7F; break;
-    }
-
-    if (ch && m_keyCallback) {
-        m_keyCallback(ch);
+    // Special keys (arrows, Home/End, Insert/Delete, PageUp/Down, F1-F12) are
+    // resolved through the configurable keymap and sent to CP/M as a byte
+    // sequence. Printable keys arrive separately via WM_CHAR (handleChar).
+    const std::string* seq = m_keymap.find(static_cast<UINT>(wParam));
+    if (seq && m_keyCallback) {
+        for (char c : *seq) {
+            m_keyCallback(c);
+        }
+        // Typing dismisses any mouse selection highlight.
+        if (m_hasSelection) {
+            clearSelection();
+        }
     }
 }
 
@@ -374,7 +424,171 @@ void TerminalView::handleChar(WPARAM wParam) {
         if (m_keyCallback) {
             m_keyCallback(ch);
         }
+        // Typing dismisses any mouse selection highlight.
+        if (m_hasSelection) {
+            clearSelection();
+        }
     }
+}
+
+//=============================================================================
+// Mouse selection and clipboard (right-click Copy/Paste)
+//=============================================================================
+
+// Context-menu command ids (local to this window's popup menu).
+static constexpr UINT IDM_COPY = 1;
+static constexpr UINT IDM_PASTE = 2;
+
+bool TerminalView::pixelToCell(int x, int y, int& row, int& col) const {
+    if (m_charWidth <= 0 || m_charHeight <= 0) return false;
+    col = x / m_charWidth;
+    row = y / m_charHeight;
+    col = std::max(0, std::min(col, COLS - 1));
+    row = std::max(0, std::min(row, ROWS - 1));
+    return true;
+}
+
+bool TerminalView::isCellSelected(int row, int col) const {
+    if (!(m_selecting || m_hasSelection)) return false;
+    int a = m_selAnchorRow * COLS + m_selAnchorCol;
+    int b = m_selActiveRow * COLS + m_selActiveCol;
+    int lo = std::min(a, b);
+    int hi = std::max(a, b);
+    int idx = row * COLS + col;
+    return idx >= lo && idx <= hi;
+}
+
+void TerminalView::clearSelection() {
+    if (!(m_selecting || m_hasSelection)) return;
+    m_selecting = false;
+    m_hasSelection = false;
+    invalidate();
+}
+
+void TerminalView::handleLButtonDown(int x, int y) {
+    int r, c;
+    if (!pixelToCell(x, y, r, c)) return;
+    m_selAnchorRow = m_selActiveRow = r;
+    m_selAnchorCol = m_selActiveCol = c;
+    m_selecting = true;
+    m_hasSelection = false;
+    SetCapture(m_hwnd);
+    invalidate();
+}
+
+void TerminalView::handleMouseMove(int x, int y) {
+    int r, c;
+    if (!pixelToCell(x, y, r, c)) return;
+    if (r == m_selActiveRow && c == m_selActiveCol) return;  // no change
+    m_selActiveRow = r;
+    m_selActiveCol = c;
+    m_hasSelection = true;
+    invalidate();
+}
+
+void TerminalView::handleLButtonUp() {
+    if (!m_selecting) return;
+    ReleaseCapture();
+    m_selecting = false;
+    // A real selection exists only if the drag actually moved off the anchor.
+    m_hasSelection = (m_selAnchorRow != m_selActiveRow) ||
+                     (m_selAnchorCol != m_selActiveCol);
+    invalidate();
+}
+
+void TerminalView::showContextMenu(int screenX, int screenY) {
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return;
+
+    bool clipHasText = IsClipboardFormatAvailable(CF_UNICODETEXT) != 0;
+    bool canPaste = clipHasText &&
+                    (!m_inputReadyCallback || m_inputReadyCallback());
+
+    AppendMenuW(menu, MF_STRING | (m_hasSelection ? 0 : MF_GRAYED), IDM_COPY, L"Copy");
+    AppendMenuW(menu, MF_STRING | (canPaste ? 0 : MF_GRAYED), IDM_PASTE, L"Paste");
+
+    UINT cmd = TrackPopupMenu(menu,
+        TPM_RIGHTBUTTON | TPM_RETURNCMD | TPM_NONOTIFY,
+        screenX, screenY, 0, m_hwnd, nullptr);
+    DestroyMenu(menu);
+
+    if (cmd == IDM_COPY) {
+        copySelectionToClipboard();
+    } else if (cmd == IDM_PASTE) {
+        pasteFromClipboard();
+    }
+}
+
+void TerminalView::copySelectionToClipboard() {
+    if (!m_hasSelection) return;
+
+    int a = m_selAnchorRow * COLS + m_selAnchorCol;
+    int b = m_selActiveRow * COLS + m_selActiveCol;
+    int lo = std::min(a, b);
+    int hi = std::max(a, b);
+    int r0 = lo / COLS, c0 = lo % COLS;
+    int r1 = hi / COLS, c1 = hi % COLS;
+
+    std::wstring out;
+    for (int row = r0; row <= r1; ++row) {
+        int cs = (row == r0) ? c0 : 0;
+        int ce = (row == r1) ? c1 : COLS - 1;
+        std::wstring line;
+        for (int col = cs; col <= ce; ++col) {
+            char ch = m_cells[row][col].character;
+            line += (ch >= 32 && (unsigned char)ch < 127) ? (wchar_t)ch : L' ';
+        }
+        while (!line.empty() && line.back() == L' ') {
+            line.pop_back();  // trim trailing spaces
+        }
+        out += line;
+        if (row != r1) out += L"\r\n";
+    }
+
+    if (!OpenClipboard(m_hwnd)) return;
+
+    size_t bytes = (out.size() + 1) * sizeof(wchar_t);
+    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (hMem) {
+        void* p = GlobalLock(hMem);
+        if (p) {
+            memcpy(p, out.c_str(), bytes);
+            GlobalUnlock(hMem);
+            EmptyClipboard();
+            if (!SetClipboardData(CF_UNICODETEXT, hMem)) {
+                GlobalFree(hMem);  // ownership not transferred on failure
+            }
+        } else {
+            GlobalFree(hMem);
+        }
+    }
+    CloseClipboard();
+}
+
+void TerminalView::pasteFromClipboard() {
+    if (!m_keyCallback) return;
+    if (m_inputReadyCallback && !m_inputReadyCallback()) return;
+    if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return;
+    if (!OpenClipboard(m_hwnd)) return;
+
+    HGLOBAL hMem = GetClipboardData(CF_UNICODETEXT);
+    if (hMem) {
+        const wchar_t* w = (const wchar_t*)GlobalLock(hMem);
+        if (w) {
+            for (const wchar_t* s = w; *s; ++s) {
+                wchar_t c = *s;
+                if (c == L'\n') {
+                    if (s != w && *(s - 1) == L'\r') continue;  // CRLF already sent CR
+                    c = L'\r';
+                }
+                if (c == L'\r') { m_keyCallback('\r'); continue; }  // CP/M wants CR
+                if (c == L'\t') { m_keyCallback('\t'); continue; }
+                if (c >= 32 && c < 127) m_keyCallback((char)c);     // ASCII only
+            }
+            GlobalUnlock(hMem);
+        }
+    }
+    CloseClipboard();
 }
 
 void TerminalView::processChar(uint8_t ch) {

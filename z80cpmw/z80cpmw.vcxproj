@@ -156,6 +156,7 @@
     <ClInclude Include="Dazzler.h" />
     <ClInclude Include="DazzlerWindow.h" />
     <ClInclude Include="Config.h" />
+    <ClInclude Include="Keymap.h" />
     <ClInclude Include="SettingsDialogWx.h" />
     <ClInclude Include="resource.h" />
     <!-- Headers from cpmemu -->

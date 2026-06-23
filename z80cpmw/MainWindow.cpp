@@ -18,6 +18,10 @@
 // External function to set main window for host file dialogs
 extern "C" void emu_io_set_main_window(HWND hwnd);
 
+// Real on-disk location of the data folder, resolving MSIX/Store redirection.
+// Defined in emu_io_windows.cpp; the Settings dialog uses the same function.
+extern "C" const char* emu_io_get_data_folder_display();
+
 static const wchar_t* WINDOW_CLASS = L"Z80CPM_MainWindow";
 static const wchar_t* WINDOW_TITLE = L"z80cpmw - Z80 CP/M Emulator";
 static bool g_mainClassRegistered = false;
@@ -90,15 +94,30 @@ void MainWindow::show(int cmdShow) {
 }
 
 int MainWindow::run() {
-    // Load keyboard accelerators (F5, Shift+F5, Ctrl+R)
-    HACCEL hAccel = LoadAccelerators(GetModuleHandle(nullptr), MAKEINTRESOURCE(IDR_ACCELERATORS));
+    // Build the accelerator table at runtime so F1 (Help) and F5/Shift+F5
+    // (Start/Stop) can optionally be released to CP/M via the config. A released
+    // key is omitted here, so it falls through to the terminal and the keymap.
+    const auto& kb = config::ConfigManager::instance().get().keyboard;
+    std::vector<ACCEL> accels;
+    if (!kb.f1ToCpm) {
+        accels.push_back({ FVIRTKEY, VK_F1, (WORD)ID_HELP_TOPICS });
+    }
+    if (!kb.f5ToCpm) {
+        accels.push_back({ FVIRTKEY, VK_F5, (WORD)ID_EMU_START });
+        accels.push_back({ (BYTE)(FVIRTKEY | FSHIFT), VK_F5, (WORD)ID_EMU_STOP });
+    }
+    accels.push_back({ (BYTE)(FVIRTKEY | FCONTROL), (WORD)'R', (WORD)ID_EMU_RESET });
+    HACCEL hAccel = CreateAcceleratorTable(accels.data(), (int)accels.size());
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0)) {
-        if (!TranslateAccelerator(m_hwnd, hAccel, &msg)) {
+        if (!hAccel || !TranslateAccelerator(m_hwnd, hAccel, &msg)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
+    }
+    if (hAccel) {
+        DestroyAcceleratorTable(hAccel);
     }
     return (int)msg.wParam;
 }
@@ -210,6 +229,11 @@ void MainWindow::onCreate() {
         if (m_emulator && m_emulator->isRunning()) {
             m_emulator->sendChar(ch);
         }
+    });
+
+    // Paste/keys are only deliverable while the emulator is running.
+    m_terminal->setInputReadyCallback([this]() {
+        return m_emulator && m_emulator->isRunning();
     });
 
     // Set up emulator callbacks
@@ -921,8 +945,12 @@ void MainWindow::onHelpTopics() {
 }
 
 void MainWindow::onHelpAbout() {
-    // Build about text with dynamic data directory path
-    std::string dataDir = EmulatorEngine::getUserDataDirectory();
+    // Show the real on-disk data folder (including \data, and resolving the
+    // MSIX/Store redirection) so it matches where R8/W8 actually read and write
+    // and what the Settings dialog shows. getUserDataDirectory() returns the
+    // un-redirected base path, which does not exist for a packaged install.
+    const char* realDir = emu_io_get_data_folder_display();
+    std::string dataDir = realDir ? realDir : "";
     std::wstring dataDirW(dataDir.begin(), dataDir.end());
 
     // Convert version string to wide
@@ -933,7 +961,7 @@ void MainWindow::onHelpAbout() {
         L"z80cpmw - Z80 CP/M Emulator\n"
         L"Version " + verStrW + L"\n\n"
         L"A RomWBW/HBIOS emulator for Windows.\n\n"
-        L"Data Directory:\n" + dataDirW + L"\n\n"
+        L"Data Folder (disks and R8/W8 transfers):\n" + dataDirW + L"\n\n"
         L"License: GPL v3\n"
         L"CP/M OS licensed by Lineo for non-commercial use.\n\n"
         L"github.com/avwohl/z80cpmw\n"
@@ -1081,17 +1109,33 @@ void MainWindow::showStartupInstructions() {
         "     W8 filename - Export file from CP/M to host\r\n"
         "     Give a full path (recommended), e.g.\r\n"
         "       R8 C:\\Users\\me\\Desktop\\getkey2.com\r\n"
-        "     A bare name uses the app's private data folder. Because this is\r\n"
-        "     a packaged (Store) app, that folder is redirected to:\r\n"
-        "       %LOCALAPPDATA%\\Packages\\<package>\\LocalCache\\Local\\z80cpmw\\data\r\n"
-        "\r\n"
+        "     A bare name uses the app's private data folder (shown below).\r\n"
+        "     Emulator -> Settings -> Open Folder opens it in Explorer.\r\n"
+        "\r\n";
+
+    for (const char* p = instructions; *p; ++p) {
+        m_terminal->outputChar(*p);
+    }
+
+    // Show the real data folder path (resolved through any MSIX/Store
+    // redirection) so bare-name R8/W8 transfers can actually be found on disk.
+    const char* dataFolder = emu_io_get_data_folder_display();
+    if (dataFolder && *dataFolder) {
+        std::string line = std::string("  Data folder: ") + dataFolder + "\r\n\r\n";
+        for (char c : line) m_terminal->outputChar((uint8_t)c);
+    }
+
+    const char* shortcuts =
         "  Keyboard Shortcuts:\r\n"
         "     F5        - Start emulator\r\n"
         "     Shift+F5  - Stop emulator\r\n"
         "     Ctrl+R    - Reset emulator\r\n"
+        "     F1        - Help\r\n"
+        "     F2-F12, Insert, PageUp/Down are sent to CP/M (configurable);\r\n"
+        "     F1/F5 above are reserved unless enabled in z80cpmw.json.\r\n"
+        "     Select text with the mouse, then right-click to Copy/Paste.\r\n"
         "\r\n";
-
-    for (const char* p = instructions; *p; ++p) {
+    for (const char* p = shortcuts; *p; ++p) {
         m_terminal->outputChar(*p);
     }
 
@@ -1153,6 +1197,11 @@ void MainWindow::applyConfig() {
     if (cfg.fontSize > 0 && m_terminal) {
         m_terminal->setFontSize(cfg.fontSize);
         checkFontMenuItem(cfg.fontSize);
+    }
+
+    // Apply keyboard bindings (function/navigation keys -> CP/M sequences)
+    if (m_terminal) {
+        m_terminal->setKeyBindings(cfg.keyboard.keys);
     }
 
     // Load disks

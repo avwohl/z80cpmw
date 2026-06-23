@@ -1,5 +1,42 @@
 # z80cpmw Development Notes
 
+## Configurable Keyboard Map ("termcap in reverse") (June 2026)
+
+CP/M is pure ASCII and has no native function/navigation keys; each CP/M
+terminal historically defined its own escape sequences, so there is no single
+standard. `Keymap.h` maps Windows virtual keys to byte sequences using
+termcap-style escape strings (`\E`=ESC, `^X`=ctrl, `\NNN`=octal, etc.) so a
+binding can be copied straight from a termcap/terminfo entry.
+
+- Defaults follow the VT220/xterm convention (and match the arrow-key sequences
+  the terminal already emitted): Insert `ESC[2~`, PageUp `ESC[5~`, PageDown
+  `ESC[6~`, F1-F4 `ESC O P/Q/R/S`, F5-F12 `ESC[15~..ESC[24~`, Delete `0x7F`.
+- Bindings live in `z80cpmw.json` under `keyboard.keys` (written out on load so
+  they are visible/editable). Missing names fall back to built-in defaults; an
+  empty value unbinds a key.
+- `TerminalView::handleKeyDown` resolves special keys through `keymap::KeyMap`;
+  printable keys still arrive via `WM_CHAR`.
+- F1 (Help) and F5/Shift+F5 (Start/Stop) are application accelerators. The
+  accelerator table is now built at runtime in `MainWindow::run` from
+  `keyboard.f1ToCpm` / `keyboard.f5ToCpm`; setting either true omits that
+  accelerator so the key reaches CP/M via the keymap instead.
+- F10 normally activates the menu bar (arrives as `WM_SYSKEYDOWN`); it is
+  intercepted in `TerminalView` when bound so it can be delivered to CP/M.
+
+## Mouse Selection and Clipboard (June 2026)
+
+`TerminalView` supports drag-select + right-click Copy/Paste. Ctrl+C/Ctrl+V are
+deliberately left untouched so they still reach CP/M as `^C`/`^V`.
+
+- Stream (wrapping) selection over `m_cells`, highlighted by swapping fg/bg in
+  `paint()`. `SetCapture`/`ReleaseCapture` around the drag; `WM_CAPTURECHANGED`
+  guards against capture theft.
+- Right-click (`WM_CONTEXTMENU`) shows a Copy/Paste popup. Copy trims trailing
+  spaces per line, joins with CRLF, sets `CF_UNICODETEXT`. Paste maps CRLF/LF to
+  CR (`0x0D`) and feeds ASCII bytes through the key callback.
+- Paste is greyed/blocked when the emulator is not running (input callback only
+  delivers while running) via `setInputReadyCallback`.
+
 ## W8/R8 Host File Transfer (December 2024)
 
 ### Current Implementation

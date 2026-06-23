@@ -11,6 +11,7 @@
 #include <vector>
 #include <optional>
 #include <cstdint>
+#include <map>
 
 namespace config {
 
@@ -21,6 +22,20 @@ constexpr int CURRENT_VERSION = 2;
 struct DiskConfig {
     std::string path;           // Full path to disk image
     bool isManifest = false;    // True if from catalog (may be overwritten on update)
+};
+
+// Keyboard configuration: how special keys are delivered to CP/M.
+struct KeyboardConfig {
+    // F1 and F5 double as application shortcuts (Help, and emulator Start/Stop).
+    // When false (default), those shortcuts win and the key is NOT sent to CP/M.
+    // When true, the shortcut is released so the key reaches CP/M via the keymap.
+    bool f1ToCpm = false;   // false: F1 = Help.  true: F1 -> CP/M
+    bool f5ToCpm = false;   // false: F5/Shift+F5 = Start/Stop.  true: -> CP/M
+
+    // Key name -> termcap-style escape string (see Keymap.h). Empty on a fresh
+    // load; populated with the built-in defaults so it is visible/editable in
+    // z80cpmw.json. Any name absent here falls back to the built-in default.
+    std::map<std::string, std::string> keys;
 };
 
 // Dazzler graphics card configuration
@@ -43,6 +58,9 @@ struct AppConfig {
     // Display settings
     int fontSize = 20;
     std::string fontName = "Consolas";
+
+    // Keyboard / key bindings
+    KeyboardConfig keyboard;
 
     // Disk units (0-3)
     std::optional<DiskConfig> disks[4];

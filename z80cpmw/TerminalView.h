@@ -10,6 +10,8 @@
 #include <windows.h>
 #include <string>
 #include <functional>
+#include <map>
+#include "Keymap.h"
 
 // Terminal cell structure
 struct TerminalCell {
@@ -51,6 +53,16 @@ public:
     // Input callback
     void setKeyInputCallback(KeyInputCallback cb) { m_keyCallback = cb; }
 
+    // Apply key bindings (name -> termcap-style sequence) from the config,
+    // layered over the built-in defaults. See Keymap.h.
+    void setKeyBindings(const std::map<std::string, std::string>& bindings) {
+        m_keymap.build(bindings);
+    }
+
+    // Predicate the terminal uses to decide whether pasted input can be
+    // delivered (e.g. only while the emulator is running). Optional.
+    void setInputReadyCallback(std::function<bool()> cb) { m_inputReadyCallback = cb; }
+
     // Get character dimensions
     int getCharWidth() const { return m_charWidth; }
     int getCharHeight() const { return m_charHeight; }
@@ -69,6 +81,17 @@ private:
     void paint(HDC hdc);
     void handleKeyDown(WPARAM wParam);
     void handleChar(WPARAM wParam);
+
+    // Mouse selection and clipboard
+    bool pixelToCell(int x, int y, int& row, int& col) const;  // clamps to grid
+    bool isCellSelected(int row, int col) const;
+    void clearSelection();
+    void handleLButtonDown(int x, int y);
+    void handleMouseMove(int x, int y);
+    void handleLButtonUp();
+    void showContextMenu(int screenX, int screenY);
+    void copySelectionToClipboard();
+    void pasteFromClipboard();
 
     // VT100 escape sequence processing
     void processChar(uint8_t ch);
@@ -111,7 +134,17 @@ private:
     std::string m_escapeCurrentParam;
 
     KeyInputCallback m_keyCallback;
+    std::function<bool()> m_inputReadyCallback;
+
+    // Configurable special-key bindings (function/navigation keys -> CP/M bytes)
+    keymap::KeyMap m_keymap;
 
     bool m_cursorVisible = true;
     UINT_PTR m_cursorTimer = 0;
+
+    // --- Mouse selection / clipboard ---
+    bool m_selecting = false;       // left button held, drag in progress
+    bool m_hasSelection = false;    // a committed, non-empty selection exists
+    int m_selAnchorRow = 0, m_selAnchorCol = 0;  // where the drag started
+    int m_selActiveRow = 0, m_selActiveCol = 0;  // current end of the drag
 };
