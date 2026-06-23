@@ -18,8 +18,55 @@ static const wchar_t* HELP_WINDOW_CLASS = L"Z80CPM_HelpWindow";
 static bool g_helpClassRegistered = false;
 static HelpWindow* g_helpWindow = nullptr;
 
-// Id of the bundled "Configuration File" topic (served locally, not fetched).
-static const std::string kLocalConfigTopicId = "local:configuration";
+// Markdown for the bundled "Getting Started" topic (served locally, no network).
+// Shown in the scrollable help window so it does not overflow the terminal.
+static std::string getLocalGettingStartedMarkdown() {
+    return R"DOC(# Getting Started
+
+  1. Download disk images:
+     Emulator > Settings > select a disk > Download.
+
+  2. Assign disks to units:
+     In Settings, choose downloaded disks for Disk 0, Disk 1, and so on.
+
+  3. Start the emulator:
+     Press F5, or Emulator > Start.
+
+  4. At the RomWBW boot menu:
+     Type 0 and press Enter to boot CP/M from Disk 0.
+     (Press W to configure autoboot settings.)
+
+## File Transfer (R8 / W8)
+
+R8 filename - import a file from the host into CP/M.
+W8 filename - export a file from CP/M to the host.
+
+Give a full path (recommended), for example:
+
+    R8 C:\Users\me\Desktop\getkey2.com
+
+A bare name uses the app's data folder. Open it with
+Emulator > Settings > Open Folder.
+
+## Keyboard
+
+| Key | Action |
+| --- | --- |
+| F5 | Start emulator |
+| Shift+F5 | Stop emulator |
+| Ctrl+R | Reset emulator |
+| F1 | Help |
+
+F2 through F12, Insert, and PageUp / PageDown are sent to CP/M. The exact bytes
+are configurable - see the "Configuration File" topic. By default F1 and F5 are
+reserved for the app; enable f1ToCpm / f5ToCpm in the config to send them to CP/M.
+
+## Mouse
+
+Drag with the mouse to select text, then right-click for Copy and Paste.
+Ctrl+C and Ctrl+V are left untouched so they still reach CP/M as ^C and ^V.
+)DOC";
+}
 
 // Markdown for the bundled Configuration topic. Kept in sync with
 // docs/CONFIGURATION.md. Uses indented blocks instead of ``` fences because the
@@ -157,13 +204,17 @@ HelpWindow::~HelpWindow() {
     close();
 }
 
-bool HelpWindow::show(HWND parent) {
+bool HelpWindow::show(HWND parent, const std::string& topicId) {
     m_parent = parent;
 
-    // If window exists, just show it
+    // If window exists, just show it (and switch topic if one was requested)
     if (m_hwnd && IsWindow(m_hwnd)) {
         ShowWindow(m_hwnd, SW_SHOW);
         SetForegroundWindow(m_hwnd);
+        if (!topicId.empty()) {
+            fetchTopic(topicId);
+            selectTopicInList(topicId);
+        }
         return true;
     }
 
@@ -186,14 +237,30 @@ bool HelpWindow::show(HWND parent) {
         g_helpClassRegistered = true;
     }
 
+    // Size relative to DPI so the window is not tiny on high-DPI monitors, and
+    // center it on the primary work area.
+    UINT dpi = parent ? GetDpiForWindow(parent) : 96;
+    if (dpi == 0) dpi = 96;
+    int winW = MulDiv(900, dpi, 96);
+    int winH = MulDiv(680, dpi, 96);
+    int winX = CW_USEDEFAULT, winY = CW_USEDEFAULT;
+    RECT wa{};
+    if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &wa, 0) &&
+        wa.right > wa.left && wa.bottom > wa.top) {
+        winW = (std::min)(winW, (int)(wa.right - wa.left));
+        winH = (std::min)(winH, (int)(wa.bottom - wa.top));
+        winX = wa.left + ((wa.right - wa.left) - winW) / 2;
+        winY = wa.top + ((wa.bottom - wa.top) - winH) / 2;
+    }
+
     // Create window
     m_hwnd = CreateWindowExW(
         WS_EX_OVERLAPPEDWINDOW,
         HELP_WINDOW_CLASS,
         L"z80cpmw Help",
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-        CW_USEDEFAULT, CW_USEDEFAULT,
-        800, 600,
+        winX, winY,
+        winW, winH,
         parent,
         nullptr,
         GetModuleHandle(nullptr),
@@ -206,6 +273,12 @@ bool HelpWindow::show(HWND parent) {
 
     ShowWindow(m_hwnd, SW_SHOW);
     UpdateWindow(m_hwnd);
+
+    // Bundled topics were seeded in WM_CREATE, so they display immediately.
+    if (!topicId.empty()) {
+        fetchTopic(topicId);
+        selectTopicInList(topicId);
+    }
 
     return true;
 }
@@ -244,6 +317,8 @@ LRESULT HelpWindow::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE:
         createControls();
+        seedLocalTopics();   // bundled topics available before the network call
+        updateTopicList();
         fetchIndex();
         return 0;
 
@@ -428,26 +503,43 @@ void HelpWindow::fetchIndex() {
 }
 
 void HelpWindow::seedLocalTopics() {
-    // Ensure the bundled Configuration topic is present (at the top of the list)
-    // without duplicating it across reloads.
-    for (const auto& t : m_topics) {
-        if (t.id == kLocalConfigTopicId) return;
-    }
-    HelpTopic t;
-    t.id = kLocalConfigTopicId;
-    t.title = "Configuration File (z80cpmw.json)";
-    t.description = "Keyboard map and settings";
-    t.filename.clear();  // local: served from the app, not downloaded
-    m_topics.insert(m_topics.begin(), t);
+    // Ensure the bundled topics are present at the top of the list, without
+    // duplicating them across reloads. Inserted in reverse so Getting Started
+    // ends up first.
+    auto ensureFront = [this](const char* id, const char* title, const char* desc) {
+        for (const auto& t : m_topics) {
+            if (t.id == id) return;
+        }
+        HelpTopic t;
+        t.id = id;
+        t.title = title;
+        t.description = desc;
+        t.filename.clear();  // local: served from the app, not downloaded
+        m_topics.insert(m_topics.begin(), t);
+    };
+    ensureFront(help_topics::Configuration, "Configuration File (z80cpmw.json)", "Keyboard map and settings");
+    ensureFront(help_topics::GettingStarted, "Getting Started", "First steps, file transfer, keys");
 }
 
 bool HelpWindow::isLocalTopic(const std::string& topicId) const {
-    return topicId == kLocalConfigTopicId;
+    return topicId == help_topics::GettingStarted ||
+           topicId == help_topics::Configuration;
 }
 
 std::string HelpWindow::localTopicContent(const std::string& topicId) const {
-    if (topicId == kLocalConfigTopicId) return getLocalConfigHelpMarkdown();
+    if (topicId == help_topics::GettingStarted) return getLocalGettingStartedMarkdown();
+    if (topicId == help_topics::Configuration)  return getLocalConfigHelpMarkdown();
     return std::string();
+}
+
+void HelpWindow::selectTopicInList(const std::string& topicId) {
+    if (!m_topicList) return;
+    for (size_t i = 0; i < m_topics.size(); ++i) {
+        if (m_topics[i].id == topicId) {
+            SendMessage(m_topicList, LB_SETCURSEL, (WPARAM)i, 0);
+            return;
+        }
+    }
 }
 
 void HelpWindow::fetchTopic(const std::string& topicId) {
@@ -968,9 +1060,9 @@ void HelpWindow::cacheContent(const std::string& topicId, const std::string& con
 }
 
 // Global helper function
-void ShowHelpWindow(HWND parent) {
+void ShowHelpWindow(HWND parent, const std::string& topicId) {
     if (!g_helpWindow) {
         g_helpWindow = new HelpWindow();
     }
-    g_helpWindow->show(parent);
+    g_helpWindow->show(parent, topicId);
 }

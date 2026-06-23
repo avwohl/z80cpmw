@@ -23,7 +23,8 @@ Open `z80cpmw.sln` in Visual Studio and build the solution.
 
 ## Usage
 
-1. Launch z80cpmw.exe
+1. Launch z80cpmw.exe (on first run, a scrollable **Getting Started** help
+   window opens automatically; you can reopen it any time with **F1**)
 2. Select a ROM from File > Select ROM (default: EMU AVW)
 3. Optionally load disk images from File > Load Disk
 4. Click Emulator > Start (or press F5)
@@ -57,8 +58,9 @@ Drag to select text in the terminal, then right-click for **Copy** and
 Settings are stored in `%LOCALAPPDATA%\z80cpmw\z80cpmw.json`, which you can edit
 by hand. This includes the keyboard map (`keyboard.keys`, written as termcap-style
 escape strings), the `f1ToCpm` / `f5ToCpm` toggles, fonts, ROM and disk
-assignments. The keyboard map is also viewable in-app from
-**Help → Help Topics → Configuration File**.
+assignments. The keyboard map and a Getting Started guide are also viewable
+in-app from **Help → Help Topics** (the **Getting Started** and **Configuration
+File** topics, which work even offline).
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference,
 including the escape syntax, bindable key names, and the default bindings.

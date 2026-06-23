@@ -1,5 +1,23 @@
 # z80cpmw Development Notes
 
+## Startup Instructions Moved to Scrollable Help (June 2026)
+
+The terminal is a fixed 25x80 grid with no scrollback, so a long startup banner
+scrolled its first lines off-screen permanently. Fixed by:
+
+- Shrinking the terminal banner (MainWindow::showStartupInstructions) to a few
+  lines that fit, pointing at F1 / Help for the full guide.
+- Adding two bundled, scrollable Help topics served from the app with no network
+  (HelpWindow: `help_topics::GettingStarted`, `help_topics::Configuration`).
+  They are seeded into the topic list in WM_CREATE (before the async index
+  fetch) so they appear instantly and work offline.
+- `HelpWindow::show(parent, topicId)` / `ShowHelpWindow(parent, topicId)` can
+  open straight to a topic; the help window is now DPI-scaled and centered
+  rather than a fixed 800x600 (which was tiny on high-DPI displays).
+- First-run auto-open: MainWindow posts WM_APP_SHOW_WELCOME after the window is
+  shown; the handler opens Getting Started once and sets `core.welcomeShown` in
+  z80cpmw.json so it does not reopen on later launches.
+
 ## Configurable Keyboard Map ("termcap in reverse") (June 2026)
 
 CP/M is pure ASCII and has no native function/navigation keys; each CP/M

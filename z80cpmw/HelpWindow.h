@@ -17,6 +17,12 @@
 
 #pragma comment(lib, "winhttp.lib")
 
+// Ids for the bundled (offline) help topics, served from the app itself.
+namespace help_topics {
+    inline constexpr const char* GettingStarted = "local:gettingstarted";
+    inline constexpr const char* Configuration  = "local:configuration";
+}
+
 // Help topic entry from index
 struct HelpTopic {
     std::string id;
@@ -37,8 +43,9 @@ public:
     HelpWindow();
     ~HelpWindow();
 
-    // Show the help window (creates if needed)
-    bool show(HWND parent);
+    // Show the help window (creates if needed). If topicId is non-empty, that
+    // topic is displayed once the window is up (bundled topics show instantly).
+    bool show(HWND parent, const std::string& topicId = "");
 
     // Close the help window
     void close();
@@ -80,6 +87,9 @@ private:
     bool isLocalTopic(const std::string& topicId) const;
     std::string localTopicContent(const std::string& topicId) const;
 
+    // Highlight a topic in the list box (no-op if not found)
+    void selectTopicInList(const std::string& topicId);
+
     // Find cached content
     std::string* findCachedContent(const std::string& topicId);
 
@@ -105,5 +115,6 @@ private:
     static const std::wstring CONTENT_BASE_URL;
 };
 
-// Show help window (creates singleton instance if needed)
-void ShowHelpWindow(HWND parent);
+// Show help window (creates singleton instance if needed). Optionally open a
+// specific topic (e.g. help_topics::GettingStarted).
+void ShowHelpWindow(HWND parent, const std::string& topicId = "");

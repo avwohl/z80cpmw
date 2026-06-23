@@ -26,6 +26,10 @@ static const wchar_t* WINDOW_CLASS = L"Z80CPM_MainWindow";
 static const wchar_t* WINDOW_TITLE = L"z80cpmw - Z80 CP/M Emulator";
 static bool g_mainClassRegistered = false;
 
+// Posted to ourselves to auto-open the Getting Started help on first run, after
+// the main window is shown and the message loop is running.
+static const UINT WM_APP_SHOW_WELCOME = WM_APP + 1;
+
 MainWindow::MainWindow()
     : m_terminal(std::make_unique<TerminalView>())
     , m_emulator(std::make_unique<EmulatorEngine>())
@@ -177,6 +181,17 @@ LRESULT MainWindow::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         DestroyWindow(m_hwnd);
         return 0;
+
+    case WM_APP_SHOW_WELCOME: {
+        // First-run welcome: open the scrollable Getting Started help once.
+        auto& cfg = config::ConfigManager::instance().get();
+        if (!cfg.welcomeShown) {
+            cfg.welcomeShown = true;
+            config::ConfigManager::instance().save();
+            ShowHelpWindow(m_hwnd, help_topics::GettingStarted);
+        }
+        return 0;
+    }
     }
 
     return DefWindowProcW(m_hwnd, msg, wParam, lParam);
@@ -262,6 +277,12 @@ void MainWindow::onCreate() {
 
     // Show startup instructions in terminal
     showStartupInstructions();
+
+    // On first run, open the scrollable Getting Started help once. Posted (not
+    // called directly) so it happens after the main window is shown.
+    if (!config::ConfigManager::instance().get().welcomeShown) {
+        PostMessage(m_hwnd, WM_APP_SHOW_WELCOME, 0, 0);
+    }
 }
 
 void MainWindow::onDestroy() {
@@ -1084,34 +1105,22 @@ void MainWindow::showStartupInstructions() {
     snprintf(versionLine, sizeof(versionLine),
         "  Version %s (%s %s)\r\n", VERSION_STRING, __DATE__, __TIME__);
 
+    // Keep this short so it fits within the 25-row terminal (which has no
+    // scrollback). The full, scrollable instructions live in Help (F1) -> the
+    // "Getting Started" and "Configuration File" topics, which also open
+    // automatically on first run.
     const char* instructions =
         "\r\n"
         "  z80cpmw - Z80 CP/M Emulator for Windows\r\n"
         "  ========================================\r\n"
         "\r\n"
-        "  Getting Started:\r\n"
+        "  Press F5 (or Emulator -> Start) to boot. At the boot menu,\r\n"
+        "  type 0 and Enter to start CP/M from Disk 0.\r\n"
         "\r\n"
-        "  1. Download disk images:\r\n"
-        "     Emulator -> Settings -> select disk -> Download\r\n"
+        "  Press F1 (or Help -> Help Topics) for Getting Started and full\r\n"
+        "  instructions: disk setup, file transfer, keys, and copy/paste.\r\n"
         "\r\n"
-        "  2. Assign disks to units:\r\n"
-        "     In Settings, select downloaded disks for Disk 0, 1, etc.\r\n"
-        "\r\n"
-        "  3. Start the emulator:\r\n"
-        "     Press F5 or Emulator -> Start\r\n"
-        "\r\n"
-        "  4. At the RomWBW boot menu:\r\n"
-        "     Type 0 and press Enter to boot CP/M from Disk 0\r\n"
-        "     (Press W to configure autoboot settings)\r\n"
-        "\r\n"
-        "  File Transfer (R8/W8):\r\n"
-        "     R8 filename - Import file from host into CP/M\r\n"
-        "     W8 filename - Export file from CP/M to host\r\n"
-        "     Give a full path (recommended), e.g.\r\n"
-        "       R8 C:\\Users\\me\\Desktop\\getkey2.com\r\n"
-        "     A bare name uses the app's private data folder (shown below).\r\n"
-        "     Emulator -> Settings -> Open Folder opens it in Explorer.\r\n"
-        "\r\n";
+        "  File transfer: R8 <file> imports, W8 <file> exports.\r\n";
 
     for (const char* p = instructions; *p; ++p) {
         m_terminal->outputChar(*p);
@@ -1121,21 +1130,14 @@ void MainWindow::showStartupInstructions() {
     // redirection) so bare-name R8/W8 transfers can actually be found on disk.
     const char* dataFolder = emu_io_get_data_folder_display();
     if (dataFolder && *dataFolder) {
-        std::string line = std::string("  Data folder: ") + dataFolder + "\r\n\r\n";
+        std::string line = std::string("  Data folder: ") + dataFolder + "\r\n";
         for (char c : line) m_terminal->outputChar((uint8_t)c);
     }
 
-    const char* shortcuts =
-        "  Keyboard Shortcuts:\r\n"
-        "     F5        - Start emulator\r\n"
-        "     Shift+F5  - Stop emulator\r\n"
-        "     Ctrl+R    - Reset emulator\r\n"
-        "     F1        - Help\r\n"
-        "     F2-F12, Insert, PageUp/Down are sent to CP/M (configurable);\r\n"
-        "     F1/F5 above are reserved unless enabled in z80cpmw.json.\r\n"
-        "     Select text with the mouse, then right-click to Copy/Paste.\r\n"
+    const char* tail =
+        "  (Emulator -> Settings -> Open Folder opens it in Explorer.)\r\n"
         "\r\n";
-    for (const char* p = shortcuts; *p; ++p) {
+    for (const char* p = tail; *p; ++p) {
         m_terminal->outputChar(*p);
     }
 

@@ -54,6 +54,7 @@ struct AppConfig {
     bool debug = false;
     std::string bootString;
     bool warnManifestWrites = true;  // Warn when writing to downloaded catalog disks
+    bool welcomeShown = false;       // True once the Getting Started help has been auto-shown
 
     // Display settings
     int fontSize = 20;
