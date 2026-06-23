@@ -93,12 +93,66 @@ bool MainWindow::create() {
 }
 
 void MainWindow::show(int cmdShow) {
-    // Reopen at the saved position/size if we have one; otherwise use the
-    // default placement the system chose at creation.
+    // Reopen at the saved position/size if we have one; otherwise size the
+    // window to fit the terminal at the current font/DPI.
     if (!restoreWindowPlacement()) {
+        resizeWindowToTerminal();
         ShowWindow(m_hwnd, cmdShow);
     }
     UpdateWindow(m_hwnd);
+}
+
+void MainWindow::resizeWindowToTerminal() {
+    if (!m_hwnd || !m_terminal) return;
+    if (IsZoomed(m_hwnd)) return;  // don't fight a maximized window
+
+    int cw = m_terminal->getCharWidth();
+    int ch = m_terminal->getCharHeight();
+    if (cw <= 0 || ch <= 0) return;
+
+    // Height of the status bar, which sits below the terminal.
+    int statusHeight = 0;
+    if (m_statusBar) {
+        RECT sr = {};
+        GetWindowRect(m_statusBar, &sr);
+        statusHeight = sr.bottom - sr.top;
+    }
+
+    // Desired client area = the full 80x25 grid plus the status bar.
+    RECT rc = { 0, 0,
+                TerminalView::COLS * cw,
+                TerminalView::ROWS * ch + statusHeight };
+
+    // Expand to the full window rectangle (frame + menu), DPI-aware.
+    UINT dpi = GetDpiForWindow(m_hwnd);
+    DWORD style = (DWORD)GetWindowLongPtrW(m_hwnd, GWL_STYLE);
+    DWORD exStyle = (DWORD)GetWindowLongPtrW(m_hwnd, GWL_EXSTYLE);
+    AdjustWindowRectExForDpi(&rc, style, TRUE /* has menu */, exStyle, dpi);
+
+    int winW = rc.right - rc.left;
+    int winH = rc.bottom - rc.top;
+
+    // Keep the current top-left, but keep the window on its monitor's work area.
+    RECT cur = {};
+    GetWindowRect(m_hwnd, &cur);
+    int x = cur.left;
+    int y = cur.top;
+
+    HMONITOR hMon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi = {};
+    mi.cbSize = sizeof(mi);
+    if (GetMonitorInfo(hMon, &mi)) {
+        int waW = mi.rcWork.right - mi.rcWork.left;
+        int waH = mi.rcWork.bottom - mi.rcWork.top;
+        if (winW > waW) winW = waW;   // never larger than the work area
+        if (winH > waH) winH = waH;
+        if (x + winW > mi.rcWork.right)  x = mi.rcWork.right - winW;
+        if (y + winH > mi.rcWork.bottom) y = mi.rcWork.bottom - winH;
+        if (x < mi.rcWork.left) x = mi.rcWork.left;
+        if (y < mi.rcWork.top)  y = mi.rcWork.top;
+    }
+
+    SetWindowPos(m_hwnd, nullptr, x, y, winW, winH, SWP_NOZORDER | SWP_NOACTIVATE);
 }
 
 bool MainWindow::restoreWindowPlacement() {
@@ -972,6 +1026,7 @@ void MainWindow::onViewFontSize(int size) {
         m_terminal->setFontSize(size);
         config::ConfigManager::instance().get().fontSize = size;
         checkFontMenuItem(size);
+        resizeWindowToTerminal();  // grow/shrink the window to fit the new font
         saveSettings();  // Persist font size
     }
 }

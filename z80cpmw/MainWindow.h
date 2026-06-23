@@ -44,6 +44,11 @@ private:
     // Window placement persistence (remembers position/size across runs)
     bool restoreWindowPlacement();
     void saveWindowPlacement();
+
+    // Resize the window so the client area exactly fits the 80x25 terminal at
+    // the current font/DPI (plus the status bar). Used on font change and as the
+    // default size when there is no saved placement.
+    void resizeWindowToTerminal();
     void onCommand(int id);
     void onTimer();
 

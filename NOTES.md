@@ -1,5 +1,17 @@
 # z80cpmw Development Notes
 
+## Auto-size Window to Terminal on Font Change (June 2026)
+
+`MainWindow::resizeWindowToTerminal` sizes the window so the client area exactly
+fits the 80x25 grid at the terminal's current char metrics (plus the status
+bar), using AdjustWindowRectExForDpi for the frame/menu so it is correct on
+high-DPI displays. It keeps the top-left corner, clamps to the monitor work
+area, and skips maximized windows. Called from `onViewFontSize` (so changing the
+font resizes the window to match) and from `show()` when there is no saved
+placement (so the default window fits the configured font/DPI instead of the old
+hard-coded ~820px guess, which was too small on scaled displays). A saved
+placement still wins over the auto-size default.
+
 ## Main Window Placement Persistence (June 2026)
 
 The main window reopens at its last position/size. `MainWindow::saveWindowPlacement`
