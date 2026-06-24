@@ -1,12 +1,26 @@
 # MSIX Package Build Script for z80cpmw
 # Requires Windows SDK with makeappx.exe and signtool.exe
+#
+# Two release vehicles:
+#   * Store release (default): keeps the Store identity Publisher GUID and is left
+#     UNSIGNED here -- Microsoft re-signs it at submission.
+#   * Beta / sideload build (-Beta): Authenticode-signed with our Azure Trusted
+#     Signing cert (subject "CN=Aaron Wohl, ..."). Because signtool requires the
+#     package Publisher to equal the cert subject, -Beta rewrites the manifest
+#     Publisher accordingly and emits dist\z80cpmw-<ver>-beta.msix.
 
 param(
     [string]$Configuration = "Release",
     [string]$CertificatePath = "",
     [string]$CertificatePassword = "",
     [switch]$SkipBuild,
-    [switch]$SkipSign
+    [switch]$SkipSign,
+    # Build a signed beta/sideload package instead of an (unsigned) Store package.
+    [switch]$Beta,
+    # Folder holding the Azure Trusted Signing kit (sign.ps1 + dlib + credentials).
+    [string]$SigningKit = $(if ($env:Z80CPMW_SIGNING_KIT) { $env:Z80CPMW_SIGNING_KIT } else { "C:\temp\in\z80cpmw-signing-kit" }),
+    # Must exactly match the signing cert subject (see docs/CODE_SIGNING.md).
+    [string]$PublisherSubject = "CN=Aaron Wohl, O=Aaron Wohl, L=Gainesville, S=fl, C=US"
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,7 +92,21 @@ Copy-Item (Join-Path $BinDir "disks\*") (Join-Path $stagingDir "disks")
 Copy-Item (Join-Path $assetsDir "*") (Join-Path $stagingDir "Assets")
 
 # Copy and update manifest
-Copy-Item (Join-Path $MsixDir "AppxManifest.xml") $stagingDir
+$stagedManifest = Join-Path $stagingDir "AppxManifest.xml"
+Copy-Item (Join-Path $MsixDir "AppxManifest.xml") $stagedManifest
+
+[xml]$manifestXml = Get-Content (Join-Path $MsixDir "AppxManifest.xml")
+$pkgVersion = $manifestXml.Package.Identity.Version
+
+if ($Beta) {
+    # Beta/sideload builds are signed with our Trusted Signing cert, so the package
+    # Publisher MUST equal the cert subject. (Store releases keep the Store identity
+    # GUID and are re-signed by Microsoft.)
+    Write-Host "Beta build: setting manifest Publisher to '$PublisherSubject'" -ForegroundColor Yellow
+    [xml]$staged = Get-Content $stagedManifest
+    $staged.Package.Identity.Publisher = $PublisherSubject
+    $staged.Save($stagedManifest)
+}
 
 # Step 4: Create MSIX package
 Write-Host "Step 4: Creating MSIX package..." -ForegroundColor Yellow
@@ -96,7 +124,9 @@ if (!$sdkPath) {
 $makeAppxPath = $sdkPath.FullName
 $signToolPath = Join-Path $sdkPath.Directory "signtool.exe"
 
-$msixPath = Join-Path $OutputDir "z80cpmw.msix"
+$verShort = ($pkgVersion -replace '\.0$', '')
+$msixName = if ($Beta) { "z80cpmw-$verShort-beta.msix" } else { "z80cpmw.msix" }
+$msixPath = Join-Path $OutputDir $msixName
 
 # Remove existing package
 if (Test-Path $msixPath) {
@@ -113,8 +143,29 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "MSIX package created: $msixPath" -ForegroundColor Green
 
-# Step 5: Sign the package (optional)
-if (!$SkipSign -and $CertificatePath) {
+# Step 5: Sign the package
+if ($Beta) {
+    Write-Host "Step 5: Signing beta package with Azure Trusted Signing..." -ForegroundColor Yellow
+
+    $signPs1 = Join-Path $SigningKit "sign.ps1"
+    if (!(Test-Path $signPs1)) {
+        Remove-Item -Recurse -Force $stagingDir
+        Write-Error "Signing kit not found at '$SigningKit'. Set `$env:Z80CPMW_SIGNING_KIT or pass -SigningKit <dir> (the kit holds sign.ps1 + the Trusted Signing dlib + credentials). See docs/CODE_SIGNING.md."
+        exit 1
+    }
+
+    & $signPs1 $msixPath
+    if ($LASTEXITCODE -ne 0) {
+        Remove-Item -Recurse -Force $stagingDir
+        Write-Error "Beta package signing failed."
+        exit 1
+    }
+
+    Write-Host "Verifying signature..." -ForegroundColor Yellow
+    & $signPs1 -Verify $msixPath
+    Write-Host "Beta package signed and verified." -ForegroundColor Green
+}
+elseif (!$SkipSign -and $CertificatePath) {
     Write-Host "Step 5: Signing package..." -ForegroundColor Yellow
 
     $signArgs = @("sign", "/fd", "SHA256", "/f", $CertificatePath)
@@ -134,10 +185,9 @@ if (!$SkipSign -and $CertificatePath) {
         Write-Host "Package signed successfully." -ForegroundColor Green
     }
 } else {
-    Write-Host "Step 5: Skipping signing (no certificate provided)." -ForegroundColor Yellow
+    Write-Host "Step 5: Skipping signing (Store package)." -ForegroundColor Yellow
     Write-Host "  For Store submission, the package will be signed by Microsoft." -ForegroundColor Gray
-    Write-Host "  For sideloading, create a self-signed certificate:" -ForegroundColor Gray
-    Write-Host '  New-SelfSignedCertificate -Type Custom -Subject "CN=avwohl" -KeyUsage DigitalSignature -FriendlyName "z80cpmw Dev Cert" -CertStoreLocation "Cert:\CurrentUser\My"' -ForegroundColor Gray
+    Write-Host "  For a signed beta you can sideload, re-run with -Beta (Azure Trusted Signing)." -ForegroundColor Gray
 }
 
 # Cleanup
@@ -147,8 +197,14 @@ Write-Host ""
 Write-Host "Package build complete!" -ForegroundColor Cyan
 Write-Host "Output: $msixPath" -ForegroundColor Green
 Write-Host ""
-Write-Host "Next steps for Microsoft Store submission:" -ForegroundColor Yellow
-Write-Host "1. Create a developer account at https://partner.microsoft.com" -ForegroundColor Gray
-Write-Host "2. Reserve your app name in Partner Center" -ForegroundColor Gray
-Write-Host "3. Update AppxManifest.xml with your Store identity" -ForegroundColor Gray
-Write-Host "4. Upload the .msix package to Partner Center" -ForegroundColor Gray
+if ($Beta) {
+    Write-Host "Beta sideload package. Testers install via:" -ForegroundColor Yellow
+    Write-Host "  double-click the .msix (App Installer), or  Add-AppxPackage `"$msixPath`"" -ForegroundColor Gray
+    Write-Host "The Trusted Signing cert chains to a Microsoft public root, so no dev cert import is needed." -ForegroundColor Gray
+} else {
+    Write-Host "Next steps for Microsoft Store submission:" -ForegroundColor Yellow
+    Write-Host "1. Create a developer account at https://partner.microsoft.com" -ForegroundColor Gray
+    Write-Host "2. Reserve your app name in Partner Center" -ForegroundColor Gray
+    Write-Host "3. Update AppxManifest.xml with your Store identity" -ForegroundColor Gray
+    Write-Host "4. Upload the .msix package to Partner Center" -ForegroundColor Gray
+}

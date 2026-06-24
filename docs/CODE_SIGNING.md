@@ -27,10 +27,22 @@ are PE files and both should be signed:
 - `dist\z80cpmw-<version>-setup.exe` — the NSIS installer testers download
   (e.g. `z80cpmw-1.0.15-setup.exe`). Sign it **after** `makensis` builds it.
 
-The **MSIX** package (`packaging/msix/`) is a separate story: for Microsoft Store
-submission, Microsoft re-signs it, so you don't sign it yourself. Only sign the
-`.msix` if you distribute it for **sideloading** (then use the Windows
-`signtool` + dlib path below).
+The **MSIX** package (`packaging/msix/`) follows a two-vehicle policy:
+
+- **Normal Store releases** keep the Store identity in the manifest
+  (`Publisher="CN=724C9014-…"`) and are **re-signed by Microsoft** at submission —
+  you don't sign them yourself. This is the default `build-msix.ps1` output.
+- **Beta builds** are distributed for **sideloading**, so they're signed here with
+  our Azure Artifact Signing cert. Run `build-msix.ps1 -Beta`: it emits
+  `dist\z80cpmw-<ver>-beta.msix`, signs it (`signtool` + dlib, below) and verifies.
+
+> **MSIX publisher gotcha.** `signtool` requires the package's `<Identity Publisher>`
+> to **exactly equal the signing cert subject** (`CN=Aaron Wohl, O=Aaron Wohl,
+> L=Gainesville, S=fl, C=US`). The committed manifest carries the *Store* identity
+> GUID, which the Aaron Wohl cert cannot sign — so `-Beta` rewrites the Publisher to
+> the cert subject in a staged manifest copy before packing (the committed
+> `AppxManifest.xml` is left untouched for Store submission). A beta build therefore
+> has a different package identity and installs side-by-side with a Store install.
 
 ---
 
@@ -162,10 +174,12 @@ Where to hook it into the existing scripts:
 - `packaging/scripts/build-nsis.ps1`: sign `bin\Release\z80cpmw.exe` right after
   the MSBuild step (Step 1), and sign the moved `dist\...-setup.exe` at the end
   (after Step 5).
-- `packaging/scripts/build-msix.ps1`: it already has a `signtool` step that
-  expects a `.pfx` (`/f` + `/p`). Replace those args with the
-  `/dlib ... /dmdf ...` form above to sign the `.msix` via Artifact Signing
-  instead of a local cert.
+- `packaging/scripts/build-msix.ps1`: the `-Beta` switch already wires this in — it
+  rewrites the manifest Publisher to the cert subject, packs, then calls the signing
+  kit's `sign.ps1` (signtool + dlib) and verifies. The kit folder defaults to
+  `$env:Z80CPMW_SIGNING_KIT` (else `C:\temp\in\z80cpmw-signing-kit`); override with
+  `-SigningKit <dir>`. The legacy `-CertificatePath` (`.pfx`) path is retained only
+  for local self-signed testing.
 
 ### Option 2 — `dotnet sign` (Windows convenience wrapper)
 
