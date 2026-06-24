@@ -202,14 +202,22 @@ TOKEN=$(az account get-access-token --resource https://codesigning.azure.net --q
 
 jsign \
   --storetype TRUSTEDSIGNING \
-  --keystore  https://eus.codesigning.azure.net/ \
+  --keystore  https://eus.codesigning.azure.net \
   --storepass "$TOKEN" \
   --alias     "ms-code-sign-account/z80cpmw-public" \
   z80cpmw-1.0.15-setup.exe
 ```
 
+> **No trailing slash on `--keystore`.** jsign concatenates the path onto this
+> URL, so `https://eus.codesigning.azure.net/` produces a `//codesigningaccounts`
+> double slash and the sign call 404s. Use `https://eus.codesigning.azure.net`.
+
 `jsign` timestamps automatically with this storetype. The access token is
 short-lived (~1 hour), so fetch it right before signing.
+
+This exact command has been verified end-to-end from Linux: it signs a real
+z80cpmw PE with the Public Trust cert (subject `CN=Aaron Wohl, …`) and an embedded
+Microsoft RFC-3161 timestamp.
 
 ---
 
@@ -218,6 +226,13 @@ short-lived (~1 hour), so fetch it right before signing.
 - Windows: `signtool verify /pa /v "dist\z80cpmw-1.0.15-setup.exe"`, or right-click
   the file → **Properties → Digital Signatures**.
 - Cross-platform: `osslsigncode verify z80cpmw-1.0.15-setup.exe`.
+
+> On Linux, `osslsigncode verify` exits non-zero with "unable to get local issuer
+> certificate" because the box lacks Microsoft's root CAs — this is a local
+> trust-store gap, **not** a bad signature. Check that `Current message digest`
+> equals `Calculated message digest` and that the chain ends at *Microsoft
+> Identity Verification Root Certificate Authority 2020*. On Windows (where that
+> root is trusted) the signature verifies fully.
 
 A good signature shows the subject/publisher as the validated legal name and a
 present, valid countersignature (timestamp).
