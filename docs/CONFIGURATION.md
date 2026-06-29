@@ -113,6 +113,7 @@ running.
 | Setting | Meaning |
 | --- | --- |
 | `display.fontSize` | Terminal font size, in points |
+| `display.scrollbackLines` | Lines of terminal history kept for scrollback (0 = off) |
 | `core.rom`         | ROM image to load at startup |
 | `core.bootString`  | Text typed automatically at the boot menu |
 | `disks`            | Disk images assigned to units 0–3 |

@@ -9,6 +9,9 @@
 #include <sstream>
 #include <commctrl.h>
 
+// Remote help intentionally tracks "latest" (unlike the disk catalog, which is
+// pinned in DiskCatalog.cpp): help text is low-risk content with no ROM coupling,
+// so improvements can ship without cutting a new release.
 const std::wstring HelpWindow::INDEX_URL =
     L"https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json";
 const std::wstring HelpWindow::CONTENT_BASE_URL =
@@ -24,7 +27,10 @@ static std::string getLocalGettingStartedMarkdown() {
     return R"DOC(# Getting Started
 
   1. Download disk images:
-     Emulator > Settings > select a disk > Download.
+     Open Emulator > Settings and find the "Download Disk Images" list,
+     select a disk (for example QPM or Games) and click Download.
+     (The per-disk "New" button creates a blank image and "Browse" picks an
+     existing file - neither one downloads the prebuilt disks.)
 
   2. Assign disks to units:
      In Settings, choose downloaded disks for Disk 0, Disk 1, and so on.
@@ -33,8 +39,13 @@ static std::string getLocalGettingStartedMarkdown() {
      Press F5, or Emulator > Start.
 
   4. At the RomWBW boot menu:
-     Type 0 and press Enter to boot CP/M from Disk 0.
-     (Press W to configure autoboot settings.)
+     Type the unit number of your hard disk and press Enter. With the default
+     ROM and the downloadable hd1k disks that number is 2 - units 0 and 1 are
+     the on-board ROM/RAM disks and carry no operating system, so typing 0
+     reports "No system image on disk". Press H at the boot menu to list the
+     available units. (This boot-menu unit number is not the same as the
+     Settings "Disk 0-3" slot.) Press W to save your choice as the autoboot
+     default so you do not have to type it each time.
 
 ## File Transfer (R8 / W8)
 
@@ -60,6 +71,17 @@ Emulator > Settings > Open Folder.
 F2 through F12, Insert, and PageUp / PageDown are sent to CP/M. The exact bytes
 are configurable - see the "Configuration File" topic. By default F1 and F5 are
 reserved for the app; enable f1ToCpm / f5ToCpm in the config to send them to CP/M.
+
+## Scrollback
+
+Lines that scroll off the top of the screen are kept so you can read them again -
+handy for long directory listings. Scroll back with the mouse wheel or
+Shift+PageUp, and forward again with Shift+PageDown. Ctrl+Home jumps to the oldest
+line and Ctrl+End returns to the live screen; typing anything also returns to the
+live screen. Plain PageUp / PageDown (without Shift) are still sent to CP/M.
+
+The buffer holds 1000 lines by default. Change it with "Terminal scrollback" in
+Emulator > Settings (set it to 0 to turn scrollback off).
 
 ## Mouse
 
@@ -184,6 +206,7 @@ and ^V. Paste works only while the emulator is running.
 | Setting | Meaning |
 | --- | --- |
 | display.fontSize | Terminal font size, in points |
+| display.scrollbackLines | Lines of history kept for scrollback (0 = off) |
 | core.rom | ROM image to load at startup |
 | core.bootString | Text typed automatically at the boot menu |
 | disks | Disk images assigned to units 0-3 |

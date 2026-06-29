@@ -747,6 +747,7 @@ void MainWindow::onEmulatorStart() {
 void MainWindow::startEmulator() {
     if (m_terminal) {
         m_terminal->clear();
+        m_terminal->resetScrollback();
     }
 
     m_emulator->start();
@@ -915,6 +916,7 @@ void MainWindow::onEmulatorStop() {
 void MainWindow::onEmulatorReset() {
     if (m_terminal) {
         m_terminal->clear();
+        m_terminal->resetScrollback();
     }
     m_emulator->reset();
     updateMenuState();
@@ -934,6 +936,7 @@ void MainWindow::onEmulatorSettings() {
     // Pass currently loaded disk filenames to settings dialog from config
     const auto& cfg = config::ConfigManager::instance().get();
     settings.warnManifestWrites = cfg.warnManifestWrites;
+    settings.scrollbackLines = cfg.scrollbackLines;
     for (int i = 0; i < 4; i++) {
         if (cfg.disks[i].has_value() && !cfg.disks[i]->path.empty()) {
             // Extract filename from full path
@@ -1005,6 +1008,12 @@ void MainWindow::onEmulatorSettings() {
         cfgMut.warnManifestWrites = settings.warnManifestWrites;
         for (int i = 0; i < 4; i++) {
             m_emulator->setDiskWarningSuppressed(i, !settings.warnManifestWrites);
+        }
+
+        // Apply terminal scrollback size
+        cfgMut.scrollbackLines = settings.scrollbackLines;
+        if (m_terminal) {
+            m_terminal->setScrollbackLines(settings.scrollbackLines);
         }
 
         // Save settings to disk
@@ -1325,6 +1334,11 @@ void MainWindow::applyConfig() {
     if (cfg.fontSize > 0 && m_terminal) {
         m_terminal->setFontSize(cfg.fontSize);
         checkFontMenuItem(cfg.fontSize);
+    }
+
+    // Apply scrollback buffer size
+    if (m_terminal) {
+        m_terminal->setScrollbackLines(cfg.scrollbackLines);
     }
 
     // Apply keyboard bindings (function/navigation keys -> CP/M sequences)

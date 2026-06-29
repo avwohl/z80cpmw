@@ -151,6 +151,26 @@ void TerminalView::writeChar(int row, int col, char ch, uint8_t fg, uint8_t bg) 
 
 void TerminalView::scrollUp(int lines) {
     if (lines <= 0) return;
+    if (lines > ROWS) lines = ROWS;
+
+    // Save the rows about to scroll off the top into the scrollback history.
+    // This is the single choke point for content leaving the top of the screen
+    // (line feed, printable wrap, ESC D / ESC E), so one hook captures it all.
+    if (m_scrollbackLines > 0) {
+        for (int row = 0; row < lines; row++) {
+            std::array<TerminalCell, COLS> saved;
+            for (int col = 0; col < COLS; col++) saved[col] = m_cells[row][col];
+            m_scrollback.push_back(saved);
+        }
+        while ((int)m_scrollback.size() > m_scrollbackLines) {
+            m_scrollback.pop_front();
+        }
+        // If the user is viewing history, follow the new lines so the viewport
+        // stays anchored on the same content instead of drifting.
+        if (m_scrollOffset > 0) {
+            m_scrollOffset = std::min(m_scrollOffset + lines, (int)m_scrollback.size());
+        }
+    }
 
     for (int row = 0; row < ROWS - lines; row++) {
         for (int col = 0; col < COLS; col++) {
@@ -162,6 +182,56 @@ void TerminalView::scrollUp(int lines) {
         for (int col = 0; col < COLS; col++) {
             m_cells[row][col] = TerminalCell();
         }
+    }
+    invalidate();
+}
+
+// Map a viewport row/col (0..ROWS-1, 0..COLS-1) to the cell that should be drawn
+// there, accounting for how far the view is scrolled back. The virtual buffer is
+// [scrollback...] followed by the live grid; offset 0 shows the live grid.
+const TerminalCell& TerminalView::visibleCell(int row, int col) const {
+    int sb = (int)m_scrollback.size();
+    int virtualRow = (sb - m_scrollOffset) + row;
+    if (virtualRow >= 0 && virtualRow < sb) {
+        return m_scrollback[virtualRow][col];
+    }
+    int liveRow = virtualRow - sb;
+    if (liveRow < 0) liveRow = 0;
+    if (liveRow >= ROWS) liveRow = ROWS - 1;
+    return m_cells[liveRow][col];
+}
+
+void TerminalView::scrollByLines(int deltaLines) {
+    int maxOff = (int)m_scrollback.size();
+    int newOff = std::max(0, std::min(m_scrollOffset + deltaLines, maxOff));
+    if (newOff != m_scrollOffset) {
+        m_scrollOffset = newOff;
+        invalidate();
+    }
+}
+
+void TerminalView::scrollToBottom() {
+    if (m_scrollOffset != 0) {
+        m_scrollOffset = 0;
+        invalidate();
+    }
+}
+
+void TerminalView::resetScrollback() {
+    m_scrollback.clear();
+    m_scrollOffset = 0;
+    invalidate();
+}
+
+void TerminalView::setScrollbackLines(int lines) {
+    if (lines < 0) lines = 0;
+    if (lines > 100000) lines = 100000;
+    m_scrollbackLines = lines;
+    while ((int)m_scrollback.size() > m_scrollbackLines) {
+        m_scrollback.pop_front();
+    }
+    if (m_scrollOffset > (int)m_scrollback.size()) {
+        m_scrollOffset = (int)m_scrollback.size();
     }
     invalidate();
 }
@@ -261,6 +331,7 @@ LRESULT TerminalView::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_TIMER:
         if (wParam == 1) {
+            if (m_scrollOffset != 0) return 0;  // cursor hidden/frozen while viewing history
             m_cursorVisible = !m_cursorVisible;
             // Only redraw cursor area
             RECT cursorRect;
@@ -276,7 +347,12 @@ LRESULT TerminalView::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 1;  // We handle background in WM_PAINT
 
     case WM_MOUSEWHEEL: {
-        // Could implement scrollback buffer here
+        // Scroll the history view. Wheel up (positive delta) goes back into
+        // history; wheel down returns toward the live screen. 3 lines per notch.
+        int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        if (delta != 0) {
+            scrollByLines((delta / WHEEL_DELTA) * 3);
+        }
         return 0;
     }
 
@@ -358,7 +434,7 @@ void TerminalView::paint(HDC hdc) {
     // Draw characters
     for (int row = 0; row < ROWS; row++) {
         for (int col = 0; col < COLS; col++) {
-            const TerminalCell& cell = m_cells[row][col];
+            const TerminalCell& cell = visibleCell(row, col);
 
             int x = col * m_charWidth;
             int y = row * m_charHeight;
@@ -380,8 +456,8 @@ void TerminalView::paint(HDC hdc) {
         }
     }
 
-    // Draw cursor
-    if (m_cursorVisible && GetFocus() == m_hwnd) {
+    // Draw cursor (only on the live screen; it has no meaning while viewing history)
+    if (m_scrollOffset == 0 && m_cursorVisible && GetFocus() == m_hwnd) {
         int x = m_cursorCol * m_charWidth;
         int y = m_cursorRow * m_charHeight;
 
@@ -403,11 +479,22 @@ void TerminalView::paint(HDC hdc) {
 }
 
 void TerminalView::handleKeyDown(WPARAM wParam) {
+    // Scrollback navigation is handled locally and never sent to CP/M. It uses
+    // Shift+PageUp/PageDown (plain PageUp/Down still reach CP/M via the keymap)
+    // and Ctrl+Home/End to jump to the oldest history / live screen.
+    bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+    bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+    if (shift && wParam == VK_PRIOR) { scrollByLines(ROWS - 1); return; }
+    if (shift && wParam == VK_NEXT)  { scrollByLines(-(ROWS - 1)); return; }
+    if (ctrl  && wParam == VK_HOME)  { scrollByLines((int)m_scrollback.size()); return; }
+    if (ctrl  && wParam == VK_END)   { scrollToBottom(); return; }
+
     // Special keys (arrows, Home/End, Insert/Delete, PageUp/Down, F1-F12) are
     // resolved through the configurable keymap and sent to CP/M as a byte
     // sequence. Printable keys arrive separately via WM_CHAR (handleChar).
     const std::string* seq = m_keymap.find(static_cast<UINT>(wParam));
     if (seq && m_keyCallback) {
+        scrollToBottom();   // a key sent to CP/M returns to the live screen
         for (char c : *seq) {
             m_keyCallback(c);
         }
@@ -422,6 +509,7 @@ void TerminalView::handleChar(WPARAM wParam) {
     if (wParam >= 1 && wParam <= 127) {
         char ch = (char)wParam;
         if (m_keyCallback) {
+            scrollToBottom();   // typing returns to the live screen
             m_keyCallback(ch);
         }
         // Typing dismisses any mouse selection highlight.
@@ -535,7 +623,7 @@ void TerminalView::copySelectionToClipboard() {
         int ce = (row == r1) ? c1 : COLS - 1;
         std::wstring line;
         for (int col = cs; col <= ce; ++col) {
-            char ch = m_cells[row][col].character;
+            char ch = visibleCell(row, col).character;
             line += (ch >= 32 && (unsigned char)ch < 127) ? (wchar_t)ch : L' ';
         }
         while (!line.empty() && line.back() == L' ') {
@@ -570,6 +658,8 @@ void TerminalView::pasteFromClipboard() {
     if (m_inputReadyCallback && !m_inputReadyCallback()) return;
     if (!IsClipboardFormatAvailable(CF_UNICODETEXT)) return;
     if (!OpenClipboard(m_hwnd)) return;
+
+    scrollToBottom();   // delivering pasted input returns to the live screen
 
     HGLOBAL hMem = GetClipboardData(CF_UNICODETEXT);
     if (hMem) {

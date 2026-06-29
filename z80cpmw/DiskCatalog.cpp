@@ -7,10 +7,18 @@
 #include <thread>
 #include <sstream>
 
+// Disk images are pinned to one explicit ioscpm release tag (not "latest"), so a
+// new ioscpm release can't silently swap the disk images out from under an
+// installed client and re-introduce an HBIOS/CBIOS version mismatch with the
+// embedded ROM. When you rebuild the ROMs + disks against a new RomWBW version
+// and cut a new ioscpm release, bump RELEASE_TAG here to that new tag (and bump
+// the app version). This is the single source of truth for both URLs below.
+static const std::wstring RELEASE_TAG = L"v1.4.5";
+
 const std::wstring DiskCatalog::CATALOG_URL =
-    L"https://github.com/avwohl/ioscpm/releases/latest/download/disks.xml";
+    L"https://github.com/avwohl/ioscpm/releases/download/" + RELEASE_TAG + L"/disks.xml";
 const std::wstring DiskCatalog::RELEASE_BASE_URL =
-    L"https://github.com/avwohl/ioscpm/releases/latest/download/";
+    L"https://github.com/avwohl/ioscpm/releases/download/" + RELEASE_TAG + L"/";
 
 DiskCatalog::DiskCatalog() {
     // Default to user data directory\data (for Store app compatibility)

@@ -9,8 +9,11 @@
 
 #include <windows.h>
 #include <string>
+#include <vector>
 #include <functional>
 #include <map>
+#include <deque>
+#include <array>
 #include "Keymap.h"
 
 // Terminal cell structure
@@ -50,6 +53,12 @@ public:
     void setFontSize(int size);
     int getFontSize() const { return m_fontSize; }
 
+    // Scrollback history. The terminal keeps lines that scroll off the top so
+    // the user can scroll back into them (mouse wheel / Shift+PageUp/Down).
+    void setScrollbackLines(int lines);          // capacity in lines; 0 disables
+    int getScrollbackLines() const { return m_scrollbackLines; }
+    void resetScrollback();                      // clear history (on start/reset)
+
     // Input callback
     void setKeyInputCallback(KeyInputCallback cb) { m_keyCallback = cb; }
 
@@ -82,6 +91,11 @@ private:
     void handleKeyDown(WPARAM wParam);
     void handleChar(WPARAM wParam);
 
+    // Scrollback helpers
+    const TerminalCell& visibleCell(int row, int col) const;  // maps viewport->history/live
+    void scrollByLines(int deltaLines);   // +ve scrolls up into history, -ve toward live
+    void scrollToBottom();                // return to the live screen (offset 0)
+
     // Mouse selection and clipboard
     bool pixelToCell(int x, int y, int& row, int& col) const;  // clamps to grid
     bool isCellSelected(int row, int col) const;
@@ -111,6 +125,15 @@ private:
     HFONT m_font = nullptr;
 
     TerminalCell m_cells[ROWS][COLS];
+
+    // Scrollback ring buffer of full 80-column lines that have scrolled off the
+    // top. m_scrollOffset is how many lines the view is scrolled up from the live
+    // bottom (0 = showing the live screen). The fixed column count means history
+    // never needs reflowing.
+    std::deque<std::array<TerminalCell, COLS>> m_scrollback;
+    int m_scrollbackLines = 1000;   // capacity; overridden from config
+    int m_scrollOffset = 0;
+
     int m_cursorRow = 0;
     int m_cursorCol = 0;
     int m_savedCursorRow = 0;

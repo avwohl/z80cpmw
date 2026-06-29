@@ -6,7 +6,7 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
 
 - Z80 CPU emulation with accurate timing
 - RomWBW HBIOS emulation
-- VT100-compatible terminal display (25x80)
+- VT100-compatible terminal display (25x80) with scrollback (mouse wheel / Shift+PageUp)
 - Support for CP/M, ZSDOS, and other operating systems
 - Multiple ROM images included
 - Disk image support (up to 64MB hd1k format)
@@ -66,6 +66,11 @@ See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference,
 including the escape syntax, bindable key names, and the default bindings.
 
 ## Related Projects
+
+This Windows build is the feature reference for the emulator family. The sibling
+ports (iOS/macOS `ioscpm`, Android `cpmdroid`, Linux `romwbw_emu`) can use
+[FEATURE_PARITY.md](FEATURE_PARITY.md) as the checklist of UX features to reach
+parity, with pointers to the canonical implementation here.
 
 - [80un](https://github.com/avwohl/80un) - Unpacker for CP/M compression and archive formats (LBR, ARC, squeeze, crunch, CrLZH)
 - [cpmdroid](https://github.com/avwohl/cpmdroid) - Z80/CP/M emulator for Android with RomWBW HBIOS compatibility and VT100 terminal

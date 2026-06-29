@@ -24,6 +24,7 @@ struct WxEmulatorSettings {
     bool debugMode = false;
     bool warnManifestWrites = true;         // Warn when writing to downloaded catalog disks
     bool clearBootConfigRequested = false;  // Set when user clicks "Clear Boot Config"
+    int scrollbackLines = 1000;             // Terminal scrollback history capacity (lines)
 
     // Dazzler settings
     bool dazzlerEnabled = false;
@@ -74,6 +75,7 @@ private:
     wxButton* m_clearBootBtn;
     wxCheckBox* m_debugCheck;
     wxCheckBox* m_warnManifestCheck;
+    wxSpinCtrl* m_scrollbackSpin;
 
     // Dazzler controls
     wxCheckBox* m_dazzlerEnabledCheck;

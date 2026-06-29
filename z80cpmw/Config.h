@@ -77,6 +77,7 @@ struct AppConfig {
     // Display settings
     int fontSize = 20;
     std::string fontName = "Consolas";
+    int scrollbackLines = 1000;       // terminal history capacity, in lines (0 = off)
 
     // Keyboard / key bindings
     KeyboardConfig keyboard;

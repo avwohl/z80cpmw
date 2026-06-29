@@ -83,6 +83,10 @@ void SettingsDialogWx::createControls() {
     // Warn on manifest writes checkbox
     m_warnManifestCheck = new wxCheckBox(this, wxID_ANY, "Warn on Downloaded Disk Writes");
 
+    // Terminal scrollback history size (lines). 0 disables scrollback.
+    m_scrollbackSpin = new wxSpinCtrl(this, wxID_ANY, "1000", wxDefaultPosition,
+                                       wxSize(90, -1), wxSP_ARROW_KEYS, 0, 100000, 1000);
+
     // Dazzler controls
     m_dazzlerEnabledCheck = new wxCheckBox(this, ID_DAZZLER_ENABLED, "Enable Dazzler Graphics Card");
     m_dazzlerPortLabel = new wxStaticText(this, wxID_ANY, "Port (hex):");
@@ -162,7 +166,14 @@ void SettingsDialogWx::layoutControls() {
     paddedSizer->Add(m_debugCheck, 0, wxBOTTOM, 8);
 
     // Warn on manifest writes checkbox
-    paddedSizer->Add(m_warnManifestCheck, 0, wxBOTTOM, 15);
+    paddedSizer->Add(m_warnManifestCheck, 0, wxBOTTOM, 10);
+
+    // Terminal scrollback row
+    wxBoxSizer* scrollbackSizer = new wxBoxSizer(wxHORIZONTAL);
+    scrollbackSizer->Add(new wxStaticText(this, wxID_ANY, "Terminal scrollback (lines):"),
+                         0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
+    scrollbackSizer->Add(m_scrollbackSpin, 0, wxALIGN_CENTER_VERTICAL);
+    paddedSizer->Add(scrollbackSizer, 0, wxBOTTOM, 15);
 
     // Separator before Dazzler
     paddedSizer->Add(new wxStaticLine(this), 0, wxEXPAND | wxBOTTOM, 15);
@@ -296,6 +307,9 @@ void SettingsDialogWx::loadSettings() {
     // Warn on manifest writes
     m_warnManifestCheck->SetValue(m_settings.warnManifestWrites);
 
+    // Terminal scrollback
+    m_scrollbackSpin->SetValue(m_settings.scrollbackLines);
+
     // Dazzler settings
     m_dazzlerEnabledCheck->SetValue(m_settings.dazzlerEnabled);
     m_dazzlerPortSpin->SetValue(m_settings.dazzlerPort);
@@ -332,6 +346,9 @@ void SettingsDialogWx::saveSettings() {
 
     // Warn on manifest writes
     m_settings.warnManifestWrites = m_warnManifestCheck->GetValue();
+
+    // Terminal scrollback
+    m_settings.scrollbackLines = m_scrollbackSpin->GetValue();
 
     // Dazzler settings
     m_settings.dazzlerEnabled = m_dazzlerEnabledCheck->GetValue();

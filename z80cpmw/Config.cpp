@@ -101,7 +101,8 @@ void to_json(json& j, const AppConfig& c) {
         }},
         {"display", {
             {"fontSize", c.fontSize},
-            {"fontName", c.fontName}
+            {"fontName", c.fontName},
+            {"scrollbackLines", c.scrollbackLines}
         }},
         {"keyboard", c.keyboard},
         {"window", c.window},
@@ -140,6 +141,10 @@ void from_json(const json& j, AppConfig& c) {
         const auto& display = j["display"];
         c.fontSize = display.value("fontSize", 20);
         c.fontName = display.value("fontName", "Consolas");
+        c.scrollbackLines = display.value("scrollbackLines", 1000);
+        if (c.scrollbackLines < 0 || c.scrollbackLines > 100000) {
+            c.scrollbackLines = 1000;
+        }
     }
 
     // Disks
