@@ -13,6 +13,7 @@
 #include <functional>
 #include <memory>
 #include <atomic>
+#include <mutex>
 
 #pragma comment(lib, "winhttp.lib")
 
@@ -76,8 +77,12 @@ public:
     // Get current download state
     DownloadState getDownloadState() const { return m_downloadState; }
 
-    // Get cached catalog entries
-    const std::vector<DiskEntry>& getCatalogEntries() const { return m_catalogEntries; }
+    // Get a snapshot of the cached catalog entries (copied under the catalog
+    // lock; the fetchCatalog worker may reassign the vector at any time)
+    std::vector<DiskEntry> getCatalogEntries() const {
+        std::lock_guard<std::mutex> lock(m_catalogMutex);
+        return m_catalogEntries;
+    }
 
 private:
     // Download a URL to a string (blocking)
@@ -94,6 +99,9 @@ private:
     void updateDownloadedStatus();
 
     std::string m_downloadDir;
+    // Guards m_catalogEntries: it is written by the fetchCatalog worker thread
+    // and read from the UI thread and the download worker.
+    mutable std::mutex m_catalogMutex;
     std::vector<DiskEntry> m_catalogEntries;
     std::atomic<DownloadState> m_downloadState{DownloadState::Idle};
     std::atomic<bool> m_cancelRequested{false};

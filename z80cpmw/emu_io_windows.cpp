@@ -207,6 +207,71 @@ void emu_set_debug(bool enable) {
     g_debugEnabled = enable;
 }
 
+// Diagnostics also go to a log file in the user data directory so users can
+// send them from a machine with no debugger attached (OutputDebugString is
+// invisible to them). Path is set once at startup by wWinMain. The handle is
+// kept open (debug mode can log from inside the 10ms emulator batch, so no
+// fopen per message); at the size cap the file rotates to .old so recent
+// history survives.
+static char g_logPath[MAX_PATH] = {};
+static FILE* g_logFile = nullptr;
+static long g_logBytes = 0;
+static std::mutex g_logMutex;
+static const long LOG_MAX_BYTES = 1024 * 1024;
+
+extern "C" void emu_io_set_log_path(const char* path) {
+    std::lock_guard<std::mutex> lock(g_logMutex);
+    if (g_logFile) {
+        fclose(g_logFile);
+        g_logFile = nullptr;
+    }
+    if (!path) {
+        g_logPath[0] = '\0';
+        return;
+    }
+    strncpy(g_logPath, path, sizeof(g_logPath) - 1);
+    g_logPath[sizeof(g_logPath) - 1] = '\0';
+}
+
+static void logToFile(const char* text) {
+    std::lock_guard<std::mutex> lock(g_logMutex);
+    if (!g_logPath[0]) return;
+
+    if (!g_logFile) {
+        g_logFile = fopen(g_logPath, "a");
+        if (!g_logFile) {
+            g_logPath[0] = '\0';  // don't retry on every message
+            return;
+        }
+        fseek(g_logFile, 0, SEEK_END);
+        g_logBytes = ftell(g_logFile);
+        if (g_logBytes < 0) g_logBytes = 0;
+    }
+
+    if (g_logBytes > LOG_MAX_BYTES) {
+        fclose(g_logFile);
+        std::string oldPath = std::string(g_logPath) + ".old";
+        remove(oldPath.c_str());
+        rename(g_logPath, oldPath.c_str());
+        g_logFile = fopen(g_logPath, "w");
+        if (!g_logFile) {
+            g_logPath[0] = '\0';
+            return;
+        }
+        g_logBytes = 0;
+    }
+
+    SYSTEMTIME st;
+    GetLocalTime(&st);
+    size_t len = strlen(text);
+    int written = fprintf(g_logFile, "%04u-%02u-%02u %02u:%02u:%02u %s%s",
+                          st.wYear, st.wMonth, st.wDay,
+                          st.wHour, st.wMinute, st.wSecond,
+                          text, (len > 0 && text[len - 1] == '\n') ? "" : "\n");
+    if (written > 0) g_logBytes += written;
+    fflush(g_logFile);
+}
+
 void emu_log(const char* fmt, ...) {
     if (!g_debugEnabled) return;
     char buffer[1024];
@@ -215,6 +280,7 @@ void emu_log(const char* fmt, ...) {
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
     OutputDebugStringA(buffer);
+    logToFile(buffer);
 }
 
 void emu_error(const char* fmt, ...) {
@@ -224,6 +290,7 @@ void emu_error(const char* fmt, ...) {
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
     OutputDebugStringA(buffer);
+    logToFile(buffer);
 }
 
 [[noreturn]] void emu_fatal(const char* fmt, ...) {
@@ -233,6 +300,7 @@ void emu_error(const char* fmt, ...) {
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
 
+    logToFile(buffer);
     MessageBoxA(nullptr, buffer, "Fatal Error", MB_OK | MB_ICONERROR);
     ExitProcess(1);
 }
@@ -244,6 +312,7 @@ void emu_status(const char* fmt, ...) {
     vsnprintf(buffer, sizeof(buffer), fmt, args);
     va_end(args);
     OutputDebugStringA(buffer);
+    logToFile(buffer);
 }
 
 //=============================================================================

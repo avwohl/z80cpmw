@@ -6,6 +6,10 @@
 
 #include "pch.h"
 #include "MainWindow.h"
+#include "EmulatorEngine.h"
+#include "CrashHandler.h"
+
+extern "C" void emu_io_set_log_path(const char* path);
 
 int WINAPI wWinMain(
     _In_ HINSTANCE hInstance,
@@ -16,6 +20,14 @@ int WINAPI wWinMain(
     UNREFERENCED_PARAMETER(hInstance);
     UNREFERENCED_PARAMETER(hPrevInstance);
     UNREFERENCED_PARAMETER(lpCmdLine);
+
+    // Crash reporting and the diagnostics log both live in the user data
+    // directory (getUserDataDirectory creates it). Installed before anything
+    // that could fault: this is a GUI app, so an unhandled exception is
+    // otherwise completely invisible to the user.
+    std::string userDir = EmulatorEngine::getUserDataDirectory();
+    InstallCrashHandler(userDir);
+    emu_io_set_log_path((userDir + "\\z80cpmw.log").c_str());
 
     // Enable high DPI awareness
     SetProcessDPIAware();

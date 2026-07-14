@@ -114,6 +114,7 @@
       <PrecompiledHeader>Create</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="CrashHandler.cpp" />
     <ClCompile Include="MainWindow.cpp" />
     <ClCompile Include="TerminalView.cpp" />
     <ClCompile Include="EmulatorEngine.cpp" />
@@ -155,6 +156,7 @@
   <ItemGroup>
     <!-- Header Files -->
     <ClInclude Include="pch.h" />
+    <ClInclude Include="CrashHandler.h" />
     <ClInclude Include="MainWindow.h" />
     <ClInclude Include="TerminalView.h" />
     <ClInclude Include="EmulatorEngine.h" />

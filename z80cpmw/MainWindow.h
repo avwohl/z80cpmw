@@ -7,6 +7,7 @@
 #pragma once
 
 #include <windows.h>
+#include <functional>
 #include <memory>
 #include <string>
 #include "Config.h"
@@ -85,6 +86,10 @@ private:
 
     // Startup help
     void showStartupInstructions();
+
+    // Run fn on the UI thread. Download callbacks arrive on worker threads;
+    // everything they touch (terminal, emulator, config) is single-threaded.
+    void runOnUiThread(std::function<void()> fn);
 
     // Settings persistence (via ConfigManager)
     void loadSettings();

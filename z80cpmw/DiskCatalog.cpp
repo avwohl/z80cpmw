@@ -76,11 +76,14 @@ void DiskCatalog::fetchCatalog(CatalogLoadedCallback callback) {
             return;
         }
 
-        m_catalogEntries = entries;
+        {
+            std::lock_guard<std::mutex> lock(m_catalogMutex);
+            m_catalogEntries = entries;
+        }
         updateDownloadedStatus();
 
         if (callback) {
-            callback(true, m_catalogEntries, "");
+            callback(true, getCatalogEntries(), "");
         }
     }).detach();
 }
@@ -143,14 +146,39 @@ void DiskCatalog::cancelDownload() {
 }
 
 bool DiskCatalog::isDiskDownloaded(const std::string& filename) const {
+    size_t expectedSize = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_catalogMutex);
+        for (const auto& entry : m_catalogEntries) {
+            if (entry.filename == filename) {
+                expectedSize = entry.size;
+                break;
+            }
+        }
+    }
+
     std::string path = getDiskPath(filename);
-    return GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES;
+    WIN32_FILE_ATTRIBUTE_DATA fad = {};
+    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fad)) {
+        return false;
+    }
+    ULONGLONG size = ((ULONGLONG)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
+
+    // A truncated cached download must not count as downloaded. When the
+    // catalog knows the size, require at least that much (a cache from an
+    // older release may legitimately be larger); otherwise settle for
+    // non-empty.
+    if (expectedSize > 0) {
+        return size >= (ULONGLONG)expectedSize;
+    }
+    return size > 0;
 }
 
 bool DiskCatalog::deleteDownloadedDisk(const std::string& filename) {
     std::string path = getDiskPath(filename);
     if (DeleteFileA(path.c_str())) {
         // Update status
+        std::lock_guard<std::mutex> lock(m_catalogMutex);
         for (auto& entry : m_catalogEntries) {
             if (entry.filename == filename) {
                 entry.isDownloaded = false;
@@ -394,7 +422,9 @@ bool DiskCatalog::downloadToFile(const std::wstring& url, const std::string& loc
         goto cleanup;
     }
 
-    // Read and write data
+    // Read and write data. Every failure here must end as an error, never as
+    // success: a short file reported as success gets cached and boots the
+    // guest from a truncated image on every later run.
     {
         size_t bytesDownloaded = 0;
         DWORD bytesAvailable = 0;
@@ -409,7 +439,8 @@ bool DiskCatalog::downloadToFile(const std::wstring& url, const std::string& loc
 
             bytesAvailable = 0;
             if (!WinHttpQueryDataAvailable(hRequest, &bytesAvailable)) {
-                break;
+                error = "Connection lost during download";
+                goto cleanup;
             }
 
             if (bytesAvailable == 0) {
@@ -417,21 +448,43 @@ bool DiskCatalog::downloadToFile(const std::wstring& url, const std::string& loc
             }
 
             DWORD toRead = (bytesAvailable < sizeof(buffer)) ? bytesAvailable : (DWORD)sizeof(buffer);
-            if (WinHttpReadData(hRequest, buffer, toRead, &bytesRead)) {
-                fwrite(buffer, 1, bytesRead, file);
-                bytesDownloaded += bytesRead;
-
-                if (progressCb) {
-                    progressCb(bytesDownloaded, totalSize);
-                }
+            if (!WinHttpReadData(hRequest, buffer, toRead, &bytesRead)) {
+                error = "Read failed during download";
+                goto cleanup;
             }
-        } while (bytesAvailable > 0 && !m_cancelRequested);
+            if (fwrite(buffer, 1, bytesRead, file) != bytesRead) {
+                error = "Write failed (disk full?)";
+                goto cleanup;
+            }
+            bytesDownloaded += bytesRead;
 
-        success = !m_cancelRequested;
+            if (progressCb) {
+                progressCb(bytesDownloaded, totalSize);
+            }
+        } while (bytesAvailable > 0);
+
+        if (bytesDownloaded == 0) {
+            error = "Empty download";
+            goto cleanup;
+        }
+        if (totalSize > 0 && bytesDownloaded != totalSize) {
+            error = "Incomplete download (" + std::to_string(bytesDownloaded) +
+                    " of " + std::to_string(totalSize) + " bytes)";
+            goto cleanup;
+        }
+
+        success = true;
     }
 
 cleanup:
-    if (file) fclose(file);
+    if (file) {
+        fclose(file);
+        // Never leave a partial file behind: any later existence check would
+        // treat it as a completed download.
+        if (!success) {
+            remove(localPath.c_str());
+        }
+    }
     if (hRequest) WinHttpCloseHandle(hRequest);
     if (hConnect) WinHttpCloseHandle(hConnect);
     if (hSession) WinHttpCloseHandle(hSession);
@@ -492,7 +545,25 @@ bool DiskCatalog::parseCatalogXML(const std::string& xml, std::vector<DiskEntry>
 }
 
 void DiskCatalog::updateDownloadedStatus() {
-    for (auto& entry : m_catalogEntries) {
-        entry.isDownloaded = isDiskDownloaded(entry.filename);
+    // Snapshot the names first: isDiskDownloaded takes the catalog lock
+    // itself, so it must not be called while we hold it.
+    std::vector<std::string> names;
+    {
+        std::lock_guard<std::mutex> lock(m_catalogMutex);
+        names.reserve(m_catalogEntries.size());
+        for (const auto& entry : m_catalogEntries) {
+            names.push_back(entry.filename);
+        }
+    }
+
+    for (const auto& name : names) {
+        bool downloaded = isDiskDownloaded(name);
+        std::lock_guard<std::mutex> lock(m_catalogMutex);
+        for (auto& entry : m_catalogEntries) {
+            if (entry.filename == name) {
+                entry.isDownloaded = downloaded;
+                break;
+            }
+        }
     }
 }

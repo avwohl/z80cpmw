@@ -810,23 +810,39 @@ void TerminalView::processEscapeChar(uint8_t ch) {
     }
 }
 
+// CSI parameters come from untrusted guest output: clamp digit count, value
+// and parameter count so a corrupt stream can't throw (std::stoi would on
+// >INT_MAX) or grow the parameter vector without bound.
+static constexpr size_t MAX_CSI_PARAM_DIGITS = 6;
+static constexpr size_t MAX_CSI_PARAMS = 16;
+
+static int parseCSIParam(const std::string& s) {
+    if (s.empty()) return 0;
+    long v = strtol(s.c_str(), nullptr, 10);
+    return (int)std::min(v, 9999L);
+}
+
 void TerminalView::processCSIChar(uint8_t ch) {
     if (ch >= '0' && ch <= '9') {
-        m_escapeCurrentParam += (char)ch;
+        if (m_escapeCurrentParam.size() < MAX_CSI_PARAM_DIGITS) {
+            m_escapeCurrentParam += (char)ch;
+        }
         m_escapeState = EscapeState::CSIParam;
         return;
     }
 
     if (ch == ';') {
-        m_escapeParams.push_back(m_escapeCurrentParam.empty() ? 0 : std::stoi(m_escapeCurrentParam));
+        if (m_escapeParams.size() < MAX_CSI_PARAMS) {
+            m_escapeParams.push_back(parseCSIParam(m_escapeCurrentParam));
+        }
         m_escapeCurrentParam.clear();
         m_escapeState = EscapeState::CSIParam;
         return;
     }
 
     // Final character
-    if (!m_escapeCurrentParam.empty()) {
-        m_escapeParams.push_back(std::stoi(m_escapeCurrentParam));
+    if (!m_escapeCurrentParam.empty() && m_escapeParams.size() < MAX_CSI_PARAMS) {
+        m_escapeParams.push_back(parseCSIParam(m_escapeCurrentParam));
     }
 
     executeCSI(ch);

@@ -13,6 +13,7 @@
 #include "HelpWindow.h"
 #include "resource.h"
 #include "Version.h"
+#include "CrashHandler.h"
 #include "emu_io.h"
 
 // External function to set main window for host file dialogs
@@ -29,6 +30,9 @@ static bool g_mainClassRegistered = false;
 // Posted to ourselves to auto-open the Getting Started help on first run, after
 // the main window is shown and the message loop is running.
 static const UINT WM_APP_SHOW_WELCOME = WM_APP + 1;
+
+// Posted by runOnUiThread(): lParam owns a heap-allocated std::function to run.
+static const UINT WM_APP_RUN_ON_UI = WM_APP + 2;
 
 MainWindow::MainWindow()
     : m_terminal(std::make_unique<TerminalView>())
@@ -317,6 +321,17 @@ LRESULT MainWindow::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         return 0;
     }
+
+    case WM_APP_RUN_ON_UI: {
+        auto* fn = reinterpret_cast<std::function<void()>*>(lParam);
+        if (fn) {
+            if (!IsCrashing()) {
+                (*fn)();
+            }
+            delete fn;
+        }
+        return 0;
+    }
     }
 
     return DefWindowProcW(m_hwnd, msg, wParam, lParam);
@@ -541,6 +556,10 @@ void MainWindow::onCommand(int id) {
 }
 
 void MainWindow::onTimer() {
+    // While a crash report is up, its modal loop still dispatches WM_TIMER;
+    // never keep executing a corrupted machine (or flushing its disks).
+    if (IsCrashing()) return;
+
     if (m_emulator && m_emulator->isRunning()) {
         // Idle power management: when the guest is polling console status with
         // no input available (typical CP/M prompt idle loop), skip most timer
@@ -744,6 +763,25 @@ void MainWindow::onEmulatorStart() {
     startEmulator();
 }
 
+// A cached download is only trusted if it looks complete: older builds could
+// cache a truncated file after a failed download, and a bad cache breaks
+// every later boot. All default images are >= 8 MB.
+static bool diskFileLooksComplete(const std::string& path) {
+    WIN32_FILE_ATTRIBUTE_DATA fad = {};
+    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fad)) {
+        return false;
+    }
+    ULONGLONG size = ((ULONGLONG)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
+    return size >= (1ull << 20);
+}
+
+void MainWindow::runOnUiThread(std::function<void()> fn) {
+    auto* heapFn = new std::function<void()>(std::move(fn));
+    if (!PostMessage(m_hwnd, WM_APP_RUN_ON_UI, 0, reinterpret_cast<LPARAM>(heapFn))) {
+        delete heapFn;  // window is gone; drop the work
+    }
+}
+
 void MainWindow::startEmulator() {
     if (m_terminal) {
         m_terminal->clear();
@@ -774,9 +812,8 @@ void MainWindow::downloadAndStartWithDefaults() {
         }
     };
 
-    // Check if combo disk already exists
-    bool comboExists = (GetFileAttributesA(combo.c_str()) != INVALID_FILE_ATTRIBUTES);
-    bool gamesExists = (GetFileAttributesA(games.c_str()) != INVALID_FILE_ATTRIBUTES);
+    bool comboExists = diskFileLooksComplete(combo);
+    bool gamesExists = diskFileLooksComplete(games);
 
     if (comboExists && gamesExists) {
         // Both exist, just load them
@@ -820,91 +857,84 @@ void MainWindow::downloadAndStartWithDefaults() {
         termOutput("Disk 1: hd1k_games.img loaded\r\n");
     }
 
-    // Download missing disks then start
+    // Download missing disks then start. DiskCatalog invokes completion
+    // callbacks on a detached worker thread; hop back to the UI thread with
+    // runOnUiThread before touching the terminal/emulator/config (none of
+    // which are thread-safe).
+    m_downloadingDisks = true;
+
+    // Runs on the UI thread after the last download finishes (or fails).
+    auto finishAndStart = [this]() {
+        m_downloadingDisks = false;
+        saveSettings();
+        startEmulator();
+    };
+
+    auto downloadGames = [this, games, finishAndStart]() {
+        m_diskCatalog->downloadDisk("hd1k_games.img",
+            nullptr,
+            [this, games, finishAndStart](bool success, const std::string& error) {
+                runOnUiThread([this, games, finishAndStart, success, error]() {
+                    auto termOut = [this](const char* msg) {
+                        if (m_terminal) {
+                            for (const char* p = msg; *p; ++p) {
+                                m_terminal->outputChar(*p);
+                            }
+                        }
+                    };
+
+                    if (success) {
+                        auto& cfg = config::ConfigManager::instance().get();
+                        config::DiskConfig disk;
+                        disk.path = games;
+                        cfg.disks[1] = disk;
+                        m_emulator->loadDisk(1, games);
+                        termOut("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
+                    } else {
+                        termOut("  Disk 1: download failed - ");
+                        termOut(error.c_str());
+                        termOut("\r\n");
+                    }
+                    finishAndStart();
+                });
+            });
+    };
+
     if (needComboDownload) {
         m_diskCatalog->downloadDisk("hd1k_combo.img",
             nullptr,
-            [this, combo, games, needGamesDownload](bool success, const std::string& error) {
-                auto termOut = [this](const char* msg) {
-                    if (m_terminal) {
-                        for (const char* p = msg; *p; ++p) {
-                            m_terminal->outputChar(*p);
-                        }
-                    }
-                };
-
-                if (success) {
-                    auto& cfg = config::ConfigManager::instance().get();
-                    config::DiskConfig disk;
-                    disk.path = combo;
-                    cfg.disks[0] = disk;
-                    m_emulator->loadDisk(0, combo);
-                    termOut("  Disk 0: hd1k_combo.img downloaded and loaded\r\n");
-                } else {
-                    termOut("  Disk 0: download failed - ");
-                    termOut(error.c_str());
-                    termOut("\r\n");
-                }
-
-                if (needGamesDownload) {
-                    m_diskCatalog->downloadDisk("hd1k_games.img",
-                        nullptr,
-                        [this, games](bool success2, const std::string& error2) {
-                            auto termOut2 = [this](const char* msg) {
-                                if (m_terminal) {
-                                    for (const char* p = msg; *p; ++p) {
-                                        m_terminal->outputChar(*p);
-                                    }
-                                }
-                            };
-
-                            if (success2) {
-                                auto& cfg = config::ConfigManager::instance().get();
-                                config::DiskConfig disk;
-                                disk.path = games;
-                                cfg.disks[1] = disk;
-                                m_emulator->loadDisk(1, games);
-                                termOut2("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
-                            } else {
-                                termOut2("  Disk 1: download failed - ");
-                                termOut2(error2.c_str());
-                                termOut2("\r\n");
+            [this, combo, needGamesDownload, downloadGames, finishAndStart](bool success, const std::string& error) {
+                runOnUiThread([this, combo, needGamesDownload, downloadGames, finishAndStart, success, error]() {
+                    auto termOut = [this](const char* msg) {
+                        if (m_terminal) {
+                            for (const char* p = msg; *p; ++p) {
+                                m_terminal->outputChar(*p);
                             }
-                            saveSettings();
-                            startEmulator();
-                        });
-                } else {
-                    saveSettings();
-                    startEmulator();
-                }
+                        }
+                    };
+
+                    if (success) {
+                        auto& cfg = config::ConfigManager::instance().get();
+                        config::DiskConfig disk;
+                        disk.path = combo;
+                        cfg.disks[0] = disk;
+                        m_emulator->loadDisk(0, combo);
+                        termOut("  Disk 0: hd1k_combo.img downloaded and loaded\r\n");
+                    } else {
+                        termOut("  Disk 0: download failed - ");
+                        termOut(error.c_str());
+                        termOut("\r\n");
+                    }
+
+                    if (needGamesDownload) {
+                        downloadGames();
+                    } else {
+                        finishAndStart();
+                    }
+                });
             });
     } else if (needGamesDownload) {
-        m_diskCatalog->downloadDisk("hd1k_games.img",
-            nullptr,
-            [this, games](bool success, const std::string& error) {
-                auto termOut = [this](const char* msg) {
-                    if (m_terminal) {
-                        for (const char* p = msg; *p; ++p) {
-                            m_terminal->outputChar(*p);
-                        }
-                    }
-                };
-
-                if (success) {
-                    auto& cfg = config::ConfigManager::instance().get();
-                    config::DiskConfig disk;
-                    disk.path = games;
-                    cfg.disks[1] = disk;
-                    m_emulator->loadDisk(1, games);
-                    termOut("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
-                } else {
-                    termOut("  Disk 1: download failed - ");
-                    termOut(error.c_str());
-                    termOut("\r\n");
-                }
-                saveSettings();
-                startEmulator();
-            });
+        downloadGames();
     }
 }
 
@@ -1347,10 +1377,24 @@ void MainWindow::applyConfig() {
     }
 
     // Load disks
+    std::string downloadDataDir = EmulatorEngine::getUserDataDirectory() + "\\data";
     for (int i = 0; i < 4; i++) {
         if (cfg.disks[i].has_value()) {
             const auto& disk = cfg.disks[i].value();
-            if (!disk.path.empty() && GetFileAttributesA(disk.path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            if (disk.path.empty()) {
+                continue;
+            }
+            // Config-remembered files in the download cache get the same
+            // completeness check as downloadAndStartWithDefaults: skipping a
+            // truncated cache here means F5 falls into the download path and
+            // fetches a good copy instead of booting garbage forever.
+            bool inDownloadCache =
+                _strnicmp(disk.path.c_str(), downloadDataDir.c_str(),
+                          downloadDataDir.size()) == 0;
+            if (inDownloadCache && !diskFileLooksComplete(disk.path)) {
+                continue;
+            }
+            if (GetFileAttributesA(disk.path.c_str()) != INVALID_FILE_ATTRIBUTES) {
                 m_emulator->loadDisk(i, disk.path);
                 m_emulator->setDiskIsManifest(i, disk.isManifest);
             }

@@ -220,7 +220,6 @@ bool EmulatorEngine::checkPeriodicFlush() {
 void EmulatorEngine::start() {
     if (m_running) return;
     m_stopRequested = false;
-    m_running = true;
 
     // Initialize CPU state for fresh start
     m_cpu->regs.PC.set_pair16(0);
@@ -250,6 +249,10 @@ void EmulatorEngine::start() {
     // Configure boot option via NVRAM switches (not character queueing)
     // Empty string = show boot menu, "0" = disk unit 0, "C" = ROM app C, etc.
     m_hbios->setNvramSetting(m_bootString);
+
+    // Publish only after init is complete: runBatch() gates on m_running and
+    // must never execute a half-initialized machine.
+    m_running = true;
     sendStatus("Running");
 }
 
@@ -302,6 +305,7 @@ std::string EmulatorEngine::getNvramSetting() {
 
 void EmulatorEngine::setDebug(bool enable) {
     m_debug = enable;
+    emu_set_debug(enable);
     if (m_hbios) m_hbios->setDebug(enable);
 }
 
