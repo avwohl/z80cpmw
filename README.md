@@ -5,9 +5,10 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
 ## Download
 
 - **Beta — recommended right now:**
-  [z80cpmw-1.0.16-beta.msix](https://github.com/avwohl/z80cpmw/releases/download/v1.0.16-beta/z80cpmw-1.0.16-beta.msix)
+  [z80cpmw-1.0.17-beta.msix](https://github.com/avwohl/z80cpmw/releases/download/v1.0.17-beta/z80cpmw-1.0.17-beta.msix)
   — download and double-click to install. Signed; installs side-by-side with the
-  Store version. Fixes the silent crash on F5 ([#1](https://github.com/avwohl/z80cpmw/issues/1))
+  Store version and updates in place over any earlier beta. Fixes the silent crash
+  on F5 ([#1](https://github.com/avwohl/z80cpmw/issues/1))
   and the Load/Save Profile crash ([#2](https://github.com/avwohl/z80cpmw/issues/2)),
   and adds terminal paste, scrollback, and a configurable keyboard map.
 - **Microsoft Store:** search for **Z80CPM**. The Store currently has **v1.0.14**,
