@@ -11,7 +11,7 @@
 !define DESCRIPTION "Z80 CPU emulator for CP/M and vintage operating systems"
 !define VERSIONMAJOR 1
 !define VERSIONMINOR 0
-!define VERSIONBUILD 15
+!define VERSIONBUILD 16
 !define HELPURL "https://github.com/avwohl/z80cpmw"
 !define UPDATEURL "https://github.com/avwohl/z80cpmw/releases"
 !define ABOUTURL "https://github.com/avwohl/z80cpmw"
@@ -72,6 +72,20 @@ Section "Main Application" SecMain
     File "..\..\bin\Release\zlib1.dll"
     File "..\..\bin\Release\pcre2-16.dll"
     File "..\..\bin\Release\liblzma.dll"
+
+    ; VC++ runtime (app-local). The build machine's toolset may be newer than
+    ; the user's installed redist; a system msvcp140.dll older than the build
+    ; toolset crashes on the first std::mutex lock (GitHub issue #1).
+    File "..\..\bin\Release\msvcp140.dll"
+    File "..\..\bin\Release\msvcp140_1.dll"
+    File "..\..\bin\Release\msvcp140_2.dll"
+    File "..\..\bin\Release\msvcp140_atomic_wait.dll"
+    File "..\..\bin\Release\msvcp140_codecvt_ids.dll"
+    File "..\..\bin\Release\vcruntime140.dll"
+    File "..\..\bin\Release\vcruntime140_1.dll"
+    File "..\..\bin\Release\vcruntime140_threads.dll"
+    File "..\..\bin\Release\concrt140.dll"
+    File "..\..\bin\Release\vccorlib140.dll"
 
     ; ROM files
     SetOutPath "$INSTDIR\roms"
@@ -153,6 +167,16 @@ Section "Uninstall"
     Delete "$INSTDIR\zlib1.dll"
     Delete "$INSTDIR\pcre2-16.dll"
     Delete "$INSTDIR\liblzma.dll"
+    Delete "$INSTDIR\msvcp140.dll"
+    Delete "$INSTDIR\msvcp140_1.dll"
+    Delete "$INSTDIR\msvcp140_2.dll"
+    Delete "$INSTDIR\msvcp140_atomic_wait.dll"
+    Delete "$INSTDIR\msvcp140_codecvt_ids.dll"
+    Delete "$INSTDIR\vcruntime140.dll"
+    Delete "$INSTDIR\vcruntime140_1.dll"
+    Delete "$INSTDIR\vcruntime140_threads.dll"
+    Delete "$INSTDIR\concrt140.dll"
+    Delete "$INSTDIR\vccorlib140.dll"
     Delete "$INSTDIR\uninstall.exe"
 
     ; Remove ROM files

@@ -58,7 +58,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;C:\temp\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -83,7 +83,7 @@
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;C:\temp\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -100,6 +100,13 @@
       <Command>copy /b "$(ProjectDir)MainWindow.cpp"+,, "$(ProjectDir)MainWindow.cpp"</Command>
       <Message>Updating build timestamp...</Message>
     </PreBuildEvent>
+    <PostBuildEvent>
+      <!-- Ship the VC++ runtime app-local: the installers bundle no CRT, and a
+           system msvcp140.dll older than the build toolset crashes on first
+           std::mutex lock (GitHub issue #1). -->
+      <Command>xcopy /y /d "$(VCInstallDir)Redist\MSVC\$(VCToolsVersion)\x64\Microsoft.VC$(PlatformToolsetVersion).CRT\*.dll" "$(OutDir)"</Command>
+      <Message>Copying app-local VC++ runtime DLLs...</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>
     <!-- Application Source Files -->
