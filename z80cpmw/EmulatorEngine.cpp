@@ -260,6 +260,10 @@ void EmulatorEngine::stop() {
     if (!m_running) return;
     m_stopRequested = true;
     m_running = false;
+    // Persist dirty in-memory disks now: the periodic flush only runs while
+    // the emulator is running, so without this up to PERIODIC_FLUSH_INTERVAL
+    // seconds of guest writes are lost on stop/exit.
+    flushAllDisks();
     sendStatus("Stopped");
 }
 

@@ -1484,9 +1484,11 @@ void MainWindow::onLoadProfile() {
 
     // Simple file dialog to select profile
     wchar_t filename[MAX_PATH] = {};
-    std::wstring profilesDir = std::wstring(
-        config::ConfigManager::instance().getProfilesDir().begin(),
-        config::ConfigManager::instance().getProfilesDir().end());
+    // Keep the returned-by-value string alive in a named local: building the
+    // wstring from two separate getProfilesDir() calls mixed iterators of two
+    // different temporaries (undefined behavior, intermittent crash).
+    const std::string profilesDirA = config::ConfigManager::instance().getProfilesDir();
+    std::wstring profilesDir(profilesDirA.begin(), profilesDirA.end());
 
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
@@ -1509,7 +1511,10 @@ void MainWindow::onLoadProfile() {
         }
 
         char nameA[MAX_PATH];
-        WideCharToMultiByte(CP_UTF8, 0, nameW.c_str(), -1, nameA, MAX_PATH, nullptr, nullptr);
+        if (!WideCharToMultiByte(CP_UTF8, 0, nameW.c_str(), -1, nameA, MAX_PATH, nullptr, nullptr)) {
+            MessageBoxW(m_hwnd, L"Failed to load profile.", L"Error", MB_OK | MB_ICONERROR);
+            return;
+        }
 
         if (config::ConfigManager::instance().loadProfile(nameA)) {
             applyConfig();
@@ -1523,9 +1528,9 @@ void MainWindow::onLoadProfile() {
 
 void MainWindow::onSaveProfileAs() {
     wchar_t filename[MAX_PATH] = {};
-    std::wstring profilesDir = std::wstring(
-        config::ConfigManager::instance().getProfilesDir().begin(),
-        config::ConfigManager::instance().getProfilesDir().end());
+    // Named local for the same iterator-pair reason as onLoadProfile().
+    const std::string profilesDirA = config::ConfigManager::instance().getProfilesDir();
+    std::wstring profilesDir(profilesDirA.begin(), profilesDirA.end());
 
     // Ensure profiles directory exists
     CreateDirectoryW(profilesDir.c_str(), nullptr);
@@ -1552,7 +1557,10 @@ void MainWindow::onSaveProfileAs() {
         }
 
         char nameA[MAX_PATH];
-        WideCharToMultiByte(CP_UTF8, 0, nameW.c_str(), -1, nameA, MAX_PATH, nullptr, nullptr);
+        if (!WideCharToMultiByte(CP_UTF8, 0, nameW.c_str(), -1, nameA, MAX_PATH, nullptr, nullptr)) {
+            MessageBoxW(m_hwnd, L"Failed to save profile.", L"Error", MB_OK | MB_ICONERROR);
+            return;
+        }
 
         updateConfigFromState();
         if (config::ConfigManager::instance().saveAsProfile(nameA)) {
