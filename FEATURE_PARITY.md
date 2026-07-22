@@ -6,7 +6,7 @@ features so the other ports can reach parity. Point a coding agent in a sibling
 repo at this file (raw URL works) and have it implement the gaps against the
 referenced z80cpmw source.
 
-Last reviewed: **2026-06-29** against each repo's public README/CHANGELOG plus
+Last reviewed: **2026-07-21** against each repo's public README/CHANGELOG plus
 spot code searches. Port-status columns are best-effort — **verify against the
 port's current source** before acting; absence of a mention is not proof of
 absence.
@@ -18,7 +18,7 @@ absence.
 | Windows | [`z80cpmw`](https://github.com/avwohl/z80cpmw) | C++ | GUI front-end (this repo — the parity reference) |
 | iOS / macOS | [`ioscpm`](https://github.com/avwohl/ioscpm) | Swift | GUI front-end. Also **hosts the shared disk-image + help release assets** (`disks.xml`, `hd1k_*.img`, `help_index.json`). |
 | Android | [`cpmdroid`](https://github.com/avwohl/cpmdroid) | Kotlin | GUI front-end |
-| Linux | [`romwbw_emu`](https://github.com/avwohl/romwbw_emu) | C++ | **Shared emulator core** + CLI (deb/rpm). Terminal UX is delegated to the host terminal. |
+| Linux / Web | [`romwbw_emu`](https://github.com/avwohl/romwbw_emu) | C++ | **Shared emulator core** + CLI (deb/rpm) + browser/WASM frontend (`web/`). CLI terminal UX is delegated to the host terminal; the web build has its own xterm.js UI. |
 
 `cpmemu` is a *different* family (BDOS/BIOS-to-Unix translation, not RomWBW HBIOS
 hardware emulation) and is out of scope here.
@@ -158,20 +158,20 @@ Emulated retro graphics card in a separate window.
 
 ✅ present · ⬜ missing · ➖ N/A or host-provided · ❓ verify
 
-| Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux `romwbw_emu` |
+| Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
-| 1. Configurable keymap (termcap) | ⬜ | ⬜ | ➖ (host terminal) |
-| 2. Scrollback | ⬜ | ⬜ | ➖ (host terminal) |
+| 1. Configurable keymap (termcap) | ⬜ | ⬜ | ➖ (host terminal / browser) |
+| 2. Scrollback | ⬜ | ⬜ | ➖ CLI (host terminal) · ✅ web (xterm.js) |
 | 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip) | ➖ |
-| 4. R8/W8 arbitrary host paths | ❓ | ⬜ (fixed folders) | ❓ |
-| 5. Disk catalog + **pinned** tag | ✅ / ❓ pinned | ✅ / ❓ pinned | ❓ |
+| 4. R8/W8 arbitrary host paths | ❓ | ⬜ (fixed folders) | ✅ CLI (host paths) · ✅ web (picker/download) |
+| 5. Disk catalog + **pinned** tag | ✅ / ❓ pinned | ✅ / ❓ pinned | ❓ CLI · ➖ web (same-origin server list) |
 | 6. Help system + offline fallback | ✅ | ✅ | ⬜ |
 | 7. NVRAM autoboot / bootString | ✅ | ❓ | ✅ (boot menu) |
 | 8. Window state / DPI | ❓ (Mac) | ➖ | ➖ |
 | 9. Font size setting | ❓ | ❓ | ➖ |
 | 10. Dazzler | ⬜ | ❓ (partial) | ✅ (partial) |
-| 11. Config profiles | ⬜ | ⬜ | ❓ |
-| 12. Manifest write warning | ❓ | ❓ | ❓ |
+| 11. Config profiles | ⬜ | ⬜ | ✅ CLI (JSON settings file, v1.34) · web persists UI selections (localStorage) |
+| 12. Manifest write warning | ❓ | ❓ | ✅ web (with per-disk suppression) · ➖ CLI |
 
 ## Suggested priority order for each GUI port
 
@@ -187,5 +187,8 @@ Emulated retro graphics card in a separate window.
 7. Optional: **profiles (#11)**, **Dazzler (#10)**.
 
 For the Linux CLI, items 1/2/3/8 are mostly the host terminal's job; focus on the
-catalog downloader (#5), help (#6), and R8/W8 (#4) if a non-interactive path is
-wanted.
+catalog downloader (#5) and help (#6). The web/WASM frontend already covers
+scrollback (#2), R8/W8 via browser picker/download (#4), same-origin disk
+selection (#5, different model), UI-selection persistence (#11, lighter than
+profiles), the manifest write warning (#12), and adds a dirty-disk warning
+before tab close (v1.34).

@@ -118,6 +118,16 @@ bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
 
 bool EmulatorEngine::loadDisk(int unit, const std::string& path) {
     if (unit < 0 || unit >= 4) return false;
+    // hbios loadDisk starts by discarding the unit's buffer and dirty flag,
+    // so persist unsaved guest writes on the outgoing image first (reachable
+    // while running via File > Load Disk) — and before reading the incoming
+    // file, so reloading the same path picks up the just-flushed content
+    // instead of rolling the disk back to its pre-flush state.
+    saveDiskIfDirty(unit);
+    // If that save failed and the caller is reloading the same file, abort:
+    // proceeding would replace the newer in-memory image with stale on-disk
+    // content and clear the dirty flag, silently discarding the writes.
+    if (m_hbios->isDiskDirty(unit) && path == m_diskPaths[unit]) return false;
     std::vector<uint8_t> data;
     if (!emu_file_load(path, data)) return false;
     if (m_hbios->loadDisk(unit, data.data(), data.size())) {
@@ -134,8 +144,23 @@ bool EmulatorEngine::loadDiskFromData(int unit, const uint8_t* data, size_t size
 
 void EmulatorEngine::closeDisk(int unit) {
     if (unit < 0 || unit >= 4) return;
+    saveDiskIfDirty(unit);
     m_hbios->closeDisk(unit);
     m_diskPaths[unit].clear();
+}
+
+// Persist a unit's in-memory image if the guest wrote to it and we know its
+// file path. The dirty flag is cleared only on a successful save so a failed
+// write (disk full, file locked) is retried at the next flush point instead
+// of being silently dropped.
+void EmulatorEngine::saveDiskIfDirty(int unit) {
+    if (!m_hbios->isDiskDirty(unit) || m_diskPaths[unit].empty()) return;
+    if (saveDisk(unit, m_diskPaths[unit])) {
+        m_hbios->clearDiskDirty(unit);
+    } else {
+        emu_error("[DISK] Failed to save dirty disk %d to %s\n",
+                  unit, m_diskPaths[unit].c_str());
+    }
 }
 
 bool EmulatorEngine::saveDisk(int unit, const std::string& path) {
@@ -195,10 +220,7 @@ void EmulatorEngine::flushAllDisks() {
     m_hbios->flushAllDisks();
     // Save dirty in-memory disks to their file paths
     for (int i = 0; i < 4; i++) {
-        if (m_hbios->isDiskDirty(i) && !m_diskPaths[i].empty()) {
-            saveDisk(i, m_diskPaths[i]);
-            m_hbios->clearDiskDirty(i);
-        }
+        saveDiskIfDirty(i);
     }
 }
 
@@ -207,10 +229,7 @@ bool EmulatorEngine::checkPeriodicFlush() {
     if (m_hbios->checkPeriodicFlush()) {
         // Also save dirty in-memory disks to their file paths
         for (int i = 0; i < 4; i++) {
-            if (m_hbios->isDiskDirty(i) && !m_diskPaths[i].empty()) {
-                saveDisk(i, m_diskPaths[i]);
-                m_hbios->clearDiskDirty(i);
-            }
+            saveDiskIfDirty(i);
         }
         return true;
     }

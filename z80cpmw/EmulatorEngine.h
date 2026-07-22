@@ -132,6 +132,9 @@ public:
 
 private:
     void initCPU();
+    // Save a unit's in-memory image to its recorded path if the guest wrote
+    // to it; clears the dirty flag only on success.
+    void saveDiskIfDirty(int unit);
     void emulatorThread();
     void handleHBIOS();
     void sendStatus(const std::string& status);

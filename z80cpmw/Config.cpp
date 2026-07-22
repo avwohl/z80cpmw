@@ -249,11 +249,14 @@ bool ConfigManager::loadFromFile(const std::string& path) {
 
         json j;
         file >> j;
-        m_config = j.get<AppConfig>();
+        AppConfig parsed = j.get<AppConfig>();
+        m_config = std::move(parsed);
         return true;
     } catch (const std::exception&) {
-        // Parse error - use defaults
-        m_config = AppConfig{};
+        // Parse error - leave m_config untouched so a corrupt profile/settings
+        // file can't clobber live state that a later saveSettings() would then
+        // persist over the user's good config. (At startup m_config is still
+        // the default-constructed AppConfig, so behavior there is unchanged.)
         return false;
     }
 }

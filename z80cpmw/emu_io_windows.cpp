@@ -117,6 +117,14 @@ void emu_console_clear_queue() {
     }
 }
 
+bool emu_console_input_exhausted() {
+    return false; // GUI: more input can always arrive
+}
+
+bool emu_console_input_eof() {
+    return false; // GUI: no piped stdin
+}
+
 void emu_console_write_char(uint8_t ch) {
     if (g_outputCallback) {
         g_outputCallback(ch & 0x7F);
@@ -326,15 +334,25 @@ bool emu_file_load(const std::string& path, std::vector<uint8_t>& data) {
         return false;
     }
 
-    fseek(f, 0, SEEK_END);
-    size_t size = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    long long size = -1;
+    if (_fseeki64(f, 0, SEEK_END) == 0) {
+        size = _ftelli64(f);
+    }
+    _fseeki64(f, 0, SEEK_SET);
+    // Reject unmeasurable files and anything beyond the largest disk image
+    // (the only callers load ROMs and disk images). With 32-bit ftell a
+    // >=2GB file yielded (size_t)-1 and the resize below killed the app.
+    if (size < 0 || size > (long long)EMU_HD1K_COMBO_SIZE) {
+        fclose(f);
+        data.clear();
+        return false;
+    }
 
-    data.resize(size);
-    size_t bytesRead = fread(data.data(), 1, size, f);
+    data.resize((size_t)size);
+    size_t bytesRead = size > 0 ? fread(data.data(), 1, (size_t)size, f) : 0;
     fclose(f);
 
-    if (bytesRead != size) {
+    if (bytesRead != (size_t)size) {
         data.clear();
         return false;
     }
@@ -350,10 +368,14 @@ size_t emu_file_load_to_mem(const std::string& path, uint8_t* mem,
     size_t fileSize = ftell(f);
     fseek(f, 0, SEEK_SET);
 
-    size_t toRead = fileSize;
-    if (offset + toRead > mem_size) {
-        toRead = mem_size - offset;
+    // Guard before subtracting: offset past mem_size would underflow, and a
+    // failed ftell makes fileSize (size_t)-1, so clamp to the space available.
+    if (offset >= mem_size) {
+        fclose(f);
+        return 0;
     }
+    size_t avail = mem_size - offset;
+    size_t toRead = (fileSize < avail) ? fileSize : avail;
 
     size_t bytesRead = fread(mem + offset, 1, toRead, f);
     fclose(f);
@@ -361,12 +383,24 @@ size_t emu_file_load_to_mem(const std::string& path, uint8_t* mem,
 }
 
 bool emu_file_save(const std::string& path, const std::vector<uint8_t>& data) {
-    FILE* f = fopen(path.c_str(), "wb");
+    // Write to a temp file and rename over the target (same pattern as
+    // ConfigManager::saveToFile): a failure or process kill mid-write (disk
+    // full, shutdown timeout) leaves the existing file intact instead of
+    // truncated. fclose is checked because stdio buffering can surface a
+    // write error only at the final flush.
+    std::string tempPath = path + ".tmp";
+    FILE* f = fopen(tempPath.c_str(), "wb");
     if (!f) return false;
 
-    size_t written = fwrite(data.data(), 1, data.size(), f);
-    fclose(f);
-    return written == data.size();
+    size_t written = data.empty() ? 0 : fwrite(data.data(), 1, data.size(), f);
+    bool ok = (written == data.size());
+    if (fclose(f) != 0) ok = false;
+
+    if (!ok || !MoveFileExA(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        remove(tempPath.c_str());
+        return false;
+    }
+    return true;
 }
 
 bool emu_file_exists(const std::string& path) {
@@ -399,6 +433,26 @@ struct disk_file {
 // Track all open disks for emu_disk_flush_all
 static std::set<disk_file*> g_openDisks;
 
+// Wrap an opened image file in a disk_file, sizing it with 64-bit ftell
+// (MSVC long is 32 bits, so plain ftell poisons the size for a >=2GB file,
+// and the core's format autodetect and slice math trust this value). Closes
+// the file and returns nullptr if the size cannot be determined.
+static emu_disk_handle makeDiskHandle(FILE* f) {
+    long long size = -1;
+    if (_fseeki64(f, 0, SEEK_END) == 0) {
+        size = _ftelli64(f);
+    }
+    if (size < 0) {
+        fclose(f);
+        return nullptr;
+    }
+    disk_file* disk = new disk_file;
+    disk->fp = f;
+    disk->size = (size_t)size;
+    g_openDisks.insert(disk);
+    return disk;
+}
+
 emu_disk_handle emu_disk_open(const std::string& path, const char* mode) {
     const char* fmode;
     if (strcmp(mode, "r") == 0) {
@@ -406,32 +460,19 @@ emu_disk_handle emu_disk_open(const std::string& path, const char* mode) {
     } else if (strcmp(mode, "rw") == 0) {
         fmode = "r+b";
     } else if (strcmp(mode, "rw+") == 0) {
-        fmode = "r+b";
-        FILE* f = fopen(path.c_str(), fmode);
+        FILE* f = fopen(path.c_str(), "r+b");
         if (!f) {
             f = fopen(path.c_str(), "w+b");
         }
         if (!f) return nullptr;
-
-        disk_file* disk = new disk_file;
-        disk->fp = f;
-        fseek(f, 0, SEEK_END);
-        disk->size = ftell(f);
-        g_openDisks.insert(disk);
-        return disk;
+        return makeDiskHandle(f);
     } else {
         return nullptr;
     }
 
     FILE* f = fopen(path.c_str(), fmode);
     if (!f) return nullptr;
-
-    disk_file* disk = new disk_file;
-    disk->fp = f;
-    fseek(f, 0, SEEK_END);
-    disk->size = ftell(f);
-    g_openDisks.insert(disk);
-    return disk;
+    return makeDiskHandle(f);
 }
 
 void emu_disk_close(emu_disk_handle handle) {
@@ -448,7 +489,12 @@ size_t emu_disk_read(emu_disk_handle handle, size_t offset,
     disk_file* disk = static_cast<disk_file*>(handle);
     if (!disk->fp) return 0;
 
-    fseek(disk->fp, (long)offset, SEEK_SET);
+    // _fseeki64, not fseek: MSVC long is 32 bits, so a (long)offset would
+    // wrap for large guest LBAs and read/write the wrong part of the image
+    // (the core computes disk offsets in 64-bit since v1.34). On a failed
+    // seek return 0: DIOWRITE surfaces that as HBR_IO, DIOREAD treats it as
+    // end-of-media (partial count) - either beats a stale-position read.
+    if (_fseeki64(disk->fp, (long long)offset, SEEK_SET) != 0) return 0;
     return fread(buffer, 1, count, disk->fp);
 }
 
@@ -458,7 +504,8 @@ size_t emu_disk_write(emu_disk_handle handle, size_t offset,
     disk_file* disk = static_cast<disk_file*>(handle);
     if (!disk->fp) return 0;
 
-    fseek(disk->fp, (long)offset, SEEK_SET);
+    // 64-bit seek for the same reason as emu_disk_read.
+    if (_fseeki64(disk->fp, (long long)offset, SEEK_SET) != 0) return 0;
     size_t written = fwrite(buffer, 1, count, disk->fp);
 
     size_t newEnd = offset + written;
@@ -522,8 +569,7 @@ bool emu_disk_create(const std::string& path, emu_disk_format format) {
         remaining -= written;
     }
 
-    fclose(f);
-    return true;
+    return fclose(f) == 0;
 }
 
 std::vector<uint8_t> emu_disk_create_memory(emu_disk_format format) {
@@ -800,12 +846,28 @@ bool emu_host_file_open_read(const char* filename) {
     // Read the file
     FILE* f = fopen(fullPath.c_str(), "rb");
     if (f) {
-        fseek(f, 0, SEEK_END);
-        size_t size = ftell(f);
-        fseek(f, 0, SEEK_SET);
-        g_hostReadBuffer.resize(size);
-        fread(g_hostReadBuffer.data(), 1, size, f);
+        _fseeki64(f, 0, SEEK_END);
+        long long size = _ftelli64(f);
+        _fseeki64(f, 0, SEEK_SET);
+        // Reject unmeasurable files (devices, ftell failure) and anything
+        // larger than the biggest disk image: the whole file is buffered in
+        // RAM, and no CP/M disk could hold more anyway. Unchecked, a >=2GB
+        // size would make the resize below throw and kill the app.
+        if (size < 0 || size > (long long)EMU_HD1K_COMBO_SIZE) {
+            fclose(f);
+            g_hostFileState = HOST_FILE_IDLE;
+            return false;
+        }
+        g_hostReadBuffer.resize((size_t)size);
+        size_t bytesRead = size > 0
+            ? fread(g_hostReadBuffer.data(), 1, (size_t)size, f) : 0;
         fclose(f);
+        if (bytesRead != (size_t)size) {
+            // Short read: fail rather than hand the guest zero-padded data.
+            g_hostReadBuffer.clear();
+            g_hostFileState = HOST_FILE_IDLE;
+            return false;
+        }
         g_hostFileState = HOST_FILE_READING;
         return true;
     }
@@ -848,24 +910,32 @@ void emu_host_file_close_read() {
     g_hostFileState = HOST_FILE_IDLE;
 }
 
-void emu_host_file_close_write() {
-    if (g_hostFileState == HOST_FILE_WRITING && !g_hostWriteBuffer.empty()) {
+bool emu_host_file_close_write() {
+    bool ok = true;
+    if (g_hostFileState == HOST_FILE_WRITING) {
         // Use provided filename or default to export.txt. Absolute paths are
-        // written verbatim; bare names go in the data folder.
+        // written verbatim; bare names go in the data folder. An empty buffer
+        // still creates the (zero-byte) file, matching the CLI backend.
         std::string filename = g_hostWriteFilename.empty() ? "export.txt" : g_hostWriteFilename;
         std::string fullPath = resolveHostPath(filename);
 
-        // Write the buffer
+        // A false return tells the guest (via HBF_HOST_CLOSE) that the export
+        // is missing or truncated; W8 reports it to the CP/M user.
         FILE* f = fullPath.empty() ? nullptr : fopen(fullPath.c_str(), "wb");
         if (f) {
-            fwrite(g_hostWriteBuffer.data(), 1, g_hostWriteBuffer.size(), f);
-            fclose(f);
+            size_t written = g_hostWriteBuffer.empty() ? 0
+                : fwrite(g_hostWriteBuffer.data(), 1, g_hostWriteBuffer.size(), f);
+            if (written != g_hostWriteBuffer.size()) ok = false;
+            if (fclose(f) != 0) ok = false;
+        } else {
+            ok = false;
         }
     }
 
     g_hostWriteBuffer.clear();
     g_hostWriteFilename.clear();
     g_hostFileState = HOST_FILE_IDLE;
+    return ok;
 }
 
 void emu_host_file_provide_data(const uint8_t* data, size_t size) {

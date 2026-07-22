@@ -305,10 +305,37 @@ LRESULT MainWindow::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_CLOSE:
         saveWindowPlacement();  // remember where/how big the window is
-        if (m_emulator && m_emulator->isRunning()) {
-            m_emulator->stop();
+        // Flush even when stopped (retries a dirty-disk save that failed at
+        // the last stop), but never while crashing - a corrupted machine
+        // must not overwrite good images (same rule as onTimer).
+        if (m_emulator && !IsCrashing()) {
+            if (m_emulator->isRunning()) {
+                m_emulator->stop();
+            } else {
+                m_emulator->flushAllDisks();
+            }
         }
         DestroyWindow(m_hwnd);
+        return 0;
+
+    case WM_QUERYENDSESSION:
+        return TRUE;  // nothing blocks logoff/shutdown; cleanup is below
+
+    case WM_ENDSESSION:
+        // Logoff/shutdown terminates the process after this message: WM_CLOSE
+        // never arrives and destructors are not guaranteed to run, so flush
+        // dirty disks and save window state here or lose them. Same
+        // stopped-retry and IsCrashing rules as WM_CLOSE.
+        if (wParam) {
+            saveWindowPlacement();
+            if (m_emulator && !IsCrashing()) {
+                if (m_emulator->isRunning()) {
+                    m_emulator->stop();
+                } else {
+                    m_emulator->flushAllDisks();
+                }
+            }
+        }
         return 0;
 
     case WM_APP_SHOW_WELCOME: {
@@ -1398,6 +1425,11 @@ void MainWindow::applyConfig() {
                 m_emulator->loadDisk(i, disk.path);
                 m_emulator->setDiskIsManifest(i, disk.isManifest);
             }
+        } else if (m_emulator->isDiskLoaded(i)) {
+            // The config omits this unit (e.g. a loaded profile without it):
+            // close it so the previously mounted image stops collecting
+            // guest writes under the new profile. No-op at startup.
+            m_emulator->closeDisk(i);
         }
     }
 
@@ -1517,7 +1549,19 @@ void MainWindow::onLoadProfile() {
         }
 
         if (config::ConfigManager::instance().loadProfile(nameA)) {
+            // Stop before swapping ROM/disks (which also flushes dirty disk
+            // writes), then resume — same pattern as onEmulatorSettings.
+            // Without this, applyConfig's loadDisk calls would discard guest
+            // writes made since the last flush and hot-swap the ROM under a
+            // running machine.
+            bool wasRunning = m_emulator && m_emulator->isRunning();
+            if (wasRunning) {
+                m_emulator->stop();
+            }
             applyConfig();
+            if (wasRunning) {
+                m_emulator->start();
+            }
             m_statusText = "Loaded profile: " + std::string(nameA);
             updateStatusBar();
         } else {

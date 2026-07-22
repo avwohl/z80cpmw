@@ -42,10 +42,11 @@ static std::string getLocalGettingStartedMarkdown() {
      Type the unit number of your hard disk and press Enter. With the default
      ROM and the downloadable hd1k disks that number is 2 - units 0 and 1 are
      the on-board ROM/RAM disks and carry no operating system, so typing 0
-     reports "No system image on disk". Press H at the boot menu to list the
-     available units. (This boot-menu unit number is not the same as the
-     Settings "Disk 0-3" slot.) Press W to save your choice as the autoboot
-     default so you do not have to type it each time.
+     reports "No system image on disk". Press D at the boot menu to list the
+     disk units and L to list the ROM applications. (This boot-menu unit
+     number is not the same as the Settings "Disk 0-3" slot.) Press W to
+     save your choice as the autoboot default so you do not have to type it
+     each time.
 
 ## File Transfer (R8 / W8)
 
