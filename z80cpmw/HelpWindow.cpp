@@ -57,8 +57,9 @@ Give a full path (recommended), for example:
 
     R8 C:\Users\me\Desktop\getkey2.com
 
-A bare name uses the app's data folder. Open it with
-Emulator > Settings > Open Folder.
+A bare name uses the app's data folder. Its exact location (which the Store build
+redirects) is shown in Emulator > Settings and in Help > About; the Open Folder
+button there opens it in Explorer.
 
 ## Keyboard
 
@@ -106,7 +107,8 @@ z80cpmw keeps its settings in a JSON file you can edit by hand:
 Tip: Emulator > Settings > Open Folder opens the data folder
 (...\z80cpmw\data, where disks and R8/W8 transfers live). The z80cpmw.json file
 is one level up, in the z80cpmw folder. On the Microsoft Store build both live
-under ...\Packages\<package>\LocalCache\Local\z80cpmw\.
+under ...\Packages\AaronWohl.Z80CPM_<hash>\LocalCache\Local\z80cpmw\ - you don't
+need to type that: Settings and Help > About show the real, resolved path.
 
 Close z80cpmw before editing the file, then restart for changes to take effect.
 

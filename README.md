@@ -15,6 +15,7 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
   which predates the fixes and features above; it will be updated once the beta
   settles. This README describes the beta.
 - All releases: [github.com/avwohl/z80cpmw/releases](https://github.com/avwohl/z80cpmw/releases)
+- What changed in each version: [CHANGELOG.md](CHANGELOG.md)
 
 ## Features
 
@@ -66,6 +67,21 @@ those two keys are not passed to CP/M unless you enable them in the config.
 Drag to select text in the terminal, then right-click for **Copy** and
 **Paste**. `Ctrl+C` / `Ctrl+V` are left untouched so they still reach CP/M as
 `^C` / `^V`.
+
+### File Transfer (R8 / W8)
+
+`W8 name` exports a file from CP/M to the host; `R8 name` imports one. On Windows,
+give a **full path** and the file goes exactly there (even on the Store build):
+
+```
+W8 C:\Users\me\Desktop\out.com
+```
+
+A bare name (`W8 out.com`) goes to the app's data folder — whose real location the
+app shows in *Emulator → Settings* (with an **Open Folder** button), *Help → About*,
+and the boot banner. For where exported files land on the Store build and on the
+macOS/iOS/Android ports — and how to find them — see
+[docs/FILE_TRANSFER.md](docs/FILE_TRANSFER.md).
 
 ## Configuration
 

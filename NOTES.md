@@ -82,6 +82,16 @@ deliberately left untouched so they still reach CP/M as `^C`/`^V`.
 
 ## W8/R8 Host File Transfer (December 2024)
 
+> **Update (2026-07):** the implementation since gained (1) **absolute/UNC/rooted
+> path support** — such paths are written verbatim, even under full-trust MSIX —
+> with bare names still going to the data folder; and (2) a **resolved-path
+> display** (`emu_io_get_data_folder_display` → `GetFinalPathNameByHandle`) so
+> About/Settings/boot-banner show the real folder even when the Store build
+> redirects `%LOCALAPPDATA%` into the package `LocalCache`. The user-facing,
+> cross-platform writeup (Windows/macOS/iOS/Android) is
+> [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md). The global-state / MP/M note
+> below still stands.
+
 ### Current Implementation
 
 W8/R8 are CP/M utilities that transfer files between CP/M and the host system using HBIOS extension traps (RST 8):

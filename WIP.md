@@ -2,9 +2,16 @@
 
 Working notes / handoff for the current round of changes. Not user-facing docs.
 
+> **Historical (as of 2026-07-23).** This file captures the 1.0.15 round; the app
+> is now at **1.0.17** (see `CHANGELOG.md`). The "open question" below about W8
+> paths under MSIX is **resolved** — the behaviour is confirmed in source and
+> documented for users in [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md). Kept
+> for context; not a to-do list anymore.
+
 ## Status
 
 Version bumped to **1.0.15** (`Version.h`, `AppxManifest.xml`, `z80cpmw.nsi`).
+Superseded — current version is 1.0.17.
 
 Committed to `master` and **pushed** through `b4c36d2`:
 
@@ -20,7 +27,15 @@ Installer built (untracked, in `dist/`): **`dist/z80cpmw-1.0.15-setup.exe`** (Pr
 
 Local debug build for testing: `bin\Debug\z80cpmw.exe`.
 
-## OPEN QUESTION — where do W8 files actually land on the Store/MSIX build?
+## RESOLVED — where do W8 files land on the Store/MSIX build?
+
+**Answer (confirmed in source; user doc: `docs/FILE_TRANSFER.md`):** full paths are
+written verbatim even under full-trust MSIX; bare names go to `%LOCALAPPDATA%\z80cpmw\data`,
+which the Store build redirects to
+`...\Packages\AaronWohl.Z80CPM_<hash>\LocalCache\Local\z80cpmw\data`. The app
+resolves and displays that real path (`emu_io_get_data_folder_display` →
+`GetFinalPathNameByHandle`) in About, Settings, and the boot banner. The original
+reasoning below held up; recorded here as the verification basis.
 
 To be verified by **manual testing of the installed MSIX (Store) build** (the local build is unpackaged, so it can't reproduce the redirection).
 

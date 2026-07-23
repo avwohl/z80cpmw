@@ -6,9 +6,11 @@ features so the other ports can reach parity. Point a coding agent in a sibling
 repo at this file (raw URL works) and have it implement the gaps against the
 referenced z80cpmw source.
 
-Last reviewed: **2026-07-21** against each repo's public README/CHANGELOG plus
-spot code searches. Port-status columns are best-effort — **verify against the
-port's current source** before acting; absence of a mention is not proof of
+Last reviewed: **2026-07-23**. Most rows are from each repo's public
+README/CHANGELOG plus spot code searches; item 4 (R8/W8) was verified against the
+`ioscpm` and `cpmdroid` **source** on that date. Port-status columns are otherwise
+best-effort — **verify against the port's current source** before acting (local
+checkouts may lag the ports' latest builds); absence of a mention is not proof of
 absence.
 
 ## The family
@@ -81,17 +83,39 @@ Drag to select terminal text, right-click for Copy/Paste.
 - **Platform mapping:** macOS = native selection + ⌘C/⌘V; Android = the "control
   strip" Copy/Paste (cpmdroid already has this); Linux CLI = host terminal.
 
-### 4. R8 / W8 host file transfer with arbitrary host paths
-`R8 name` imports a host file into CP/M; `W8 name` exports.
-- **Behaviour/spec:** **absolute / UNC / rooted paths are used verbatim**
-  (e.g. `R8 C:\Users\me\Desktop\getkey2.com`); bare names resolve to the app data
-  folder. On packaged builds the data folder's redirected real path is resolved and
-  surfaced to the user.
-- **Where:** `z80cpmw/emu_io_windows.cpp` (`resolveHostPath`,
-  `emu_host_file_close_write`, `emu_io_get_data_folder_display`).
-- **Platform mapping:** cpmdroid currently uses fixed `Imports/`/`Exports/` folders;
-  parity = let the user reach **arbitrary** host locations within the platform's
-  file model (document picker / Files app / real paths). Verify ioscpm's behaviour.
+### 4. R8 / W8 host file transfer — arbitrary host paths + a findable data folder
+`R8 name` imports a host file into CP/M; `W8 name` exports. **User-facing doc:
+[`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md)** covers where files land and how
+to find them on every platform.
+- **Behaviour/spec (Windows):** **absolute / UNC / rooted paths are used verbatim**
+  (e.g. `R8 C:\Users\me\Desktop\getkey2.com`), even on the full-trust Store build;
+  bare names resolve to the app data folder. The data folder's redirected real path
+  is resolved (`GetFinalPathNameByHandle`) and surfaced in **About**, **Settings**
+  (copyable + Open Folder), and the **boot banner**.
+- **Where:** `z80cpmw/emu_io_windows.cpp` (`resolveHostPath`, `isAbsolutePath`,
+  `emu_host_file_close_write`, `emu_io_get_data_folder_display` / `resolveRealPath`).
+- **Verified port behaviour (2026-07-23):**
+  - **ioscpm (iOS/macOS)** — `W8` always writes `Documents/Exports`, `R8` always
+    reads `Documents/Imports` (no per-transfer dialog). As of **v1.4.11 / build 41**
+    an **Import File…** picker (enabled on iOS *and* Mac Catalyst) stages an
+    arbitrary-location file into `Imports` for a later `R8`; the old opt-in
+    per-transfer picker was removed. So arbitrary-path *import* is covered (via
+    staging), but `W8` export still has no save-as/arbitrary path. Findability is
+    good: iOS exposes Documents to the **Files app** (`UIFileSharingEnabled` +
+    `LSSupportsOpeningDocumentsInPlace`), and both platforms have **Open
+    Imports/Exports Folder** menu items.
+  - **cpmdroid (Android)** — fixed `Imports/`/`Exports/` under
+    `getExternalFilesDir(null)` (`/Android/data/com.awohl.cpmdroid/files/…`). **No
+    Share/SAF UI and no path shown**, so on Android 11+ the export folder is hidden
+    from the stock Files app — the weakest findability of the family (only a toast).
+- **Parity targets:** (a) let users reach **arbitrary** host locations within each
+  platform's file model — a document picker / `ACTION_CREATE_DOCUMENT`; and (b) at
+  minimum, **make exports findable**: Android should add a Share (`ACTION_SEND`) or
+  "save to…" step; all ports should show the resolved folder path in-app the way
+  Windows does. Note the shared iOS/Mac **`help_file_transfer.md`** is stale: it
+  uses the wrong bundle id `com.awohl.iOSCPM` (real is `com.awohl.cpm`), the wrong
+  app name "iOSCPM" (real display name is `Z80CPM`), and predates **Import File…** —
+  fix when touching those ports.
 
 ### 5. Remote disk catalog + downloader (pinned)
 Download prebuilt disk images from the shared release host instead of bundling
@@ -156,14 +180,14 @@ Emulated retro graphics card in a separate window.
 
 ## Per-port gap snapshot (verify before acting)
 
-✅ present · ⬜ missing · ➖ N/A or host-provided · ❓ verify
+✅ present · ◐ partial · ⬜ missing · ➖ N/A or host-provided · ❓ verify
 
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
 | 1. Configurable keymap (termcap) | ⬜ | ⬜ | ➖ (host terminal / browser) |
 | 2. Scrollback | ⬜ | ⬜ | ➖ CLI (host terminal) · ✅ web (xterm.js) |
 | 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip) | ➖ |
-| 4. R8/W8 arbitrary host paths | ❓ | ⬜ (fixed folders) | ✅ CLI (host paths) · ✅ web (picker/download) |
+| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed) | ⬜ (fixed folders, not findable) | ✅ CLI (host paths) · ✅ web (picker/download) |
 | 5. Disk catalog + **pinned** tag | ✅ / ❓ pinned | ✅ / ❓ pinned | ❓ CLI · ➖ web (same-origin server list) |
 | 6. Help system + offline fallback | ✅ | ✅ | ⬜ |
 | 7. NVRAM autoboot / bootString | ✅ | ❓ | ✅ (boot menu) |

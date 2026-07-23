@@ -17,10 +17,17 @@ This guide covers all requirements for submitting Z80CPM to the Microsoft Store.
 ## Store Requirements Checklist
 
 ### App Identity
-- [x] App Name: **Z80CPM**
-- [x] Publisher: **avwohl**
-- [x] Package Identity: `avwohl.z80cpmw`
-- [ ] Update `Publisher` in AppxManifest.xml with your actual certificate CN after Store registration
+
+These are the values Partner Center reserved for this app; they are already in
+`packaging/msix/AppxManifest.xml` and **must not be changed** for a Store upload:
+
+- [x] App Name (DisplayName): **Z80CPM**
+- [x] Publisher display name: **Aaron Wohl**
+- [x] Package Identity `Name`: `AaronWohl.Z80CPM`
+- [x] Package Identity `Publisher`: `CN=724C9014-DD22-420E-9BB4-F2740D082EB0`
+
+The `Publisher` is a Microsoft-assigned GUID, **not** a certificate you own — see
+[Signing](#signing-who-signs-what) below.
 
 ### Required Assets
 
@@ -98,15 +105,44 @@ Complete the IARC questionnaire in Partner Center. Z80CPM should qualify for:
 
 ### Privacy Policy
 
-Required if app collects any user data. Z80CPM:
-- Does NOT collect personal data
-- Does NOT require internet (disk catalog is optional)
-- Stores settings locally only
+The published policy is [PRIVACY.md](../PRIVACY.md). In summary, Z80CPM:
+- Does NOT collect personal data, run analytics, or require accounts
+- Does NOT send anything to the developer automatically
+- Uses the internet only for two optional, on-demand features (disk catalog and
+  in-app help), both from public GitHub assets
+- Stores everything locally, including settings, disk images, R8/W8 transfers, and
+  diagnostic/crash files (which are only shared if the user chooses to send them)
 
-If no data collection, you can state:
+The Store listing can state:
 ```
 This app does not collect, store, or transmit any personal information.
 ```
+
+## Signing (who signs what)
+
+**You do not sign the Store package.** The Microsoft Store **re-signs** every
+submission with its own certificate during ingestion, and distributes the app with
+*that* signature — trusted on all Windows machines. This is why the very first
+*unsigned* upload worked: the Store signs it for you.
+
+Consequences worth remembering:
+
+- **Upload the Store package unsigned.** `signtool` requires the signing cert's
+  subject to equal the manifest `Publisher`, which for the Store is the assigned
+  GUID `CN=724C9014-…` — a certificate only Microsoft holds. So a Store-identity
+  package physically cannot be self-signed; it goes up unsigned and Microsoft signs
+  it. The default `build-msix.ps1` output is exactly this.
+- **Uploading a *signed* package does not "use" your signature** — the Store
+  discards it and re-signs. Signing a Store submission yourself buys nothing.
+- **Do NOT upload the beta MSIX to the Store.** `build-msix.ps1 -Beta` rewrites the
+  `Publisher` to your Trusted Signing cert subject (`CN=Aaron Wohl, …`) and signs it
+  for **sideloading**. Partner Center will reject it — not because it is signed, but
+  because its identity/publisher no longer matches your reservation
+  (`CN=724C9014-…`). The beta package is a separate identity that installs
+  side-by-side with the Store build; it is for GitHub/direct distribution only.
+
+See [docs/CODE_SIGNING.md](../docs/CODE_SIGNING.md) for the full two-vehicle policy
+and the beta signing commands.
 
 ## Building the Packages
 
@@ -126,7 +162,11 @@ cd packaging\scripts
 .\build-msix.ps1 -Configuration Release
 ```
 
-Output: `dist\z80cpmw.msix`
+Output: `dist\z80cpmw.msix` — this is the **Store** package (Store identity,
+unsigned). Upload it as-is; Microsoft signs it. For the signed **beta** package
+(sideloading), run `.\build-msix.ps1 -Beta` instead, which emits
+`dist\z80cpmw-<version>-beta.msix` — do **not** upload that one to the Store (see
+[Signing](#signing-who-signs-what)).
 
 ### NSIS Installer (for direct distribution)
 
@@ -137,7 +177,7 @@ cd packaging\scripts
 .\build-nsis.ps1 -Configuration Release
 ```
 
-Output: `dist\z80cpmw-1.0.0-setup.exe`
+Output: `dist\z80cpmw-<version>-setup.exe`
 
 ## Store Submission Steps
 

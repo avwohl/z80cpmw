@@ -25,7 +25,7 @@ are PE files and both should be signed:
 - `bin\Release\z80cpmw.exe` — the application binary. Sign it **before** NSIS
   packaging so the installed program is itself signed.
 - `dist\z80cpmw-<version>-setup.exe` — the NSIS installer testers download
-  (e.g. `z80cpmw-1.0.15-setup.exe`). Sign it **after** `makensis` builds it.
+  (e.g. `z80cpmw-1.0.17-setup.exe`). Sign it **after** `makensis` builds it.
 
 The **MSIX** package (`packaging/msix/`) follows a two-vehicle policy:
 
@@ -166,7 +166,7 @@ shells out to `signtool`.
      /tr "http://timestamp.acs.microsoft.com" /td SHA256 ^
      /dlib "<path>\Azure.CodeSigning.Dlib.dll" ^
      /dmdf "<path>\trusted-signing.json" ^
-     "dist\z80cpmw-1.0.15-setup.exe"
+     "dist\z80cpmw-1.0.17-setup.exe"
    ```
 
 Where to hook it into the existing scripts:
@@ -185,7 +185,7 @@ Where to hook it into the existing scripts:
 
 ```powershell
 dotnet tool install --global sign --prerelease
-sign code trusted-signing "dist\z80cpmw-1.0.15-setup.exe" `
+sign code trusted-signing "dist\z80cpmw-1.0.17-setup.exe" `
   --trusted-signing-endpoint https://eus.codesigning.azure.net/ `
   --trusted-signing-account ms-code-sign-account `
   --trusted-signing-certificate-profile z80cpmw-public
@@ -219,7 +219,7 @@ jsign \
   --keystore  https://eus.codesigning.azure.net \
   --storepass "$TOKEN" \
   --alias     "ms-code-sign-account/z80cpmw-public" \
-  z80cpmw-1.0.15-setup.exe
+  z80cpmw-1.0.17-setup.exe
 ```
 
 > **No trailing slash on `--keystore`.** jsign concatenates the path onto this
@@ -237,9 +237,9 @@ Microsoft RFC-3161 timestamp.
 
 ## Verify a signature
 
-- Windows: `signtool verify /pa /v "dist\z80cpmw-1.0.15-setup.exe"`, or right-click
+- Windows: `signtool verify /pa /v "dist\z80cpmw-1.0.17-setup.exe"`, or right-click
   the file → **Properties → Digital Signatures**.
-- Cross-platform: `osslsigncode verify z80cpmw-1.0.15-setup.exe`.
+- Cross-platform: `osslsigncode verify z80cpmw-1.0.17-setup.exe`.
 
 > On Linux, `osslsigncode verify` exits non-zero with "unable to get local issuer
 > certificate" because the box lacks Microsoft's root CAs — this is a local
