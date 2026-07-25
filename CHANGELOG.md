@@ -5,15 +5,28 @@ All notable changes to **z80cpmw** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use a simple `MAJOR.MINOR.PATCH` scheme: `-beta` tags are signed
 GitHub / sideload prereleases, and unsuffixed versions are Microsoft Store
-releases. The Store is currently on **1.0.14**; the **1.0.17-beta** signed MSIX
-carries the crash fixes and features listed below.
+releases. The Store is on **1.0.14** (**1.0.18** submitted, pending review); the
+**1.0.18-beta** signed MSIX carries the fixes and features listed below.
 
 ## [Unreleased]
 
+## [1.0.18-beta] - 2026-07-25
+
+### Fixed
+- **Settings window is now a singleton** — selecting Emulator ▸ Settings while
+  it is already open now raises and focuses the existing window instead of
+  opening a second copy that could drift out of sync.
+- **Disk catalog loads again.** The catalog was pinned to ioscpm release
+  `v1.4.5`, which had never actually been published, so every catalog fetch
+  returned HTTP 404. Publishing that release restored the catalog with no app
+  change. The bundled **Combo** disk now also carries the corrected `w8.com`
+  (host file-transfer export names).
+
 ### Changed
 - Synced the Z80 / HBIOS emulator core with **romwbw_emu v1.34** and fixed the
-  bugs surfaced by the migration audit. Not yet in a published or tagged build —
-  will ship in the next 1.0.17 package.
+  bugs surfaced by the migration audit.
+- Version bumped to 1.0.18, and the Store-identity package submitted to the
+  Microsoft Store (unsigned; Microsoft re-signs at distribution).
 
 ## [1.0.17-beta] - 2026-07-14
 
@@ -148,7 +161,8 @@ Microsoft Store release.
 [#1]: https://github.com/avwohl/z80cpmw/issues/1
 [#2]: https://github.com/avwohl/z80cpmw/issues/2
 
-[Unreleased]: https://github.com/avwohl/z80cpmw/compare/v1.0.17-beta...HEAD
+[Unreleased]: https://github.com/avwohl/z80cpmw/compare/v1.0.18-beta...HEAD
+[1.0.18-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.17-beta...v1.0.18-beta
 [1.0.17-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.16-beta...v1.0.17-beta
 [1.0.16-beta]: https://github.com/avwohl/z80cpmw/compare/bbab303...v1.0.16-beta
 [1.0.15]: https://github.com/avwohl/z80cpmw/compare/v1.0.14...bbab303
