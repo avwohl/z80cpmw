@@ -56,7 +56,7 @@ written as termcap-style escape strings.
   Mobile maps soft-key/hardware-key events; the CLI maps host-terminal keys. Adopt
   the same config schema (named keys → termcap strings) so configs are portable.
 
-### 2. Scrollback history  — *new in Windows; verified absent in all three ports*
+### 2. Scrollback history  — *new in Windows; done on iOS/macOS (ioscpm build 43)*
 Lines that scroll off the top are retained so the user can scroll back (great for
 long `DIR` listings).
 - **Behaviour/spec:** ring buffer of full 80-col lines captured at the single
@@ -185,7 +185,7 @@ Emulated retro graphics card in a separate window.
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
 | 1. Configurable keymap (termcap) | ⬜ | ⬜ | ➖ (host terminal / browser) |
-| 2. Scrollback | ⬜ | ⬜ | ➖ CLI (host terminal) · ✅ web (xterm.js) |
+| 2. Scrollback | ✅ | ⬜ | ➖ CLI (host terminal) · ✅ web (xterm.js) |
 | 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip) | ➖ |
 | 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed) | ⬜ (fixed folders, not findable) | ✅ CLI (host paths) · ✅ web (picker/download) |
 | 5. Disk catalog + **pinned** tag | ✅ / ❓ pinned | ✅ / ❓ pinned | ❓ CLI · ➖ web (same-origin server list) |
