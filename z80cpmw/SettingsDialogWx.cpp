@@ -554,6 +554,11 @@ public:
     virtual bool OnInit() override { return true; }
 };
 
+// Points at the currently-open Settings dialog, or nullptr when none is open.
+// UI-thread only (all Settings access goes through the Win32 menu handler), so
+// a plain static needs no synchronization. Used to keep Settings a singleton.
+static SettingsDialogWx* s_openSettingsDialog = nullptr;
+
 // Internal function that does the actual dialog work
 static bool ShowWxSettingsDialogInternal(DiskCatalog* catalog, WxEmulatorSettings& settings) {
     OutputDebugStringA("[Settings] ShowWxSettingsDialog called\n");
@@ -592,6 +597,21 @@ static bool ShowWxSettingsDialogInternal(DiskCatalog* catalog, WxEmulatorSetting
     }
 
     OutputDebugStringA("[Settings] Creating dialog...\n");
+
+    // Settings is a singleton: if a dialog is already open, bring the existing
+    // one to the front instead of stacking a second instance. The wx dialog is
+    // parented to nullptr, so ShowModal() only blocks other wx windows - the
+    // Win32 main window's Settings menu stays live inside ShowModal()'s nested
+    // message loop. Without this guard, re-selecting Settings opens duplicate
+    // dialogs that each seed from / write back to config independently and
+    // drift out of sync (last one closed wins).
+    if (s_openSettingsDialog != nullptr) {
+        OutputDebugStringA("[Settings] Already open - raising existing dialog\n");
+        s_openSettingsDialog->Raise();
+        s_openSettingsDialog->SetFocus();
+        return false;  // no new dialog; leave the caller's settings untouched
+    }
+
     bool result = false;
     try {
         // Don't try to parent to Win32 window - just create as top-level
@@ -604,19 +624,23 @@ static bool ShowWxSettingsDialogInternal(DiskCatalog* catalog, WxEmulatorSetting
         dlg.Centre();
 
         OutputDebugStringA("[Settings] Showing modal dialog\n");
+        s_openSettingsDialog = &dlg;
         result = (dlg.ShowModal() == wxID_OK);
+        s_openSettingsDialog = nullptr;
         OutputDebugStringA("[Settings] Dialog closed\n");
         if (result) {
             settings = dlg.getSettings();
         }
     }
     catch (const std::exception& e) {
+        s_openSettingsDialog = nullptr;
         OutputDebugStringA("[Settings] Exception: ");
         OutputDebugStringA(e.what());
         OutputDebugStringA("\n");
         MessageBoxA(nullptr, e.what(), "Settings Exception", MB_OK | MB_ICONERROR);
     }
     catch (...) {
+        s_openSettingsDialog = nullptr;
         OutputDebugStringA("[Settings] Unknown exception\n");
         MessageBoxA(nullptr, "Unknown exception in settings dialog", "Settings Error", MB_OK | MB_ICONERROR);
     }
@@ -634,6 +658,10 @@ bool ShowWxSettingsDialog(void* parentHwnd, DiskCatalog* catalog, WxEmulatorSett
         return ShowWxSettingsDialogInternal(catalog, settings);
     }
     __except(EXCEPTION_EXECUTE_HANDLER) {
+        // A structured exception may have escaped ShowModal() while the stack
+        // dialog was still registered; clear the singleton so Settings can be
+        // reopened afterward instead of being permanently "already open".
+        s_openSettingsDialog = nullptr;
         DWORD code = GetExceptionCode();
         char msg[256];
         sprintf_s(msg, "Settings dialog crashed with exception code 0x%08X", code);
