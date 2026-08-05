@@ -161,8 +161,8 @@ Microsoft Store release.
 [#1]: https://github.com/avwohl/z80cpmw/issues/1
 [#2]: https://github.com/avwohl/z80cpmw/issues/2
 
-[Unreleased]: https://github.com/avwohl/z80cpmw/compare/v1.0.18-beta...HEAD
-[1.0.18-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.17-beta...v1.0.18-beta
+[Unreleased]: https://github.com/avwohl/z80cpmw/compare/0146d94...HEAD
+[1.0.18-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.17-beta...0146d94
 [1.0.17-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.16-beta...v1.0.17-beta
 [1.0.16-beta]: https://github.com/avwohl/z80cpmw/compare/bbab303...v1.0.16-beta
 [1.0.15]: https://github.com/avwohl/z80cpmw/compare/v1.0.14...bbab303
