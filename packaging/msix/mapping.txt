@@ -25,7 +25,6 @@
 "..\..\bin\Release\vccorlib140.dll"                "vccorlib140.dll"
 "..\..\bin\Release\roms\emu_avw.rom"               "roms\emu_avw.rom"
 "..\..\bin\Release\roms\emu_romwbw.rom"            "roms\emu_romwbw.rom"
-"..\..\bin\Release\roms\SBC_simh_std.rom"          "roms\SBC_simh_std.rom"
 "..\..\bin\Release\disks\hd1k_combo.img"           "disks\hd1k_combo.img"
 "..\..\bin\Release\disks\hd1k_games.img"           "disks\hd1k_games.img"
 "Assets\Square44x44Logo.png"                        "Assets\Square44x44Logo.png"

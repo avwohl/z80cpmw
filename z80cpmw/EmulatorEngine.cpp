@@ -106,6 +106,11 @@ bool EmulatorEngine::loadROM(const std::string& path) {
 
 bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
     m_romError.clear();
+    // Every failure below leaves the machine without a usable ROM, including
+    // the case where a previously good ROM had already been loaded: the bank
+    // contents are not restored. start() must not run such a machine, so the
+    // flag drops on entry and is only raised once the image is really in.
+    m_romLoaded = false;
     if (!m_memory || !data || size == 0) {
         m_romError = "empty ROM image";
         return false;
@@ -131,6 +136,7 @@ bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
         return false;
     }
 
+    m_romLoaded = true;
     return true;
 }
 

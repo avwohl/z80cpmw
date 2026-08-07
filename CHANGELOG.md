@@ -7,26 +7,74 @@ Versions use a simple `MAJOR.MINOR.PATCH` scheme: `-beta` tags are signed
 GitHub / sideload prereleases, and unsuffixed versions are Microsoft Store
 releases. The Store is on **1.0.14** (**1.0.18** submitted, pending review); the
 **1.0.18-beta** signed MSIX carries the fixes and features listed below.
-**1.0.19** is committed but not yet packaged or signed — it has not been built
-on Windows, so treat its entry as the change list for the next build.
+**1.0.19** is built on Windows (Debug and Release, x64) but not yet packaged or
+signed.
 
 ## [Unreleased]
 
 ## [1.0.19] - 2026-08-07
 
 ### Fixed
-- **The bundled `emu_romwbw.rom` was corrupt and could never boot.** Its HBIOS
-  configuration block carried a wrong marker byte (`0xB8` where `~'W' = 0xA8`
-  belongs), so selecting that ROM started a CPU that produced no output at
-  all — no error, no boot menu, nothing. Replaced with the ROM rebuilt from
-  source upstream. The bundled `emu_avw.rom` was intact but stale, and is
+- **The `emu_romwbw.rom` in this repository was corrupt and could never boot.**
+  Its HBIOS configuration block carried a wrong marker byte (`0xB8` where
+  `~'W' = 0xA8` belongs), so a build that loaded it started a CPU that produced
+  no output at all — no error, no boot menu, nothing. Replaced with the ROM
+  rebuilt from source upstream; `emu_avw.rom` was intact but stale, and is
   refreshed from the same build.
-- **A ROM that fails to load now says so.** Three of the four ROM-loading
+
+  **No released build shipped that file, so no installed copy is affected.**
+  Packaging reads `bin\Release\roms`, which held a separate hand-made snapshot:
+  the ROM inside `z80cpmw-1.0.18-beta.msix` is a valid image (it is in fact a
+  second copy of `emu_avw.rom`). The real defect this exposed is that the
+  tracked ROMs and the packaged ROMs were two unrelated sets of bytes — see the
+  staging fix below.
+- **A ROM that fails to load now says why.** Three of the four ROM-loading
   paths ignored the failure: applying settings, loading the default ROM at
   startup, and applying a config profile all carried on silently, leaving the
-  emulator with no usable ROM and no explanation. Each now reports the reason
-  from the core — a corrupt HBIOS configuration block, or a ROM built for a
-  different RomWBW release than this build emulates.
+  emulator with no usable ROM and no explanation. The reason now comes from the
+  core — a corrupt HBIOS configuration block, or a ROM built for a different
+  RomWBW release than this build emulates. Selecting a ROM from the menu and
+  applying settings raise a dialog; the default ROM writes to the terminal; the
+  config-profile path only writes to the log, because it runs at startup before
+  the terminal is useful.
+- **The build now stages `roms\` into the output directory.** Nothing ever
+  copied them, so `bin\<Config>\roms` held whatever snapshot had been placed
+  there by hand — in this tree, one from December 2025. That is how a release
+  can fix a corrupt ROM and ship the corrupt one anyway: the app loads the ROMs
+  from its own directory at run time, and `packaging/scripts/build-msix.ps1`
+  packages from `bin\Release\roms`. A post-build step in both configurations
+  now copies `roms\*.rom` to `$(OutDir)roms`.
+- **Start no longer runs a machine with no ROM.** Every ROM-load failure left
+  the emulator with empty ROM banks, and nothing recorded that: Start cleared
+  the terminal — erasing the message that had just explained the failure — and
+  ran a CPU over an erased bank, which is 0xFF everywhere, so `RST 38h`
+  recursed on itself until the stack overwrote RAM. The status bar said
+  "Running" throughout. `EmulatorEngine` now tracks whether a ROM is really
+  loaded; Start refuses with the reason, and the menu item is greyed.
+- **`SBC_simh_std.rom` is no longer offered, or shipped.** It is a stock ROM
+  for real hardware with no port 0xEF HBIOS proxy, so it loaded "successfully"
+  and then printed nothing forever — the same silent failure, on the one path
+  the app advertised in its own menu. Upstream dropped the identical option
+  from its web front-end this release. A config profile that still names it
+  falls back to the default ROM and says so.
+- **The Settings dialog no longer swaps the ROM behind your back.** It was
+  never told which ROM was running, so its list always opened on the first
+  entry and OK reloaded `emu_avw.rom` over whatever the user had selected,
+  restarting the guest on different firmware. It is now seeded with the running
+  ROM, only reloads on an actual change, and a successful change updates the
+  ROM name, the menu check mark and the saved config — which previously kept
+  the old value and reinstated it on the next launch.
+- **Menu check marks are set after the menu exists.** `m_menu` was fetched
+  after the two functions that set check marks had already run, so both wrote
+  into a null handle and were then overwritten by an unconditional default.
+- **The v1.35 core did not compile with MSVC.** Its hardened file I/O used the
+  POSIX `fseeko`/`ftello`, which Visual C++ does not provide, so
+  `romwbw_emu/src/emu_init.cc` failed with C3861 and this port could not be
+  built at all. Fixed upstream in `romwbw_emu` by adding
+  `emu_fseek`/`emu_ftell`/`emu_off_t` to `src/emu_io.h` — MSVC gets
+  `_fseeki64`/`_ftelli64` and a 64-bit offset type, because its `off_t` is a
+  32-bit `long` and would truncate offsets inside the range a combo disk image
+  reaches. POSIX targets keep `fseeko`/`ftello` unchanged.
 
 ### Changed
 - Synced to the **romwbw_emu v1.35** core, which pins the emulated RomWBW
@@ -38,9 +86,22 @@ on Windows, so treat its entry as the change list for the next build.
 - Version bumped to 1.0.19.
 
 ### Verified
-- `romwbw_emu/roms/verify_romwbw_pin.sh ../z80cpmw` passes: both bundled
-  emulator ROMs are RomWBW v3.5.1 emulator ROMs, and `SBC_simh_std.rom` is
-  correctly flagged as a stock build-input ROM.
+- Built with MSVC (Visual Studio 18, x64): Debug and Release both compile and
+  link with no errors.
+- `romwbw_emu/roms/verify_romwbw_pin.sh ../z80cpmw` passes over the whole tree,
+  including `bin\Debug` and `bin\Release`: every bundled emulator ROM is a
+  RomWBW v3.5.1 emulator ROM, and the boot slices of the bundled disk images
+  report CBIOS v3.5.1.
+- The Release build starts, and the refreshed `emu_avw.rom` reaches the
+  RomWBW boot loader (`RetroBrew SBC [SBC_simh_std] Boot Loader`).
+- Selecting the old corrupt `emu_romwbw.rom` now raises an error dialog naming
+  the reason ("no HBIOS configuration block at 0x103…") instead of starting a
+  CPU that prints nothing.
+
+- Start refuses, with the reason, when no ROM is loaded; the Start menu item is
+  greyed until one is. Verified against a build whose ROMs are all corrupt.
+- A saved ROM that cannot be used now reports itself in the terminal at
+  startup, for both the default ROM and the one named by the config profile.
 
 ## [1.0.18-beta] - 2026-07-25
 
@@ -193,7 +254,8 @@ Microsoft Store release.
 [#1]: https://github.com/avwohl/z80cpmw/issues/1
 [#2]: https://github.com/avwohl/z80cpmw/issues/2
 
-[Unreleased]: https://github.com/avwohl/z80cpmw/compare/0146d94...HEAD
+[Unreleased]: https://github.com/avwohl/z80cpmw/compare/97d8350...HEAD
+[1.0.19]: https://github.com/avwohl/z80cpmw/compare/0146d94...97d8350
 [1.0.18-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.17-beta...0146d94
 [1.0.17-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.16-beta...v1.0.17-beta
 [1.0.16-beta]: https://github.com/avwohl/z80cpmw/compare/bbab303...v1.0.16-beta

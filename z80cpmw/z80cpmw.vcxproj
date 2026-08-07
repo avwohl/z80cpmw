@@ -73,6 +73,13 @@
       <Command>copy /b "$(ProjectDir)MainWindow.cpp"+,, "$(ProjectDir)MainWindow.cpp"</Command>
       <Message>Updating build timestamp...</Message>
     </PreBuildEvent>
+    <PostBuildEvent>
+      <!-- Same ROM staging as Release: a Debug run has to load the ROMs this
+           tree ships, not a snapshot someone copied into bin once. -->
+      <Command>if not exist "$(OutDir)roms\" mkdir "$(OutDir)roms"
+xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
+      <Message>Staging ROMs...</Message>
+    </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -103,9 +110,16 @@
     <PostBuildEvent>
       <!-- Ship the VC++ runtime app-local: the installers bundle no CRT, and a
            system msvcp140.dll older than the build toolset crashes on first
-           std::mutex lock (GitHub issue #1). -->
-      <Command>xcopy /y /d "$(VCInstallDir)Redist\MSVC\$(VCToolsVersion)\x64\Microsoft.VC$(PlatformToolsetVersion).CRT\*.dll" "$(OutDir)"</Command>
-      <Message>Copying app-local VC++ runtime DLLs...</Message>
+           std::mutex lock (GitHub issue #1).
+           Stage the ROMs too. Nothing used to copy them, so $(OutDir)roms kept
+           whatever snapshot was put there by hand - a stale one for over half a
+           year. That is how a build "fixes" a corrupt ROM and still ships the
+           corrupt one: the app loads $(OutDir)roms at runtime, and
+           packaging/scripts/build-msix.ps1 packages from bin\Release\roms. -->
+      <Command>xcopy /y /d "$(VCInstallDir)Redist\MSVC\$(VCToolsVersion)\x64\Microsoft.VC$(PlatformToolsetVersion).CRT\*.dll" "$(OutDir)"
+if not exist "$(OutDir)roms\" mkdir "$(OutDir)roms"
+xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
+      <Message>Copying app-local VC++ runtime DLLs and staging ROMs...</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <ItemGroup>

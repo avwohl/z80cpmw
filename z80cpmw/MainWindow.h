@@ -79,6 +79,10 @@ private:
     void onOutputChar(uint8_t ch);
     void onStatusChanged(const std::string& status);
 
+    // Write host-side text (not guest output) into the terminal. No-op before
+    // the terminal exists.
+    void terminalPrint(const std::string& text);
+
     // Find and load ROM/disk files
     std::string findResourceFile(const std::string& filename);
     void loadDefaultROM();

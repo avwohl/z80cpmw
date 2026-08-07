@@ -11,7 +11,7 @@
 !define DESCRIPTION "Z80 CPU emulator for CP/M and vintage operating systems"
 !define VERSIONMAJOR 1
 !define VERSIONMINOR 0
-!define VERSIONBUILD 17
+!define VERSIONBUILD 19
 !define HELPURL "https://github.com/avwohl/z80cpmw"
 !define UPDATEURL "https://github.com/avwohl/z80cpmw/releases"
 !define ABOUTURL "https://github.com/avwohl/z80cpmw"
@@ -89,9 +89,11 @@ Section "Main Application" SecMain
 
     ; ROM files
     SetOutPath "$INSTDIR\roms"
+    ; SBC_simh_std.rom is deliberately not shipped: it is a stock ROM for real
+    ; hardware, with no port 0xEF HBIOS proxy, so it runs and prints nothing.
+    ; The uninstaller still deletes it, to clean up installs that had it.
     File "..\..\bin\Release\roms\emu_avw.rom"
     File "..\..\bin\Release\roms\emu_romwbw.rom"
-    File "..\..\bin\Release\roms\SBC_simh_std.rom"
 
     ; Disk images
     SetOutPath "$INSTDIR\disks"

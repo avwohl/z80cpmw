@@ -18,7 +18,6 @@ BEGIN
         BEGIN
             MENUITEM "EMU AVW (Recommended)",   ID_ROM_EMU_AVW
             MENUITEM "EMU RomWBW",              ID_ROM_EMU_ROMWBW
-            MENUITEM "SBC SIMH",                ID_ROM_SBC_SIMH
         END
         MENUITEM SEPARATOR
         MENUITEM "Load Disk &0...",             ID_FILE_LOADDISK0

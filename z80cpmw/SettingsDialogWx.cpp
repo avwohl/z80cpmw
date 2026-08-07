@@ -241,7 +241,6 @@ void SettingsDialogWx::populateROMList() {
     m_romChoice->Clear();
     m_romChoice->Append("EMU AVW (Default)");
     m_romChoice->Append("EMU RomWBW");
-    m_romChoice->Append("SBC SIMH");
     m_romChoice->SetSelection(0);
 }
 
@@ -285,8 +284,6 @@ void SettingsDialogWx::loadSettings() {
     // ROM selection
     if (m_settings.romFile == "emu_romwbw.rom") {
         m_romChoice->SetSelection(1);
-    } else if (m_settings.romFile == "SBC_simh_std.rom") {
-        m_romChoice->SetSelection(2);
     } else {
         m_romChoice->SetSelection(0);
     }
@@ -327,7 +324,6 @@ void SettingsDialogWx::saveSettings() {
     // ROM selection
     switch (m_romChoice->GetSelection()) {
         case 1: m_settings.romFile = "emu_romwbw.rom"; break;
-        case 2: m_settings.romFile = "SBC_simh_std.rom"; break;
         default: m_settings.romFile = "emu_avw.rom"; break;
     }
 

@@ -43,6 +43,11 @@ public:
     // RomWBW other than the pinned one used to start a CPU that produced no
     // output at all. Empty after a successful load.
     const std::string& getROMError() const { return m_romError; }
+    // False until a ROM image is really in banked memory. start() on a machine
+    // with no ROM runs a CPU over an erased ROM bank (0xFF everywhere, so RST
+    // 38h recursing on itself) and emu_complete_init() walks a ROM-app table
+    // that is not there, so the caller has to check this first.
+    bool hasROM() const { return m_romLoaded; }
 
     // Disk management (units 0-3)
     bool loadDisk(int unit, const std::string& path);
@@ -153,6 +158,7 @@ private:
 
     std::string m_romName;
     std::string m_romError;
+    bool m_romLoaded = false;
     std::string m_diskPaths[4];
     std::string m_bootString;
 
