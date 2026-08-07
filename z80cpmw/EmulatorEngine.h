@@ -37,6 +37,12 @@ public:
     bool loadROMFromData(const uint8_t* data, size_t size);
     void setROMName(const std::string& name) { m_romName = name; }
     const std::string& getROMName() const { return m_romName; }
+    // Why the last loadROM*() returned false, for showing the user. The core
+    // only writes its reason to the debug log, and a rejected ROM is not a
+    // theoretical case: an emulator ROM whose HCB is corrupt or built for a
+    // RomWBW other than the pinned one used to start a CPU that produced no
+    // output at all. Empty after a successful load.
+    const std::string& getROMError() const { return m_romError; }
 
     // Disk management (units 0-3)
     bool loadDisk(int unit, const std::string& path);
@@ -146,6 +152,7 @@ private:
     std::unique_ptr<Dazzler> m_dazzler;
 
     std::string m_romName;
+    std::string m_romError;
     std::string m_diskPaths[4];
     std::string m_bootString;
 

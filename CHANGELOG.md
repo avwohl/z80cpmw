@@ -7,8 +7,40 @@ Versions use a simple `MAJOR.MINOR.PATCH` scheme: `-beta` tags are signed
 GitHub / sideload prereleases, and unsuffixed versions are Microsoft Store
 releases. The Store is on **1.0.14** (**1.0.18** submitted, pending review); the
 **1.0.18-beta** signed MSIX carries the fixes and features listed below.
+**1.0.19** is committed but not yet packaged or signed — it has not been built
+on Windows, so treat its entry as the change list for the next build.
 
 ## [Unreleased]
+
+## [1.0.19] - 2026-08-07
+
+### Fixed
+- **The bundled `emu_romwbw.rom` was corrupt and could never boot.** Its HBIOS
+  configuration block carried a wrong marker byte (`0xB8` where `~'W' = 0xA8`
+  belongs), so selecting that ROM started a CPU that produced no output at
+  all — no error, no boot menu, nothing. Replaced with the ROM rebuilt from
+  source upstream. The bundled `emu_avw.rom` was intact but stale, and is
+  refreshed from the same build.
+- **A ROM that fails to load now says so.** Three of the four ROM-loading
+  paths ignored the failure: applying settings, loading the default ROM at
+  startup, and applying a config profile all carried on silently, leaving the
+  emulator with no usable ROM and no explanation. Each now reports the reason
+  from the core — a corrupt HBIOS configuration block, or a ROM built for a
+  different RomWBW release than this build emulates.
+
+### Changed
+- Synced to the **romwbw_emu v1.35** core, which pins the emulated RomWBW
+  release (v3.5.1) in `src/romwbw_pin.h` and rejects a mismatched ROM at load
+  time instead of running dead. `romwbw_pin.h` is added to the project file.
+- The core's shared file I/O is hardened upstream this release; the fixes
+  match the ones this port already made in its own `emu_io_windows.cpp`
+  during the 1.0.18 migration audit, so nothing changes here.
+- Version bumped to 1.0.19.
+
+### Verified
+- `romwbw_emu/roms/verify_romwbw_pin.sh ../z80cpmw` passes: both bundled
+  emulator ROMs are RomWBW v3.5.1 emulator ROMs, and `SBC_simh_std.rom` is
+  correctly flagged as a stock build-input ROM.
 
 ## [1.0.18-beta] - 2026-07-25
 

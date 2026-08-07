@@ -182,6 +182,7 @@
     <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\hbios_cpu.h" />
     <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\emu_io.h" />
     <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\emu_init.h" />
+    <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\romwbw_pin.h" />
   </ItemGroup>
   <ItemGroup>
     <ResourceCompile Include="z80cpmw.rc" />

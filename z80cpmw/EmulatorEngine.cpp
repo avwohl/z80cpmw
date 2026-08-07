@@ -97,12 +97,29 @@ void EmulatorEngine::logDebug(const char* fmt, ...) {
 
 bool EmulatorEngine::loadROM(const std::string& path) {
     std::vector<uint8_t> data;
-    if (!emu_file_load(path, data)) return false;
+    if (!emu_file_load(path, data)) {
+        m_romError = "cannot read the file, or it is not a regular file";
+        return false;
+    }
     return loadROMFromData(data.data(), data.size());
 }
 
 bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
-    if (!m_memory || !data || size == 0) return false;
+    m_romError.clear();
+    if (!m_memory || !data || size == 0) {
+        m_romError = "empty ROM image";
+        return false;
+    }
+
+    // Ask the core why a ROM is unusable before handing it over, so the UI can
+    // tell the user which ROM problem this is (corrupt HCB, or built for a
+    // different RomWBW release than this build emulates). emu_load_rom_from_buffer
+    // runs the same check and refuses too, but only logs the reason.
+    const char* bad = emu_validate_rom_hcb(data, size);
+    if (bad) {
+        m_romError = bad;
+        return false;
+    }
 
     // Reset RAM bank initialization tracking
     *m_hbios->getInitializedBanksBitmap() = 0;
@@ -110,6 +127,7 @@ bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
     // Use shared ROM loading function
     // Note: emu_complete_init() is called later in start() after disks are loaded
     if (!emu_load_rom_from_buffer(m_memory.get(), data, size)) {
+        m_romError = "the emulator core rejected the ROM image";
         return false;
     }
 

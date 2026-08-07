@@ -754,7 +754,9 @@ void MainWindow::onSelectROM(int romId) {
         m_statusText = "Loaded ROM: " + romFile;
         updateStatusBar();
     } else {
-        MessageBoxW(m_hwnd, L"Failed to load ROM", L"Error", MB_OK | MB_ICONERROR);
+        std::string msg = "Failed to load ROM: " + romFile + "\n\n" +
+                          m_emulator->getROMError();
+        MessageBoxA(m_hwnd, msg.c_str(), "Error", MB_OK | MB_ICONERROR);
     }
 }
 
@@ -1017,11 +1019,18 @@ void MainWindow::onEmulatorSettings() {
         // Apply debug mode
         m_emulator->setDebug(settings.debugMode);
 
-        // Load ROM if changed
+        // Load ROM if changed. Report a failure: silently keeping the old ROM
+        // left the user looking at settings that claim a ROM the emulator is
+        // not running.
         if (!settings.romFile.empty()) {
             std::string romPath = findResourceFile(settings.romFile);
-            if (!romPath.empty()) {
-                m_emulator->loadROM(romPath);
+            if (romPath.empty()) {
+                std::string msg = "ROM file not found: " + settings.romFile;
+                MessageBoxA(m_hwnd, msg.c_str(), "Error", MB_OK | MB_ICONERROR);
+            } else if (!m_emulator->loadROM(romPath)) {
+                std::string msg = "Failed to load ROM: " + settings.romFile + "\n\n" +
+                                  m_emulator->getROMError();
+                MessageBoxA(m_hwnd, msg.c_str(), "Error", MB_OK | MB_ICONERROR);
             }
         }
 
@@ -1256,6 +1265,16 @@ void MainWindow::loadDefaultROM() {
         if (m_emulator->loadROM(romPath)) {
             m_emulator->setROMName("emu_avw.rom");
             m_currentRomId = ID_ROM_EMU_AVW;
+        } else if (m_terminal) {
+            // The default ROM existing but being unusable is the case that
+            // used to end in a silent dead emulator at startup: nothing was
+            // loaded and nothing said so.
+            std::string msg = "ERROR: cannot use the default ROM (emu_avw.rom)\r\n" +
+                              m_emulator->getROMError() + "\r\n"
+                              "Use Emulator > Select ROM to choose another ROM file.\r\n\r\n";
+            for (const char* p = msg.c_str(); *p; ++p) {
+                m_terminal->outputChar(*p);
+            }
         }
     } else {
         // ROM not found - show message in terminal
@@ -1365,7 +1384,15 @@ void MainWindow::applyConfig() {
     // Apply ROM selection
     if (!cfg.rom.empty()) {
         std::string romPath = findResourceFile(cfg.rom);
-        if (!romPath.empty() && m_emulator->loadROM(romPath)) {
+        if (romPath.empty()) {
+            emu_error("[CONFIG] ROM from config not found: %s\n", cfg.rom.c_str());
+        } else if (!m_emulator->loadROM(romPath)) {
+            // Reached on startup before the terminal is useful, so log it
+            // rather than pop a dialog; the menu check mark stays off the ROM
+            // that failed, which is the visible signal.
+            emu_error("[CONFIG] Cannot use ROM %s: %s\n", cfg.rom.c_str(),
+                      m_emulator->getROMError().c_str());
+        } else {
             m_emulator->setROMName(cfg.rom);
             // Update menu checkmark based on ROM name
             if (cfg.rom == "emu_avw.rom") {
