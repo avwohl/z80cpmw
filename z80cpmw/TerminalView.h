@@ -49,6 +49,12 @@ public:
     // Output a character with VT100 escape sequence processing
     void outputChar(uint8_t ch);
 
+    // Read a cell of the live screen. The counterpart to writeChar(), and what
+    // test_vt52.cpp checks the editing sequences against - the alternative was
+    // reaching into m_cells from a test, which pins the private layout.
+    // Out-of-range coordinates clamp rather than fault.
+    const TerminalCell& cellAt(int row, int col) const;
+
     // Font
     void setFontSize(int size);
     int getFontSize() const { return m_fontSize; }
@@ -113,9 +119,24 @@ private:
     void processEscapeChar(uint8_t ch);
     void processCSIChar(uint8_t ch);
     void executeCSI(uint8_t finalChar);
+    // Reply to a terminal query (ESC Z, ESC[c, ESC[6n). Goes straight to the
+    // guest rather than through the key path, which scrolls the view back to
+    // the live screen - the terminal answering a question is not the user
+    // typing.
+    void sendAnswerback(const char* s);
     void applySGR(int param);
     void clearFromCursor();
     void clearToCursor();
+
+    // Scrolling region (DECSTBM) and the editing sequences that work within it.
+    void scrollRegionUp(int lines);
+    void scrollRegionDown(int lines);
+    void lineFeed();            // LF / IND, honouring the region
+    void insertLines(int n);    // IL
+    void deleteLines(int n);    // DL
+    void insertChars(int n);    // ICH
+    void deleteChars(int n);    // DCH
+    void eraseChars(int n);     // ECH
 
     // CGA color to RGB conversion
     static COLORREF cgaToRGB(uint8_t cgaColor);
@@ -150,11 +171,46 @@ private:
         Normal,
         Escape,
         CSI,
-        CSIParam
+        CSIParam,
+        Vt52Row,     // after ESC Y, expecting the row byte (value + 0x20)
+        Vt52Col,     // after ESC Y <row>, expecting the column byte
+        ConsumeOne   // swallow one byte (character-set / line-size designator)
     };
     EscapeState m_escapeState = EscapeState::Normal;
     std::vector<int> m_escapeParams;
     std::string m_escapeCurrentParam;
+    // Set by '?' (and the other private-parameter markers) after ESC [. Without
+    // it those bytes fell through as though they were the sequence's final
+    // character, so ESC[?25l ended at the '?' and printed "25l" on screen.
+    bool m_escapePrivate = false;
+
+    // VT52 mode. ANSI/VT100 is the default; entered by ESC[?2l or by any
+    // VT52-exclusive sequence, left by ESC < or ESC[?2h. Only ESC D/E/H are
+    // read differently per mode, so ANSI behaviour is untouched while false.
+    bool m_vt52Mode = false;
+    int m_vt52CursorRow = 0;   // latched while parsing ESC Y <row> <col>
+
+    // DECTCEM: whether the guest wants a cursor drawn at all. Distinct from
+    // m_cursorVisible, which is the blink phase and belongs to the timer.
+    bool m_cursorEnabled = true;
+
+    // Scrolling region (DECSTBM), 0-based and inclusive. Defaults to the whole
+    // screen, in which case scrolling still feeds the scrollback; a partial
+    // region does not, because those lines never left the top of the screen.
+    int m_scrollTop = 0;
+    int m_scrollBottom = ROWS - 1;
+
+    // Deferred autowrap. A glyph written to the last column leaves the cursor
+    // there and arms this; the wrap happens when the next printable character
+    // arrives. Writing the bottom-right cell used to scroll the screen
+    // immediately, which corrupts any full-screen layout.
+    bool m_pendingWrap = false;
+    bool m_autoWrap = true;      // DECAWM
+
+    // Whether SGR 7 (reverse video) is currently in effect. m_currentAttr holds
+    // the already-swapped byte, so this is what lets 27 undo the swap and lets
+    // a colour set while reversed land in the right nibble.
+    bool m_reverse = false;
 
     KeyInputCallback m_keyCallback;
     std::function<bool()> m_inputReadyCallback;

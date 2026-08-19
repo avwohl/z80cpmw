@@ -12,6 +12,61 @@ signed.
 
 ## [Unreleased]
 
+### Added
+- **VT52 terminal emulation.** The app is the terminal, so what it understands
+  decides which CP/M software runs, and it understood no VT52 at all. The full
+  set is now in: `ESC A B C D E F G H I J K Y Z <`, with `D`, `E` and `H`
+  overloaded by mode, and direct cursor addressing (`ESC Y` with the row and
+  column biased by 0x20). VT52 is auto-detected from any VT52-exclusive
+  sequence, so ANSI output behaves exactly as before until one arrives, and it
+  can be entered and left explicitly with `ESC [ ? 2 l` / `ESC [ ? 2 h` and
+  `ESC <`. Ported from `cpmdroid`'s `TerminalView.kt`, itself a port of the
+  iOS/macOS parser.
+- **Answerback for terminal queries.** `ESC [ 6 n` (cursor position),
+  `ESC [ 5 n` (status), `ESC [ c` and `ESC Z` (identify) now reply. A program
+  that asked the terminal to identify itself previously waited for an answer
+  that never came. Replies go straight to the guest rather than through the key
+  path, which scrolls the view back to the live screen - the terminal answering
+  a question is not the user typing.
+- **Scrolling region (DECSTBM, `ESC [ t ; b r`)**, with LF, IND and RI
+  honouring it. A partial region deliberately does not feed the scrollback:
+  lines pushed out of a program's own status-line window were never history.
+- **Deferred autowrap**, and DECAWM (`ESC [ ? 7 h` / `l`). A glyph written to
+  the last column now leaves the cursor there and arms the wrap for the next
+  character, as a real VT100 does. Writing the bottom-right cell used to scroll
+  the screen immediately, which corrupts any full-screen layout.
+- **The remaining CSI finals**: `G` and `` ` `` (column absolute), `d` (row
+  absolute), `L`/`M` (insert/delete line), `@`/`P` (insert/delete character),
+  `X` (erase character), `S`/`T` (scroll up/down).
+- **Character-set and line-size designators** (`ESC ( ) * + #` and `ESC SP`) are
+  consumed together with their parameter byte.
+- SGR `22` (bold off).
+- `test_vt52.cpp` and `compile_test_vt52.cmd`: **73 headless conformance checks**
+  covering all of the above. `TerminalView` needs no window to parse bytes, so
+  the test drives it through the public interface: it reads the cursor back with
+  `ESC [ 6 n`, which puts the answerback path under test rather than assuming
+  it, and screen content through the new `cellAt()`.
+- `TerminalView::cellAt()` - a const, bounds-clamped read of a live screen cell,
+  the counterpart to the existing `writeChar()`.
+
+### Fixed
+- **`ESC [ ? …` sequences printed their own tail as text.** `?` was treated as
+  the final byte of a CSI sequence, so `ESC [ ? 2 5 l` ended at the `?` and
+  `25l` appeared on screen. Nothing beginning `ESC [ ?` could work, DECANM
+  included. `?`, `<`, `=` and `>` are now recognised as private-parameter
+  markers, and intermediate bytes (0x20-0x2F) no longer end a sequence either.
+- **`ESC [ ? 2 5 l` now actually hides the cursor** (DECTCEM), through a flag
+  distinct from the blink phase the cursor timer owns.
+- The secondary and tertiary device-attribute forms (`ESC [ > c`, `ESC [ = c`)
+  stay silent rather than claiming to be a VT100.
+- **`ESC [ 2 7 m` reset the whole attribute byte**, so turning reverse video off
+  threw the colours away with it. It now undoes the swap, and a colour set while
+  reversed is applied in the un-swapped domain so it lands in the nibble that is
+  actually displayed. A second `ESC [ 7 m` no longer cancels the first.
+- **LF now implies CR**, matching the iOS/macOS and Android ports. A
+  Unix-format file `TYPE`d with bare line feeds used to stair-step down and off
+  the screen.
+
 ## [1.0.19] - 2026-08-07
 
 ### Fixed

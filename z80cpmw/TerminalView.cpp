@@ -131,6 +131,12 @@ void TerminalView::clear() {
     m_escapeParams.clear();
     m_escapeCurrentParam.clear();
     m_currentAttr = 0x07;
+    m_reverse = false;
+    m_pendingWrap = false;
+    // The scrolling region and VT52 mode are deliberately NOT reset here: this
+    // is also the ESC[2J / VT52 ESC E path, and a full-screen program clearing
+    // its screen has not asked to lose the region it set - nor, in VT52's case,
+    // to be thrown back into ANSI mid-session.
     invalidate();
 }
 
@@ -238,10 +244,22 @@ void TerminalView::setScrollbackLines(int lines) {
 
 void TerminalView::setAttr(uint8_t attr) {
     m_currentAttr = attr;
+    // The attribute is being replaced wholesale, so any reverse-video swap SGR
+    // was tracking no longer describes it. Leaving the flag set would make a
+    // later ESC[27m swap a byte that was never swapped.
+    m_reverse = false;
 }
 
 void TerminalView::outputChar(uint8_t ch) {
     processChar(ch);
+}
+
+const TerminalCell& TerminalView::cellAt(int row, int col) const {
+    if (row < 0) row = 0;
+    if (row >= ROWS) row = ROWS - 1;
+    if (col < 0) col = 0;
+    if (col >= COLS) col = COLS - 1;
+    return m_cells[row][col];
 }
 
 void TerminalView::setFontSize(int size) {
@@ -457,7 +475,7 @@ void TerminalView::paint(HDC hdc) {
     }
 
     // Draw cursor (only on the live screen; it has no meaning while viewing history)
-    if (m_scrollOffset == 0 && m_cursorVisible && GetFocus() == m_hwnd) {
+    if (m_scrollOffset == 0 && m_cursorEnabled && m_cursorVisible && GetFocus() == m_hwnd) {
         int x = m_cursorCol * m_charWidth;
         int y = m_cursorRow * m_charHeight;
 
@@ -681,6 +699,139 @@ void TerminalView::pasteFromClipboard() {
     CloseClipboard();
 }
 
+
+// ---------------------------------------------------------------------------
+// Scrolling region and the editing sequences that operate inside it
+// ---------------------------------------------------------------------------
+
+void TerminalView::scrollRegionUp(int lines) {
+    if (lines <= 0) return;
+    if (m_scrollTop == 0 && m_scrollBottom == ROWS - 1) {
+        // Whole screen: reuse the existing path so the lines leaving the top
+        // still reach the scrollback.
+        scrollUp(lines);
+        return;
+    }
+    const int height = m_scrollBottom - m_scrollTop + 1;
+    if (lines > height) lines = height;
+    // A partial region is a program's own construction (a status line, a text
+    // window). What falls out of the top of it was never on screen above the
+    // region, so it is not history and must not enter the scrollback.
+    for (int row = m_scrollTop; row <= m_scrollBottom - lines; row++) {
+        for (int col = 0; col < COLS; col++) {
+            m_cells[row][col] = m_cells[row + lines][col];
+        }
+    }
+    for (int row = m_scrollBottom - lines + 1; row <= m_scrollBottom; row++) {
+        for (int col = 0; col < COLS; col++) {
+            m_cells[row][col] = TerminalCell();
+        }
+    }
+    invalidate();
+}
+
+void TerminalView::scrollRegionDown(int lines) {
+    if (lines <= 0) return;
+    const int height = m_scrollBottom - m_scrollTop + 1;
+    if (lines > height) lines = height;
+    for (int row = m_scrollBottom; row >= m_scrollTop + lines; row--) {
+        for (int col = 0; col < COLS; col++) {
+            m_cells[row][col] = m_cells[row - lines][col];
+        }
+    }
+    for (int row = m_scrollTop; row < m_scrollTop + lines; row++) {
+        for (int col = 0; col < COLS; col++) {
+            m_cells[row][col] = TerminalCell();
+        }
+    }
+    invalidate();
+}
+
+// LF and IND: down one line, scrolling the region when already at its bottom.
+void TerminalView::lineFeed() {
+    m_pendingWrap = false;
+    if (m_cursorRow < m_scrollTop) {
+        if (m_cursorRow < ROWS - 1) m_cursorRow++;
+    } else if (m_cursorRow >= m_scrollBottom) {
+        if (m_cursorRow == m_scrollBottom) scrollRegionUp(1);
+        else if (m_cursorRow < ROWS - 1) m_cursorRow++;
+    } else {
+        m_cursorRow++;
+    }
+    invalidate();
+}
+
+void TerminalView::insertLines(int n) {
+    if (m_cursorRow < m_scrollTop || m_cursorRow > m_scrollBottom) return;
+    const int count = std::min(n, m_scrollBottom - m_cursorRow + 1);
+    for (int row = m_scrollBottom; row >= m_cursorRow + count; row--) {
+        for (int col = 0; col < COLS; col++) {
+            m_cells[row][col] = m_cells[row - count][col];
+        }
+    }
+    for (int row = m_cursorRow; row < m_cursorRow + count; row++) {
+        for (int col = 0; col < COLS; col++) {
+            m_cells[row][col] = TerminalCell();
+        }
+    }
+    m_cursorCol = 0;
+    m_pendingWrap = false;
+    invalidate();
+}
+
+void TerminalView::deleteLines(int n) {
+    if (m_cursorRow < m_scrollTop || m_cursorRow > m_scrollBottom) return;
+    const int count = std::min(n, m_scrollBottom - m_cursorRow + 1);
+    for (int row = m_cursorRow; row <= m_scrollBottom - count; row++) {
+        for (int col = 0; col < COLS; col++) {
+            m_cells[row][col] = m_cells[row + count][col];
+        }
+    }
+    for (int row = m_scrollBottom - count + 1; row <= m_scrollBottom; row++) {
+        for (int col = 0; col < COLS; col++) {
+            m_cells[row][col] = TerminalCell();
+        }
+    }
+    m_cursorCol = 0;
+    m_pendingWrap = false;
+    invalidate();
+}
+
+void TerminalView::insertChars(int n) {
+    const int count = std::min(n, COLS - m_cursorCol);
+    if (count <= 0) return;
+    for (int col = COLS - 1; col >= m_cursorCol + count; col--) {
+        m_cells[m_cursorRow][col] = m_cells[m_cursorRow][col - count];
+    }
+    for (int col = m_cursorCol; col < m_cursorCol + count; col++) {
+        m_cells[m_cursorRow][col] = TerminalCell();
+    }
+    m_pendingWrap = false;
+    invalidate();
+}
+
+void TerminalView::deleteChars(int n) {
+    const int count = std::min(n, COLS - m_cursorCol);
+    if (count <= 0) return;
+    for (int col = m_cursorCol; col < COLS - count; col++) {
+        m_cells[m_cursorRow][col] = m_cells[m_cursorRow][col + count];
+    }
+    for (int col = COLS - count; col < COLS; col++) {
+        m_cells[m_cursorRow][col] = TerminalCell();
+    }
+    m_pendingWrap = false;
+    invalidate();
+}
+
+void TerminalView::eraseChars(int n) {
+    const int last = std::min(m_cursorCol + std::max(n, 1) - 1, COLS - 1);
+    for (int col = m_cursorCol; col <= last; col++) {
+        m_cells[m_cursorRow][col] = TerminalCell();
+    }
+    m_pendingWrap = false;
+    invalidate();
+}
+
 void TerminalView::processChar(uint8_t ch) {
     switch (m_escapeState) {
     case EscapeState::Normal:
@@ -693,6 +844,23 @@ void TerminalView::processChar(uint8_t ch) {
     case EscapeState::CSIParam:
         processCSIChar(ch);
         break;
+    case EscapeState::Vt52Row:
+        // VT52 direct cursor address: the row is the byte value biased by 0x20.
+        m_vt52CursorRow = std::max(0, std::min((int)ch - 0x20, ROWS - 1));
+        m_escapeState = EscapeState::Vt52Col;
+        break;
+    case EscapeState::ConsumeOne:
+        // The parameter byte of a character-set or line-size designator. Not
+        // acted on, but it has to be eaten or it prints as a stray glyph -
+        // ESC ( B used to leave a "B" on screen.
+        m_escapeState = EscapeState::Normal;
+        break;
+    case EscapeState::Vt52Col:
+        m_cursorRow = m_vt52CursorRow;
+        m_cursorCol = std::max(0, std::min((int)ch - 0x20, COLS - 1));
+        m_escapeState = EscapeState::Normal;
+        invalidate();
+        break;
     }
 }
 
@@ -703,6 +871,7 @@ void TerminalView::processNormalChar(uint8_t ch) {
         break;
 
     case 0x08:  // Backspace
+        m_pendingWrap = false;
         if (m_cursorCol > 0) {
             m_cursorCol--;
         }
@@ -710,20 +879,20 @@ void TerminalView::processNormalChar(uint8_t ch) {
         break;
 
     case 0x09:  // Tab
+        m_pendingWrap = false;
         m_cursorCol = std::min((m_cursorCol + 8) & ~7, COLS - 1);
         invalidate();
         break;
 
-    case 0x0A:  // Line feed
-        m_cursorRow++;
-        if (m_cursorRow >= ROWS) {
-            scrollUp(1);
-            m_cursorRow = ROWS - 1;
-        }
-        invalidate();
+    case 0x0A:  // Line feed, with an implicit carriage return.
+        // Both mobile ports do this, and without it a Unix-format file TYPEd
+        // with bare LFs stair-steps down the screen.
+        m_cursorCol = 0;
+        lineFeed();
         break;
 
     case 0x0D:  // Carriage return
+        m_pendingWrap = false;
         m_cursorCol = 0;
         invalidate();
         break;
@@ -732,23 +901,32 @@ void TerminalView::processNormalChar(uint8_t ch) {
         m_escapeState = EscapeState::Escape;
         m_escapeParams.clear();
         m_escapeCurrentParam.clear();
+        m_escapePrivate = false;
         break;
 
     default:
         // Printable character
         if (ch >= 0x20 && ch <= 0x7E) {
+            // Resolve a wrap armed by the previous last-column write.
+            if (m_pendingWrap) {
+                m_cursorCol = 0;
+                lineFeed();
+                m_pendingWrap = false;
+            }
             m_cells[m_cursorRow][m_cursorCol].character = (char)ch;
             m_cells[m_cursorRow][m_cursorCol].foreground = m_currentAttr & 0x0F;
             m_cells[m_cursorRow][m_cursorCol].background = (m_currentAttr >> 4) & 0x07;
 
-            m_cursorCol++;
-            if (m_cursorCol >= COLS) {
-                m_cursorCol = 0;
-                m_cursorRow++;
-                if (m_cursorRow >= ROWS) {
-                    scrollUp(1);
-                    m_cursorRow = ROWS - 1;
+            if (m_cursorCol >= COLS - 1) {
+                // At the rightmost column: arm the wrap rather than taking it,
+                // as a real VT100 does. Writing the bottom-right cell used to
+                // scroll the screen there and then, which corrupts every
+                // full-screen layout that draws into the corner.
+                if (m_autoWrap) {
+                    m_pendingWrap = true;
                 }
+            } else {
+                m_cursorCol++;
             }
             invalidate();
         }
@@ -769,44 +947,166 @@ void TerminalView::processEscapeChar(uint8_t ch) {
         break;
 
     case '8':  // Restore cursor
+        m_pendingWrap = false;
         m_cursorRow = m_savedCursorRow;
         m_cursorCol = m_savedCursorCol;
         m_escapeState = EscapeState::Normal;
         invalidate();
         break;
 
-    case 'D':  // Index (move down)
-        m_cursorRow++;
-        if (m_cursorRow >= ROWS) {
-            scrollUp(1);
-            m_cursorRow = ROWS - 1;
+    case 'D':
+        if (m_vt52Mode) {
+            // VT52 cursor left
+            m_pendingWrap = false;
+            if (m_cursorCol > 0) m_cursorCol--;
+        } else {
+            lineFeed();   // VT100 index: down one line, honouring the region
         }
         m_escapeState = EscapeState::Normal;
         invalidate();
         break;
 
-    case 'M':  // Reverse index (move up)
-        if (m_cursorRow > 0) {
+    case 'M':  // Reverse index: up one line, scrolling the region at its top
+        m_pendingWrap = false;
+        if (m_cursorRow == m_scrollTop) {
+            scrollRegionDown(1);
+        } else if (m_cursorRow > 0) {
             m_cursorRow--;
         }
         m_escapeState = EscapeState::Normal;
         invalidate();
         break;
 
-    case 'E':  // Next line
-        m_cursorCol = 0;
-        m_cursorRow++;
-        if (m_cursorRow >= ROWS) {
-            scrollUp(1);
-            m_cursorRow = ROWS - 1;
+    case 'E':
+        if (m_vt52Mode) {
+            // Heath/Zenith VT52: clear the screen and home the cursor
+            clear();
+        } else {
+            // VT100 next line
+            m_cursorCol = 0;
+            lineFeed();
         }
         m_escapeState = EscapeState::Normal;
         invalidate();
         break;
 
+    // ---- VT52 -----------------------------------------------------------
+    // These are VT52-exclusive, so receiving one is itself the signal that the
+    // guest is driving a VT52 and switches the mode on. ANSI/VT100 output is
+    // unaffected until one arrives, so nothing that worked before changes.
+
+    case 'A':  // VT52 cursor up
+        m_vt52Mode = true;
+        m_pendingWrap = false;
+        if (m_cursorRow > 0) m_cursorRow--;
+        m_escapeState = EscapeState::Normal;
+        invalidate();
+        break;
+
+    case 'B':  // VT52 cursor down
+        m_vt52Mode = true;
+        m_pendingWrap = false;
+        m_cursorRow = std::min(m_cursorRow + 1, ROWS - 1);
+        m_escapeState = EscapeState::Normal;
+        invalidate();
+        break;
+
+    case 'C':  // VT52 cursor right
+        m_vt52Mode = true;
+        m_pendingWrap = false;
+        m_cursorCol = std::min(m_cursorCol + 1, COLS - 1);
+        m_escapeState = EscapeState::Normal;
+        invalidate();
+        break;
+
+    case 'H':  // VT52 cursor home. In ANSI this is HTS, which is unsupported,
+               // so act only in VT52 mode rather than guessing.
+        if (m_vt52Mode) {
+            m_pendingWrap = false;
+            m_cursorRow = 0;
+            m_cursorCol = 0;
+            invalidate();
+        }
+        m_escapeState = EscapeState::Normal;
+        break;
+
+    case 'I':  // VT52 reverse line feed
+        m_vt52Mode = true;
+        m_pendingWrap = false;
+        if (m_cursorRow > 0) {
+            m_cursorRow--;
+        }
+        // At the top row there is no downward-scroll helper here, so clamp
+        // rather than scrolling the wrong way.
+        m_escapeState = EscapeState::Normal;
+        invalidate();
+        break;
+
+    case 'J':  // VT52 erase to end of screen
+        m_vt52Mode = true;
+        clearFromCursor();
+        m_escapeState = EscapeState::Normal;
+        break;
+
+    case 'K':  // VT52 erase to end of line
+        m_vt52Mode = true;
+        for (int col = m_cursorCol; col < COLS; col++) {
+            m_cells[m_cursorRow][col] = TerminalCell();
+        }
+        m_escapeState = EscapeState::Normal;
+        invalidate();
+        break;
+
+    case 'Y':  // VT52 direct cursor address; two bytes follow
+        m_vt52Mode = true;
+        m_escapeState = EscapeState::Vt52Row;
+        break;
+
+    case 'F':  // VT52 enter graphics mode
+    case 'G':  // VT52 exit graphics mode
+        // The glyphs are not remapped, but the sequence must be consumed and
+        // it identifies the guest as a VT52.
+        m_vt52Mode = true;
+        m_escapeState = EscapeState::Normal;
+        break;
+
+    case 'Z':  // Identify
+        sendAnswerback(m_vt52Mode ? "\033/Z" : "\033[?1;0c");
+        m_escapeState = EscapeState::Normal;
+        break;
+
+    case '<':  // Leave VT52, return to ANSI
+        m_vt52Mode = false;
+        m_escapeState = EscapeState::Normal;
+        break;
+
+    case '=':  // Keypad application mode
+    case '>':  // Keypad numeric mode
+        // Accepted and ignored; the keypad is not emulated separately.
+        m_escapeState = EscapeState::Normal;
+        break;
+
+    case '(':  // Designate G0 character set
+    case ')':  // Designate G1
+    case '*':  // Designate G2
+    case '+':  // Designate G3
+    case '#':  // Line size (DECDHL/DECSWL/DECDWL)
+    case ' ':  // Select 7/8-bit controls
+        // Each takes one further byte. The glyphs are not remapped, but the
+        // parameter must be consumed - ESC ( B used to print its "B".
+        m_escapeState = EscapeState::ConsumeOne;
+        break;
+
     default:
         m_escapeState = EscapeState::Normal;
         break;
+    }
+}
+
+void TerminalView::sendAnswerback(const char* s) {
+    if (!m_keyCallback) return;
+    for (const char* p = s; *p; ++p) {
+        m_keyCallback(*p);
     }
 }
 
@@ -823,6 +1123,23 @@ static int parseCSIParam(const std::string& s) {
 }
 
 void TerminalView::processCSIChar(uint8_t ch) {
+    // Private-parameter markers. '?' introduces the DEC private modes; '<', '='
+    // and '>' introduce the secondary and tertiary device-attribute forms.
+    // These are not final characters, and treating them as one is what made
+    // ESC[?25l terminate early and print its own tail as text.
+    if (ch == '?' || ch == '<' || ch == '=' || ch == '>') {
+        m_escapePrivate = true;
+        m_escapeState = EscapeState::CSIParam;
+        return;
+    }
+
+    // Intermediate bytes (space through '/') belong to the sequence and are
+    // not acted on here, but they must not end it either.
+    if (ch >= 0x20 && ch <= 0x2F) {
+        m_escapeState = EscapeState::CSIParam;
+        return;
+    }
+
     if (ch >= '0' && ch <= '9') {
         if (m_escapeCurrentParam.size() < MAX_CSI_PARAM_DIGITS) {
             m_escapeCurrentParam += (char)ch;
@@ -855,31 +1172,104 @@ void TerminalView::executeCSI(uint8_t finalChar) {
 
     switch (finalChar) {
     case 'A':  // Cursor up
+        m_pendingWrap = false;
         m_cursorRow = std::max(m_cursorRow - std::max(p1, 1), 0);
         invalidate();
         break;
 
     case 'B':  // Cursor down
+        m_pendingWrap = false;
         m_cursorRow = std::min(m_cursorRow + std::max(p1, 1), ROWS - 1);
         invalidate();
         break;
 
     case 'C':  // Cursor forward
+        m_pendingWrap = false;
         m_cursorCol = std::min(m_cursorCol + std::max(p1, 1), COLS - 1);
         invalidate();
         break;
 
     case 'D':  // Cursor back
+        m_pendingWrap = false;
         m_cursorCol = std::max(m_cursorCol - std::max(p1, 1), 0);
         invalidate();
         break;
 
     case 'H':
     case 'f':  // Cursor position
+        m_pendingWrap = false;
         m_cursorRow = std::max(0, std::min(std::max(p1, 1) - 1, ROWS - 1));
         m_cursorCol = std::max(0, std::min(std::max(p2, 1) - 1, COLS - 1));
         invalidate();
         break;
+
+    case 'G':   // Cursor horizontal absolute
+    case '`':   // ... and its HPA alias
+        m_pendingWrap = false;
+        m_cursorCol = std::max(0, std::min(std::max(p1, 1) - 1, COLS - 1));
+        invalidate();
+        break;
+
+    case 'd':  // Vertical position absolute
+        m_pendingWrap = false;
+        m_cursorRow = std::max(0, std::min(std::max(p1, 1) - 1, ROWS - 1));
+        invalidate();
+        break;
+
+    case 'L':  // Insert lines
+        insertLines(std::max(p1, 1));
+        break;
+
+    case 'M':  // Delete lines
+        deleteLines(std::max(p1, 1));
+        break;
+
+    case '@':  // Insert characters
+        insertChars(std::max(p1, 1));
+        break;
+
+    case 'P':  // Delete characters
+        deleteChars(std::max(p1, 1));
+        break;
+
+    case 'X':  // Erase characters
+        eraseChars(std::max(p1, 1));
+        break;
+
+    case 'S':  // Scroll up within the region
+        // Clamped to the region height: past that a further scroll is a no-op,
+        // and the parameter can be six digits long.
+        for (int i = 0, n = std::min(std::max(p1, 1), ROWS); i < n; i++) {
+            scrollRegionUp(1);
+        }
+        break;
+
+    case 'T':  // Scroll down within the region
+        for (int i = 0, n = std::min(std::max(p1, 1), ROWS); i < n; i++) {
+            scrollRegionDown(1);
+        }
+        break;
+
+    case 'r': {  // DECSTBM - set the scrolling region (1-based); ESC[r resets
+        m_pendingWrap = false;
+        int top = (m_escapeParams.size() > 0 && m_escapeParams[0] > 0)
+                      ? m_escapeParams[0] - 1 : 0;
+        // Clamp rather than reject: a program written for a 24-line console
+        // sends ESC[1;24r on this 25-line screen, and dropping the sequence
+        // outright would leave the previous region in force.
+        int bottom = (m_escapeParams.size() > 1 && m_escapeParams[1] > 0)
+                         ? m_escapeParams[1] - 1 : ROWS - 1;
+        if (bottom > ROWS - 1) bottom = ROWS - 1;
+        if (top < bottom) {
+            m_scrollTop = top;
+            m_scrollBottom = bottom;
+            // The cursor homes after the region is set.
+            m_cursorRow = 0;
+            m_cursorCol = 0;
+            invalidate();
+        }
+        break;
+    }
 
     case 'J':  // Erase in display
         switch (p1) {
@@ -926,36 +1316,114 @@ void TerminalView::executeCSI(uint8_t finalChar) {
         break;
 
     case 'u':  // Restore cursor
+        m_pendingWrap = false;
         m_cursorRow = m_savedCursorRow;
         m_cursorCol = m_savedCursorCol;
         invalidate();
         break;
+
+    case 'h':  // Set mode
+        if (m_escapePrivate) {
+            for (int p : m_escapeParams) {
+                if (p == 2) m_vt52Mode = false;      // DECANM: select ANSI
+                else if (p == 7) m_autoWrap = true;  // DECAWM on
+                else if (p == 25) {                  // DECTCEM: show cursor
+                    m_cursorEnabled = true;
+                    invalidate();
+                }
+            }
+        }
+        break;
+
+    case 'l':  // Reset mode
+        if (m_escapePrivate) {
+            for (int p : m_escapeParams) {
+                if (p == 2) m_vt52Mode = true;       // DECANM: select VT52
+                else if (p == 7) {                   // DECAWM off
+                    m_autoWrap = false;
+                    // Drop a wrap armed while it was on, or the next character
+                    // would still wrap after autowrap was switched off.
+                    m_pendingWrap = false;
+                }
+                else if (p == 25) {                  // DECTCEM: hide cursor
+                    m_cursorEnabled = false;
+                    invalidate();
+                }
+            }
+        }
+        break;
+
+    case 'n':  // Device status report
+        if (!m_escapePrivate) {
+            if (p1 == 6) {
+                // Cursor position report, 1-based. Built with std::to_string
+                // rather than a format string: no buffer to size, and nothing
+                // guest-controlled reaches a printf.
+                std::string reply = "\033[" + std::to_string(m_cursorRow + 1)
+                                  + ";" + std::to_string(m_cursorCol + 1) + "R";
+                sendAnswerback(reply.c_str());
+            } else if (p1 == 5) {
+                sendAnswerback("\033[0n");   // terminal OK
+            }
+        }
+        break;
+
+    case 'c':  // Device attributes
+        // Only the primary form answers; the '>' and '=' variants ask for
+        // something this terminal does not claim to be.
+        if (!m_escapePrivate && p1 == 0) {
+            sendAnswerback("\033[?1;0c");   // a VT100 with no options
+        }
+        break;
     }
+}
+
+// Swap the foreground and background nibbles of an attribute byte.
+static inline uint8_t swapAttrNibbles(uint8_t attr) {
+    uint8_t fg = attr & 0x0F;
+    uint8_t bg = (attr >> 4) & 0x07;
+    return (uint8_t)((fg << 4) | bg);
 }
 
 void TerminalView::applySGR(int param) {
     switch (param) {
     case 0:  // Reset
         m_currentAttr = 0x07;
+        m_reverse = false;
         break;
     case 1:  // Bold
         m_currentAttr |= 0x08;
         break;
-    case 7:  // Reverse
-        {
-            uint8_t fg = m_currentAttr & 0x0F;
-            uint8_t bg = (m_currentAttr >> 4) & 0x07;
-            m_currentAttr = (fg << 4) | bg;
+    case 22:  // Bold off
+        m_currentAttr &= (uint8_t)~0x08;
+        break;
+    case 7:  // Reverse on
+        // Guarded, so a second ESC[7m does not swap back and cancel itself.
+        if (!m_reverse) {
+            m_currentAttr = swapAttrNibbles(m_currentAttr);
+            m_reverse = true;
         }
         break;
     case 27:  // Reverse off
-        m_currentAttr = 0x07;
+        // Undo the swap. This used to reset the whole attribute byte to the
+        // default, so ESC[7m ... ESC[27m threw the colours away as well.
+        if (m_reverse) {
+            m_currentAttr = swapAttrNibbles(m_currentAttr);
+            m_reverse = false;
+        }
         break;
     default:
+        // While reversed, m_currentAttr holds the already-swapped byte, so a
+        // colour must be applied in the un-swapped domain and swapped back, or
+        // it lands in the wrong nibble and shows up as the other one.
         if (param >= 30 && param <= 37) {
-            m_currentAttr = (m_currentAttr & 0xF0) | (param - 30);
+            if (m_reverse) m_currentAttr = swapAttrNibbles(m_currentAttr);
+            m_currentAttr = (uint8_t)((m_currentAttr & 0xF0) | (param - 30));
+            if (m_reverse) m_currentAttr = swapAttrNibbles(m_currentAttr);
         } else if (param >= 40 && param <= 47) {
-            m_currentAttr = (m_currentAttr & 0x0F) | ((param - 40) << 4);
+            if (m_reverse) m_currentAttr = swapAttrNibbles(m_currentAttr);
+            m_currentAttr = (uint8_t)((m_currentAttr & 0x0F) | ((param - 40) << 4));
+            if (m_reverse) m_currentAttr = swapAttrNibbles(m_currentAttr);
         }
         break;
     }
