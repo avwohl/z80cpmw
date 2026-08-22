@@ -67,3 +67,4 @@ upstream/
 
 # Test output artifacts
 nul
+dist/

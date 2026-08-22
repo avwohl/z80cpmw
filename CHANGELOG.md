@@ -7,10 +7,13 @@ Versions use a simple `MAJOR.MINOR.PATCH` scheme: `-beta` tags are signed
 GitHub / sideload prereleases, and unsuffixed versions are Microsoft Store
 releases. The Store is on **1.0.14** (**1.0.18** submitted, pending review); the
 **1.0.18-beta** signed MSIX carries the fixes and features listed below.
-**1.0.19** is built on Windows (Debug and Release, x64) but not yet packaged or
-signed.
+**1.0.20** is built on Windows (x64) and packaged as an unsigned Store MSIX
+(`dist\z80cpmw.msix`); Microsoft re-signs it at ingestion. **1.0.19** was built
+but never packaged.
 
 ## [Unreleased]
+
+## [1.0.20] - 2026-08-22
 
 ### Added
 - **VT52 terminal emulation.** The app is the terminal, so what it understands
@@ -50,6 +53,26 @@ signed.
   the counterpart to the existing `writeChar()`.
 
 ### Fixed
+- **Ctrl+R rebooted the machine instead of reaching CP/M.** `^R` (0x12) is not a
+  spare key: the CP/M command line retypes the current line with it, and
+  WordStar-family editors bind it too. z80cpmw claimed it as the Reset
+  accelerator, and `TranslateAccelerator` swallows a matched keystroke whole, so
+  no `WM_CHAR` was ever generated and the guest never saw the character - it saw
+  a cold restart from ROM, with no confirmation prompt and no way to switch it
+  off. Reported by a user who typed it out of CP/M habit. Ctrl+R now goes to
+  CP/M by default and Reset lives on the **Emulator** menu; `"ctrlRToCpm":
+  false` in the `keyboard` block takes the shortcut back. F1 and F5 keep their
+  old defaults, because CP/M has no function keys and reserving those costs the
+  guest nothing.
+- **A released shortcut needed a restart, and the menu kept advertising it.**
+  The accelerator table was built once in `MainWindow::run`, so toggling
+  `f1ToCpm` / `f5ToCpm` (or loading a profile that did) changed nothing until
+  the next launch, and the Emulator and Help menus still showed the key. The
+  table is rebuilt from `applyConfig` now, and the menu items relabel themselves
+  to match what is actually registered.
+- **Removed the dead `ACCELERATORS` resource** from `z80cpmw.rc`. Nothing loaded
+  it - the real table has been built at runtime for some time - so editing it
+  changed nothing, which is a trap worth not leaving in the file.
 - **`ESC [ ? …` sequences printed their own tail as text.** `?` was treated as
   the final byte of a CSI sequence, so `ESC [ ? 2 5 l` ended at the `?` and
   `25l` appeared on screen. Nothing beginning `ESC [ ?` could work, DECANM
