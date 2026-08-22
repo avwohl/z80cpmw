@@ -70,12 +70,19 @@ Home/End, Insert/Delete, PageUp/PageDown, F1–F12) to arbitrary byte sequences
 written as termcap-style escape strings.
 - **Behaviour/spec:** escape syntax `\E` (=0x1B), `\n\r\t\b\f\s`, `\NNN` (octal),
   `^X` (control), `^?` (DEL); names case-insensitive (Ins/Del/PgUp/PgDn accepted);
-  empty value unbinds. Defaults are VT220/xterm. `f1ToCpm` / `f5ToCpm` flags release
-  the app's F1=Help / F5=Start-Stop shortcuts so those keys reach CP/M instead.
+  empty value unbinds. Defaults are VT220/xterm. `f1ToCpm` / `f5ToCpm` /
+  `ctrlRToCpm` flags decide who receives the keys that double as app shortcuts
+  (F1=Help, F5/Shift+F5=Start/Stop, Ctrl+R=Reset); a key claimed by the app is
+  swallowed whole and CP/M never sees it. F1/F5 default to the app because CP/M
+  has no function keys; `ctrlRToCpm` defaults to **true** because `^R` (0x12) is
+  ASCII CP/M really reads, so Reset has no default shortcut and lives on the
+  Emulator menu.
   **The full, copy-pasteable spec is `docs/CONFIGURATION.md`** (and the in-app
   Configuration help).
 - **Where:** `z80cpmw/Keymap.h`, `TerminalView.cpp` (`setKeyBindings`,
-  `handleKeyDown`), `Config.h` (`KeyboardConfig`: `f1ToCpm`,`f5ToCpm`,`keys`).
+  `handleKeyDown`), `Config.h` (`KeyboardConfig`: `f1ToCpm`,`f5ToCpm`,
+  `ctrlRToCpm`,`keys`), `MainWindow.cpp` (`rebuildAccelerators`,
+  `updateMenuAccelHints`).
 - **Config:** `keyboard` block in the JSON config.
 - **Platform mapping:** the *byte sequences sent to CP/M* are the parity target.
   Mobile maps soft-key/hardware-key events; the CLI maps host-terminal keys. Adopt
@@ -102,8 +109,9 @@ written as termcap-style escape strings.
     keys the user changed**, so a later change to the defaults still reaches
     everyone else. An empty value unbinds on both (Android swallows the key
     rather than falling through to the printable path).
-    There is no `f1ToCpm`/`f5ToCpm` equivalent and none is needed: F1/F5 are not
-    app shortcuts on Android, so all twelve F-keys always reach CP/M.
+    There is no `f1ToCpm`/`f5ToCpm`/`ctrlRToCpm` equivalent and none is needed:
+    F1/F5 are not app shortcuts on Android, so all twelve F-keys always reach
+    CP/M, and Reset has no Ctrl+R accelerator to compete with `^R`.
     A hardware keyboard reaches the map through `bindingNameFor`
     (`KEYCODE_DPAD_*`, `MOVE_HOME`, `MOVE_END`, `INSERT`, `FORWARD_DEL`,
     `PAGE_UP`, `PAGE_DOWN`, `F1`–`F12`); a touch-only device reaches it through

@@ -50,6 +50,14 @@ struct KeyboardConfig {
     bool f1ToCpm = false;   // false: F1 = Help.  true: F1 -> CP/M
     bool f5ToCpm = false;   // false: F5/Shift+F5 = Start/Stop.  true: -> CP/M
 
+    // Ctrl+R is the Reset shortcut, but unlike F1/F5 it is also ordinary ASCII:
+    // 0x12 is a CP/M console line-editing character and the WordStar family of
+    // editors binds it too. Reserving it costs the user a key CP/M really uses,
+    // and a mistyped Reset reboots the machine without asking, so this one
+    // defaults the other way: ^R reaches CP/M and Reset stays on the Emulator
+    // menu. Set false to get the Ctrl+R shortcut back.
+    bool ctrlRToCpm = true;
+
     // Key name -> termcap-style escape string (see Keymap.h). Empty on a fresh
     // load; populated with the built-in defaults so it is visible/editable in
     // z80cpmw.json. Any name absent here falls back to the built-in default.

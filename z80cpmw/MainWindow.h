@@ -69,8 +69,15 @@ private:
     void onHelpTopics();
     void onHelpAbout();
 
+    // (Re)build the accelerator table from the current keyboard config, so
+    // toggling a shortcut into CP/M takes effect without restarting the app.
+    void rebuildAccelerators();
+    void destroyAccelerators();
     // Update menu state
     void updateMenuState();
+    // Rewrite the shortcut hints on Help/Start/Stop/Reset so the menu shows the
+    // keys that are actually registered under the current keyboard config.
+    void updateMenuAccelHints();
     void updateStatusBar();
     void checkROMMenuItem(int romId);
     void checkFontMenuItem(int size);
@@ -108,6 +115,8 @@ private:
     HWND m_hwnd = nullptr;
     HWND m_statusBar = nullptr;
     HMENU m_menu = nullptr;
+    HACCEL m_hAccel = nullptr;
+    HACCEL m_hAccelRetired = nullptr;   // freed one rebuild later, see above
 
     std::unique_ptr<TerminalView> m_terminal;
     std::unique_ptr<EmulatorEngine> m_emulator;

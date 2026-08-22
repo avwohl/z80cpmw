@@ -59,10 +59,21 @@ binding can be copied straight from a termcap/terminfo entry.
   empty value unbinds a key.
 - `TerminalView::handleKeyDown` resolves special keys through `keymap::KeyMap`;
   printable keys still arrive via `WM_CHAR`.
-- F1 (Help) and F5/Shift+F5 (Start/Stop) are application accelerators. The
-  accelerator table is now built at runtime in `MainWindow::run` from
-  `keyboard.f1ToCpm` / `keyboard.f5ToCpm`; setting either true omits that
-  accelerator so the key reaches CP/M via the keymap instead.
+- F1 (Help), F5/Shift+F5 (Start/Stop) and Ctrl+R (Reset) are application
+  accelerators. The table is built at runtime by
+  `MainWindow::rebuildAccelerators`, from `keyboard.f1ToCpm` /
+  `keyboard.f5ToCpm` / `keyboard.ctrlRToCpm`; releasing a key omits that
+  accelerator so the key reaches CP/M instead. `applyConfig` rebuilds the table
+  and calls `updateMenuAccelHints`, so a profile that releases a key takes
+  effect without a restart and the menu never advertises a dead shortcut.
+  There is no `ACCELERATORS` resource in `z80cpmw.rc`; a static one used to sit
+  there and was never loaded.
+- The three flags are not symmetrical on purpose. F1/F5 default to the app
+  because CP/M has no function keys. `ctrlRToCpm` defaults to **true** because
+  `^R` (0x12) is ASCII CP/M really reads - the CCP retypes the line with it and
+  WordStar-family editors bind it - and because `TranslateAccelerator` eats the
+  whole keystroke, so no `WM_CHAR` is generated for `TerminalView::handleChar`.
+  A released Ctrl+R needs no `Keymap.h` entry: it arrives as `WM_CHAR` 0x12.
 - F10 normally activates the menu bar (arrives as `WM_SYSKEYDOWN`); it is
   intercepted in `TerminalView` when bound so it can be delivered to CP/M.
 

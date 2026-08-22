@@ -45,6 +45,9 @@ MainWindow::~MainWindow() {
     if (m_emulatorTimer) {
         KillTimer(m_hwnd, m_emulatorTimer);
     }
+    // applyConfig() can build these before run() is ever entered, so the
+    // message loop is not the only owner.
+    destroyAccelerators();
 }
 
 bool MainWindow::create() {
@@ -225,10 +228,23 @@ void MainWindow::saveWindowPlacement() {
     config::ConfigManager::instance().save();
 }
 
-int MainWindow::run() {
-    // Build the accelerator table at runtime so F1 (Help) and F5/Shift+F5
-    // (Start/Stop) can optionally be released to CP/M via the config. A released
-    // key is omitted here, so it falls through to the terminal and the keymap.
+void MainWindow::destroyAccelerators() {
+    if (m_hAccel) {
+        DestroyAcceleratorTable(m_hAccel);
+        m_hAccel = nullptr;
+    }
+    if (m_hAccelRetired) {
+        DestroyAcceleratorTable(m_hAccelRetired);
+        m_hAccelRetired = nullptr;
+    }
+}
+
+void MainWindow::rebuildAccelerators() {
+    // The table is built at runtime, not loaded from the .rc, so the keys that
+    // double as app shortcuts can be released to CP/M from the config. A
+    // released key is simply omitted, and then falls through to the terminal
+    // and the keymap: TranslateAccelerator swallows the whole keystroke when it
+    // matches, so the WM_CHAR the terminal needs is never generated.
     const auto& kb = config::ConfigManager::instance().get().keyboard;
     std::vector<ACCEL> accels;
     if (!kb.f1ToCpm) {
@@ -238,19 +254,39 @@ int MainWindow::run() {
         accels.push_back({ FVIRTKEY, VK_F5, (WORD)ID_EMU_START });
         accels.push_back({ (BYTE)(FVIRTKEY | FSHIFT), VK_F5, (WORD)ID_EMU_STOP });
     }
-    accels.push_back({ (BYTE)(FVIRTKEY | FCONTROL), (WORD)'R', (WORD)ID_EMU_RESET });
-    HACCEL hAccel = CreateAcceleratorTable(accels.data(), (int)accels.size());
+    if (!kb.ctrlRToCpm) {
+        accels.push_back({ (BYTE)(FVIRTKEY | FCONTROL), (WORD)'R', (WORD)ID_EMU_RESET });
+    }
+
+    // TranslateAccelerator SENDs WM_COMMAND from inside the message loop, so a
+    // command handler that reloads the config can land here while the table it
+    // was called through is still on the stack. Retire the old handle for one
+    // generation rather than freeing it under the caller's feet.
+    if (m_hAccelRetired) {
+        DestroyAcceleratorTable(m_hAccelRetired);
+    }
+    m_hAccelRetired = m_hAccel;
+
+    // Every shortcut can be released at once, and CreateAcceleratorTable
+    // rejects an empty table; a null handle is fine, the loop below skips it.
+    m_hAccel = accels.empty()
+                   ? nullptr
+                   : CreateAcceleratorTable(accels.data(), (int)accels.size());
+}
+
+int MainWindow::run() {
+    // applyConfig() has already built this during onCreate; rebuild anyway so
+    // run() is correct even if it is ever entered without a config load.
+    rebuildAccelerators();
 
     MSG msg;
     while (GetMessage(&msg, nullptr, 0, 0)) {
-        if (!hAccel || !TranslateAccelerator(m_hwnd, hAccel, &msg)) {
+        if (!m_hAccel || !TranslateAccelerator(m_hwnd, m_hAccel, &msg)) {
             TranslateMessage(&msg);
             DispatchMessage(&msg);
         }
     }
-    if (hAccel) {
-        DestroyAcceleratorTable(hAccel);
-    }
+    destroyAccelerators();
     return (int)msg.wParam;
 }
 
@@ -1235,6 +1271,33 @@ void MainWindow::updateMenuState() {
     EnableMenuItem(m_menu, ID_ROM_EMU_ROMWBW, running ? MF_GRAYED : MF_ENABLED);
 }
 
+void MainWindow::updateMenuAccelHints() {
+    // The .rc gives each item the hint for the default config. Whenever a key is
+    // released to CP/M the hint becomes a lie, so rewrite the text to match the
+    // accelerator table rebuildAccelerators() actually builds.
+    if (!m_menu) return;
+
+    const auto& kb = config::ConfigManager::instance().get().keyboard;
+    struct { UINT id; const wchar_t* text; } items[] = {
+        { ID_HELP_TOPICS, kb.f1ToCpm    ? L"&Help Topics" : L"&Help Topics\tF1" },
+        { ID_EMU_START,   kb.f5ToCpm    ? L"&Start"       : L"&Start\tF5" },
+        { ID_EMU_STOP,    kb.f5ToCpm    ? L"S&top"        : L"S&top\tShift+F5" },
+        { ID_EMU_RESET,   kb.ctrlRToCpm ? L"&Reset"       : L"&Reset\tCtrl+R" },
+    };
+    for (const auto& item : items) {
+        // SetMenuItemInfoW, not ModifyMenuW: ModifyMenu replaces the item's flag
+        // word outright, and MF_ENABLED and MF_UNCHECKED are both 0, so writing
+        // just the string there would quietly un-gray whatever updateMenuState()
+        // had disabled. MIIM_STRING touches the text and nothing else.
+        MENUITEMINFOW mii = {};
+        mii.cbSize = sizeof(mii);
+        mii.fMask = MIIM_STRING;
+        mii.dwTypeData = const_cast<LPWSTR>(item.text);
+        SetMenuItemInfoW(m_menu, item.id, FALSE, &mii);   // FALSE = by command
+    }
+    if (m_hwnd) DrawMenuBar(m_hwnd);
+}
+
 void MainWindow::updateStatusBar() {
     if (m_statusBar) {
         std::wstring wstatus(m_statusText.begin(), m_statusText.end());
@@ -1469,6 +1532,12 @@ void MainWindow::applyConfig() {
     if (m_terminal) {
         m_terminal->setKeyBindings(cfg.keyboard.keys);
     }
+
+    // The shortcut keys are part of the same config, so rebuild the accelerator
+    // table and re-label the menu here too. Loading a profile that releases a
+    // key would otherwise keep the old shortcut live until the next restart.
+    rebuildAccelerators();
+    updateMenuAccelHints();
 
     // Load disks
     std::string downloadDataDir = EmulatorEngine::getUserDataDirectory() + "\\data";

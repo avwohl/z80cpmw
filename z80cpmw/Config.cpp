@@ -76,6 +76,7 @@ void to_json(json& j, const KeyboardConfig& k) {
     j = json{
         {"f1ToCpm", k.f1ToCpm},
         {"f5ToCpm", k.f5ToCpm},
+        {"ctrlRToCpm", k.ctrlRToCpm},
         {"keys", k.keys}
     };
 }
@@ -83,6 +84,10 @@ void to_json(json& j, const KeyboardConfig& k) {
 void from_json(const json& j, KeyboardConfig& k) {
     k.f1ToCpm = j.value("f1ToCpm", false);
     k.f5ToCpm = j.value("f5ToCpm", false);
+    // Absent from every config written before Ctrl+R was released to CP/M. The
+    // default here must match KeyboardConfig's, or upgrading would silently
+    // re-arm the shortcut on machines that already have a z80cpmw.json.
+    k.ctrlRToCpm = j.value("ctrlRToCpm", true);
     if (j.contains("keys") && j["keys"].is_object()) {
         k.keys = j["keys"].get<std::map<std::string, std::string>>();
     }

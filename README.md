@@ -61,6 +61,9 @@ see **Configuration** below.
 
 By default `F1` opens Help and `F5` / `Shift+F5` start/stop the emulator, so
 those two keys are not passed to CP/M unless you enable them in the config.
+Reset has no shortcut by default: `Ctrl+R` is a character CP/M itself uses, so
+it goes to the guest and Reset stays on the **Emulator** menu. Set
+`"ctrlRToCpm": false` to claim `Ctrl+R` for Reset instead.
 
 ### Mouse Copy/Paste
 
@@ -87,7 +90,7 @@ macOS/iOS/Android ports — and how to find them — see
 
 Settings are stored in `%LOCALAPPDATA%\z80cpmw\z80cpmw.json`, which you can edit
 by hand. This includes the keyboard map (`keyboard.keys`, written as termcap-style
-escape strings), the `f1ToCpm` / `f5ToCpm` toggles, fonts, ROM and disk
+escape strings), the `f1ToCpm` / `f5ToCpm` / `ctrlRToCpm` toggles, fonts, ROM and disk
 assignments. The keyboard map and a Getting Started guide are also viewable
 in-app from **Help → Help Topics** (the **Getting Started** and **Configuration
 File** topics, which work even offline).

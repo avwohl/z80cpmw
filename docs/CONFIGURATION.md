@@ -34,6 +34,7 @@ termcap/terminfo entries). The bindings live under `keyboard` in `z80cpmw.json`:
 "keyboard": {
   "f1ToCpm": false,
   "f5ToCpm": false,
+  "ctrlRToCpm": true,
   "keys": {
     "Insert": "\\E[2~",
     "F2": "\\EOQ"
@@ -92,15 +93,28 @@ the rest:
 "F1": "\\E[11~", "F2": "\\E[12~", "F3": "\\E[13~", "F4": "\\E[14~"
 ```
 
-### F1 and F5
+### Application shortcut keys
 
-`F1` opens Help and `F5` / `Shift+F5` Start and Stop the emulator, so by default
-those keys are **not** sent to CP/M. To deliver them to CP/M instead:
+A few keys can be claimed by the app instead of the guest. A claimed key is
+swallowed **whole** — CP/M never sees it — so these settings decide *who
+receives* the keystroke, not what it sends.
 
-| Setting | Effect |
-| --- | --- |
-| `"f1ToCpm": true` | `F1` is sent to CP/M (Help stays on the Help menu) |
-| `"f5ToCpm": true` | `F5` and `Shift+F5` are sent to CP/M |
+| Setting | Default | Effect when set |
+| --- | --- | --- |
+| `"f1ToCpm"` | `false` | `true` sends `F1` to CP/M (Help stays on the Help menu) |
+| `"f5ToCpm"` | `false` | `true` sends `F5` and `Shift+F5` to CP/M |
+| `"ctrlRToCpm"` | `true` | `false` makes `Ctrl+R` the Reset shortcut again |
+
+`F1` and `F5` default to the app because CP/M has no function keys, so reserving
+them costs nothing. **`Ctrl+R` defaults the other way**, because `^R` (`0x12`) is
+ordinary ASCII that CP/M reads: it retypes the current line at the command
+prompt, and WordStar-family editors bind it too. Reserving it would take a
+working key away from the guest, and a mistyped Reset reboots the machine
+without asking. Reset therefore lives on the **Emulator** menu, with no default
+shortcut.
+
+The menu updates its own shortcut hints to match these settings, so an item
+never advertises a key that is no longer bound.
 
 `F10` normally opens the Windows menu bar; z80cpmw delivers it to CP/M when it is
 bound in the keymap.

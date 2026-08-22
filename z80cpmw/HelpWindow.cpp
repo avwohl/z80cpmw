@@ -67,8 +67,12 @@ button there opens it in Explorer.
 | --- | --- |
 | F5 | Start emulator |
 | Shift+F5 | Stop emulator |
-| Ctrl+R | Reset emulator |
 | F1 | Help |
+
+Reset is on the Emulator menu. It has no shortcut by default, because the
+obvious one, Ctrl+R, is a character CP/M itself uses (^R retypes the current
+line, and WordStar-style editors bind it too). Set "ctrlRToCpm": false in the
+config to take Ctrl+R back as the Reset shortcut.
 
 F2 through F12, Insert, and PageUp / PageDown are sent to CP/M. The exact bytes
 are configurable - see the "Configuration File" topic. By default F1 and F5 are
@@ -125,6 +129,7 @@ termcap-style escape strings under "keyboard" in z80cpmw.json:
     "keyboard": {
       "f1ToCpm": false,
       "f5ToCpm": false,
+      "ctrlRToCpm": true,
       "keys": {
         "Insert": "\\E[2~",
         "F2": "\\EOQ"
@@ -187,13 +192,26 @@ parse in a hand-written key reader, give them the same CSI form as the rest:
 
     "F1": "\\E[11~", "F2": "\\E[12~", "F3": "\\E[13~", "F4": "\\E[14~"
 
-### F1 and F5
+### Application Shortcut Keys
 
 F1 opens Help and F5 / Shift+F5 Start and Stop the emulator, so by default those
 keys are not sent to CP/M. To deliver them to CP/M instead, set:
 
     "f1ToCpm": true     sends F1 to CP/M (Help stays on the Help menu)
     "f5ToCpm": true     sends F5 and Shift+F5 to CP/M
+
+Ctrl+R goes the other way. CP/M has no function keys, so reserving F1 and F5
+costs nothing, but ^R (0x12) is ordinary ASCII that CP/M reads: it retypes the
+current line at the command prompt, and WordStar-family editors bind it as
+well. z80cpmw therefore sends Ctrl+R to CP/M by default and leaves Reset on the
+Emulator menu:
+
+    "ctrlRToCpm": false  makes Ctrl+R the Reset shortcut again (not sent to CP/M)
+
+A key that is reserved for the app is swallowed whole - CP/M never sees it - so
+these three settings decide who receives the keystroke, not what it sends. The
+menu updates its own shortcut hints to match, so an item never advertises a key
+that is no longer bound.
 
 F10 normally opens the Windows menu bar; z80cpmw delivers it to CP/M when it is
 bound in the keymap.
