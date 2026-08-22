@@ -225,13 +225,27 @@ After approval:
 - Push updates via Partner Center
 - Respond to user feedback
 
+## Version numbers
+
+The version lives in exactly one file: `z80cpmw/Version.h`. Edit the four
+`#define`s there and nothing else. `build-msix.ps1` and `build-nsis.ps1` parse
+them and inject the result into the package manifest and the installer, and both
+refuse to run if the number does not match the compiled `bin\Release\z80cpmw.exe`.
+
+The `Version` in the committed `AppxManifest.xml` is a `0.0.0.0` placeholder, so
+a package built by any route other than `build-msix.ps1` carries a version the
+Store will reject rather than a wrong one it would accept. `z80cpmw.nsi` has no
+default version at all and fails to compile unless the script supplies it.
+
+`VERSION_BUILD` (the fourth field) stays `0`: the Store reserves the revision
+field.
+
 ## Files Structure
 
 ```
 packaging/
 ├── msix/
-│   ├── AppxManifest.xml      # MSIX package manifest
-│   ├── mapping.txt           # File mapping for package
+│   ├── AppxManifest.xml      # MSIX package manifest (version is a placeholder)
 │   └── Assets/               # Store icons (generated)
 ├── nsis/
 │   └── z80cpmw.nsi          # NSIS installer script

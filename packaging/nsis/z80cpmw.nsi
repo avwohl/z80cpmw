@@ -9,28 +9,42 @@
 !define APPNAME "Z80CPM"
 !define COMPANYNAME "Aaron Wohl"
 !define DESCRIPTION "Z80 CPU emulator for CP/M and vintage operating systems"
-!define VERSIONMAJOR 1
-!define VERSIONMINOR 0
-!define VERSIONBUILD 20
+; Version comes from z80cpmw/Version.h, injected by packaging/scripts/build-nsis.ps1
+; as /DVERSIONMAJOR=.. /DVERSIONMINOR=.. /DVERSIONPATCH=.. /DVERSIONBUILD=.. .
+; There are deliberately NO defaults here. makensis exits 0 when a command-line
+; define is ignored (a /D placed after the script name is silently dropped), so
+; a fallback would quietly produce an installer stamped with a stale number.
+!ifndef VERSIONMAJOR
+  !error "VERSIONMAJOR not defined - build via packaging/scripts/build-nsis.ps1"
+!endif
+!ifndef VERSIONMINOR
+  !error "VERSIONMINOR not defined - build via packaging/scripts/build-nsis.ps1"
+!endif
+!ifndef VERSIONPATCH
+  !error "VERSIONPATCH not defined - build via packaging/scripts/build-nsis.ps1"
+!endif
+!ifndef VERSIONBUILD
+  !error "VERSIONBUILD not defined - build via packaging/scripts/build-nsis.ps1"
+!endif
 !define HELPURL "https://github.com/avwohl/z80cpmw"
 !define UPDATEURL "https://github.com/avwohl/z80cpmw/releases"
 !define ABOUTURL "https://github.com/avwohl/z80cpmw"
 
 ; Installer attributes
 Name "${APPNAME}"
-OutFile "z80cpmw-${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}-setup.exe"
+OutFile "z80cpmw-${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONPATCH}-setup.exe"
 InstallDir "$PROGRAMFILES64\${COMPANYNAME}\${APPNAME}"
 InstallDirRegKey HKLM "Software\${COMPANYNAME}\${APPNAME}" "InstallDir"
 RequestExecutionLevel admin
 
 ; Version information
-VIProductVersion "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}.0"
+VIProductVersion "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONPATCH}.${VERSIONBUILD}"
 VIAddVersionKey "ProductName" "${APPNAME}"
 VIAddVersionKey "CompanyName" "${COMPANYNAME}"
 VIAddVersionKey "LegalCopyright" "Copyright (C) 2025 ${COMPANYNAME}"
 VIAddVersionKey "FileDescription" "${DESCRIPTION}"
-VIAddVersionKey "FileVersion" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
-VIAddVersionKey "ProductVersion" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
+VIAddVersionKey "FileVersion" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONPATCH}"
+VIAddVersionKey "ProductVersion" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONPATCH}"
 
 ; Modern UI configuration
 !define MUI_ABORTWARNING
@@ -120,7 +134,7 @@ Section "Main Application" SecMain
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "HelpLink" "${HELPURL}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "URLUpdateInfo" "${UPDATEURL}"
     WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "URLInfoAbout" "${ABOUTURL}"
-    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "DisplayVersion" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONBUILD}"
+    WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "DisplayVersion" "${VERSIONMAJOR}.${VERSIONMINOR}.${VERSIONPATCH}"
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "VersionMajor" ${VERSIONMAJOR}
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "VersionMinor" ${VERSIONMINOR}
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${APPNAME}" "NoModify" 1

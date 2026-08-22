@@ -4,6 +4,7 @@
 
 #include "pch.h"
 #include "DiskCatalog.h"
+#include "Version.h"
 #include <thread>
 #include <sstream>
 
@@ -216,7 +217,7 @@ bool DiskCatalog::downloadToString(const std::wstring& url, std::string& result,
     }
 
     // Open session
-    hSession = WinHttpOpen(L"z80cpmw/1.0",
+    hSession = WinHttpOpen(L"z80cpmw/" VERSION_STRING_W,
                            WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                            WINHTTP_NO_PROXY_NAME,
                            WINHTTP_NO_PROXY_BYPASS, 0);
@@ -341,7 +342,7 @@ bool DiskCatalog::downloadToFile(const std::wstring& url, const std::string& loc
     }
 
     // Open session
-    hSession = WinHttpOpen(L"z80cpmw/1.0",
+    hSession = WinHttpOpen(L"z80cpmw/" VERSION_STRING_W,
                            WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
                            WINHTTP_NO_PROXY_NAME,
                            WINHTTP_NO_PROXY_BYPASS, 0);

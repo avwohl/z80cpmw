@@ -30,6 +30,40 @@ $BinDir = Join-Path $RootDir "bin\$Configuration"
 $MsixDir = Join-Path $ScriptDir "..\msix"
 $OutputDir = Join-Path $RootDir "dist"
 
+# --- The version, from the one place that holds it ---------------------------
+# z80cpmw/Version.h is the single source. Parse it here rather than storing a
+# copy in this repo's packaging files; the anchored pattern matches only the
+# four plain-integer defines and cannot be fooled by VERSION_RC further down.
+# Deliberately inline in both build scripts rather than dot-sourced: two short
+# call sites, and a shared file would add an untested import path.
+$versionHeader = Join-Path $RootDir "z80cpmw\Version.h"
+if (!(Test-Path $versionHeader)) { Write-Error "Version header not found: $versionHeader"; exit 1 }
+$verText = Get-Content $versionHeader -Raw
+$verNums = foreach ($field in 'VERSION_MAJOR','VERSION_MINOR','VERSION_PATCH','VERSION_BUILD') {
+    if ($verText -notmatch "(?m)^\s*#define\s+$field\s+(\d+)\s*$") {
+        Write-Error "Could not parse $field from $versionHeader"; exit 1
+    }
+    [int]$Matches[1]
+}
+$pkgVersion = $verNums -join '.'         # all four fields, for the manifest
+$verShort   = $verNums[0..2] -join '.'   # major.minor.patch, for file names
+if ($verNums[0] -lt 1) {
+    Write-Error "VERSION_MAJOR must be at least 1; the Store rejects a zero first field."; exit 1
+}
+Write-Host "Version $pkgVersion (from z80cpmw\Version.h)" -ForegroundColor Green
+
+# Guard against packaging a stale binary: -SkipBuild over an old bin\Release
+# would otherwise label the package with a version the exe does not carry.
+function Assert-ExeVersion([string]$exePath, [string]$expected) {
+    if (!(Test-Path $exePath)) { Write-Error "Executable not found: $exePath"; exit 1 }
+    $actual = (Get-Item $exePath).VersionInfo.FileVersionRaw.ToString()
+    if ($actual -ne $expected) {
+        Write-Error "Version mismatch: Version.h says $expected but $exePath is $actual. Rebuild (drop -SkipBuild)."
+        exit 1
+    }
+    Write-Host "Binary matches Version.h ($actual)" -ForegroundColor Green
+}
+
 Write-Host "z80cpmw MSIX Package Builder" -ForegroundColor Cyan
 Write-Host "=============================" -ForegroundColor Cyan
 Write-Host ""
@@ -91,21 +125,42 @@ Copy-Item (Join-Path $BinDir "disks\*") (Join-Path $stagingDir "disks")
 # Copy assets
 Copy-Item (Join-Path $assetsDir "*") (Join-Path $stagingDir "Assets")
 
-# Copy and update manifest
-$stagedManifest = Join-Path $stagingDir "AppxManifest.xml"
-Copy-Item (Join-Path $MsixDir "AppxManifest.xml") $stagedManifest
+# Stage the manifest with the version - and for -Beta the Publisher - injected.
+# Only the staged copy is written; the committed AppxManifest.xml keeps its
+# 0.0.0.0 placeholder and is never modified. Targeted regex rather than
+# [xml].Save(), which prepends a BOM and reflows the whole document.
+Assert-ExeVersion (Join-Path $BinDir "z80cpmw.exe") $pkgVersion
 
-[xml]$manifestXml = Get-Content (Join-Path $MsixDir "AppxManifest.xml")
-$pkgVersion = $manifestXml.Package.Identity.Version
+$stagedManifest = Join-Path $stagingDir "AppxManifest.xml"
+$manifestText = Get-Content (Join-Path $MsixDir "AppxManifest.xml") -Raw
+
+$verPattern = '(<Identity\b[^>]*?\sVersion=")[^"]*(")'
+if (([regex]$verPattern).Matches($manifestText).Count -ne 1) {
+    Write-Error "Expected exactly one Identity/@Version in AppxManifest.xml"; exit 1
+}
+Write-Host "Injecting version $pkgVersion into the staged manifest" -ForegroundColor Yellow
+$manifestText = $manifestText -replace $verPattern, "`${1}$pkgVersion`$2"
 
 if ($Beta) {
     # Beta/sideload builds are signed with our Trusted Signing cert, so the package
     # Publisher MUST equal the cert subject. (Store releases keep the Store identity
     # GUID and are re-signed by Microsoft.)
     Write-Host "Beta build: setting manifest Publisher to '$PublisherSubject'" -ForegroundColor Yellow
-    [xml]$staged = Get-Content $stagedManifest
-    $staged.Package.Identity.Publisher = $PublisherSubject
-    $staged.Save($stagedManifest)
+    $pubPattern = '(<Identity\b[^>]*?\sPublisher=")[^"]*(")'
+    if (([regex]$pubPattern).Matches($manifestText).Count -ne 1) {
+        Write-Error "Expected exactly one Identity/@Publisher in AppxManifest.xml"; exit 1
+    }
+    $pubEsc = $PublisherSubject -replace '\$','$$$$'
+    $manifestText = $manifestText -replace $pubPattern, "`${1}$pubEsc`$2"
+}
+
+[System.IO.File]::WriteAllText($stagedManifest, $manifestText, (New-Object System.Text.UTF8Encoding($false)))
+
+# Read it back: a silently failed injection would otherwise ship 0.0.0.0.
+[xml]$check = Get-Content $stagedManifest -Raw
+if ($check.Package.Identity.Version -ne $pkgVersion) {
+    Write-Error "Manifest injection failed: staged version is '$($check.Package.Identity.Version)', expected '$pkgVersion'"
+    exit 1
 }
 
 # Step 4: Create MSIX package
@@ -124,7 +179,6 @@ if (!$sdkPath) {
 $makeAppxPath = $sdkPath.FullName
 $signToolPath = Join-Path $sdkPath.Directory "signtool.exe"
 
-$verShort = ($pkgVersion -replace '\.0$', '')
 $msixName = if ($Beta) { "z80cpmw-$verShort-beta.msix" } else { "z80cpmw.msix" }
 $msixPath = Join-Path $OutputDir $msixName
 

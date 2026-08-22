@@ -7,9 +7,14 @@
   xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
   IgnorableNamespaces="uap uap3 rescap desktop">
 
+  <!-- Version below is a placeholder. The real one is injected at package time
+       by packaging/scripts/build-msix.ps1 from z80cpmw/Version.h, the single
+       source. 0.0.0.0 is deliberate: makeappx packs it, so nothing that reads
+       this file breaks, but the Store rejects a zero first field, so a package
+       built without the injection can never ship. -->
   <Identity
     Name="AaronWohl.Z80CPM"
-    Version="1.0.20.0"
+    Version="0.0.0.0"
     Publisher="CN=724C9014-DD22-420E-9BB4-F2740D082EB0"
     ProcessorArchitecture="x64" />
 

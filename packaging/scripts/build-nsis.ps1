@@ -10,7 +10,42 @@ $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 $RootDir = Resolve-Path (Join-Path $ScriptDir "..\..")
 $NsisDir = Join-Path $ScriptDir "..\nsis"
+$BinDir = Join-Path $RootDir "bin\$Configuration"
 $OutputDir = Join-Path $RootDir "dist"
+
+# --- The version, from the one place that holds it ---------------------------
+# z80cpmw/Version.h is the single source. Parse it here rather than storing a
+# copy in this repo's packaging files; the anchored pattern matches only the
+# four plain-integer defines and cannot be fooled by VERSION_RC further down.
+# Deliberately inline in both build scripts rather than dot-sourced: two short
+# call sites, and a shared file would add an untested import path.
+$versionHeader = Join-Path $RootDir "z80cpmw\Version.h"
+if (!(Test-Path $versionHeader)) { Write-Error "Version header not found: $versionHeader"; exit 1 }
+$verText = Get-Content $versionHeader -Raw
+$verNums = foreach ($field in 'VERSION_MAJOR','VERSION_MINOR','VERSION_PATCH','VERSION_BUILD') {
+    if ($verText -notmatch "(?m)^\s*#define\s+$field\s+(\d+)\s*$") {
+        Write-Error "Could not parse $field from $versionHeader"; exit 1
+    }
+    [int]$Matches[1]
+}
+$pkgVersion = $verNums -join '.'         # all four fields, for the manifest
+$verShort   = $verNums[0..2] -join '.'   # major.minor.patch, for file names
+if ($verNums[0] -lt 1) {
+    Write-Error "VERSION_MAJOR must be at least 1; the Store rejects a zero first field."; exit 1
+}
+Write-Host "Version $pkgVersion (from z80cpmw\Version.h)" -ForegroundColor Green
+
+# Guard against packaging a stale binary: -SkipBuild over an old bin\Release
+# would otherwise label the package with a version the exe does not carry.
+function Assert-ExeVersion([string]$exePath, [string]$expected) {
+    if (!(Test-Path $exePath)) { Write-Error "Executable not found: $exePath"; exit 1 }
+    $actual = (Get-Item $exePath).VersionInfo.FileVersionRaw.ToString()
+    if ($actual -ne $expected) {
+        Write-Error "Version mismatch: Version.h says $expected but $exePath is $actual. Rebuild (drop -SkipBuild)."
+        exit 1
+    }
+    Write-Host "Binary matches Version.h ($actual)" -ForegroundColor Green
+}
 
 Write-Host "z80cpmw NSIS Installer Builder" -ForegroundColor Cyan
 Write-Host "===============================" -ForegroundColor Cyan
@@ -97,9 +132,20 @@ if (!(Test-Path $iconPath)) {
 # Step 4: Build the installer
 Write-Host "Step 4: Building installer..." -ForegroundColor Yellow
 
+Assert-ExeVersion (Join-Path $BinDir "z80cpmw.exe") $pkgVersion
+
 Push-Location $NsisDir
 try {
-    & $nsisExe "z80cpmw.nsi"
+    # The /D switches have to come BEFORE the script name: makensis processes
+    # arguments in order and silently ignores a define that arrives after it,
+    # still exiting 0. z80cpmw.nsi has no fallback defaults, so a dropped define
+    # is a hard !error rather than an installer stamped with a stale version.
+    & $nsisExe `
+        "/DVERSIONMAJOR=$($verNums[0])" `
+        "/DVERSIONMINOR=$($verNums[1])" `
+        "/DVERSIONPATCH=$($verNums[2])" `
+        "/DVERSIONBUILD=$($verNums[3])" `
+        "z80cpmw.nsi"
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error "NSIS build failed."
@@ -112,15 +158,17 @@ try {
 # Step 5: Move installer to dist folder
 Write-Host "Step 5: Finalizing..." -ForegroundColor Yellow
 
-$installerName = Get-ChildItem $NsisDir -Filter "z80cpmw-*-setup.exe" |
-                 Sort-Object LastWriteTime -Descending |
-                 Select-Object -First 1
-if ($installerName) {
-    $destPath = Join-Path $OutputDir $installerName.Name
-    Move-Item $installerName.FullName $destPath -Force
-    Write-Host ""
-    Write-Host "Installer build complete!" -ForegroundColor Cyan
-    Write-Host "Output: $destPath" -ForegroundColor Green
-} else {
-    Write-Warning "Installer file not found in output directory."
+# Look for the exact name the version implies. A newest-wins glob would happily
+# pick up a leftover installer from an aborted run at a different version and
+# announce it as this build's output.
+$expectedName = "z80cpmw-$verShort-setup.exe"
+$builtInstaller = Join-Path $NsisDir $expectedName
+if (!(Test-Path $builtInstaller)) {
+    Write-Error "Expected $expectedName in $NsisDir but it is not there - NSIS did not produce the version it was given."
+    exit 1
 }
+$destPath = Join-Path $OutputDir $expectedName
+Move-Item $builtInstaller $destPath -Force
+Write-Host ""
+Write-Host "Installer build complete!" -ForegroundColor Cyan
+Write-Host "Output: $destPath" -ForegroundColor Green
