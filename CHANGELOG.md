@@ -5,15 +5,24 @@ All notable changes to **z80cpmw** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use a simple `MAJOR.MINOR.PATCH` scheme: `-beta` tags are signed
 GitHub / sideload prereleases, and unsuffixed versions are Microsoft Store
-releases. The released Store version is **1.0.19**. **1.0.20** is built on
-Windows (x64) and packaged as an unsigned Store MSIX (`dist\z80cpmw.msix`);
-Microsoft re-signs it at ingestion.
+releases. The released Store version is **1.0.19**. **1.0.20** was built and
+tagged but never published to any channel; **1.0.21** supersedes it and is the
+version now on the sideload channel.
 
 Note that the Store channel is not visible from the repository: Store releases
 carry no git tag and no GitHub release, so `git tag` and `gh release list` show
 only the sideload prereleases and are not evidence of what has shipped.
 
 ## [Unreleased]
+
+## [1.0.21] - 2026-08-23
+
+The same code as 1.0.20, renumbered and published as the signed sideload beta
+`z80cpmw-1.0.21-beta.msix`. 1.0.20 was built, tagged and packaged as an unsigned
+Store MSIX but never reached a user through any channel, so its number is spent
+rather than reused: a beta sharing a version with a pending Store package makes
+the two artifacts indistinguishable by version alone. No functional change from
+1.0.20 - everything below is what this build contains.
 
 ## [1.0.20] - 2026-08-22
 
