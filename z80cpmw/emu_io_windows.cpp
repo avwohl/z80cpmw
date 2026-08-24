@@ -131,14 +131,12 @@ void emu_console_write_char(uint8_t ch) {
     }
 }
 
+// Still declared in emu_io.h and still live for the CLI frontend, so the stub
+// has to stay. An escape_char of 0 means no key is reserved (--escape=none),
+// and this GUI reserves none whatever is passed: every Ctrl-letter goes to the
+// guest, so nothing is ever consumed here.
 bool emu_console_check_escape(char escape_char) {
     (void)escape_char;
-    return false; // Not used in GUI mode
-}
-
-bool emu_console_check_ctrl_c_exit(int ch, int count) {
-    (void)ch;
-    (void)count;
     return false; // Not used in GUI mode
 }
 
