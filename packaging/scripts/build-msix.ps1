@@ -81,7 +81,7 @@ if (!$SkipBuild) {
     $msbuildPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
 
     if (!$msbuildPath) {
-        Write-Error "MSBuild not found. Please install Visual Studio 2022."
+        Write-Error "MSBuild not found. Install Visual Studio 18 with the C++ desktop workload (the project uses PlatformToolset v145)."
         exit 1
     }
 
@@ -256,9 +256,8 @@ if ($Beta) {
     Write-Host "  double-click the .msix (App Installer), or  Add-AppxPackage `"$msixPath`"" -ForegroundColor Gray
     Write-Host "The Trusted Signing cert chains to a Microsoft public root, so no dev cert import is needed." -ForegroundColor Gray
 } else {
-    Write-Host "Next steps for Microsoft Store submission:" -ForegroundColor Yellow
-    Write-Host "1. Create a developer account at https://partner.microsoft.com" -ForegroundColor Gray
-    Write-Host "2. Reserve your app name in Partner Center" -ForegroundColor Gray
-    Write-Host "3. Update AppxManifest.xml with your Store identity" -ForegroundColor Gray
-    Write-Host "4. Upload the .msix package to Partner Center" -ForegroundColor Gray
+    Write-Host "Next step for Microsoft Store submission:" -ForegroundColor Yellow
+    Write-Host "Upload dist\z80cpmw.msix to Partner Center - the Z80CPM product is already reserved." -ForegroundColor Gray
+    Write-Host "The Identity in AppxManifest.xml is the one Partner Center assigned and must not be" -ForegroundColor Gray
+    Write-Host "edited; this build injected version $pkgVersion into the staged copy from z80cpmw\Version.h." -ForegroundColor Gray
 }

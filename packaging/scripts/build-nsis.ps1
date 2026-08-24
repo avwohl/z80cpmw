@@ -64,7 +64,7 @@ if (!$SkipBuild) {
     $msbuildPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
 
     if (!$msbuildPath) {
-        Write-Error "MSBuild not found. Please install Visual Studio 2022."
+        Write-Error "MSBuild not found. Install Visual Studio 18 with the C++ desktop workload (the project uses PlatformToolset v145)."
         exit 1
     }
 
@@ -120,13 +120,14 @@ Write-Host "Step 3: Checking icon file..." -ForegroundColor Yellow
 
 $iconPath = Join-Path $RootDir "z80cpmw\z80cpmw.ico"
 if (!(Test-Path $iconPath)) {
-    Write-Host "Icon file not found. Creating placeholder..." -ForegroundColor Yellow
+    Write-Host "Icon file not found." -ForegroundColor Yellow
 
-    # Create a simple placeholder .ico (we'll use an empty placeholder - NSIS will still work)
-    # In production, this should be a proper .ico file
+    # Nothing is created here. z80cpmw.nsi defines MUI_ICON and MUI_UNICON to this
+    # path unconditionally, so a missing .ico aborts makensis rather than falling
+    # back to the default NSIS icons.
     Write-Host "WARNING: No icon file found at $iconPath" -ForegroundColor Yellow
-    Write-Host "The installer will use default NSIS icons." -ForegroundColor Yellow
-    Write-Host "To add a custom icon, create z80cpmw.ico in the z80cpmw folder." -ForegroundColor Yellow
+    Write-Host "z80cpmw.nsi hardcodes MUI_ICON/MUI_UNICON to this path, so makensis will FAIL at Step 4 until it exists." -ForegroundColor Yellow
+    Write-Host "Run packaging\scripts\create-ico.ps1 to regenerate it; it writes to this exact path by default." -ForegroundColor Yellow
 }
 
 # Step 4: Build the installer

@@ -3,26 +3,47 @@
 All notable changes to **z80cpmw** are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
-Versions use a simple `MAJOR.MINOR.PATCH` scheme: `-beta` tags are signed
-GitHub / sideload prereleases, and unsuffixed versions are Microsoft Store
-releases. The released Store version is **1.0.19**. **1.0.20** was built and
-tagged but never published to any channel; **1.0.21** supersedes it and is the
-version now on the sideload channel.
+Versions use a simple `MAJOR.MINOR.PATCH` scheme: a `-beta` suffix names the
+signed GitHub / sideload package, and the bare number names the Microsoft Store
+release. The released Store version is **1.0.22**, published 2026-08-23; the
+current sideload package is **1.0.22-beta**, which is the same binary signed
+under our own publisher. **1.0.20** was built and tagged but never published on
+any channel, and **1.0.21** shipped only as a signed sideload beta.
 
-Note that the Store channel is not visible from the repository: Store releases
-carry no git tag and no GitHub release, so `git tag` and `gh release list` show
-only the sideload prereleases and are not evidence of what has shipped.
+The two channels share a number only when they carry the same build, as 1.0.22
+does. They remain separate package identities either way - the Store package is
+`Publisher="CN=724C9014-..."` and the sideload package is
+`Publisher="CN=Aaron Wohl, ..."` - so both can be installed at once and neither
+replaces the other. Where the builds differ, the numbers must differ too.
+
+Note that the Store channel is only partly visible from the repository: the
+recent Store releases (1.0.19, 1.0.22) carry no git tag and no GitHub release,
+while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
+published on neither channel (v1.0.20). `git tag` and `gh release list` are
+therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
-## [1.0.21] - 2026-08-23
+## [1.0.22] - 2026-08-23
+
+The 1.0.21 code released to the Microsoft Store, and the first version published
+on both channels from one build:
+
+- `dist/z80cpmw.msix` - the Store package. Built unsigned with the Store identity
+  (`CN=724C9014-...`); Microsoft re-signs it at distribution.
+- `z80cpmw-1.0.22-beta.msix` - that same binary, byte for byte, repackaged under
+  `CN=Aaron Wohl, ...` and signed with Azure Trusted Signing for sideloading.
+
+Because the two are one build, they share the number; the `-beta` suffix and the
+Publisher are what distinguish the packages. No functional change from 1.0.21.
+
+## [1.0.21-beta] - 2026-08-23
 
 The same code as 1.0.20, renumbered and published as the signed sideload beta
 `z80cpmw-1.0.21-beta.msix`. 1.0.20 was built, tagged and packaged as an unsigned
-Store MSIX but never reached a user through any channel, so its number is spent
-rather than reused: a beta sharing a version with a pending Store package makes
-the two artifacts indistinguishable by version alone. No functional change from
-1.0.20 - everything below is what this build contains.
+Store MSIX but never reached a user through any channel, so its number was spent
+rather than reused. No functional change from 1.0.20 - everything below is what
+this build contains.
 
 ## [1.0.20] - 2026-08-22
 
@@ -55,8 +76,9 @@ the two artifacts indistinguishable by version alone. No functional change from
 - **Character-set and line-size designators** (`ESC ( ) * + #` and `ESC SP`) are
   consumed together with their parameter byte.
 - SGR `22` (bold off).
-- `test_vt52.cpp` and `compile_test_vt52.cmd`: **73 headless conformance checks**
-  covering all of the above. `TerminalView` needs no window to parse bytes, so
+- A headless conformance suite of **73 checks** covering all of the above. (The
+  suite is not committed to this repository - the only test harness here is
+  `test_emu.cpp` / `compile_test.cmd`.) `TerminalView` needs no window to parse bytes, so
   the test drives it through the public interface: it reads the cursor back with
   `ESC [ 6 n`, which puts the answerback path under test rather than assuming
   it, and screen content through the new `cellAt()`.
@@ -343,8 +365,10 @@ Microsoft Store release.
 [#1]: https://github.com/avwohl/z80cpmw/issues/1
 [#2]: https://github.com/avwohl/z80cpmw/issues/2
 
-[Unreleased]: https://github.com/avwohl/z80cpmw/compare/97d8350...HEAD
-[1.0.19]: https://github.com/avwohl/z80cpmw/compare/0146d94...97d8350
+[Unreleased]: https://github.com/avwohl/z80cpmw/compare/f91f0fd...HEAD
+[1.0.21-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.20...f91f0fd
+[1.0.20]: https://github.com/avwohl/z80cpmw/compare/9a57708...v1.0.20
+[1.0.19]: https://github.com/avwohl/z80cpmw/compare/0146d94...9a57708
 [1.0.18-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.17-beta...0146d94
 [1.0.17-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.16-beta...v1.0.17-beta
 [1.0.16-beta]: https://github.com/avwohl/z80cpmw/compare/bbab303...v1.0.16-beta

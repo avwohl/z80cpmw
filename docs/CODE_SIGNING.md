@@ -1,7 +1,7 @@
-# Code Signing — z80cpmw beta installers
+# Code Signing — z80cpmw beta packages
 
 How the z80cpmw Windows builds get an Authenticode signature so testers don't see
-an "unknown publisher" warning when they run a beta installer.
+an "unknown publisher" warning when they install a beta build.
 
 We use **Azure Artifact Signing** (the service formerly called *Trusted Signing* /
 *Azure Code Signing*). The publisher identity is an **individual** developer
@@ -19,13 +19,18 @@ level that makes the signature valid on any normal Windows machine.
 
 ## What needs signing
 
-The beta vehicle is the **NSIS installer**, plus the app binary inside it. Both
-are PE files and both should be signed:
+The beta vehicle is the **signed MSIX sideload package**
+`dist\z80cpmw-<version>-beta.msix`, produced and signed in one step by
+`build-msix.ps1 -Beta` (see the two-vehicle policy below). The NSIS installer path
+(`packaging/scripts/build-nsis.ps1`) is retained for direct distribution but has
+not been released since v1.0.14; if it is revived, both of its PE files need
+signing:
 
 - `bin\Release\z80cpmw.exe` — the application binary. Sign it **before** NSIS
   packaging so the installed program is itself signed.
-- `dist\z80cpmw-<version>-setup.exe` — the NSIS installer testers download
-  (e.g. `z80cpmw-1.0.17-setup.exe`). Sign it **after** `makensis` builds it.
+- `dist\z80cpmw-<version>-setup.exe` — the NSIS installer testers download. The
+  version in the name comes from `z80cpmw\Version.h`, which `build-nsis.ps1`
+  parses. Sign it **after** `makensis` builds it.
 
 The **MSIX** package (`packaging/msix/`) follows a two-vehicle policy:
 
@@ -43,6 +48,10 @@ The **MSIX** package (`packaging/msix/`) follows a two-vehicle policy:
 > the cert subject in a staged manifest copy before packing (the committed
 > `AppxManifest.xml` is left untouched for Store submission). A beta build therefore
 > has a different package identity and installs side-by-side with a Store install.
+> The two channels can carry the *same* version number when they are the same
+> build — Store **1.0.22** and `dist\z80cpmw-1.0.22-beta.msix` hold a
+> byte-identical `z80cpmw.exe` — because it is the Publisher, not the number, that
+> separates the identities. Where the builds differ, the numbers must differ too.
 
 ---
 
@@ -57,7 +66,8 @@ Non-secret operational values — safe to keep in this public repo:
 - Data-plane endpoint: `https://eus.codesigning.azure.net/`
 - Identity / trust type: **Individual → Public Trust**
 - Certificate subject (CN): legal name from the Azure billing profile (**Aaron Wohl**)
-- Certificate profile name: `z80cpmw-public` *(planned — created in Step C below)*
+- Certificate profile name: `z80cpmw-public` *(created; in daily use — see the
+  signing kit's `metadata.json`)*
 
 Roles required and assigned (on the signing-account scope):
 
@@ -68,11 +78,13 @@ Both roles are assigned to the human Azure account **and** to the automation
 service principal. Neither role is inherited from Owner/Contributor — they must be
 granted explicitly.
 
-> **Secrets are NOT in this repo.** Subscription ID, tenant ID, the service
-> principal's app ID, and (especially) its client secret live only on the build
-> machine at `~/.azure-signing/sp.env` (file mode `600`). Never commit that file
-> or paste the secret anywhere. The SP secret expires ~1 year after creation
-> (created 2026-06-24) — rotate before then.
+> **Secrets are NOT in this repo.** The tenant ID, the service principal's app ID
+> and (especially) its client secret live only on the build machine, in the signing
+> kit at `C:\temp\in\z80cpmw-signing-kit\credentials.ps1` — outside the repo tree.
+> Override the kit location with `$env:Z80CPMW_SIGNING_KIT` or
+> `build-msix.ps1 -SigningKit <dir>`. Never commit that file or paste the secret
+> anywhere. The SP secret expires ~1 year after creation (created 2026-06-24) —
+> rotate before then.
 
 ---
 
@@ -81,15 +93,19 @@ granted explicitly.
 1. [x] Provider `Microsoft.CodeSigning` registered.
 2. [x] Signing account + resource group created.
 3. [x] Both signing roles assigned (human account + automation SP).
-4. [ ] **Identity validation** — Individual → Public, completed in the Azure
+4. [x] **Identity validation** — Individual → Public, **Completed** in the Azure
    portal. *Manual, cannot be scripted; requires a government photo ID via the
    Microsoft Authenticator app. One-time per identity, reusable across profiles.*
-5. [ ] **Certificate profile** `z80cpmw-public` (Public Trust) created.
+5. [x] **Certificate profile** `z80cpmw-public` (Public Trust) created — in use
+   today: the signing kit's `metadata.json` names it, and
+   `dist\z80cpmw-1.0.22-beta.msix` was signed and timestamped through it.
 
-Steps 4 and 5 gate all signing. Step 4 is a human portal action; step 5 is a one
--liner once step 4 shows **Completed** (see below).
+Setup is complete and signing works today: `build-msix.ps1 -Beta` produces a
+signed, timestamped sideload MSIX through the signing kit, with no manual
+credential step. The `az` command below is kept as the record of how the profile
+was created, and as the recipe if it ever has to be recreated.
 
-### Step C — create the certificate profile (after identity validation Completed)
+### How `z80cpmw-public` was created (historical — the profile already exists; do not re-run)
 
 Get the `identityValidationId` from the portal (the completed Individual/Public
 validation), then:
@@ -106,7 +122,7 @@ az trustedsigning certificate-profile create \
 
 Use `--profile-type PublicTrustTest` only for *inner-loop* pipeline tests — those
 certs are **not** publicly trusted and will still warn on testers' machines. For
-beta installers that leave your machine, use `PublicTrust`.
+beta packages that leave your machine, use `PublicTrust`.
 
 ---
 
@@ -124,22 +140,31 @@ explicitly (shown below).
 ### Authentication
 
 The signer authenticates as either your interactive `az login` or the automation
-service principal. For the SP:
+service principal. The SP's credentials live in the signing kit as a PowerShell
+script — there is no POSIX-sourceable env file anywhere:
 
-```bash
-source ~/.azure-signing/sp.env        # sets AZURE_CLIENT_ID / TENANT_ID / CLIENT_SECRET / SUBSCRIPTION_ID
-az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" -t "$AZURE_TENANT_ID"
+```powershell
+. "C:\temp\in\z80cpmw-signing-kit\credentials.ps1"   # sets AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET
 ```
 
+That file sets no subscription ID, and nothing here needs one. The kit's
+`sign.ps1` dot-sources `credentials.ps1` itself, so the normal
+`build-msix.ps1 -Beta` flow needs no manual credential step at all — the line
+above is only for signing something by hand.
+
 The Microsoft signtool/dotnet-sign tooling also reads those same `AZURE_*` env
-vars directly via DefaultAzureCredential — no explicit `az login` needed if the
-env file is sourced.
+vars directly via DefaultAzureCredential, so no explicit `az login` is needed once
+they are set. For an `az` session under the same identity:
+
+```powershell
+az login --service-principal -u "$env:AZURE_CLIENT_ID" -p "$env:AZURE_CLIENT_SECRET" -t "$env:AZURE_TENANT_ID"
+```
 
 ### Option 1 — Windows: `signtool` + Trusted Signing dlib  *(integrates with the existing build scripts)*
 
 This is the most native path for this project because the build already runs on
 Windows (MSBuild + the PowerShell packaging scripts), and `build-msix.ps1` already
-shells out to `signtool`.
+drives `signtool` (through the signing kit) for `-Beta`.
 
 1. Install the dlib (one-time). Either the NuGet package
    `Microsoft.Trusted.Signing.Client` (gives `bin\x64\Azure.CodeSigning.Dlib.dll`)
@@ -148,6 +173,9 @@ shells out to `signtool`.
    ```powershell
    Install-Module -Name TrustedSigning -Scope CurrentUser
    ```
+
+   The signing kit already bundles the dlib in `dlib\`, so this is only needed on
+   a build machine that does not have the kit.
 
 2. Create a metadata file `trusted-signing.json` next to the build:
 
@@ -159,21 +187,24 @@ shells out to `signtool`.
    }
    ```
 
-3. Sign (run once for the inner exe, once for the finished installer):
+   This is exactly the kit's `metadata.json`.
+
+3. Sign — one invocation per file. This is the command shape the kit's `sign.ps1`
+   runs:
 
    ```bat
    signtool.exe sign /v /fd SHA256 ^
      /tr "http://timestamp.acs.microsoft.com" /td SHA256 ^
      /dlib "<path>\Azure.CodeSigning.Dlib.dll" ^
      /dmdf "<path>\trusted-signing.json" ^
-     "dist\z80cpmw-1.0.17-setup.exe"
+     "dist\z80cpmw-1.0.22-beta.msix"
    ```
 
 Where to hook it into the existing scripts:
 
-- `packaging/scripts/build-nsis.ps1`: sign `bin\Release\z80cpmw.exe` right after
-  the MSBuild step (Step 1), and sign the moved `dist\...-setup.exe` at the end
-  (after Step 5).
+- `packaging/scripts/build-nsis.ps1` (not currently wired up): sign
+  `bin\Release\z80cpmw.exe` right after the MSBuild step (Step 1), and sign the
+  moved `dist\...-setup.exe` at the end (after Step 5).
 - `packaging/scripts/build-msix.ps1`: the `-Beta` switch already wires this in — it
   rewrites the manifest Publisher to the cert subject, packs, then calls the signing
   kit's `sign.ps1` (signtool + dlib) and verifies. The kit folder defaults to
@@ -185,7 +216,7 @@ Where to hook it into the existing scripts:
 
 ```powershell
 dotnet tool install --global sign --prerelease
-sign code trusted-signing "dist\z80cpmw-1.0.17-setup.exe" `
+sign code trusted-signing "bin\Release\z80cpmw.exe" `
   --trusted-signing-endpoint https://eus.codesigning.azure.net/ `
   --trusted-signing-account ms-code-sign-account `
   --trusted-signing-certificate-profile z80cpmw-public
@@ -202,15 +233,19 @@ Notes:
 ### Option 3 — `jsign` (cross-platform: Linux build box or CI)
 
 `jsign` is a Java Authenticode signer that supports Artifact/Trusted Signing and
-runs anywhere, so it can sign the NSIS installer and the app exe from the Linux
-build box or a Linux CI runner. (It does **not** sign MSIX.)
+runs anywhere, so it can sign the app exe (and the NSIS installer, if that path is
+revived) from the Linux build box or a Linux CI runner. It does **not** sign MSIX,
+which is the current beta vehicle — so this option cannot produce a beta package
+on its own.
 
 ```bash
 # Install (Ubuntu): download the .deb from https://github.com/ebourg/jsign/releases
 #   sudo apt install ./jsign_<ver>_all.deb        # needs a Java 8+ runtime
 # or run the standalone jar: java -jar jsign-<ver>.jar ...
 
-source ~/.azure-signing/sp.env
+# There is no env file to source on Linux: copy AZURE_TENANT_ID / AZURE_CLIENT_ID /
+# AZURE_CLIENT_SECRET out of the signing kit's credentials.ps1 and export them.
+export AZURE_TENANT_ID=... AZURE_CLIENT_ID=... AZURE_CLIENT_SECRET=...
 az login --service-principal -u "$AZURE_CLIENT_ID" -p "$AZURE_CLIENT_SECRET" -t "$AZURE_TENANT_ID"
 TOKEN=$(az account get-access-token --resource https://codesigning.azure.net --query accessToken -o tsv)
 
@@ -219,7 +254,7 @@ jsign \
   --keystore  https://eus.codesigning.azure.net \
   --storepass "$TOKEN" \
   --alias     "ms-code-sign-account/z80cpmw-public" \
-  z80cpmw-1.0.17-setup.exe
+  bin/Release/z80cpmw.exe
 ```
 
 > **No trailing slash on `--keystore`.** jsign concatenates the path onto this
@@ -229,7 +264,7 @@ jsign \
 `jsign` timestamps automatically with this storetype. The access token is
 short-lived (~1 hour), so fetch it right before signing.
 
-This exact command has been verified end-to-end from Linux: it signs a real
+A command of this shape has been verified end-to-end from Linux: it signs a real
 z80cpmw PE with the Public Trust cert (subject `CN=Aaron Wohl, …`) and an embedded
 Microsoft RFC-3161 timestamp.
 
@@ -237,9 +272,13 @@ Microsoft RFC-3161 timestamp.
 
 ## Verify a signature
 
-- Windows: `signtool verify /pa /v "dist\z80cpmw-1.0.17-setup.exe"`, or right-click
-  the file → **Properties → Digital Signatures**.
-- Cross-platform: `osslsigncode verify z80cpmw-1.0.17-setup.exe`.
+- Windows: `signtool verify /pa /v "dist\z80cpmw-1.0.22-beta.msix"`, or
+  `.\sign.ps1 -Verify <file>` from the signing kit, or right-click the file →
+  **Properties → Digital Signatures**.
+- Cross-platform, PE files only — `osslsigncode` cannot read an MSIX:
+  `osslsigncode verify <a signed .exe>`. Nothing in this tree currently qualifies:
+  `bin\Release\z80cpmw.exe` is unsigned (the exe is signed only inside the signed
+  MSIX), and the packages in `dist\` are MSIX.
 
 > On Linux, `osslsigncode verify` exits non-zero with "unable to get local issuer
 > certificate" because the box lacks Microsoft's root CAs — this is a local
@@ -255,7 +294,9 @@ present, valid countersignature (timestamp).
 
 ## Security checklist
 
-- Never commit `~/.azure-signing/` or any client secret / access token.
+- Never commit the signing kit (`C:\temp\in\z80cpmw-signing-kit\`, especially
+  `credentials.ps1`) or any client secret / access token. Keep the kit outside the
+  repo tree.
 - Keep the SP scoped and rotate its secret before it expires (~2027-06-24).
 - Prefer signing with the SP (`Certificate Profile Signer` role) over broad
   credentials.

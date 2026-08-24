@@ -6,9 +6,14 @@ features so the other ports can reach parity. Point a coding agent in a sibling
 repo at this file (raw URL works) and have it implement the gaps against the
 referenced z80cpmw source.
 
-**One item now runs the other way.** Terminal emulation (item 13) is no longer a
-Windows strength: `ioscpm` and `cpmdroid` both implement VT52 plus a much fuller
-VT100 than this repo does. For that item the reference source is theirs, not ours.
+**Item 13 has been closed from this side.** Terminal emulation used to be the
+one row where the mobile ports led: `ioscpm` wrote the VT100/VT52 parser and
+`cpmdroid` extended it. z80cpmw ported that work back in **1.0.20**, which
+reached users as the signed sideload beta **1.0.21-beta** and then, from a
+single build, as Store **1.0.22** and sideload **1.0.22-beta** (both
+2026-08-23). All three front ends now cover VT52, DECSTBM, deferred autowrap
+and the answerbacks; what still differs is the per-port detail listed in item
+13, which is why this repo's row 13 is marked ◐ rather than ✅.
 
 Last reviewed: **2026-08-07**. On that date the **Android (`cpmdroid`) column was
 re-verified against that port's source**, at commit `c26aeb7` (version 1.19 /
@@ -297,7 +302,8 @@ In-app help fetched from GitHub, with offline bundled topics.
   menu. **Note the boot-unit numbering:** with the EMU AVW ROM the on-board RAM/ROM
   disks are units 0 and 1, so the first hard disk is unit **2** — see this repo's
   Getting Started help for the user-facing wording.
-- **Where:** `z80cpmw/EmulatorEngine*.cpp` (`clearNvramSetting`, `setBootString`),
+- **Where:** `z80cpmw/EmulatorEngine.cpp` (`clearNvramSetting`) and
+  `z80cpmw/EmulatorEngine.h` (`setBootString`, inline),
   config `core.bootString`. (ioscpm already has NVRAM boot config.)
 - **Verified Android behaviour (2026-08-07):** NVRAM persistence is **present**.
   `EmulatorEngine` exposes the string-based native API
@@ -411,8 +417,8 @@ parser and `cpmdroid` extended it - but it has now caught up.
     `>`) used to be treated as a *final* byte, so `ESC [ ? 2 5 l` ended at the
     `?` and printed `25l` as text — which meant nothing beginning `ESC[?` could
     ever work, DECANM included. DECTCEM (`?25`) now hides the cursor for real,
-    through a flag separate from the blink phase. Covered by
-    `test_vt52.cpp` (27 checks, headless, built by `compile_test_vt52.cmd`).
+    through a flag separate from the blink phase. Covered by the conformance
+    suite described below.
 
     The rest followed: CSI `G`/`` ` ``/`d`, `L M P @ X S T`, and `r`
     (**DECSTBM**), with LF, IND and RI honouring the region and a partial region
@@ -426,23 +432,29 @@ parser and `cpmdroid` extended it - but it has now caught up.
     LF implies CR, matching both mobile ports, so an LF-only text file no longer
     stair-steps.
 
-    Covered by `test_vt52.cpp`: **73 checks**, headless, built and run by
-    `compile_test_vt52.cmd`. It drives the terminal through the public interface
-    only — cursor state is read back with `ESC [ 6 n`, which puts the answerback
-    under test rather than assuming it, and screen content through `cellAt()`.
+    Covered by a headless conformance suite of **73 checks** (see CHANGELOG
+    [1.0.20]), which is **not committed to this repository** — the only test
+    harness here is `test_emu.cpp` / `compile_test.cmd`. The suite drives the
+    terminal through the public interface only — cursor state is read back
+    with `ESC [ 6 n`, which puts the answerback under test rather than assuming
+    it, and screen content through `cellAt()`.
 
-    **Still missing here:** the parser input is unbounded where `cpmdroid`'s
-    caps params, digits and intermediates; there is no per-cell attribute
-    beyond the packed CGA byte; and `clear()` still resets the attribute and
-    escape state, which `ESC [ 2 J` alone should not do.
+    **Still missing here:** there is no per-cell attribute beyond the packed
+    CGA byte, and `clear()` still resets the attribute and escape state, which
+    `ESC [ 2 J` alone should not do. Parser input is bounded here —
+    `MAX_CSI_PARAMS` 16 and `MAX_CSI_PARAM_DIGITS` 6 in `TerminalView.cpp`,
+    with intermediates consumed rather than accumulated.
   - **romwbw_emu** — CLI writes bytes straight to the host terminal
     (`emu_io_cli.cc`, `putchar`), so the host terminal is the emulation; the web
     build uses **xterm.js 5.3** (`web/romwbw.html-template`), which is a far more
     complete VT than any of the native front ends.
 - **Parity target:** the mobile ports' coverage, i.e. run WordStar and Zork
-  without the screen breaking up. **The gap here is z80cpmw's**, and the fix is a
-  port in the reverse direction, from `TerminalView.kt` / `EmulatorViewModel.swift`
-  back into `TerminalView.cpp`.
+  without the screen breaking up. **That port is done** — `TerminalView.kt` /
+  `EmulatorViewModel.swift` were pulled back into `TerminalView.cpp` in 1.0.20,
+  which is the code in the current Store **1.0.22** and sideload
+  **1.0.22-beta** packages. What keeps this repo's row at ◐ is only the
+  residue listed above: no per-cell attribute beyond the packed CGA byte, and
+  `clear()` resetting the attribute and escape state.
 
 ---
 

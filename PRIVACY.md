@@ -1,6 +1,6 @@
 # Privacy Policy for Z80CPM
 
-**Last updated:** July 23, 2026
+**Last updated:** August 23, 2026
 
 ## Overview
 
@@ -21,8 +21,9 @@ Specifically, the application:
 ## Local Storage
 
 The application stores the following on your device only, in its user data folder
-(`%LOCALAPPDATA%\z80cpmw\`, redirected to the package's `LocalCache` on the
-Microsoft Store build):
+(`%LOCALAPPDATA%\z80cpmw\`, redirected into the package container —
+`…\Packages\AaronWohl.Z80CPM_<hash>\LocalCache\Local\z80cpmw\` — on any MSIX
+install, whether from the Microsoft Store or the signed sideload beta):
 
 - **Settings** — your preferences (fonts, window position, keyboard map, ROM/disk
   assignments) in `z80cpmw.json`.

@@ -2,16 +2,22 @@
 
 Working notes / handoff for the current round of changes. Not user-facing docs.
 
-> **Historical (as of 2026-07-23).** This file captures the 1.0.15 round; the app
-> is now at **1.0.17** (see `CHANGELOG.md`). The "open question" below about W8
+> **Historical (as of 2026-08-23).** This file captures the 1.0.15 round; the app
+> is now at **1.0.22**, the Microsoft Store release published 2026-08-23 (the
+> current signed sideload package is 1.0.22-beta, the same build under our own
+> publisher) — see `CHANGELOG.md`. The "open question" below about W8
 > paths under MSIX is **resolved** — the behaviour is confirmed in source and
 > documented for users in [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md). Kept
 > for context; not a to-do list anymore.
 
 ## Status
 
-Version bumped to **1.0.15** (`Version.h`, `AppxManifest.xml`, `z80cpmw.nsi`).
-Superseded — current version is 1.0.17.
+Version bumped to **1.0.15** (at the time: `Version.h`, `AppxManifest.xml`,
+`z80cpmw.nsi`). Superseded — the current version is 1.0.22, released to the
+Microsoft Store on 2026-08-23, with the same build signed for sideloading as
+1.0.22-beta. Since `31d01c6` the version is edited only in `z80cpmw/Version.h`;
+`packaging/scripts/build-msix.ps1` and `build-nsis.ps1` derive the manifest and
+installer versions from it.
 
 Committed to `master` and **pushed** through `b4c36d2`:
 
@@ -19,13 +25,13 @@ Committed to `master` and **pushed** through `b4c36d2`:
 | ------- | ---- |
 | 1f44e20 | Configurable keymap (termcap-style), mouse copy/paste, fix About data-folder path |
 | bbab303 | Document config in README + docs/CONFIGURATION.md + online help; bump 1.0.15 |
-| e463fb5 | Move startup instructions to scrollable Help (terminal has no scrollback); DPI-size Help window; first-run auto-open |
+| e463fb5 | Move startup instructions to scrollable Help (the terminal had no scrollback then); DPI-size Help window; first-run auto-open |
 | db03984 | Remember main window position/size across runs (with monitor-change / off-screen reset) |
 | b4c36d2 | Auto-size window to the 80x25 grid on font change (and as the default size) |
 
-Installer built (untracked, in `dist/`): **`dist/z80cpmw-1.0.15-setup.exe`** (ProductVersion 1.0.15, bundles `bin\Release\z80cpmw.exe` 1.0.15.0). MSIX **not** rebuilt yet (`packaging/scripts/build-msix.ps1` available; manifest already at 1.0.15.0).
+Installer of that round (untracked, no longer present): `dist/z80cpmw-1.0.15-setup.exe` (ProductVersion 1.0.15, bundled `bin\Release\z80cpmw.exe` 1.0.15.0). `dist/` now holds `z80cpmw.msix` (the unsigned Store package, Identity 1.0.22.0), the signed sideload packages `z80cpmw-1.0.22-beta.msix` and `z80cpmw-1.0.21-beta.msix`, and `z80cpmw-1.0.21-beta.pdb`; `bin\Release\z80cpmw.exe` is 1.0.22.0. The MSIX has since been rebuilt through 1.0.22 by `packaging/scripts/build-msix.ps1`, which parses `z80cpmw/Version.h` and injects the version into a staged copy of the manifest — the committed `packaging/msix/AppxManifest.xml` deliberately keeps the placeholder `Version="0.0.0.0"`.
 
-Local debug build for testing: `bin\Debug\z80cpmw.exe`.
+Local debug build for testing: `bin\Debug\z80cpmw.exe` (currently a 1.0.19.0 build). This checkout cannot be rebuilt as it stands: `z80cpmw/z80cpmw.vcxproj` uses `PlatformToolset` `v145` (Visual Studio 18) and expects the wxWidgets headers under `C:\temp\vcpkg\installed\x64-windows\include`, and that vcpkg tree is not present on this machine.
 
 ## RESOLVED — where do W8 files land on the Store/MSIX build?
 
@@ -62,12 +68,14 @@ Therefore:
 - [ ] Cross-check that path against what About / Settings → Open Folder / boot banner display (they should all agree).
 - [ ] `R8 C:\Users\<you>\Desktop\getkey2.com` → confirm read of an arbitrary user-path file works.
 
-### Follow-up (pending user decision)
-- Offered but NOT yet done: add a one-line clarification to the Getting Started / Configuration help —
-  *"Full paths to your own files (Desktop, Documents…) work even on the Store version; only bare names go to the app's redirected data folder."*
-  Decide after the test confirms behavior.
+### Follow-up (done)
+- Shipped: the clarification is in the bundled Getting Started help
+  (`z80cpmw/HelpWindow.cpp`, section "File Transfer (R8 / W8)") — a full path is
+  recommended, and a bare name uses the app's data folder, whose exact location
+  (which the Store build redirects) is shown in Emulator > Settings and Help >
+  About.
 
 ## Other pending / not done
-- Not pushed past `b4c36d2` (nothing newer to push except this WIP doc, which is committed but per request **not pushed**).
-- MSIX 1.0.15 package not rebuilt.
+- Everything through `f91f0fd` (1.0.21) is committed and pushed; `master` tracks `origin/master` with nothing ahead. Uncommitted as of 2026-08-23: the 1.0.22 bump in `z80cpmw/Version.h`, plus the documentation sweep that went with the release - `README.md`, `CHANGELOG.md`, this file, `NOTES.md`, `PRIVACY.md`, `FEATURE_PARITY.md`, `docs/CODE_SIGNING.md`, `docs/CONFIGURATION.md`, `docs/FILE_TRANSFER.md`, `packaging/STORE_SUBMISSION.md` and both packaging scripts.
+- MSIX packaging has moved on: 1.0.20 (built and tagged, published on neither channel), 1.0.21-beta (signed sideload, `dist/z80cpmw-1.0.21-beta.msix`), and 1.0.22 — `dist/z80cpmw.msix` went to the Store on 2026-08-23 and the same build is signed for sideloading as `dist/z80cpmw-1.0.22-beta.msix`, which has not been published as a GitHub release yet.
 - GUI behaviors not auto-verified (keystroke delivery to CP/M, mouse copy/paste rendering, first-run Help auto-open visuals) — need a hands-on pass.

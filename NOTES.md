@@ -27,8 +27,13 @@ per-monitor DPI-v2 (verified stable across save/restore/save).
 
 ## Startup Instructions Moved to Scrollable Help (June 2026)
 
-The terminal is a fixed 25x80 grid with no scrollback, so a long startup banner
-scrolled its first lines off-screen permanently. Fixed by:
+> **Update (2026-08):** the terminal gained scrollback in 1.0.16-beta — 1000
+> lines by default, scrolled with the mouse wheel or Shift+PageUp, and changed
+> or turned off through `display.scrollbackLines` (Emulator > Settings). The
+> short banner and the bundled Help topics below stayed as they are.
+
+The terminal is a fixed 25x80 grid and had no scrollback at the time, so a long
+startup banner scrolled its first lines off-screen permanently. Fixed by:
 
 - Shrinking the terminal banner (MainWindow::showStartupInstructions) to a few
   lines that fit, pointing at F1 / Help for the full guide.
@@ -115,7 +120,8 @@ H_WRITE  = 0xE4  ; Write byte (E=byte)
 H_CLOSE  = 0xE5  ; Close file (C=0 read, C=1 write)
 ```
 
-Files are read/written to the data folder: `%LocalAppData%\z80cpmw\data\`
+Bare filenames are read/written in the data folder: `%LocalAppData%\z80cpmw\data\`
+(absolute, UNC and rooted paths are used verbatim — see the update above).
 
 ### MP/M2 Limitation
 
@@ -139,7 +145,9 @@ All user data is stored in `%LocalAppData%\z80cpmw\`:
 
 ```
 %LocalAppData%\z80cpmw\
-  z80cpmw.ini          - Settings file
+  z80cpmw.json         - Settings file (a legacy z80cpmw.ini is migrated once,
+                         then renamed z80cpmw.ini.bak)
+  profiles\            - Saved configuration profiles
   data\                - Disk images and file transfers
     hd1k_combo.img     - Downloaded disk images
     hd1k_games.img

@@ -8,12 +8,14 @@ z80cpmw keeps its settings in a JSON file you can edit by hand:
 
 **Finding it:** *Emulator → Settings → Open Folder* opens the **data** folder
 (`...\z80cpmw\data`, where disks and R8/W8 transfers live). The `z80cpmw.json`
-file is one level up, in the `z80cpmw` folder. On the Microsoft Store build both
-are redirected under
-`...\Packages\AaronWohl.Z80CPM_<hash>\LocalCache\Local\z80cpmw\`. You don't need
-to know that path — the app shows the real, resolved data-folder location in
-*Settings* (a copyable field) and in *Help → About*. For R8/W8 file transfer
-specifically, see [FILE_TRANSFER.md](FILE_TRANSFER.md).
+file is one level up, in the `z80cpmw` folder. On any MSIX install — the
+Microsoft Store build or the signed sideload beta — both are redirected under
+`...\Packages\AaronWohl.Z80CPM_<hash>\LocalCache\Local\z80cpmw\`. The `<hash>`
+is derived from the package publisher, so the Store build and the beta get
+different ones and can be installed side by side. You don't need to know that
+path — the app shows the real, resolved data-folder location in *Settings* (a
+copyable field) and in *Help → About*. For R8/W8 file transfer specifically,
+see [FILE_TRANSFER.md](FILE_TRANSFER.md).
 
 Close z80cpmw before editing the file, then restart for changes to take effect.
 (The same settings, including the keyboard map, are also viewable in-app from

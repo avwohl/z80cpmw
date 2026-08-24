@@ -31,20 +31,36 @@ The `Publisher` is a Microsoft-assigned GUID, **not** a certificate you own — 
 
 ### Required Assets
 
-Run `packaging\scripts\generate-icons.ps1` to create placeholder icons, then replace with final designs:
+The assets in `packaging/msix/Assets` are final, not placeholders. The package
+logos were produced by `packaging\scripts\convert-icons.ps1` from the shared app
+icon and are the ones in the current 1.0.22 build. Do **not** run
+`generate-icons.ps1` over that folder: its default output directory is that same
+folder and it writes placeholders on top of the real artwork. `build-msix.ps1`
+generates icons only when `Assets\StoreLogo.png` is missing.
 
 | Asset | Size | Status |
 |-------|------|--------|
-| Square44x44Logo.png | 44x44 | Generated (placeholder) |
-| Square71x71Logo.png | 71x71 | Generated (placeholder) |
-| Square150x150Logo.png | 150x150 | Generated (placeholder) |
-| Square310x310Logo.png | 310x310 | Generated (placeholder) |
-| Wide310x150Logo.png | 310x150 | Generated (placeholder) |
-| StoreLogo.png | 50x50 | Generated (placeholder) |
-| SplashScreen.png | 620x300 | Generated (placeholder) |
+| Square44x44Logo.png | 44x44 | Final (shipped) |
+| Square71x71Logo.png | 71x71 | Final (shipped) |
+| Square150x150Logo.png | 150x150 | Final (shipped) |
+| Square310x310Logo.png | 310x310 | Final (shipped) |
+| Wide310x150Logo.png | 310x150 | Final (shipped) |
+| StoreLogo.png | 50x50 | Final (shipped) |
+| SplashScreen.png | 620x300 | Final (shipped) |
 
 **Additional scaled versions** (for high DPI):
-- Scale-100, 125, 150, 200, 400 versions of key icons
+- Scale-100, 125, 150, 200, 400 versions of `Square44x44Logo` and `Square150x150Logo`
+
+The same folder also holds the Store listing artwork. Nothing in the manifest
+references it, but `build-msix.ps1` copies the whole folder, so it rides along
+inside the package:
+
+| Asset | Size | Status |
+|-------|------|--------|
+| AppTile_300x300.png | 300x300 | Final (listing art) |
+| BoxArt_1080x1080.png, BoxArt_2160x2160.png | 1080x1080, 2160x2160 | Final (`create-boxart.ps1`) |
+| Poster_720x1080.png, Poster_1440x2160.png | 720x1080, 1440x2160 | Final (`create-poster.ps1`) |
+| screenshot1.png | 824x656 | Under the minimum listed below; recapture before uploading |
 
 ### Store Listing Content
 
@@ -152,21 +168,20 @@ and the beta signing commands.
 # From the repository root
 cd packaging\scripts
 
-# Generate icons (first time only)
-.\generate-icons.ps1
+# The Store assets and z80cpmw\z80cpmw.ico are committed and final. Do NOT run
+# generate-icons.ps1 or create-ico.ps1 over them - both write placeholders, and
+# create-ico.ps1 overwrites the .ico that is compiled into the exe.
 
-# Create icon file
-.\create-ico.ps1
-
-# Build MSIX package
+# Build MSIX package (Store identity, unsigned)
 .\build-msix.ps1 -Configuration Release
 ```
 
 Output: `dist\z80cpmw.msix` — this is the **Store** package (Store identity,
 unsigned). Upload it as-is; Microsoft signs it. For the signed **beta** package
 (sideloading), run `.\build-msix.ps1 -Beta` instead, which emits
-`dist\z80cpmw-<version>-beta.msix` — do **not** upload that one to the Store (see
-[Signing](#signing-who-signs-what)).
+`dist\z80cpmw-<version>-beta.msix` (currently `dist\z80cpmw-1.0.22-beta.msix`,
+the same binary as Store 1.0.22 signed under our own publisher) — do **not**
+upload that one to the Store (see [Signing](#signing-who-signs-what)).
 
 ### NSIS Installer (for direct distribution)
 
@@ -179,7 +194,13 @@ cd packaging\scripts
 
 Output: `dist\z80cpmw-<version>-setup.exe`
 
+The NSIS installer is not the current distribution vehicle: direct downloads are
+served as the signed beta MSIX, and no `-setup.exe` has been released since
+v1.0.14.
+
 ## Store Submission Steps
+
+### First submission — already completed, do not repeat
 
 1. **Reserve App Name**
    - Go to Partner Center > Apps and games > New product
@@ -191,7 +212,12 @@ Output: `dist\z80cpmw-<version>-setup.exe`
      - Package/Identity/Name
      - Package/Identity/Publisher
      - Package/Properties/PublisherDisplayName
-   - Update `packaging\msix\AppxManifest.xml` with these values
+   - Done: those values are committed in `packaging\msix\AppxManifest.xml`
+     (`Name="AaronWohl.Z80CPM"`,
+     `Publisher="CN=724C9014-DD22-420E-9BB4-F2740D082EB0"`, PublisherDisplayName
+     `Aaron Wohl`) and must not be edited. The committed `Version` stays
+     `0.0.0.0` by design: `build-msix.ps1` injects the real version into a staged
+     copy of the manifest and never writes to the committed file.
 
 3. **Create Submission**
    - Pricing: Free or Paid
@@ -199,11 +225,28 @@ Output: `dist\z80cpmw-<version>-setup.exe`
    - Upload screenshots and descriptions
    - Complete age rating questionnaire
 
+### Every update — the current flow
+
+The Store carried 1.0.14, then 1.0.19, and now **1.0.22**, published 2026-08-23.
+
+1. **Pick the version**
+   - Bump `z80cpmw/Version.h` to a number free on both channels (see
+     [Version numbers](#version-numbers)). Nothing else records a version.
+
+2. **Rebuild Release**
+   - `build-msix.ps1` refuses to package a `bin\Release\z80cpmw.exe` whose
+     version does not match `Version.h`.
+
+3. **Build the package**
+   - `cd packaging\scripts` then `.\build-msix.ps1 -Configuration Release`,
+     which writes `dist\z80cpmw.msix`.
+
 4. **Upload Package**
-   - Upload the `.msix` file
-   - Partner Center validates and signs the package
+   - Partner Center > Z80CPM > New submission, and upload `dist\z80cpmw.msix`
+     **unsigned** — Microsoft validates and re-signs it.
 
 5. **Submit for Certification**
+   - Update the release notes, then submit.
    - Microsoft reviews within 1-3 business days
    - Address any certification failures
 
@@ -232,6 +275,19 @@ The version lives in exactly one file: `z80cpmw/Version.h`. Edit the four
 them and inject the result into the package manifest and the installer, and both
 refuse to run if the number does not match the compiled `bin\Release\z80cpmw.exe`.
 
+A `-beta` suffix names the signed sideload/GitHub package and a bare number names
+the Microsoft Store release. `build-msix.ps1 -Beta` rewrites the manifest
+`Publisher` to the signing-cert subject, so the two are separate package
+identities that install side by side. They share a version number only when they
+carry the same build — as 1.0.22 does, where `dist\z80cpmw.msix` and
+`dist\z80cpmw-1.0.22-beta.msix` hold the same `z80cpmw.exe`; where the builds
+differ, the numbers must differ too. As of 2026-08-23 the Store carries
+**1.0.22** and the current sideload package is **1.0.22-beta**, so the next
+change on either channel takes 1.0.23 or later. Check both channels before
+bumping: the recent Store releases (1.0.19, 1.0.22) carry no git tag and no
+GitHub release, while the older ones (1.0.10, 1.0.14) do, so `git tag` and
+`gh release list` are not evidence of what has shipped.
+
 The `Version` in the committed `AppxManifest.xml` is a `0.0.0.0` placeholder, so
 a package built by any route other than `build-msix.ps1` carries a version the
 Store will reject rather than a wrong one it would accept. `z80cpmw.nsi` has no
@@ -246,12 +302,15 @@ field.
 packaging/
 ├── msix/
 │   ├── AppxManifest.xml      # MSIX package manifest (version is a placeholder)
-│   └── Assets/               # Store icons (generated)
+│   └── Assets/               # Store icons and listing art (final)
 ├── nsis/
 │   └── z80cpmw.nsi          # NSIS installer script
 ├── scripts/
-│   ├── generate-icons.ps1   # Generate Store icons
-│   ├── create-ico.ps1       # Create Windows .ico
+│   ├── convert-icons.ps1    # Produced the final Store assets and z80cpmw.ico
+│   ├── create-boxart.ps1    # Store listing box art
+│   ├── create-poster.ps1    # Store listing poster art
+│   ├── generate-icons.ps1   # Placeholder icons (do not run over the final assets)
+│   ├── create-ico.ps1       # Placeholder .ico (superseded by convert-icons.ps1)
 │   ├── build-msix.ps1       # Build MSIX package
 │   └── build-nsis.ps1       # Build NSIS installer
 └── STORE_SUBMISSION.md      # This file

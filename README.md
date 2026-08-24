@@ -4,16 +4,18 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
 
 ## Download
 
-- **Beta — recommended right now:**
-  [z80cpmw-1.0.17-beta.msix](https://github.com/avwohl/z80cpmw/releases/download/v1.0.17-beta/z80cpmw-1.0.17-beta.msix)
-  — download and double-click to install. Signed; installs side-by-side with the
-  Store version and updates in place over any earlier beta. Fixes the silent crash
-  on F5 ([#1](https://github.com/avwohl/z80cpmw/issues/1))
-  and the Load/Save Profile crash ([#2](https://github.com/avwohl/z80cpmw/issues/2)),
-  and adds terminal paste, scrollback, and a configurable keyboard map.
-- **Microsoft Store:** search for **Z80CPM**. The Store currently has **v1.0.14**,
-  which predates the fixes and features above; it will be updated once the beta
-  settles. This README describes the beta.
+- **Microsoft Store — recommended:** search for **Z80CPM**. The Store has
+  **v1.0.22**, released 2026-08-23. Microsoft signs it and it updates itself, so
+  this is the easiest way in for most people.
+- **Signed sideload beta:**
+  [z80cpmw-1.0.22-beta.msix](https://github.com/avwohl/z80cpmw/releases/download/v1.0.22-beta/z80cpmw-1.0.22-beta.msix)
+  — for machines that cannot install from the Store. This is the **same binary**
+  as Store v1.0.22, repackaged and signed for sideloading. Download and
+  double-click; the Azure Trusted Signing certificate chains to a Microsoft
+  public root, so no developer mode and no certificate import are needed.
+- The two packages carry different publishers, so the sideload build installs
+  **side-by-side** with a Store install rather than replacing it, and it updates
+  in place over any earlier beta. Uninstall whichever you do not want.
 - All releases: [github.com/avwohl/z80cpmw/releases](https://github.com/avwohl/z80cpmw/releases)
 - What changed in each version: [CHANGELOG.md](CHANGELOG.md)
 
@@ -21,7 +23,10 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
 
 - Z80 CPU emulation with accurate timing
 - RomWBW HBIOS emulation
-- VT100-compatible terminal display (25x80) with scrollback (mouse wheel / Shift+PageUp)
+- VT100/VT52-compatible terminal display (25x80) with scrollback (mouse wheel / Shift+PageUp)
+- VT52 emulation, auto-detected from any VT52-exclusive sequence
+- Scrolling region (DECSTBM), deferred autowrap (DECAWM), and answerback for
+  cursor-position, status and identify queries
 - Support for CP/M, ZSDOS, and other operating systems
 - Multiple ROM images included
 - Disk image support (up to 64MB hd1k format)
@@ -31,10 +36,27 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
 ## Building
 
 Requirements:
-- Visual Studio 2022 or later
+- Visual Studio 18 or later (the project sets `PlatformToolset` to `v145`)
 - Windows SDK 10.0 or later
+- **wxWidgets 3.3 (x64)**, installed through vcpkg. `z80cpmw.vcxproj` hard-codes
+  the include and library paths to `C:\temp\vcpkg\installed\x64-windows\`, so
+  either install vcpkg there or edit `AdditionalIncludeDirectories` /
+  `AdditionalLibraryDirectories` to match your own location. Without it the
+  build stops at `SettingsDialogWx.h(9): fatal error C1083: Cannot open include
+  file: 'wx/wx.h'`.
+- The sibling repositories [`cpmemu`](https://github.com/avwohl/cpmemu) and
+  [`romwbw_emu`](https://github.com/avwohl/romwbw_emu) checked out **next to**
+  this one: the project compiles emulator sources directly from
+  `..\cpmemu\src` and `..\romwbw_emu\src`.
 
 Open `z80cpmw.sln` in Visual Studio and build the solution.
+
+Packaging is scripted: `packaging\scripts\build-msix.ps1` builds the unsigned
+Store package, and `-Beta` builds and signs the sideload package instead. Pass
+`-SkipBuild` to package an existing `bin\Release` without rebuilding — the
+script checks the binary's version against `z80cpmw/Version.h` and refuses a
+mismatch. See [packaging/STORE_SUBMISSION.md](packaging/STORE_SUBMISSION.md) and
+[docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
 ## Usage
 
