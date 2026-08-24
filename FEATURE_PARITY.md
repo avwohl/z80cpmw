@@ -40,7 +40,28 @@ were re-checked against source and are unchanged, so item 4's `ioscpm`
 paragraph, written on **2026-07-23**, still holds: `R8`/`W8` use the
 `Imports`/`Exports` folders with no picker.
 
-`romwbw_emu`'s column remains an older best-effort reading.
+**The Linux/Web `romwbw_emu` column was swept from source on 2026-08-24** as
+well — all thirteen rows, CLI and web frontend separately. It was the last
+best-effort column and it was the least accurate: **eleven of thirteen rows
+moved.** The corrections that matter most, because each was a ✅ that did not
+survive reading the code:
+
+- **10 Dazzler** was ✅ (partial) and there is no Dazzler code at all.
+- **13 terminal (web)** was ✅ on the strength of xterm.js; the output filter
+  never delivers TAB, BEL, FF or anything ≥ 0x7F to it.
+- **4 R8/W8 (CLI)** was ✅ "host paths"; only R8 takes one, W8 writes to CWD.
+- **5 catalog (CLI)** was ❓; there is no catalog feature, so it is N/A.
+
+Rows 8 and 9 were the only two that stood. Three more were narrowed from ✅ to
+◐ on evidence — 7 (web NVRAM is never read back), 11 (a settings file is not
+named profiles), 12 (*Don't warn* is dropped by any mid-session disk reload) —
+and 1, 3 and 6 moved because the plain ➖/⬜ hid a real per-frontend split.
+
+Two rows went the *other* way, which is worth saying: **3** and **6** were
+understated. The web frontend deliberately preserves selection and Copy/Paste —
+its key handler declines Ctrl+Shift+V and stays off the keycodes Ctrl+Insert
+uses — and both frontends do have *some* help, just not the fetched-topic kind
+this item measures.
 
 The Android column describes commit `c26aeb7` plus the follow-up commit that
 finished the release: an on-screen key row driven by the key map, configuration
@@ -214,6 +235,15 @@ to find them on every platform.
 - **Where:** `z80cpmw/emu_io_windows.cpp` (`resolveHostPath`, `isAbsolutePath`,
   `emu_host_file_close_write`, `emu_io_get_data_folder_display` / `resolveRealPath`).
 - **Verified port behaviour:**
+  - **romwbw_emu (CLI)** *(2026-08-24)* — **R8 yes, W8 no.** `R8` copies the
+    command tail at 0x80 and the backend `fopen`s it verbatim
+    (`emu_io_cli.cc:764-790`), with a case-insensitive per-component retry to
+    undo the CCP's uppercasing — so any host path works. `W8` takes no path at
+    all: `w8.asm` never reads `CMDBUF`, only the default FCB, so it builds a
+    bare lowercased 8.3 name and writes it into the emulator's CWD. The CLI's
+    own `--help` says so — "Export CP/M file to emulator CWD" — which is why
+    this row read ✅ for years: the R8 half is genuinely unrestricted and the
+    W8 half was never checked.
   - **ioscpm (iOS/macOS)** *(2026-07-23)* — `W8` always writes `Documents/Exports`, `R8` always
     reads `Documents/Imports` (no per-transfer dialog). As of **v1.4.11 / build 41**
     an **Import File…** picker (enabled on iOS *and* Mac Catalyst) stages an
@@ -374,6 +404,17 @@ In-app help fetched from GitHub, with offline bundled topics.
 
 ### 10. Cromemco Dazzler graphics card (optional)
 Emulated retro graphics card in a separate window.
+- **Verified romwbw_emu behaviour (2026-08-24):** **absent**, not partial — this
+  row said ✅ (partial) and there is no Dazzler code in that repo at all. Every
+  "Dazzler" string in it is a *comment* on a hook provided **for** a client like
+  this one: `handleUnknownPortOut` (`hbios_cpu.h:38`) and the memory-write
+  callback (`romwbw_mem.h:10`). Neither romwbw_emu frontend overrides the hook,
+  so unknown ports hit the base no-op. What probably produced the ✅ is the
+  web frontend's video/DSKY/sound code, and that is dead: the C++ side emits
+  `Module.onVideo*` and `Module.onDsky*` while the page implements
+  `Module.onVda*` and `Module.onSnd*` — **zero overlap**, ~200 lines on each
+  side that have never executed. `Module.onError` is emitted and implemented
+  nowhere, which is why nothing ever reported it.
 - **Behaviour/spec:** enable + base I/O port + scale, rendered in its own window.
 - **Where:** `z80cpmw/Dazzler.cpp`, `DazzlerWindow.cpp`; config `hardware.dazzler`.
 - **Status:** absent in iOS. **Android is not partial — it is stubbed out on
@@ -492,10 +533,21 @@ parser and `cpmdroid` extended it - but it has now caught up.
     `ESC [ 2 J` alone should not do. Parser input is bounded here —
     `MAX_CSI_PARAMS` 16 and `MAX_CSI_PARAM_DIGITS` 6 in `TerminalView.cpp`,
     with intermediates consumed rather than accumulated.
-  - **romwbw_emu** — CLI writes bytes straight to the host terminal
-    (`emu_io_cli.cc`, `putchar`), so the host terminal is the emulation; the web
-    build uses **xterm.js 5.3** (`web/romwbw.html-template`), which is a far more
-    complete VT than any of the native front ends.
+  - **romwbw_emu** *(re-verified 2026-08-24)* — the CLI delegates to the host
+    terminal, but not transparently: `emu_console_write_char`
+    (`emu_io_cli.cc:366-374`) does `ch &= 0x7F` and then drops every CR, not
+    just the CR of a CR LF pair — so a guest returning to column 0 without a
+    newline (progress counters, status-line redraws) overwrites nothing, and
+    8-bit output is gone before the tty sees it.
+
+    The web build loads **xterm.js 5.3**, which *is* a far more complete VT than
+    any native front end — but the app starves it. `Module.onConsoleOutput`
+    (`web/romwbw.html-template:402-414`) forwards only CR, LF, BS, ESC and
+    `0x20–0x7E`; **TAB, BEL, FF, every other control byte and everything ≥ 0x7F
+    are dropped**, and BS is rewritten as `\b \b`, a *destructive* backspace, so
+    a guest moving the cursor left erases a character instead. CSI sequences
+    survive only because their bodies happen to be printable ASCII. This row was
+    ✅ on the strength of the library; the wiring is what decides it.
 - **Parity target:** the mobile ports' coverage, i.e. run WordStar and Zork
   without the screen breaking up. **That port is done** — `TerminalView.kt` /
   `EmulatorViewModel.swift` were pulled back into `TerminalView.cpp` in 1.0.20,
@@ -516,22 +568,31 @@ build 50 — every row, not only the ones that changed.
 
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
-| 1. Configurable keymap (termcap) | ◐ (10 keys, no F1–F12, WordStar default) | ✅ (same 22 names + syntax as `Keymap.h`; on-screen key row too) | ➖ (host terminal / browser) |
-| 2. Scrollback | ✅ | ✅ (setting, drag instead of wheel) | ➖ CLI (host terminal) · ✅ web (xterm.js) |
-| 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip) | ➖ |
-| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed) | ◐ (R8 via SAF import; W8 fixed folder + Share) | ✅ CLI (host paths) · ✅ web (picker/download) |
-| 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ❓ CLI · ➖ web (same-origin server list) |
-| 6. Help system + offline fallback | ✅ / ⬜ no bundled fallback | ✅ (bundled in APK since 1.19) | ⬜ |
-| 7. NVRAM autoboot / bootString | ✅ | ✅ NVRAM / ⬜ bootString | ✅ (boot menu) |
+| 1. Configurable keymap (termcap) | ◐ (10 keys, no F1–F12, WordStar default) | ✅ (same 22 names + syntax as `Keymap.h`; on-screen key row too) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
+| 2. Scrollback | ✅ | ✅ (setting, drag instead of wheel) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
+| 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
+| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed) | ◐ (R8 via SAF import; W8 fixed folder + Share) | ◐ CLI (R8 any path; **W8 → CWD only**) · ✅ web (picker/download) |
+| 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ◐ web (hardcoded list, unpinned; 4 of 5 images ship nowhere) |
+| 6. Help system + offline fallback | ✅ / ⬜ no bundled fallback | ✅ (bundled in APK since 1.19) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
+| 7. NVRAM autoboot / bootString | ✅ | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
 | 8. Window state / DPI | ⬜ (Mac Catalyst) | ➖ | ➖ |
 | 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt) | ➖ |
-| 10. Dazzler | ⬜ | ⬜ (explicit no-op stubs) | ✅ (partial) |
-| 11. Config profiles | ⬜ | ✅ (named; ROM, disks, boot, terminal, keymap) | ✅ CLI (JSON settings file, v1.34) · web persists UI selections (localStorage) |
-| 12. Manifest write warning | ✅ (suppressible) | ✅ (suppressible, once per session) | ✅ web (with per-disk suppression) · ➖ CLI |
-| 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (+ ICH/DCH/ECH/SU/SD, DECAWM, DECTCEM) | ➖ CLI (host terminal) · ✅ web (xterm.js) |
+| 10. Dazzler | ⬜ | ⬜ (explicit no-op stubs) | ⬜ (no Dazzler code; the core only offers the hooks this repo uses) |
+| 11. Config profiles | ⬜ | ✅ (named; ROM, disks, boot, terminal, keymap) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
+| 12. Manifest write warning | ✅ (suppressible) | ✅ (suppressible, once per session) | ➖ CLI · ◐ web (fires correctly; *Don't warn* lost on disk reload) |
+| 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (+ ICH/DCH/ECH/SU/SD, DECAWM, DECTCEM) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ◐ web (xterm.js starved by the output filter) |
 
 **z80cpmw's own row 13 is ◐** — see item 13 for what is missing here. Every other
 row in this document is ✅ for z80cpmw by construction; that one is not.
+
+**One caveat spans the whole web column.** `xterm.js`, its CSS and the fit addon
+are three jsdelivr `<script>`/`<link>` tags (`web/romwbw.html-template:6,340-341`)
+with no vendored copy and no SRI, and `release.yml` packages only
+`romwbw.html`/`.js`/`.wasm`. So offline — or from an installed deb — `new
+Terminal(...)` throws at top level and there is **no terminal at all**: rows 2, 3
+and 13 are ✅/◐ only for a browser with internet access. romwbw_emu's `todo.txt`
+tracks vendoring the three files, which would close the SRI hole and the offline
+gap together.
 
 ## Suggested priority order for each GUI port
 
