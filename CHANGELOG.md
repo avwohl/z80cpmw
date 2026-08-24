@@ -365,7 +365,8 @@ Microsoft Store release.
 [#1]: https://github.com/avwohl/z80cpmw/issues/1
 [#2]: https://github.com/avwohl/z80cpmw/issues/2
 
-[Unreleased]: https://github.com/avwohl/z80cpmw/compare/f91f0fd...HEAD
+[Unreleased]: https://github.com/avwohl/z80cpmw/compare/v1.0.22-beta...HEAD
+[1.0.22]: https://github.com/avwohl/z80cpmw/compare/f91f0fd...v1.0.22-beta
 [1.0.21-beta]: https://github.com/avwohl/z80cpmw/compare/v1.0.20...f91f0fd
 [1.0.20]: https://github.com/avwohl/z80cpmw/compare/9a57708...v1.0.20
 [1.0.19]: https://github.com/avwohl/z80cpmw/compare/0146d94...9a57708
