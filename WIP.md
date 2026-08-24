@@ -1,81 +1,48 @@
 # Work In Progress — z80cpmw
 
-Working notes / handoff for the current round of changes. Not user-facing docs.
+Working notes / handoff. Not user-facing docs, and not a record of what shipped:
+**what shipped is in [`CHANGELOG.md`](CHANGELOG.md)**. Open items only.
 
-> **Historical (as of 2026-08-23).** This file captures the 1.0.15 round; the app
-> is now at **1.0.22**, the Microsoft Store release published 2026-08-23 (the
-> current signed sideload package is 1.0.22-beta, the same build under our own
-> publisher) — see `CHANGELOG.md`. The "open question" below about W8
-> paths under MSIX is **resolved** — the behaviour is confirmed in source and
-> documented for users in [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md). Kept
-> for context; not a to-do list anymore.
+The 1.0.15 round this file used to describe is finished and released, and its
+history was moved out — the keymap, mouse copy/paste and About path fix are
+`[1.0.15]`, the window position/size, auto-size and scrollable Help are
+`[1.0.16-beta]`, the R8/W8 absolute-path handling and data-folder display are
+`[1.0.14]`, and the MSIX packaging story from 1.0.20 through the Store release
+is `[1.0.20]`, `[1.0.21-beta]` and `[1.0.22]`. The W8-under-MSIX question that
+was this file's open question is answered, in source and in
+[`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md).
 
-## Status
+Current version: **1.0.22** (Store, 2026-08-23), with the same build signed for
+sideloading as 1.0.22-beta. Since `31d01c6` the version is edited only in
+`z80cpmw/Version.h`; the MSIX and NSIS scripts derive theirs from it.
 
-Version bumped to **1.0.15** (at the time: `Version.h`, `AppxManifest.xml`,
-`z80cpmw.nsi`). Superseded — the current version is 1.0.22, released to the
-Microsoft Store on 2026-08-23, with the same build signed for sideloading as
-1.0.22-beta. Since `31d01c6` the version is edited only in `z80cpmw/Version.h`;
-`packaging/scripts/build-msix.ps1` and `build-nsis.ps1` derive the manifest and
-installer versions from it.
+## This checkout cannot be rebuilt as it stands
 
-Committed to `master` and **pushed** through `b4c36d2`:
+`z80cpmw/z80cpmw.vcxproj` uses `PlatformToolset` `v145` (Visual Studio 18) and
+expects the wxWidgets headers under `C:\temp\vcpkg\installed\x64-windows\include`.
+That vcpkg tree is not present on this machine. `bin\Debug\z80cpmw.exe` is a
+stale 1.0.19.0 build.
 
-| Commit  | What |
-| ------- | ---- |
-| 1f44e20 | Configurable keymap (termcap-style), mouse copy/paste, fix About data-folder path |
-| bbab303 | Document config in README + docs/CONFIGURATION.md + online help; bump 1.0.15 |
-| e463fb5 | Move startup instructions to scrollable Help (the terminal had no scrollback then); DPI-size Help window; first-run auto-open |
-| db03984 | Remember main window position/size across runs (with monitor-change / off-screen reset) |
-| b4c36d2 | Auto-size window to the 80x25 grid on font change (and as the default size) |
+## Not verified on hardware
 
-Installer of that round (untracked, no longer present): `dist/z80cpmw-1.0.15-setup.exe` (ProductVersion 1.0.15, bundled `bin\Release\z80cpmw.exe` 1.0.15.0). `dist/` now holds `z80cpmw.msix` (the unsigned Store package, Identity 1.0.22.0), the signed sideload packages `z80cpmw-1.0.22-beta.msix` and `z80cpmw-1.0.21-beta.msix`, and `z80cpmw-1.0.21-beta.pdb`; `bin\Release\z80cpmw.exe` is 1.0.22.0. The MSIX has since been rebuilt through 1.0.22 by `packaging/scripts/build-msix.ps1`, which parses `z80cpmw/Version.h` and injects the version into a staged copy of the manifest — the committed `packaging/msix/AppxManifest.xml` deliberately keeps the placeholder `Version="0.0.0.0"`.
+The behaviour is confirmed in source and documented; what has never happened is
+a run against the **installed Store build**, which is the only thing that can
+reproduce MSIX file-system redirection — a local unpackaged build cannot.
 
-Local debug build for testing: `bin\Debug\z80cpmw.exe` (currently a 1.0.19.0 build). This checkout cannot be rebuilt as it stands: `z80cpmw/z80cpmw.vcxproj` uses `PlatformToolset` `v145` (Visual Studio 18) and expects the wxWidgets headers under `C:\temp\vcpkg\installed\x64-windows\include`, and that vcpkg tree is not present on this machine.
+- [ ] `W8 C:\Users\<you>\Desktop\test.txt` → the file appears on the Desktop
+      (full-path write works under MSIX full trust).
+- [ ] `W8 getkey2.com` (bare name) → lands under
+      `…\Packages\AaronWohl.Z80CPM_*\LocalCache\Local\z80cpmw\data\`.
+- [ ] That path agrees with what About, Settings → Open Folder, and the boot
+      banner display.
+- [ ] `R8 C:\Users\<you>\Desktop\getkey2.com` → reading an arbitrary user path
+      works.
 
-## RESOLVED — where do W8 files land on the Store/MSIX build?
+Also unverified, and not automatable from here: keystroke delivery to CP/M,
+mouse copy/paste rendering, and the first-run Help auto-open visuals. Each
+needs a hands-on pass.
 
-**Answer (confirmed in source; user doc: `docs/FILE_TRANSFER.md`):** full paths are
-written verbatim even under full-trust MSIX; bare names go to `%LOCALAPPDATA%\z80cpmw\data`,
-which the Store build redirects to
-`...\Packages\AaronWohl.Z80CPM_<hash>\LocalCache\Local\z80cpmw\data`. The app
-resolves and displays that real path (`emu_io_get_data_folder_display` →
-`GetFinalPathNameByHandle`) in About, Settings, and the boot banner. The original
-reasoning below held up; recorded here as the verification basis.
+## Release chore
 
-To be verified by **manual testing of the installed MSIX (Store) build** (the local build is unpackaged, so it can't reproduce the redirection).
-
-### What the code does (verified in source)
-- `z80cpmw/emu_io_windows.cpp`:
-  - `resolveHostPath(name)` — if `isAbsolutePath` (drive-letter / UNC / rooted), uses the path **verbatim**; otherwise puts it in the data folder (`%LOCALAPPDATA%\z80cpmw\data`).
-  - W8 writes via `emu_host_file_close_write()` → `fopen(fullPath, "wb")`. R8 reads via `fopen(..., "rb")`.
-  - `emu_io_get_data_folder_display()` resolves the **real** redirected path (GetFinalPathNameByHandle) — used by About + Settings + the boot banner.
-
-### Expected behavior (reasoning, NOT yet hardware-verified)
-The app is a **full-trust packaged app**, not a sandboxed UWP app:
-- `AppxManifest.xml`: `EntryPoint="Windows.FullTrustApplication"` + `<rescap:Capability Name="runFullTrust" />`.
-- So it runs with the user's normal token/permissions → same file access as an unpackaged .exe.
-
-Therefore:
-1. **Full path** (e.g. `W8 C:\Users\<you>\Desktop\out.com`) → written **verbatim** to that location. Desktop/Documents/etc. are NOT virtualized, so the file should appear exactly there. **Recommended approach.**
-2. **Bare name** (e.g. `W8 getkey2.com`) → goes to `%LOCALAPPDATA%\z80cpmw\data`, which on the Store build is **redirected** by MSIX file-system virtualization to:
-   `…\Packages\AaronWohl.Z80CPM_<hash>\LocalCache\Local\z80cpmw\data\`
-   (This redirect is a relocation, not an access denial. It is the original "where did my file go?" confusion — now surfaced correctly in About / Settings / banner.)
-
-### Test plan (on the installed Store build)
-- [ ] `W8 C:\Users\<you>\Desktop\test.txt` → confirm the file appears on the Desktop (validates full-path write works under MSIX full trust).
-- [ ] `W8 getkey2.com` (bare) → find it; confirm it is under `…\Packages\AaronWohl.Z80CPM_*\LocalCache\Local\z80cpmw\data\`.
-- [ ] Cross-check that path against what About / Settings → Open Folder / boot banner display (they should all agree).
-- [ ] `R8 C:\Users\<you>\Desktop\getkey2.com` → confirm read of an arbitrary user-path file works.
-
-### Follow-up (done)
-- Shipped: the clarification is in the bundled Getting Started help
-  (`z80cpmw/HelpWindow.cpp`, section "File Transfer (R8 / W8)") — a full path is
-  recommended, and a bare name uses the app's data folder, whose exact location
-  (which the Store build redirects) is shown in Emulator > Settings and Help >
-  About.
-
-## Other pending / not done
-- Everything through `f91f0fd` (1.0.21) is committed and pushed; `master` tracks `origin/master` with nothing ahead. Uncommitted as of 2026-08-23: the 1.0.22 bump in `z80cpmw/Version.h`, plus the documentation sweep that went with the release - `README.md`, `CHANGELOG.md`, this file, `NOTES.md`, `PRIVACY.md`, `FEATURE_PARITY.md`, `docs/CODE_SIGNING.md`, `docs/CONFIGURATION.md`, `docs/FILE_TRANSFER.md`, `packaging/STORE_SUBMISSION.md` and both packaging scripts.
-- MSIX packaging has moved on: 1.0.20 (built and tagged, published on neither channel), 1.0.21-beta (signed sideload, `dist/z80cpmw-1.0.21-beta.msix`), and 1.0.22 — `dist/z80cpmw.msix` went to the Store on 2026-08-23 and the same build is signed for sideloading as `dist/z80cpmw-1.0.22-beta.msix`, which has not been published as a GitHub release yet.
-- GUI behaviors not auto-verified (keystroke delivery to CP/M, mouse copy/paste rendering, first-run Help auto-open visuals) — need a hands-on pass.
+`dist/z80cpmw-1.0.22-beta.msix` — the signed sideload twin of the Store build —
+has not been published as a GitHub release.
