@@ -3,6 +3,10 @@
 Working notes / handoff. Not user-facing docs, and not a record of what shipped:
 **what shipped is in [`CHANGELOG.md`](CHANGELOG.md)**. Open items only.
 
+**See also [`todo.txt`](todo.txt)** — the list form, and where the work that
+needs a Windows machine is gathered. Anything below that is also an action item
+appears there too; this file keeps the longer explanations.
+
 The 1.0.15 round this file used to describe is finished and released, and its
 history was moved out — the keymap, mouse copy/paste and About path fix are
 `[1.0.15]`, the window position/size, auto-size and scrollable Help are
