@@ -26,13 +26,21 @@ R8/W8 (`MainActivity.kt`: `showFileTransferDialog`, `importPickedFile`,
 (`data/DiskCatalogRepository.kt`), NVRAM (`data/SettingsRepository.kt`,
 `MainActivity.kt`), font size (`SettingsActivity.kt`,
 `data/SettingsRepository.kt`), the manifest write warning, and the Dazzler stubs
-(`app/src/main/cpp/emu_io_android.cpp`). Two iOS/macOS rows were corrected from
-`ioscpm` source at the same time (item 1 key map, item 5 catalog pinning), and
-the item 13 statuses come from `ioscpm/iOSCPM/Views/EmulatorViewModel.swift`,
-`z80cpmw/TerminalView.cpp` and `romwbw_emu/src/emu_io_cli.cc` +
-`romwbw_emu/web/romwbw.html-template`. Everything else in the `ioscpm` and
-`romwbw_emu` columns is an older best-effort reading; item 4's `ioscpm`
-paragraph is still as verified on **2026-07-23**.
+(`app/src/main/cpp/emu_io_android.cpp`).
+
+**The iOS/macOS column was re-verified from `ioscpm` source on 2026-08-24**, at
+build 50 — every one of the thirteen rows, not only the ones that moved. Five
+were wrong and are corrected here: item 5 said the disk catalog was unpinned
+when it has been pinned to `v1.4.5` since build 42; item 6 claimed the help
+system outright when the offline fallback that item exists for is absent; and
+items 8, 9 and 12 were unverified `❓` when window state is missing and font
+size and the manifest warning are both present. Item 13 gained the parser
+bounds build 49 added. The rows that did **not** move — 1, 2, 3, 4, 7, 10, 11 —
+were re-checked against source and are unchanged, so item 4's `ioscpm`
+paragraph, written on **2026-07-23**, still holds: `R8`/`W8` use the
+`Imports`/`Exports` folders with no picker.
+
+`romwbw_emu`'s column remains an older best-effort reading.
 
 The Android column describes commit `c26aeb7` plus the follow-up commit that
 finished the release: an on-screen key row driven by the key map, configuration
@@ -265,10 +273,13 @@ copyrighted content.
     HBIOS reports RomWBW v3.5.1, and slices from other releases print an
     HBIOS/CBIOS mismatch). Help deliberately stays on `releases/latest` — see
     item 6 for why that choice is only safe with a bundled fallback.
-  - **ioscpm (iOS/macOS)** — **not pinned**. `EmulatorViewModel.swift` uses
-    `releases/latest/download` for both `disks.xml` and the images, which is
-    precisely the silent-swap case this item exists to prevent. (`ioscpm`
-    `ac586b5` files it as a task, so it is known there.)
+  - **ioscpm (iOS/macOS)** *(re-verified 2026-08-24)* — **pinned**, since build
+    42. `EmulatorViewModel.swift:128` holds a single
+    `releaseTag = "v1.4.5"` from which both `catalogURL` and `releaseBaseURL`
+    are built, with the reason in a comment (the core reports RomWBW v3.5.1;
+    slices from another release print an HBIOS/CBIOS mismatch). Like cpmdroid,
+    help deliberately stays on `releases/latest` — but unlike cpmdroid, without
+    a bundled fallback, so see item 6.
 
 ### 6. Remote help system + bundled fallback
 In-app help fetched from GitHub, with offline bundled topics.
@@ -295,6 +306,19 @@ In-app help fetched from GitHub, with offline bundled topics.
   correction can go out without an app update — but falls back to the bundled
   one, and `HelpTopicActivity` falls back per topic to the bundled file of the
   same name. Help now works offline and survives an unpublished release asset.
+- **Verified ioscpm behaviour (2026-08-24):** help **yes**, fallback **no** — so
+  this is now the port the trap above applies to. `HelpView.swift:187-188`
+  resolves both `help_index.json` and every topic through
+  `releases/latest/download/`, and the seven markdown topics live in
+  `release_assets/` — attached to releases, **not** bundled: the app's
+  `Resources/` holds only `emu_avw.rom`, and the Xcode target references no help
+  file. There is a *cache* (`HelpView.swift:214`), which helps a user who has
+  loaded help once before and does nothing for a first run offline or for the
+  404 case. It also has a live consequence: `release_assets/help_quick_start.md`
+  was corrected in ioscpm build 49 — it advertised a `Ctrl+E` emulator console
+  that does not exist, which is actively harmful because `^E` is WordStar
+  cursor-up — and because help resolves through `releases/latest`, users keep
+  getting the wrong text until the file is re-attached to the newest release.
 
 ### 7. NVRAM / autoboot / boot string
 - **Behaviour/spec:** RomWBW autoboot config via `W` at the boot menu persists;
@@ -322,7 +346,14 @@ In-app help fetched from GitHub, with offline bundled topics.
   monitor-change / off-screen reset; auto-size the window to the exact 80×25 grid on
   font change; per-monitor DPI-v2 font scaling.
 - **Where:** `z80cpmw/MainWindow.cpp` (`WindowConfig`, `resizeWindowToTerminal`),
-  `TerminalView::createFont`; config `window` block. **N/A to mobile.**
+  `TerminalView::createFont`; config `window` block. **N/A to mobile** — but not
+  to Mac Catalyst, which is a resizable desktop window.
+- **Verified ioscpm behaviour (2026-08-24):** **absent.** Nothing in the app
+  persists or restores window frame or scene state (no `NSUserActivity`, no
+  state-restoration hooks, no stored frame), so a Catalyst window opens at the
+  system default every launch. Font size is a menu rather than a grid-derived
+  size, so there is no auto-size-to-80×25 either. Tracked in `ioscpm/todo.txt`
+  alongside the missing Emulator menu.
 
 ### 9. Configurable font size
 - **Where:** config `display.fontSize`, View menu (`MainWindow::onViewFontSize`).
@@ -335,6 +366,11 @@ In-app help fetched from GitHub, with offline bundled topics.
   and a zero font size saturates the column arithmetic to `Int.MAX_VALUE` and kills
   the app on every launch once the value has been persisted. Worth copying: clamp
   where the value is *stored*, not where it is *entered*.
+- **Verified ioscpm behaviour (2026-08-24):** **present**, as a six-step menu
+  (14, 16, 18, 20, 24, 28 pt) in `ContentView.swift:187-202`, persisted with
+  `@AppStorage("terminalFontSize")` and applied by recreating the terminal view
+  on change. A fixed choice list rather than a slider, so Android's stored-value
+  clamp problem cannot arise here. There is no pinch-to-zoom.
 
 ### 10. Cromemco Dazzler graphics card (optional)
 Emulated retro graphics card in a separate window.
@@ -378,6 +414,13 @@ Emulated retro graphics card in a separate window.
   checkbox **off** pushes `setDiskWarningSuppressed(unit, true)` to all 16 units
   (`applyManifestWarningPreference`), but turning it back **on** does not clear
   the suppression — that waits for the next disk reload or boot.
+- **Verified ioscpm behaviour (2026-08-24):** **present and suppressible.** A
+  "Disk May Be Overwritten" alert (`ContentView.swift:304-310`, and again at
+  :729 for the second presentation site) fires on a write to a catalog disk, and
+  Settings has a *Warn on manifest writes* toggle bound to
+  `EmulatorViewModel.warnManifestWrites`, persisted in `UserDefaults` with the
+  default applied when the key is absent. The alert is informational — it points
+  the user at *Save Disk As* rather than offering to cancel the write.
 
 ### 13. Terminal emulation (VT100/ANSI + VT52)
 The front end **is** the terminal, so its escape-sequence coverage decides which
@@ -401,7 +444,12 @@ parser and `cpmdroid` extended it - but it has now caught up.
     parser: full VT52, scrolling region, answerbacks, deferred autowrap, charset
     consumption. Missing only `P` (DCH), `@` (ICH), `X` (ECH), `S`/`T` (SU/SD),
     and its DEC private modes other than DECANM are acknowledged but not acted on
-    (so DECAWM and DECTCEM do nothing).
+    (so DECAWM and DECTCEM do nothing) — all still true on 2026-08-24. Parser
+    input **is** bounded, since build 49: `maxCSIParams` 16 and
+    `maxCSIParamDigits` 6, matching cpmdroid, with leading zeros dropped so
+    zero-padding cannot spend the digit budget. Build 49 also made SGR 7 a
+    render-time toggle instead of an in-place nibble swap, so SGR 27 restores
+    the original colours instead of resetting to white-on-black.
   - **cpmdroid** — `app/src/main/java/com/awohl/cpmdroid/TerminalView.kt`, ported
     from the above in 1.19 and slightly ahead of it: it adds `P @ X S T` and acts
     on DECAWM (7) and DECTCEM (25). Parser input is bounded (16 params, 6 digits,
@@ -463,6 +511,8 @@ parser and `cpmdroid` extended it - but it has now caught up.
 ✅ present · ◐ partial · ⬜ missing · ➖ N/A or host-provided · ❓ verify
 
 Android `cpmdroid` is as of **v1.19 / `c26aeb7` (2026-08-07, from source)**.
+The **iOS/macOS column was re-verified from `ioscpm` source on 2026-08-24**, at
+build 50 — every row, not only the ones that changed.
 
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
@@ -470,14 +520,14 @@ Android `cpmdroid` is as of **v1.19 / `c26aeb7` (2026-08-07, from source)**.
 | 2. Scrollback | ✅ | ✅ (setting, drag instead of wheel) | ➖ CLI (host terminal) · ✅ web (xterm.js) |
 | 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip) | ➖ |
 | 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed) | ◐ (R8 via SAF import; W8 fixed folder + Share) | ✅ CLI (host paths) · ✅ web (picker/download) |
-| 5. Disk catalog + **pinned** tag | ✅ / ⬜ not pinned (`releases/latest`) | ✅ / ✅ pinned (`v1.4.5`) | ❓ CLI · ➖ web (same-origin server list) |
-| 6. Help system + offline fallback | ✅ | ✅ (bundled in APK since 1.19) | ⬜ |
+| 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ❓ CLI · ➖ web (same-origin server list) |
+| 6. Help system + offline fallback | ✅ / ⬜ no bundled fallback | ✅ (bundled in APK since 1.19) | ⬜ |
 | 7. NVRAM autoboot / bootString | ✅ | ✅ NVRAM / ⬜ bootString | ✅ (boot menu) |
-| 8. Window state / DPI | ❓ (Mac) | ➖ | ➖ |
-| 9. Font size setting | ❓ | ✅ (Settings slider, 8–24pt) | ➖ |
+| 8. Window state / DPI | ⬜ (Mac Catalyst) | ➖ | ➖ |
+| 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt) | ➖ |
 | 10. Dazzler | ⬜ | ⬜ (explicit no-op stubs) | ✅ (partial) |
 | 11. Config profiles | ⬜ | ✅ (named; ROM, disks, boot, terminal, keymap) | ✅ CLI (JSON settings file, v1.34) · web persists UI selections (localStorage) |
-| 12. Manifest write warning | ❓ | ✅ (suppressible, once per session) | ✅ web (with per-disk suppression) · ➖ CLI |
+| 12. Manifest write warning | ✅ (suppressible) | ✅ (suppressible, once per session) | ✅ web (with per-disk suppression) · ➖ CLI |
 | 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (+ ICH/DCH/ECH/SU/SD, DECAWM, DECTCEM) | ➖ CLI (host terminal) · ✅ web (xterm.js) |
 
 **z80cpmw's own row 13 is ◐** — see item 13 for what is missing here. Every other
@@ -500,7 +550,10 @@ row in this document is ✅ for z80cpmw by construction; that one is not.
 4. **Arbitrary-path R8/W8 (#4)** within the platform's file model — now only the
    export half (`ACTION_CREATE_DOCUMENT` on Android, a document exporter on iOS).
 5. **Pin the disk catalog to an explicit release tag (#5)** to stop HBIOS/CBIOS
-   version drift. Done on Android (`v1.4.5`); **still open on iOS/macOS**.
+   version drift. **Done on both** — Android and iOS/macOS are each pinned to
+   `v1.4.5`. What is left is the other half of the same trap: help still
+   resolves through `releases/latest`, which is only safe with a bundled
+   fallback, and iOS/macOS has none (#6).
 6. Align **help topics / offline fallback (#6)** and **NVRAM/autoboot (#7)** —
    for Android the remaining piece of #7 is the `bootString` auto-type.
 7. Desktop-only: **window state + DPI (#8)** for the Mac build.
