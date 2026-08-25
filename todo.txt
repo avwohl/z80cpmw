@@ -58,21 +58,45 @@ keypress becomes a byte or a cell becomes a pixel.
 The disk images are behind the core
 ------------------------------------
 
+READ romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md BEFORE PUBLISHING ANYTHING
+HERE.  Refreshing the images is what arms a data-destruction bug in ioscpm, so
+the port fixes go first and the images second, and the two rules that document
+states plainly are (a) never attach refreshed images to the existing v1.4.5 tag,
+because every port pins that tag in its binary and overwriting it reaches
+installed apps with no update, and (b) never publish an image whose w8.com lacks
+the 0xE9 capability probe.  z80cpmw is step 3 of that plan and is not a safety
+blocker - the code side of it is done as of this round.
+
 - the bundled hd1k images still carry the pre-98eb6a1 w8.com, so W8 cannot take
-a host path however capable the Windows backend is.  Measured:
-bin\Release\disks\hd1k_combo.img holds "Usage: W8 <cpmname>" where
-romwbw_emu/disks/hd1k_combo.img now holds "Usage: W8 <cpmname> [hostpath]" - and
-the two are different lineages, not just different vintages, because the local
-copy came down from the ioscpm release.  Fixing it means either refreshing the
-images from romwbw_emu/disks and cutting a new ioscpm release for the catalog to
-point at, or repinning DiskCatalog.cpp's RELEASE_TAG - still v1.4.5 - at a
-release built from the current disks.  Three documentation items below unwind
-when this lands.
+a host path however capable the Windows backend is, and cannot ask where its
+export really went either.  Measured: bin\Release\disks\hd1k_combo.img holds
+"Usage: W8 <cpmname>" where romwbw_emu/disks/hd1k_combo.img now holds
+"Usage: W8 <cpmname> [hostpath]" - and the two are different lineages, not just
+different vintages, because the local copy came down from the ioscpm release.
+Fixing it means either refreshing the images from romwbw_emu/disks and cutting a
+new ioscpm release for the catalog to point at, or repinning DiskCatalog.cpp's
+RELEASE_TAG - still v1.4.5 - at a release built from the current disks.  Three
+documentation items below unwind when this lands, and so does the first checkbox
+of the Store-build test plan.
+
+- the core moved again while the images stood still.  v1.36 rebuilt both
+utilities a second time (romwbw_emu docs/DOWNSTREAM_2026-08-25.md sections 4
+and 5), so refreshing now brings more than the host path: W8 no longer truncates
+a binary export at the first 1Ah byte - exporting w8.com itself produced 368
+bytes of 1408 - both utilities accept a host path containing a space, their byte
+counts are 32-bit rather than the low 16 bits, and both sources lost a bogus
+`org 0100h` that had been padding w8.com with 256 leading zero bytes.  The old
+R8 also has a destructive bug of its own that only the refresh fixes: an
+unfiltered host basename makes an ambiguous FCB, and F_DELETE then erases every
+matching CP/M file before creating the new one.
 
 - upstream added romwbw_emu/disks/verify_disk_utils.sh (75ef2e8) for exactly
 this drift - it checks that the R8/W8 inside the shipped images match their
-source.  Nothing under packaging/ runs it, or anything like it, before a
-release.
+source, and as of v1.36 it runs inside `make -C src test` and covers both
+utilities rather than only w8.com.  Nothing under packaging/ runs it, or
+anything like it, before a release.  Mind the diskdef if checking by hand:
+hd1k_combo.img is wbw_hd1k_0 because of its 1 MB MBR prefix, a plain 8 MB image
+is wbw_hd1k, and the wrong one lists garbage rather than failing.
 
 
 Terminal residue - the other half of row 13
@@ -169,16 +193,17 @@ download and the cache) and row 13 ("missing only P @ X S T", plus DECAWM and
 DECTCEM parsed but not acted on - all five finals added and both modes acted
 on).
 
-- the W8-takes-a-host-path claim survives in three more places now that
-docs/FILE_TRANSFER.md's quick-reference row and Windows section have been
-corrected.  FILE_TRANSFER.md:154 itself, in the "I can't find my exported file"
-checklist - "Did you give a full path? (Windows only)" - which contradicts the
-correction a hundred lines above it.  README.md:98-102, which still carries the
-claim and the W8 C:\Users\me\Desktop\out.com example verbatim, and is the most
-prominent of the three.  And HelpWindow.cpp:57, which lists R8 and W8 together
-and then says "Give a full path (recommended)", so it reads as endorsing both at
-runtime.  All three come right when the images are refreshed - and
-FILE_TRANSFER.md:47-64 has to be reverted then.
+- the W8-takes-a-host-path claim survives in two more places.  README.md:98-102,
+which still carries the claim and the W8 C:\Users\me\Desktop\out.com example
+verbatim, and is the most prominent of them.  And HelpWindow.cpp:57, which lists
+R8 and W8 together and then says "Give a full path (recommended)", so it reads as
+endorsing both at runtime.  Both come right when the images are refreshed - and
+FILE_TRANSFER.md's W8 section (the "does not take one yet" paragraphs and the
+step 0/1 caveats in the checklist) has to be reverted then, along with the
+sentence in the checklist that says W8 prints the name you gave.  The third
+place, FILE_TRANSFER.md's own checklist, is corrected: it now says which W8 you
+have to have before a full path means anything, and it gained a step 0 for
+reading what W8 printed, since the refreshed W8 reports the real destination.
 
 
 Small things a review of the sync round raised and did not take
@@ -213,13 +238,6 @@ Loose ends
 are gone - a rebuild against wxWidgets 3.3.3 is a different binary - but
 build-msix.ps1's -Beta branch should copy one out from now on.  It mentions no
 .pdb anywhere, and dist\ holds z80cpmw-1.0.21-beta.pdb and nothing for 1.0.22.
-
-- upstream's emu_io_common.cc:107 uses rename() to replace the target in
-emu_file_save().  ISO C leaves that undefined when the target exists and both
-the MSVC CRT and mingw's msvcrt fail it outright, so the shared copy has a
-dormant bug on Windows that this port does not - emu_io_windows.cpp uses
-MoveFileExA with MOVEFILE_REPLACE_EXISTING.  Worth an emu_rename shim in
-romwbw_emu's emu_io.h beside the emu_fseek/emu_ftell pair 573c7cc added.
 
 - the v1.0.22-beta GitHub release is flagged Latest rather than prerelease,
 unlike 1.0.16 / 1.0.17 / 1.0.21.  A judgement call, not a defect: if the -beta

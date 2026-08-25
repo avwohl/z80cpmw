@@ -63,6 +63,15 @@ The Windows host side of the transfer is not the limitation here — it resolves
 whatever path the guest hands it. The limitation is the CP/M program doing the
 asking.
 
+The refreshed `W8` will also *tell you where the file went*, which is worth more
+on this platform than on any other: it asks the emulator for the effective
+destination (`HBF_HOST_GETNAME`) instead of echoing what you typed, so a bare
+name prints as the data folder, and an installed Store/MSIX build prints the
+redirected `LocalCache` path the OS actually wrote to rather than the
+`%LOCALAPPDATA%` path the app asked for. Until the images are refreshed, `W8`
+prints the name you gave and the checklist at the end of this document is how you
+find the file.
+
 **A bare name goes to the app's data folder.** `W8 out.com` (no path) lands in:
 
 - Unpackaged / NSIS install: `%LOCALAPPDATA%\z80cpmw\data\`
@@ -153,8 +162,12 @@ To import, place the file in the matching `Imports/` folder the same way, then r
 
 ## "I can't find my exported file" — checklist
 
-1. **Did you give a full path?** (Windows only) If so it's at that exact path, not
-   in any data folder.
+0. **Windows: read what `W8` printed** — but only if your disk images are current
+   enough for it to say anything useful. The `w8.com` in the images this app
+   ships prints the name you typed, which is not where the file is; the newer one
+   prints the real destination, redirection and all. See the `W8` note above.
+1. **Did you give a full path?** (Windows only, and only with a refreshed
+   `w8.com` — see above.) If so it's at that exact path, not in any data folder.
 2. **Windows:** open *Emulator → Settings → Open Folder*, or read the path shown in
    *Help → About* / the boot banner. Don't guess the `Packages\…` path.
 3. **macOS:** use the **Open Exports Folder** menu item — the container path is

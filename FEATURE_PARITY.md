@@ -254,9 +254,22 @@ to find them on every platform.
   (e.g. `R8 C:\Users\me\Desktop\getkey2.com`), even on the full-trust Store build;
   bare names resolve to the app data folder. The data folder's redirected real path
   is resolved (`GetFinalPathNameByHandle`) and surfaced in **About**, **Settings**
-  (copyable + Open Folder), and the **boot banner**.
+  (copyable + Open Folder), and the **boot banner** — and, as of the v1.36 core
+  sync, **to the guest itself**: `emu_host_file_get_write_name()` reports the
+  *effective* destination rather than the requested name, so `W8` prints the data
+  folder for a bare name and the redirected `LocalCache` path in an installed MSIX
+  build. That reaches users only when the disk images carry the `w8.com` that asks
+  (`HBF_HOST_GETNAME`, `0xE8`); see `todo.txt`. This port also defines
+  `emu_host_path_caps()` and sets `EMU_HOST_CAP_SAFE_PATHS` — honestly, since the
+  bit means a guest path is never used *destructively*, not that it is confined to
+  one directory, and open-write here is a plain create-or-replace with no delete
+  and no substitution. The core declares that function and does not define it, so
+  the assertion can only be made by the backend it is about.
 - **Where:** `z80cpmw/emu_io_windows.cpp` (`resolveHostPath`, `isAbsolutePath`,
-  `emu_host_file_close_write`, `emu_io_get_data_folder_display` / `resolveRealPath`).
+  `emu_host_file_close_write`, `emu_host_file_get_write_name` /
+  `resolveRealPathForDisplay`, `emu_host_path_caps`,
+  `emu_io_get_data_folder_display` / `resolveRealPath`). Covered by
+  `tests/test_hostfile.cpp` and `tests/test_hbios_hostfile.cpp`, 102 checks.
 - **Verified port behaviour:**
   - **romwbw_emu (CLI)** *(2026-08-24)* — **R8 yes, W8 no.** `R8` copies the
     command tail at 0x80 and the backend `fopen`s it verbatim
@@ -565,7 +578,7 @@ parser and `cpmdroid` extended it - but it has now caught up.
     deliberately still preserves the scrolling region: `ioscpm`'s
     `clearTerminal()` resets it, and that is `ioscpm`'s bug, not a gap here.
 
-    The suite described above is committed now, in `tests/`, at **205 checks**.
+    The suite described above is committed now, in `tests/`, at **252 checks**.
     Parser input is bounded here —
     `MAX_CSI_PARAMS` 16 and `MAX_CSI_PARAM_DIGITS` 6 in `TerminalView.cpp`,
     with intermediates consumed rather than accumulated.

@@ -14,16 +14,16 @@
  * Win32-flavoured stdio (_fseeki64, MoveFileEx) rather than the portable FILE*
  * code it holds.
  *
- * The cost of that split is that nothing reports the drift. Eleven functions
+ * The cost of that split is that nothing reports the drift. Twelve functions
  * are duplicated between the two files and have to be kept in step by hand:
  *
  *     emu_disk_open   emu_disk_close  emu_disk_read   emu_disk_write
  *     emu_disk_flush  emu_disk_flush_all              emu_disk_size
  *     emu_file_load   emu_file_load_to_mem            emu_file_save
- *     emu_get_time
+ *     emu_get_time    emu_rename
  *
  * If you change one of those here, check whether emu_io_common.cc needs the
- * same change - and if you are syncing to a new core, diff the eleven before
+ * same change - and if you are syncing to a new core, diff the twelve before
  * assuming they still agree.
  */
 
@@ -443,6 +443,16 @@ size_t emu_file_load_to_mem(const std::string& path, uint8_t* mem,
     return bytesRead;
 }
 
+// Rename `from` over `to`, replacing `to` if it exists (emu_io.h). ISO C
+// leaves rename() undefined when the target exists and the MSVC CRT refuses it
+// outright, so this port has always used MoveFileExA directly; the core now
+// declares the shim, so define it here and route the local caller through it
+// rather than leave a declaration with no definition in a file that is the
+// Windows half of emu_io_common.cc.
+int emu_rename(const char* from, const char* to) {
+    return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING) ? 0 : -1;
+}
+
 bool emu_file_save(const std::string& path, const std::vector<uint8_t>& data) {
     // Write to a temp file and rename over the target (same pattern as
     // ConfigManager::saveToFile): a failure or process kill mid-write (disk
@@ -457,7 +467,7 @@ bool emu_file_save(const std::string& path, const std::vector<uint8_t>& data) {
     bool ok = (written == data.size());
     if (fclose(f) != 0) ok = false;
 
-    if (!ok || !MoveFileExA(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+    if (!ok || emu_rename(tempPath.c_str(), path.c_str()) != 0) {
         remove(tempPath.c_str());
         return false;
     }
@@ -738,6 +748,11 @@ static std::vector<uint8_t> g_hostReadBuffer;
 static size_t g_hostReadPos = 0;
 static std::vector<uint8_t> g_hostWriteBuffer;
 static std::string g_hostWriteFilename;
+// Where the buffered bytes will really land, as text for the CP/M user
+// (HBF_HOST_GETNAME). Computed at open time so the answer cannot drift from
+// the path close_write uses, and cleared at close so the next transfer cannot
+// be told the previous one's destination.
+static std::string g_hostWriteDisplayPath;
 static HWND g_mainWindowHwnd = nullptr;
 
 // Set main window handle for file dialogs
@@ -791,16 +806,15 @@ static std::string resolveHostPath(const std::string& filename) {
     return dataFolder + "\\" + filename;
 }
 
-// Resolve a (possibly virtualized) path to its real on-disk location. For a
-// packaged (MSIX/Store) build, writes to %LOCALAPPDATA% are redirected by the
-// OS to ...\Packages\<family>\LocalCache\Local\..., so the path the app uses
-// is not the path Explorer shows. Opening a handle and asking for the final
-// path name follows that redirection without us having to guess the layout.
-static std::string resolveRealPath(const std::string& path) {
+// Resolve an existing (possibly virtualized) path to its real on-disk
+// location. For a packaged (MSIX/Store) build, writes to %LOCALAPPDATA% are
+// redirected by the OS to ...\Packages\<family>\LocalCache\Local\..., so the
+// path the app uses is not the path Explorer shows. Opening a handle and
+// asking for the final path name follows that redirection without us having to
+// guess the layout. Creates nothing: the caller decides whether the path is
+// one it is entitled to bring into existence.
+static std::string resolveRealPathExisting(const std::string& path) {
     if (path.empty()) return path;
-
-    // Must exist before we can open a handle to it.
-    CreateDirectoryA(path.c_str(), nullptr);
 
     HANDLE h = CreateFileA(path.c_str(), 0,
                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -820,6 +834,34 @@ static std::string resolveRealPath(const std::string& path) {
         real = real.substr(4);
     }
     return real;
+}
+
+// Same, for a directory we own and may create on demand (the data folder).
+static std::string resolveRealPath(const std::string& path) {
+    if (path.empty()) return path;
+    CreateDirectoryA(path.c_str(), nullptr);  // must exist to open a handle
+    return resolveRealPathExisting(path);
+}
+
+// The real on-disk location a file *about to be written* will occupy, for
+// display. The file itself does not exist yet - the bytes are still buffered -
+// so the redirection is followed through the parent directory and the leaf name
+// re-joined. Deliberately creates nothing: this runs while answering a guest
+// query, and a query must not leave a directory behind, least of all one named
+// after the file (which would then make the export's fopen fail).
+static std::string resolveRealPathForDisplay(const std::string& path) {
+    size_t sep = path.find_last_of("\\/");
+    if (sep == std::string::npos) return path;   // e.g. "C:OUT.TXT"
+
+    std::string parent = path.substr(0, sep);
+    std::string leaf = path.substr(sep + 1);
+    if (parent.empty()) parent = "\\";           // rooted: "\out.txt"
+    else if (parent.size() == 2 && parent[1] == ':') parent += "\\";  // "C:" -> "C:\"
+
+    std::string real = resolveRealPathExisting(parent);
+    if (real.empty()) return path;
+    if (real.back() == '\\' || real.back() == '/') return real + leaf;
+    return real + "\\" + leaf;
 }
 
 // Real on-disk location of the data folder (where disks and R8/W8 transfers
@@ -887,7 +929,16 @@ bool emu_host_file_open_read(const char* filename) {
 
 bool emu_host_file_open_write(const char* filename) {
     g_hostWriteBuffer.clear();
-    g_hostWriteFilename = filename ? filename : "export.txt";
+    // Same fallback close_write applies, decided once so the name reported and
+    // the name written cannot disagree.
+    g_hostWriteFilename = (filename && *filename) ? filename : "export.txt";
+    // Resolve now what close_write will resolve later, and follow the MSIX
+    // redirection, so W8 prints the file the user can actually open rather
+    // than the name they typed. Two different strings on this port: a bare
+    // name is really a file in the data folder, and in an installed packaged
+    // build that folder is really under ...\Packages\...\LocalCache\Local.
+    g_hostWriteDisplayPath = resolveRealPathForDisplay(
+        resolveHostPath(g_hostWriteFilename));
     g_hostFileState = HOST_FILE_WRITING;
     return true;
 }
@@ -943,6 +994,7 @@ bool emu_host_file_close_write() {
 
     g_hostWriteBuffer.clear();
     g_hostWriteFilename.clear();
+    g_hostWriteDisplayPath.clear();
     g_hostFileState = HOST_FILE_IDLE;
     return ok;
 }
@@ -970,9 +1022,26 @@ size_t emu_host_file_get_write_size() {
     return g_hostWriteBuffer.size();
 }
 
+// The effective destination, not an echo of what the guest asked for - see the
+// contract above the declaration in emu_io.h. W8 prints this string, so it has
+// to name a file the user can go and open: the data folder for a bare name,
+// and the OS-redirected LocalCache location in an installed MSIX build, which
+// is the "I can't find my exported file" question answered at run time.
 const char* emu_host_file_get_write_name() {
     if (g_hostFileState != HOST_FILE_WRITING) {
         return nullptr;
     }
-    return g_hostWriteFilename.c_str();
+    // If the resolution failed (no data folder) there is nothing honest to
+    // report; the empty string tells the core to leave W8's own path in place.
+    return g_hostWriteDisplayPath.c_str();
+}
+
+// This backend creates or replaces exactly the file the guest path names and
+// does nothing else with the path: no delete of anything it resolves near, no
+// substitution of a different file. It honours absolute paths deliberately
+// (R8/W8 are meant to reach C:\Users\me\Desktop), which the bit explicitly
+// permits - EMU_HOST_CAP_SAFE_PATHS is "never used destructively", not
+// "confined to one directory". See the comment on the enum in emu_io.h.
+uint8_t emu_host_path_caps() {
+    return EMU_HOST_CAP_SAFE_PATHS;
 }

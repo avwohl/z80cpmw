@@ -29,11 +29,42 @@ The first pass on a Windows machine since the cross-port sweep that produced
 by reading; this is what compiling and running it turned up.
 
 ### Added
+- **`emu_host_path_caps()`, and with it the sync to the `romwbw_emu` v1.36
+  core.** The core declares this function and deliberately does not define it,
+  so a port that syncs without supplying it fails to *link* - which is what
+  happened here, and is the intended signal. It answers HBIOS `HBF_HOST_CAPS`
+  (`0xE9`), the probe the new `W8.COM` makes before it will hand a host path to
+  the emulator at all. This port returns `EMU_HOST_CAP_SAFE_PATHS`, honestly:
+  the bit means a guest path is never used *destructively*, not that it is
+  confined to one directory, and this backend's open-write is a plain
+  `fopen(..., "wb")` that creates or replaces the one file the path names. It
+  deletes nothing, substitutes nothing, and honouring an absolute path is the
+  feature rather than the hazard. The design exists because the earlier shape -
+  the core returning the bit as a constant - meant a port asserted the guarantee
+  merely by compiling; `romwbw_emu` `docs/DOWNSTREAM_2026-08-25.md` §1b has the
+  iOS data-loss bug that prompted the change.
+- **`emu_rename()`.** `todo.txt` asked upstream for this shim and upstream added
+  it, so `emu_io.h` now declares a function whose only definition lives in
+  `emu_io_common.cc` - the one core file this port does not compile. Defined
+  here over `MoveFileExA(MOVEFILE_REPLACE_EXISTING)`, which is what
+  `emu_file_save()` already used inline, and `emu_file_save()` now goes through
+  it. No behaviour change; it closes a declaration this tree had no definition
+  for and makes the twelfth hand-synced function an obvious one.
+- **Two headless suites for the host-file backend**, 102 checks, in
+  `tests\run_tests.bat` beside the terminal one. `test_hostfile.cpp` compiles
+  `emu_io_windows.cpp` on its own and tests the backend contract directly;
+  `test_hbios_hostfile.cpp` drives `HBIOSDispatch::handleEXT()` with real guest
+  registers and real guest memory, issuing the exact sequence `W8.COM` issues
+  (`0xE9` probe, `0xE2` open, `0xE8` get-name, `0xE4`/`0xE5` write and close),
+  so what is under test is what a CP/M program actually sees. The check that
+  carries the most weight is not what the reported path *says* but that a file
+  exists at it afterwards. Neither suite needs wxWidgets or vcpkg; the HBIOS one
+  needs both sibling checkouts, since it links the Z80 core.
 - **The terminal conformance suite, at last.** `[1.0.20]` announced a headless
   suite of 73 checks and said in the same breath that it was not committed; it
   never was, and the only trace it left was the reference to `test_vt52.cpp` in
   `TerminalView.h`. It is now in `tests/`, rebuilt from the `[1.0.20]` feature
-  list and from the parser as it stands, at **205 checks**. It drives
+  list and from the parser as it stands, at **252 checks**. It drives
   `TerminalView` the way a guest does - bytes in through `outputChar()` - and
   reads back only through the public interface: the screen through `cellAt()`,
   the cursor through `ESC [ 6 n`, which puts the answerback path under test
@@ -59,6 +90,27 @@ by reading; this is what compiling and running it turned up.
   `romwbw_pin.h`, which is the single source of that number.
 
 ### Fixed
+- **`W8` was told the name it asked for, not where the file went.**
+  `emu_host_file_get_write_name()` echoed the raw requested string, which on
+  this port is two transformations away from the truth: a bare name is really a
+  file in the data folder, and in an *installed* MSIX build that folder is
+  really under `...\Packages\<family>\LocalCache\Local\`, because the OS
+  redirects `%LOCALAPPDATA%` writes without telling the app. So the one place a
+  CP/M user is told where their export landed named a path that does not exist -
+  the "I can't find my exported file" question, asked and answered wrongly at
+  the moment it comes up. It now reports the effective destination, resolved
+  through `resolveHostPath()` and through the `GetFinalPathNameByHandle`
+  redirection this port already followed for the About box and Settings, so all
+  three agree. The core's tightened contract (`emu_io.h`) is honoured on both
+  edges too: nothing is reported outside an open write, so the next `W8` cannot
+  be shown the last one's destination.
+  The redirection is followed through the *parent* directory rather than the
+  file, which is not a detail: the existing resolver creates the path it is
+  asked about, and pointing it at the file would have created a **directory**
+  named after the export - after which the export's own `fopen(..., "wb")`
+  fails. The test suite has that case, and it does fail without the split.
+  Visible to users only once the disk images carry the `w8.com` that asks
+  (`HBF_HOST_GETNAME`, `0xE8`); an older `W8` prints what it always did.
 - **`ESC[2J` threw away the current colours.** Erase-in-display shares its
   implementation with the machine reset, so clearing the screen also reset the
   SGR attribute, the reverse-video flag and the escape parser's state - none of
@@ -194,7 +246,7 @@ by reading; this is what compiling and running it turned up.
   longer has. Repointed at `../cpmemu/src` and `../romwbw_emu/src`, and ported to
   the `port_in`/`port_out` overrides the core uses now.
 - `emu_io_windows.cpp` says in its header that it is the Windows half of
-  `emu_io_common.cc`, and lists the eleven functions that have to be kept in
+  `emu_io_common.cc`, and lists the twelve functions that have to be kept in
   step by hand. Nothing reported that drift before.
 - Removed `emu_disk_create()` and `emu_disk_create_memory()`, defined here,
   declared in no header and called from nowhere. Nothing in this port creates a
@@ -220,6 +272,17 @@ still carrying the old text are listed in `todo.txt`.
   `decodeKeySequence`, `saveProfile`, any VT52 or DECSTBM code) exist there. A
   note at the head of the file now asks the reader to treat every Android cell
   as unverified until that branch surfaces.
+- **`docs/FILE_TRANSFER.md`'s "I can't find my exported file" checklist no longer
+  contradicts its own `W8` section.** Step 1 asked "Did you give a full path?
+  (Windows only)" a hundred lines below the correction saying `W8` cannot take
+  one; it now says which `w8.com` you have to have first. A step 0 was added for
+  the thing that will make the rest of the checklist unnecessary: the refreshed
+  `W8` prints the effective destination, redirection and all.
+- **`FEATURE_PARITY.md` row 4's Windows half** records `emu_host_path_caps()`,
+  the effective-destination reporting and the two suites that cover them. The
+  row's own status is unchanged - none of it is user-visible until the images
+  are refreshed. The terminal suite's check count is corrected there and in this
+  file: it is 252, not the 205 both claimed.
 - **`docs/FILE_TRANSFER.md` no longer promises a `W8` that takes a host path.**
   Its headline example, `W8 C:\Users\me\Desktop\out.com`, described the `w8.com`
   `98eb6a1` introduced, not the one inside the disk images this app ships —
@@ -229,6 +292,17 @@ still carrying the old text are listed in `todo.txt`.
   in `README.md` and the in-app help; `todo.txt` lists where.
 
 ### Verified
+- **The tree builds against the v1.36 core.** Both configurations, against
+  `romwbw_emu` `17cd380` (`v1.36-1`) and `cpmemu` `9fee3c2`. The link error the
+  sync was supposed to produce did produce - `unresolved external symbol
+  emu_host_path_caps`, from `hbios_dispatch.obj` - and defining the function is
+  what cleared it.
+- **All three headless suites pass**, 354 checks: 252 terminal, 66 host-file
+  backend, 36 HBIOS. Both new suites were checked against a deliberately broken
+  build before being believed - reverting `emu_host_file_get_write_name()` to
+  the old echo fails 9 of them, and resolving the redirection through the file
+  instead of its parent fails 9 more, including the exports that then fail for
+  real because a directory now sits where the file should go.
 - **The tree builds.** Both configurations, against `romwbw_emu` `2dbf6f2` and
   `cpmemu` `9fee3c2`. This closes `todo.txt`'s "VERIFY FIRST - already pushed,
   never compiled" item: `0f3cc83`, which deleted the dead
