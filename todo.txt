@@ -1,65 +1,57 @@
-Todo list.  Open items only - finished work is written up in the commit
-messages that made the changes, not kept here.  WIP.md holds the longer-form
-handoff notes; this file is the list.
-
-The previous edition of this file was written on a Mac and gathered the work
-that needed a Windows machine.  That pass has now happened.  The tree builds,
-both configurations, and the items that only wanted a compiler are closed - see
-CHANGELOG [Unreleased].  What follows is what is left.
+Todo list.  Open items only - finished work is written up in CHANGELOG.md and in
+the commit messages that made the changes, not kept here.  WIP.md holds the
+longer-form handoff notes; this file is the list.
 
 
 Still needs a Windows machine
 ------------------------------
 
-- the console bugs cpmemu found and cannot fix from POSIX are still open.  They
-are cpmemu's, not this repo's - both live in cpmemu/src/os/windows/platform.cc,
-which z80cpmw compiles nothing of - but they are Windows console bugs and
-whoever has the machine can do them at the same time.  cpmemu/todo.txt has the
-measurements.  In short: (a) read_one_key() takes a 0x00/0xE0 byte from _getch()
-as a special-key prefix and uses _kbhit() as the tie-breaker, which code page
-437 loses intermittently and code page 65001 loses always; the fix is to read
-INPUT_RECORDs with ReadConsoleInputW, which removes the guess rather than
-narrowing it, and it forces five secondary changes (key-down filter, repeat-count
-expansion, UTF-16-to-bytes conversion, re-keying extended_keys[] from CRT scan
-codes to VK plus a ctrl flag, and widening the two-slot queue).  (b) ctrl+break
-leaves the console in raw mode, because the default handler ends the process
-without running atexit; one SetConsoleCtrlHandler beside the existing
-atexit(disable_raw_mode) fixes it, mirroring os/linux/platform.cc's install loop.
+- two Windows console bugs in cpmemu/src/os/windows/platform.cc.  Not this
+repo's code - z80cpmw compiles none of it - but whoever has the machine can take
+them at the same time; cpmemu/todo.txt has the measurements.  (a) read_one_key()
+takes a 0x00/0xE0 byte from _getch() as a special-key prefix and uses _kbhit()
+as the tie-breaker, which code page 437 loses intermittently and code page 65001
+loses always; the fix is to read INPUT_RECORDs with ReadConsoleInputW, which
+removes the guess rather than narrowing it, and it forces five secondary changes
+(key-down filter, repeat-count expansion, UTF-16-to-bytes conversion, re-keying
+extended_keys[] from CRT scan codes to VK plus a ctrl flag, and widening the
+two-slot queue).  (b) ctrl+break leaves the console in raw mode, because the
+default handler ends the process without running atexit; one
+SetConsoleCtrlHandler beside the existing atexit(disable_raw_mode) fixes it,
+mirroring os/linux/platform.cc's install loop.
 
-- cpmemu's tests/win_console.cc cannot inject a non-ASCII character and cannot
-send a console control event, so neither bug above has a regression test.  Both
-are small additions to the harness.
+- cpmemu's tests/win_console.cc cannot inject a non-ASCII character -
+inject_spec()'s single-character branch goes through VkKeyScanA and casts one
+byte to WCHAR - and it never calls GenerateConsoleCtrlEvent, so neither bug
+above has a regression test.  Both are small additions to the harness.
 
 - cpmemu's tests/run_tests.sh skips two cases for want of this platform -
 "windows cross-compile" and "windows console".  Running it here turns 59
 passed / 4 skipped into a real result.
 
-- nobody has pressed the keys.  cpmemu's win_console.cc is faithful from the
-console inward and steps past the terminal program itself: if Windows Terminal
-binds ctrl+left for its own use the test still passes and the user still loses
-the key.  The harness has a --manual mode - one pass in Windows Terminal, one in
-a legacy conhost window.  Its POSIX twin wants the same in Terminal.app and
+- nobody has pressed the keys.  cpmemu's win_console.cc writes INPUT_RECORDs
+straight into the console input buffer, so it is faithful from the console
+inward and steps past the terminal program itself: if Windows Terminal binds
+ctrl+left for its own use the test still passes and the user still loses the
+key.  The harness has a --manual mode - one pass in Windows Terminal, one in a
+legacy conhost window.  Its POSIX twin wants the same in Terminal.app and
 iTerm2, which is also not done.
 
 
 Needs an installed package, which a local build cannot reproduce
 -----------------------------------------------------------------
 
-- the Store-build test plan in WIP.md has never been run.  The W8-under-MSIX
-behaviour is confirmed in source, but only an INSTALLED MSIX build reproduces
-file-system redirection.  Sideloading dist\z80cpmw-1.0.22-beta.msix is enough -
-it is the same binary and also MSIX.
-
-  NOTE before running it: the first checkbox is probably testing the wrong
-  thing.  It expects "W8 <full path>" to write where you said, and the w8.com
-  inside the bundled disk images builds its host path from the 8.3 FCB and never
-  reads the command tail, so it cannot.  romwbw_emu 98eb6a1 gave W8 a host-path
-  argument; this repo's images predate it.  See the disk-image item below.
+- the Store-build test plan in WIP.md ("Not verified on hardware") has never
+been run; all four boxes are unticked.  The W8-under-MSIX behaviour is confirmed
+in source, but only an INSTALLED MSIX build reproduces file-system redirection.
+Sideloading dist\z80cpmw-1.0.22-beta.msix is enough - it is the same binary and
+also MSIX.  Its first checkbox is struck out and stays struck until the images
+carry the new w8.com; see the disk-image section below.
 
 - keystroke delivery to CP/M, mouse copy/paste rendering and the first-run Help
 auto-open visuals have never been watched by a person.  Nothing here can
-automate them.  The terminal parser itself is now covered - tests\run_tests.bat,
-205 checks - but that stops at the byte stream; it says nothing about whether a
+automate them.  The terminal parser is covered - tests\run_tests.bat, 205
+checks - but that stops at the byte stream; it says nothing about whether a
 keypress becomes a byte or a cell becomes a pixel.
 
 
@@ -67,28 +59,32 @@ The disk images are behind the core
 ------------------------------------
 
 - the bundled hd1k images still carry the pre-98eb6a1 w8.com, so W8 cannot take
-a host path however capable the Windows backend is.  Fixing it means either
-refreshing the images from romwbw_emu/disks and cutting a new ioscpm release for
-the catalog to point at, or repinning DiskCatalog.cpp's RELEASE_TAG at a release
-built from the current disks.  docs/FILE_TRANSFER.md documents the behaviour the
-new w8.com will have, not the one the shipped images do - see the doc item.
+a host path however capable the Windows backend is.  Measured:
+bin\Release\disks\hd1k_combo.img holds "Usage: W8 <cpmname>" where
+romwbw_emu/disks/hd1k_combo.img now holds "Usage: W8 <cpmname> [hostpath]" - and
+the two are different lineages, not just different vintages, because the local
+copy came down from the ioscpm release.  Fixing it means either refreshing the
+images from romwbw_emu/disks and cutting a new ioscpm release for the catalog to
+point at, or repinning DiskCatalog.cpp's RELEASE_TAG - still v1.4.5 - at a
+release built from the current disks.  Three documentation items below unwind
+when this lands.
 
-- upstream added disks/verify_disk_utils.sh for exactly this drift - it checks
-that the R8/W8 inside the shipped images match their source.  Nothing under
-packaging/ runs it, or anything like it, before a release.
+- upstream added romwbw_emu/disks/verify_disk_utils.sh (75ef2e8) for exactly
+this drift - it checks that the R8/W8 inside the shipped images match their
+source.  Nothing under packaging/ runs it, or anything like it, before a
+release.
 
 
 Terminal residue - the other half of row 13
 --------------------------------------------
 
-- FEATURE_PARITY item 13 marked this repo partial for two reasons.  One is now
-fixed: clear() no longer resets the attribute and the escape state on ESC[2J.
-The other stands - there is no per-cell attribute beyond the packed CGA byte.
-TerminalCell already carries unpacked foreground and background, so the gap is a
-flags byte for bold / underline / blink / reverse plus the multi-HFONT paint
-path to render them.  Roughly a day, and it splits cleanly into a parser commit
-and a rendering commit.  The conformance suite is in the repository now, so a
-regression in any of it would be caught.
+- there is no per-cell attribute beyond the packed CGA byte.  TerminalCell
+(TerminalView.h:20) carries the character, an unpacked foreground and an
+unpacked background and nothing else, and the paint path selects a single
+m_font, so the gap is a flags byte for bold / underline / blink / reverse plus
+the multi-HFONT paint path to render them.  Roughly a day, and it splits cleanly
+into a parser commit and a rendering commit.  The conformance suite is in the
+repository now, so a regression in any of it would be caught.
 
 
 Features the sibling ports have and this one does not
@@ -96,50 +92,93 @@ Features the sibling ports have and this one does not
 
 - the seven remote help topics have no bundled copy and no on-disk cache, so an
 offline user - or a release whose assets were not attached - gets none of them.
-ioscpm gained the offline fallback in its build 51.  The order to mirror is
-download, then cache, then the copy shipped in the binary.
+HelpWindow.cpp ships two topics of its own (Getting Started, Configuration) and
+caches the fetched ones in memory only, fifteen minutes, gone at restart.
+ioscpm gained the offline fallback in its build 51 (4deea96), referencing
+release_assets/ in place rather than copying it, which is the trick worth taking
+too.  The order to mirror is download, then cache, then the copy shipped in the
+binary.
 
 - a mistyped config key is silently absorbed, and then silently deleted on the
 next save.  cpmemu fixed the same class of thing in bb03afa; the two places here
-are Config.cpp's from_json and Keymap.h's KeyMap::build.
+are Config.cpp's from_json - every field is j.value(name, default) and to_json
+writes only known names, so an unrecognised member is dropped at the next save -
+and Keymap.h's KeyMap::build, which discards any name keyIdForName rejects with
+`if (id >= 0)` and says nothing.  Note the "F1x" fix in CHANGELOG [Unreleased]
+is a different thing: it made vkForName reject the typo instead of binding F1,
+it did not make anything report it.
 
-- Reset reboots the machine with no confirmation, and with "ctrlRToCpm": false a
-single Ctrl+R does it.  Both mobile ports ask first.
+- Reset reboots the machine with no confirmation - MainWindow::onEmulatorReset()
+calls reset() straight away - and with "ctrlRToCpm": false a single Ctrl+R does
+it.  Both mobile ports ask first.
 
-- the terminal bell is unconditional; cpmdroid made it a setting.
+- the terminal bell is unconditional: TerminalView.cpp's 0x07 case calls
+MessageBeep(MB_OK) with nothing to consult.  cpmdroid made it a setting.
 
 - rebinding a key means closing the app and hand-editing JSON.  There is no
-keyboard section in Settings.  Worth more now that the key map understands
-modifiers and so has more to say.
+keyboard section in Settings - SettingsDialogWx.cpp has ROM, disks, debug,
+manifest warning, scrollback, Dazzler and the catalog, and nothing else.  Worth
+more now that the key map understands modifiers and so has more to say.
 
 
 Documentation the cross-port sweep got wrong
 ---------------------------------------------
 
-Several of these went stale within hours of being written, because the sweep and
-the upstream commits it describes landed the same afternoon.
+The sweep and the upstream commits it describes landed the same afternoon, so
+several rows went stale within hours of being written.  For each row below the
+header summary and the row's cell in the per-port snapshot table were corrected;
+what is still wrong is the row's own paragraph, which is what a reader reaches
+without passing the summary first.
 
-- FEATURE_PARITY.md's entire Android column describes cpmdroid commit c26aeb7,
-which is not a valid object in that repository - origin/master is 7f46e98 and
-none of the symbols the column cites exist there.  Six rows are affected.  Either
-re-verify against a branch that has actually been pushed, or mark the column as
-describing unpushed work.
+- FEATURE_PARITY.md's Android column still describes cpmdroid commit c26aeb7,
+which is not a valid object in that repository - origin/master is 7f46e98, and
+several of the symbols the column cites do not exist there.  A blockquote at the
+head of the file now warns the reader, but the rows themselves have not been
+re-read against a pushed branch, and the snapshot table's own caveat line ("as
+of v1.19 / c26aeb7") repeats the claim without one.  It is broader than the six
+rows first counted - saveProfile, showFileTransferDialog, buildKeyRow, VT52 and
+DECSTBM are absent from that port too - but it is also narrower than "the whole
+column is wrong", which is why it needs reading rather than deleting.  What does
+hold at 7f46e98: row 2 scrollback (under different names than the doc cites),
+row 3 copy/paste, row 5's pinned catalog tag (DiskCatalogRepository.kt:27,
+RELEASE_TAG = "v1.4.5"), row 7's NVRAM half (SettingsRepository.kt:20), row 9's
+8-24pt font slider (fontSizeSeekBar, activity_settings.xml) and row 10's
+explicit no-op Dazzler stubs (emu_io_android.cpp:529-541).  What does not: the
+key map (row 1), the bundled help (row 6 - HelpActivity fetches over HTTP and
+app/src/main/assets holds only emu_avw.rom), named profiles (row 11) and row
+13's VT52/DECSTBM extras.  Either find the branch on the other machine or
+rewrite the column from origin/master.  Same dispute as cpmdroid/todo.txt.
 
-- row 4's romwbw_emu CLI paragraph says W8 writes to the working directory only;
-98eb6a1 gave it a host path 50 minutes after the sweep was committed.
+- item 4's romwbw_emu CLI paragraph (FEATURE_PARITY.md:261) still says W8 "takes
+no path at all" and writes into the emulator's CWD; 98eb6a1 gave it
+W8 <cpmname> [hostpath].  The file now contradicts itself - :53 says the row is
+good again, :261 says "R8 yes, W8 no".
 
-- row 13's romwbw_emu web paragraph says the output filter starves xterm.js;
-2dbf6f2 fixed it, along with implementing Module.onError.
+- item 13's romwbw_emu web paragraph (:579) still says the output filter starves
+xterm.js - only CR, LF, BS, ESC and 0x20-0x7E survive, BS rewritten as a
+destructive backspace - and item 10's Dazzler paragraph (:439) still says
+Module.onError is "emitted and implemented nowhere".  2dbf6f2 fixed both.  The
+rest of that Dazzler paragraph stands: the dead onVideo*/onDsky* against
+onVda*/onSnd* wiring was deliberately left alone in the same commit.
 
-- row 12 says the web frontend loses "Don't warn" across a disk reload; 108856c
-fixed it.
+- the iOS/macOS column is dated at ioscpm build 50 (:32, :606) and build 51
+(4deea96) landed the same day, closing three of its own rows: row 1 ("10 keys,
+no F1-F12" - SpecialKey is 22 cases now, on this port's byte table), row 6
+("fallback no" - the index and all seven topics ship inside the app, behind the
+download and the cache) and row 13 ("missing only P @ X S T", plus DECAWM and
+DECTCEM parsed but not acted on - all five finals added and both modes acted
+on).
 
-- the iOS/macOS column was verified at ioscpm build 50 and build 51 landed the
-same day, closing three gaps of its own.
-
-- docs/FILE_TRANSFER.md's headline example, "W8 C:\Users\me\Desktop\out.com
-writes to your Desktop", is not true of the w8.com in the shipped images.  See
-the disk-image section.
+- the W8-takes-a-host-path claim survives in three more places now that
+docs/FILE_TRANSFER.md's quick-reference row and Windows section have been
+corrected.  FILE_TRANSFER.md:154 itself, in the "I can't find my exported file"
+checklist - "Did you give a full path? (Windows only)" - which contradicts the
+correction a hundred lines above it.  README.md:98-102, which still carries the
+claim and the W8 C:\Users\me\Desktop\out.com example verbatim, and is the most
+prominent of the three.  And HelpWindow.cpp:57, which lists R8 and W8 together
+and then says "Give a full path (recommended)", so it reads as endorsing both at
+runtime.  All three come right when the images are refreshed - and
+FILE_TRANSFER.md:47-64 has to be reverted then.
 
 
 Small things a review of the sync round raised and did not take
@@ -148,38 +187,39 @@ Small things a review of the sync round raised and did not take
 None of these is a regression; each was measured and left deliberately.
 
 - a 0-byte disk image is accepted and mounts as an empty disk rather than being
-refused with an error.  The shared emu_io_common.cc does the same, so fixing it
-here alone would be a divergence; better done in both.
+refused with an error: emu_io_windows.cpp's emu_file_load returns true for
+size 0, EmulatorEngine::loadDisk passes it on, and HBIOSDispatch::loadDisk
+range-checks the unit and nothing else.  The shared emu_io_common.cc does the
+same, so fixing it here alone would be a divergence; better done in both.
 
-- MainWindow::startEmulator() clears the terminal, which erases the ROM-failure
-text the ROM-loading path went to some trouble to print.  Pre-existing, and only
-visible when a ROM has already failed to load.
+- MainWindow::startEmulator() clears the terminal, which erases the two notices
+applyConfig() prints when the saved ROM is unusable but loadDefaultROM() has
+already put a good one in the banks - "NOTE: the saved ROM (...)" and "ERROR:
+the saved ROM (X) was not found".  hasROM() is true for both, so the no-ROM
+guard above the clear does not fire.  Pre-existing, and only visible when a ROM
+has already failed to load.
 
 - the four scrollback combinations (Shift+PageUp/PageDown, Ctrl+Home/End) are
-intercepted before the key map, so a config that binds them is silently
-ignored rather than refused.  docs/CONFIGURATION.md now says which four they
-are; making build() reject them would be better still.
+intercepted at TerminalView.cpp:602-607, before the key-map lookup at :616, so a
+config that binds them is silently ignored rather than refused.
+docs/CONFIGURATION.md now says which four they are; making KeyMap::build reject
+them would be better still.
 
 
 Loose ends
 -----------
 
-- romwbw_emu's hbios_dispatch.cc emits six C4267 warnings under MSVC at /W3.
-Checked, all six: a size_t loop index promoting a uint16_t guest address, where
-the truncation to sixteen bits IS the Z80 64K wrap HBIOS wants.  Nothing to fix,
-and they are suppressed for that one imported file so a real warning is not
-buried.  Worth a matching cast upstream if romwbw_emu ever turns the warning on
-for itself - cpmemu's 9fee3c2 sweep for this class did not reach this file.
-
 - there is no .pdb for the shipped 1.0.22 build, on any channel.  The symbols
 are gone - a rebuild against wxWidgets 3.3.3 is a different binary - but
-build-msix.ps1's -Beta branch should copy one out from now on.
+build-msix.ps1's -Beta branch should copy one out from now on.  It mentions no
+.pdb anywhere, and dist\ holds z80cpmw-1.0.21-beta.pdb and nothing for 1.0.22.
 
-- upstream's emu_io_common.cc uses rename() to replace the target in
+- upstream's emu_io_common.cc:107 uses rename() to replace the target in
 emu_file_save().  ISO C leaves that undefined when the target exists and both
 the MSVC CRT and mingw's msvcrt fail it outright, so the shared copy has a
-dormant bug on Windows that this port does not (it uses MoveFileEx).  Worth a
-shim in romwbw_emu beside the emu_fseek/emu_ftell one 573c7cc added.
+dormant bug on Windows that this port does not - emu_io_windows.cpp uses
+MoveFileExA with MOVEFILE_REPLACE_EXISTING.  Worth an emu_rename shim in
+romwbw_emu's emu_io.h beside the emu_fseek/emu_ftell pair 573c7cc added.
 
 - the v1.0.22-beta GitHub release is flagged Latest rather than prerelease,
 unlike 1.0.16 / 1.0.17 / 1.0.21.  A judgement call, not a defect: if the -beta

@@ -200,6 +200,34 @@ by reading; this is what compiling and running it turned up.
   declared in no header and called from nowhere. Nothing in this port creates a
   disk image.
 
+### Documentation
+The cross-port sweep that produced `FEATURE_PARITY.md` was committed the same
+afternoon as several of the upstream commits it describes, so parts of it were
+stale within the hour. These are the corrections that have landed; the rows
+still carrying the old text are listed in `todo.txt`.
+- **Row 12 no longer says the web frontend forgets *Don't warn*.** `romwbw_emu`
+  `108856c` moved the suppression call outside the `diskData` guard in
+  `reloadDisks()`, so the checkbox survives a mid-session disk reload. This row
+  had no stale paragraph of its own, so it is corrected outright.
+- **Row 4 and row 13 are marked fixed upstream** in the header summary and in
+  the per-port snapshot table: `98eb6a1` gave the `romwbw_emu` CLI
+  `W8 <cpmname> [hostpath]`, and `2dbf6f2` opened `Module.onConsoleOutput` to
+  every byte and implemented `Module.onError`. Each row's own paragraph still
+  describes the old behaviour and is tracked in `todo.txt`.
+- **The Android column is marked unverifiable.** It describes `cpmdroid` commit
+  `c26aeb7`, which is not a valid object in that repository — `origin/master` is
+  `7f46e98`, and none of the symbols the column cites (`DEFAULT_KEY_BINDINGS`,
+  `decodeKeySequence`, `saveProfile`, any VT52 or DECSTBM code) exist there. A
+  note at the head of the file now asks the reader to treat every Android cell
+  as unverified until that branch surfaces.
+- **`docs/FILE_TRANSFER.md` no longer promises a `W8` that takes a host path.**
+  Its headline example, `W8 C:\Users\me\Desktop\out.com`, described the `w8.com`
+  `98eb6a1` introduced, not the one inside the disk images this app ships —
+  which reads only the default FCB and writes into the data folder whatever you
+  type. The quick-reference table and the Windows section now say so, and say
+  what to do until the images are refreshed. The same claim survives elsewhere
+  in `README.md` and the in-app help; `todo.txt` lists where.
+
 ### Verified
 - **The tree builds.** Both configurations, against `romwbw_emu` `2dbf6f2` and
   `cpmemu` `9fee3c2`. This closes `todo.txt`'s "VERIFY FIRST - already pushed,
