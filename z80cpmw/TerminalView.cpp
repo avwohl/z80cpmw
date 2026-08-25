@@ -8,6 +8,18 @@
 static const wchar_t* TERMINAL_CLASS = L"Z80CPM_Terminal";
 static bool g_classRegistered = false;
 
+// Swap the foreground and background nibbles of a CGA attribute byte. This is
+// how reverse video is rendered, and it is applied at the cell write only - see
+// processNormalChar(). It is deliberately not applied to the stored rendition:
+// the foreground is four bits and the background three, so a swap is lossy and
+// cannot be undone, which is what made ESC[7m ESC[27m throw away the intensity
+// bit back when SGR 7 edited m_currentAttr in place.
+static inline uint8_t swapAttrNibbles(uint8_t attr) {
+    uint8_t fg = attr & 0x0F;
+    uint8_t bg = (attr >> 4) & 0x07;
+    return (uint8_t)((fg << 4) | bg);
+}
+
 TerminalView::TerminalView() {
     clear();
 }
@@ -119,24 +131,85 @@ void TerminalView::createFont() {
     }
 }
 
-void TerminalView::clear() {
+// The cell an erase leaves behind. A space in the current rendition, resolved
+// through reverse video exactly as a written glyph is.
+//
+// Erasing paints the current background - that is what ED and EL mean, and it
+// is why a program can set a colour, clear the screen, and get a screen of that
+// colour. Filling with a hardcoded fg 7 / bg 0 was survivable only while ESC[2J
+// also reset the rendition to that same default; once the erase stopped
+// resetting it, a cleared region and the text written into it afterwards no
+// longer agreed.
+TerminalCell TerminalView::blankCell() const {
+    const uint8_t attr = m_reverse ? swapAttrNibbles(m_currentAttr) : m_currentAttr;
+    TerminalCell c;
+    c.character = ' ';
+    c.foreground = attr & 0x0F;
+    c.background = (attr >> 4) & 0x07;
+    return c;
+}
+
+// Erase the screen and home the cursor. Nothing else: not the attribute, not
+// the escape parser's state, not the scrolling region, not VT52 or autowrap.
+//
+// This is what ESC[2J and VT52 ESC E mean. Erase-in-display says what to do
+// with the cells and says nothing about the terminal's modes, so a program that
+// sets a colour, sets a scrolling region and then clears its screen must come
+// back to all three still in force.
+//
+// ioscpm's clearTerminal() is the same shape and resets neither the rendition
+// nor the parser state, which is what made this repository's FEATURE_PARITY
+// row 13 the odd one out. It does reset the scrolling region, and that part is
+// ioscpm's bug rather than a model to copy: ED is not DECSTBM.
+//
+// The cursor homing IS deliberate, and is the one thing here a strict VT100
+// would not do - a real ED leaves the cursor alone. Both sibling ports home it,
+// and CP/M software written against ANSI.SYS expects ESC[2J to home, so it
+// stays. Erasing the whole screen and leaving the cursor mid-screen would be
+// the more surprising reading for the software this app exists to run.
+void TerminalView::eraseScreen() {
     for (int row = 0; row < ROWS; row++) {
         for (int col = 0; col < COLS; col++) {
-            m_cells[row][col] = TerminalCell();
+            m_cells[row][col] = blankCell();
         }
     }
     m_cursorRow = 0;
     m_cursorCol = 0;
+    m_pendingWrap = false;
+    invalidate();
+}
+
+// Erase the screen AND put every terminal mode back to power-on state. This is
+// the machine-level reset - the constructor, and Emulator > Start / Reset - and
+// no guest sequence reaches it. Until the split above it was also the ESC[2J
+// path, which is why a program's colours died with its screen clear.
+//
+// The modes below were previously left alone precisely because this function
+// was shared with ESC[2J. Now that it is not, a reset resets them: a fresh boot
+// has no business inheriting the scrolling region, VT52 mode or the wrap
+// setting the last session left behind.
+void TerminalView::clear() {
+    // The rendition goes back to the default FIRST, because eraseScreen() paints
+    // the current one: reset it afterwards and a reset screen would be filled
+    // with whatever colour the last session happened to end on.
+    m_currentAttr = 0x07;
+    m_reverse = false;
+
+    eraseScreen();
+
     m_escapeState = EscapeState::Normal;
     m_escapeParams.clear();
     m_escapeCurrentParam.clear();
-    m_currentAttr = 0x07;
-    m_reverse = false;
-    m_pendingWrap = false;
-    // The scrolling region and VT52 mode are deliberately NOT reset here: this
-    // is also the ESC[2J / VT52 ESC E path, and a full-screen program clearing
-    // its screen has not asked to lose the region it set - nor, in VT52's case,
-    // to be thrown back into ANSI mid-session.
+    m_escapePrivate = false;
+    m_savedCursorRow = 0;
+    m_savedCursorCol = 0;
+    m_savedAttr = 0x07;
+    m_savedReverse = false;
+    m_scrollTop = 0;
+    m_scrollBottom = ROWS - 1;
+    m_vt52Mode = false;
+    m_autoWrap = true;
+    m_cursorEnabled = true;
     invalidate();
 }
 
@@ -186,7 +259,7 @@ void TerminalView::scrollUp(int lines) {
 
     for (int row = ROWS - lines; row < ROWS; row++) {
         for (int col = 0; col < COLS; col++) {
-            m_cells[row][col] = TerminalCell();
+            m_cells[row][col] = blankCell();
         }
     }
     invalidate();
@@ -242,11 +315,15 @@ void TerminalView::setScrollbackLines(int lines) {
     invalidate();
 }
 
+// Replace the rendition wholesale. This is the VDA video path, not SGR: the
+// caller hands over a complete CGA attribute byte rather than modifying the
+// current one.
 void TerminalView::setAttr(uint8_t attr) {
     m_currentAttr = attr;
-    // The attribute is being replaced wholesale, so any reverse-video swap SGR
-    // was tracking no longer describes it. Leaving the flag set would make a
-    // later ESC[27m swap a byte that was never swapped.
+    // The byte given is the rendition as it should appear, so it is already in
+    // the un-reversed domain m_currentAttr holds - and it carries no notion of
+    // reverse video. Leaving the flag set from an earlier ESC[7m would show the
+    // caller's colours swapped.
     m_reverse = false;
 }
 
@@ -323,15 +400,26 @@ LRESULT TerminalView::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         handleKeyDown(wParam);
         return 0;
 
-    case WM_SYSKEYDOWN:
-        // F10 normally activates the menu bar (it arrives as a system key, not
-        // WM_KEYDOWN). When it is bound in the keymap, deliver it to CP/M like
-        // the other function keys instead; otherwise let the menu handle it.
-        if (wParam == VK_F10 && m_keymap.find(VK_F10)) {
+    case WM_SYSKEYDOWN: {
+        // Alt+<key> and bare F10 both arrive here rather than as WM_KEYDOWN,
+        // because both are how Windows reaches the menu bar. Either may be
+        // taken for CP/M, but only on an exact match: findExact, not find,
+        // because the falling-back find() would answer "bound" for Alt+Left on
+        // the strength of plain Left's binding and swallow every Alt press.
+        const unsigned mods = currentKeyMods();
+        if (m_keymap.findExact(static_cast<UINT>(wParam), mods)) {
+            handleKeyDown(wParam);
+            return 0;
+        }
+        // Bare F10 - no Alt held - is the one case that may use the plain
+        // binding. It is a function key the guest expects, and it only arrives
+        // here at all because Windows reserves it for the menu.
+        if (wParam == VK_F10 && mods == keymap::KM_MOD_NONE && m_keymap.find(VK_F10)) {
             handleKeyDown(wParam);
             return 0;
         }
         break;  // fall through to DefWindowProc for normal Alt/menu handling
+    }
 
     case WM_CHAR:
         handleChar(wParam);
@@ -496,6 +584,17 @@ void TerminalView::paint(HDC hdc) {
     DeleteDC(memDC);
 }
 
+// The modifier keys held right now, as a keymap modifier mask. Read from the
+// keyboard state rather than passed down, because WM_KEYDOWN and WM_SYSKEYDOWN
+// both need it and neither carries it in its parameters.
+unsigned TerminalView::currentKeyMods() {
+    unsigned mods = keymap::KM_MOD_NONE;
+    if (GetKeyState(VK_CONTROL) & 0x8000) mods |= keymap::KM_MOD_CTRL;
+    if (GetKeyState(VK_SHIFT)   & 0x8000) mods |= keymap::KM_MOD_SHIFT;
+    if (GetKeyState(VK_MENU)    & 0x8000) mods |= keymap::KM_MOD_ALT;
+    return mods;
+}
+
 void TerminalView::handleKeyDown(WPARAM wParam) {
     // Scrollback navigation is handled locally and never sent to CP/M. It uses
     // Shift+PageUp/PageDown (plain PageUp/Down still reach CP/M via the keymap)
@@ -510,7 +609,11 @@ void TerminalView::handleKeyDown(WPARAM wParam) {
     // Special keys (arrows, Home/End, Insert/Delete, PageUp/Down, F1-F12) are
     // resolved through the configurable keymap and sent to CP/M as a byte
     // sequence. Printable keys arrive separately via WM_CHAR (handleChar).
-    const std::string* seq = m_keymap.find(static_cast<UINT>(wParam));
+    //
+    // The modifiers are part of the lookup, so Ctrl+Left can carry a different
+    // sequence from Left. Anything with no binding of its own falls back to the
+    // unmodified one, which is what every modified press used to get.
+    const std::string* seq = m_keymap.find(static_cast<UINT>(wParam), currentKeyMods());
     if (seq && m_keyCallback) {
         scrollToBottom();   // a key sent to CP/M returns to the live screen
         for (char c : *seq) {
@@ -524,7 +627,11 @@ void TerminalView::handleKeyDown(WPARAM wParam) {
 }
 
 void TerminalView::handleChar(WPARAM wParam) {
-    if (wParam >= 1 && wParam <= 127) {
+    // 0 is admitted: Ctrl+@ / Ctrl+Space / Ctrl+2 all produce WM_CHAR 0, and NUL
+    // is a real byte a CP/M program can be waiting for. The old lower bound of 1
+    // dropped it before it could reach the guest. WPARAM is unsigned, so the
+    // upper bound is the only one needed.
+    if (wParam <= 127) {
         char ch = (char)wParam;
         if (m_keyCallback) {
             scrollToBottom();   // typing returns to the live screen
@@ -724,7 +831,7 @@ void TerminalView::scrollRegionUp(int lines) {
     }
     for (int row = m_scrollBottom - lines + 1; row <= m_scrollBottom; row++) {
         for (int col = 0; col < COLS; col++) {
-            m_cells[row][col] = TerminalCell();
+            m_cells[row][col] = blankCell();
         }
     }
     invalidate();
@@ -741,7 +848,7 @@ void TerminalView::scrollRegionDown(int lines) {
     }
     for (int row = m_scrollTop; row < m_scrollTop + lines; row++) {
         for (int col = 0; col < COLS; col++) {
-            m_cells[row][col] = TerminalCell();
+            m_cells[row][col] = blankCell();
         }
     }
     invalidate();
@@ -771,7 +878,7 @@ void TerminalView::insertLines(int n) {
     }
     for (int row = m_cursorRow; row < m_cursorRow + count; row++) {
         for (int col = 0; col < COLS; col++) {
-            m_cells[row][col] = TerminalCell();
+            m_cells[row][col] = blankCell();
         }
     }
     m_cursorCol = 0;
@@ -789,7 +896,7 @@ void TerminalView::deleteLines(int n) {
     }
     for (int row = m_scrollBottom - count + 1; row <= m_scrollBottom; row++) {
         for (int col = 0; col < COLS; col++) {
-            m_cells[row][col] = TerminalCell();
+            m_cells[row][col] = blankCell();
         }
     }
     m_cursorCol = 0;
@@ -804,7 +911,7 @@ void TerminalView::insertChars(int n) {
         m_cells[m_cursorRow][col] = m_cells[m_cursorRow][col - count];
     }
     for (int col = m_cursorCol; col < m_cursorCol + count; col++) {
-        m_cells[m_cursorRow][col] = TerminalCell();
+        m_cells[m_cursorRow][col] = blankCell();
     }
     m_pendingWrap = false;
     invalidate();
@@ -817,7 +924,7 @@ void TerminalView::deleteChars(int n) {
         m_cells[m_cursorRow][col] = m_cells[m_cursorRow][col + count];
     }
     for (int col = COLS - count; col < COLS; col++) {
-        m_cells[m_cursorRow][col] = TerminalCell();
+        m_cells[m_cursorRow][col] = blankCell();
     }
     m_pendingWrap = false;
     invalidate();
@@ -826,7 +933,7 @@ void TerminalView::deleteChars(int n) {
 void TerminalView::eraseChars(int n) {
     const int last = std::min(m_cursorCol + std::max(n, 1) - 1, COLS - 1);
     for (int col = m_cursorCol; col <= last; col++) {
-        m_cells[m_cursorRow][col] = TerminalCell();
+        m_cells[m_cursorRow][col] = blankCell();
     }
     m_pendingWrap = false;
     invalidate();
@@ -913,9 +1020,13 @@ void TerminalView::processNormalChar(uint8_t ch) {
                 lineFeed();
                 m_pendingWrap = false;
             }
+            // Reverse video is resolved here, at the write, and nowhere else.
+            // m_currentAttr always holds the un-reversed rendition.
+            const uint8_t attr = m_reverse ? swapAttrNibbles(m_currentAttr)
+                                           : m_currentAttr;
             m_cells[m_cursorRow][m_cursorCol].character = (char)ch;
-            m_cells[m_cursorRow][m_cursorCol].foreground = m_currentAttr & 0x0F;
-            m_cells[m_cursorRow][m_cursorCol].background = (m_currentAttr >> 4) & 0x07;
+            m_cells[m_cursorRow][m_cursorCol].foreground = attr & 0x0F;
+            m_cells[m_cursorRow][m_cursorCol].background = (attr >> 4) & 0x07;
 
             if (m_cursorCol >= COLS - 1) {
                 // At the rightmost column: arm the wrap rather than taking it,
@@ -940,16 +1051,25 @@ void TerminalView::processEscapeChar(uint8_t ch) {
         m_escapeState = EscapeState::CSI;
         break;
 
-    case '7':  // Save cursor
+    case '7':  // DECSC - save cursor AND rendition
+        // A real VT100 saves the graphic rendition with the position, which is
+        // what lets a program park the cursor, draw a status line in its own
+        // colours, and restore both with ESC 8. Saving only the position sent
+        // the caller back to the right cell wearing the status line's colours.
+        // (CSI s / CSI u below are the ANSI.SYS pair and save position alone.)
         m_savedCursorRow = m_cursorRow;
         m_savedCursorCol = m_cursorCol;
+        m_savedAttr = m_currentAttr;
+        m_savedReverse = m_reverse;
         m_escapeState = EscapeState::Normal;
         break;
 
-    case '8':  // Restore cursor
+    case '8':  // DECRC - restore cursor AND rendition
         m_pendingWrap = false;
         m_cursorRow = m_savedCursorRow;
         m_cursorCol = m_savedCursorCol;
+        m_currentAttr = m_savedAttr;
+        m_reverse = m_savedReverse;
         m_escapeState = EscapeState::Normal;
         invalidate();
         break;
@@ -979,8 +1099,10 @@ void TerminalView::processEscapeChar(uint8_t ch) {
 
     case 'E':
         if (m_vt52Mode) {
-            // Heath/Zenith VT52: clear the screen and home the cursor
-            clear();
+            // Heath/Zenith VT52: clear the screen and home the cursor. The
+            // screen only - eraseScreen(), not clear(), or the guest loses the
+            // attribute it set along with the text.
+            eraseScreen();
         } else {
             // VT100 next line
             m_cursorCol = 0;
@@ -1051,7 +1173,7 @@ void TerminalView::processEscapeChar(uint8_t ch) {
     case 'K':  // VT52 erase to end of line
         m_vt52Mode = true;
         for (int col = m_cursorCol; col < COLS; col++) {
-            m_cells[m_cursorRow][col] = TerminalCell();
+            m_cells[m_cursorRow][col] = blankCell();
         }
         m_escapeState = EscapeState::Normal;
         invalidate();
@@ -1077,6 +1199,17 @@ void TerminalView::processEscapeChar(uint8_t ch) {
 
     case '<':  // Leave VT52, return to ANSI
         m_vt52Mode = false;
+        m_escapeState = EscapeState::Normal;
+        break;
+
+    case 'c':  // RIS - reset to initial state
+        // clear() is exactly this: erase the screen and put every mode back to
+        // power-on. It was already written for the machine reset and ESC c was
+        // being swallowed, so the sequence a program sends to get a known-good
+        // terminal did nothing at all. The scrollback is deliberately kept -
+        // the history above the screen is the user's, not the guest's, and
+        // MainWindow clears it separately when the machine itself restarts.
+        clear();
         m_escapeState = EscapeState::Normal;
         break;
 
@@ -1275,7 +1408,9 @@ void TerminalView::executeCSI(uint8_t finalChar) {
         switch (p1) {
         case 0: clearFromCursor(); break;
         case 1: clearToCursor(); break;
-        case 2: clear(); break;
+        // eraseScreen(), not clear(): ED 2 erases cells and says nothing about
+        // the terminal's modes. See the comments on both functions.
+        case 2: eraseScreen(); break;
         }
         break;
 
@@ -1283,17 +1418,17 @@ void TerminalView::executeCSI(uint8_t finalChar) {
         switch (p1) {
         case 0:  // Clear to end of line
             for (int col = m_cursorCol; col < COLS; col++) {
-                m_cells[m_cursorRow][col] = TerminalCell();
+                m_cells[m_cursorRow][col] = blankCell();
             }
             break;
         case 1:  // Clear to beginning
             for (int col = 0; col <= m_cursorCol; col++) {
-                m_cells[m_cursorRow][col] = TerminalCell();
+                m_cells[m_cursorRow][col] = blankCell();
             }
             break;
         case 2:  // Clear entire line
             for (int col = 0; col < COLS; col++) {
-                m_cells[m_cursorRow][col] = TerminalCell();
+                m_cells[m_cursorRow][col] = blankCell();
             }
             break;
         }
@@ -1301,10 +1436,34 @@ void TerminalView::executeCSI(uint8_t finalChar) {
         break;
 
     case 'm':  // SGR (Select Graphic Rendition)
+        // Only the non-private form is a rendition. ESC[>4;2m and ESC[>m are
+        // xterm's modifyOtherKeys and say nothing about colour; without this
+        // guard the bare one was read as ESC[m and reset the whole rendition.
+        if (m_escapePrivate) break;
         if (m_escapeParams.empty()) {
-            m_currentAttr = 0x07;
+            // ESC[m is ESC[0m, which means reverse video is cleared too.
+            // Assigning the default attribute directly left m_reverse set, so a
+            // later ESC[27m swapped a byte that had never been swapped and put
+            // the whole terminal into reverse.
+            applySGR(0);
         } else {
-            for (int param : m_escapeParams) {
+            for (size_t i = 0; i < m_escapeParams.size(); i++) {
+                const int param = m_escapeParams[i];
+                // Extended colour: ESC[38;5;<n>m and ESC[38;2;<r>;<g>;<b>m, and
+                // 48 for the background. This terminal is CGA - sixteen
+                // foregrounds, eight backgrounds - so there is nothing to apply,
+                // but the subparameters still have to be stepped over. Read as
+                // parameters in their own right they land as colours: the "44"
+                // of ESC[38;5;44m set a red background.
+                if (param == 38 || param == 48) {
+                    if (i + 1 < m_escapeParams.size()) {
+                        const int form = m_escapeParams[i + 1];
+                        if (form == 5)      i += 2;   // ;5;<index>
+                        else if (form == 2) i += 4;   // ;2;<r>;<g>;<b>
+                        else                i += 1;
+                    }
+                    continue;
+                }
                 applySGR(param);
             }
         }
@@ -1378,13 +1537,6 @@ void TerminalView::executeCSI(uint8_t finalChar) {
     }
 }
 
-// Swap the foreground and background nibbles of an attribute byte.
-static inline uint8_t swapAttrNibbles(uint8_t attr) {
-    uint8_t fg = attr & 0x0F;
-    uint8_t bg = (attr >> 4) & 0x07;
-    return (uint8_t)((fg << 4) | bg);
-}
-
 void TerminalView::applySGR(int param) {
     switch (param) {
     case 0:  // Reset
@@ -1398,57 +1550,53 @@ void TerminalView::applySGR(int param) {
         m_currentAttr &= (uint8_t)~0x08;
         break;
     case 7:  // Reverse on
-        // Guarded, so a second ESC[7m does not swap back and cancel itself.
-        if (!m_reverse) {
-            m_currentAttr = swapAttrNibbles(m_currentAttr);
-            m_reverse = true;
-        }
+        // A flag, not an edit. Setting it twice is naturally idempotent, and
+        // nothing about the stored rendition changes, so 27 can always undo it
+        // exactly.
+        m_reverse = true;
         break;
     case 27:  // Reverse off
-        // Undo the swap. This used to reset the whole attribute byte to the
-        // default, so ESC[7m ... ESC[27m threw the colours away as well.
-        if (m_reverse) {
-            m_currentAttr = swapAttrNibbles(m_currentAttr);
-            m_reverse = false;
-        }
+        m_reverse = false;
         break;
     default:
-        // While reversed, m_currentAttr holds the already-swapped byte, so a
-        // colour must be applied in the un-swapped domain and swapped back, or
-        // it lands in the wrong nibble and shows up as the other one.
+        // 0xF8 keeps the background nibble AND bit 3, which is the intensity
+        // bit SGR 1 sets. Masking with 0xF0 instead - which is what this did -
+        // cleared bold every time a colour arrived, so ESC[1;37m came out dim
+        // while ESC[37;1m came out bright.
         if (param >= 30 && param <= 37) {
-            if (m_reverse) m_currentAttr = swapAttrNibbles(m_currentAttr);
-            m_currentAttr = (uint8_t)((m_currentAttr & 0xF0) | (param - 30));
-            if (m_reverse) m_currentAttr = swapAttrNibbles(m_currentAttr);
+            m_currentAttr = (uint8_t)((m_currentAttr & 0xF8) | (param - 30));
         } else if (param >= 40 && param <= 47) {
-            if (m_reverse) m_currentAttr = swapAttrNibbles(m_currentAttr);
             m_currentAttr = (uint8_t)((m_currentAttr & 0x0F) | ((param - 40) << 4));
-            if (m_reverse) m_currentAttr = swapAttrNibbles(m_currentAttr);
         }
         break;
     }
 }
 
 void TerminalView::clearFromCursor() {
+    // Erasing resolves an armed wrap, the same way ED 2 does through
+    // eraseScreen(). Leaving it armed meant the next glyph after an ED 0 still
+    // took a wrap that the erase had already made meaningless.
+    m_pendingWrap = false;
     for (int col = m_cursorCol; col < COLS; col++) {
-        m_cells[m_cursorRow][col] = TerminalCell();
+        m_cells[m_cursorRow][col] = blankCell();
     }
     for (int row = m_cursorRow + 1; row < ROWS; row++) {
         for (int col = 0; col < COLS; col++) {
-            m_cells[row][col] = TerminalCell();
+            m_cells[row][col] = blankCell();
         }
     }
     invalidate();
 }
 
 void TerminalView::clearToCursor() {
+    m_pendingWrap = false;   // as clearFromCursor()
     for (int row = 0; row < m_cursorRow; row++) {
         for (int col = 0; col < COLS; col++) {
-            m_cells[row][col] = TerminalCell();
+            m_cells[row][col] = blankCell();
         }
     }
     for (int col = 0; col <= m_cursorCol; col++) {
-        m_cells[m_cursorRow][col] = TerminalCell();
+        m_cells[m_cursorRow][col] = blankCell();
     }
     invalidate();
 }

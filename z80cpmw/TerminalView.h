@@ -94,6 +94,7 @@ private:
 
     void createFont();
     void paint(HDC hdc);
+    static unsigned currentKeyMods();   // Ctrl/Shift/Alt held now, as keymap bits
     void handleKeyDown(WPARAM wParam);
     void handleChar(WPARAM wParam);
 
@@ -125,6 +126,15 @@ private:
     // typing.
     void sendAnswerback(const char* s);
     void applySGR(int param);
+    // The cell an erase leaves behind: a space carrying the CURRENT rendition,
+    // not the power-on default. Erasing paints the current background, which is
+    // what lets a program set a colour, clear, and have the cleared area be that
+    // colour. Every erase, and every blank line scrolled in, goes through here.
+    TerminalCell blankCell() const;
+    // Erase the whole screen and home the cursor, touching nothing else. The
+    // ESC[2J and VT52 ESC E path; clear() is the machine-level reset built on
+    // top of it. See the comments on both in TerminalView.cpp.
+    void eraseScreen();
     void clearFromCursor();
     void clearToCursor();
 
@@ -159,6 +169,10 @@ private:
     int m_cursorCol = 0;
     int m_savedCursorRow = 0;
     int m_savedCursorCol = 0;
+    // DECSC/DECRC (ESC 7 / ESC 8) save the rendition alongside the position, as
+    // a VT100 does. CSI s / CSI u are the ANSI.SYS pair and save position only.
+    uint8_t m_savedAttr = 0x07;
+    bool m_savedReverse = false;
 
     uint8_t m_currentAttr = 0x07;  // Default: white on black
 
@@ -207,9 +221,11 @@ private:
     bool m_pendingWrap = false;
     bool m_autoWrap = true;      // DECAWM
 
-    // Whether SGR 7 (reverse video) is currently in effect. m_currentAttr holds
-    // the already-swapped byte, so this is what lets 27 undo the swap and lets
-    // a colour set while reversed land in the right nibble.
+    // Whether SGR 7 (reverse video) is in effect. It is a pure flag: the swap
+    // it describes is applied at the cell write and never to m_currentAttr,
+    // which always holds the un-reversed rendition. That is what makes 7 and 27
+    // exact inverses - swapping the byte in place cannot round-trip, because
+    // the foreground is four bits and the background only three.
     bool m_reverse = false;
 
     KeyInputCallback m_keyCallback;

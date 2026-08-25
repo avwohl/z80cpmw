@@ -3,6 +3,28 @@
  *
  * This implementation provides the emu_io interface for Windows.
  * Console I/O is routed through callbacks to the GUI.
+ *
+ * THIS FILE IS ALSO THE WINDOWS HALF OF romwbw_emu/src/emu_io_common.cc.
+ *
+ * The project compiles the rest of the core straight out of the sibling
+ * checkouts - qkz80* from ../cpmemu/src, and emu_init.cc / hbios_cpu.cc /
+ * hbios_dispatch.cc from ../romwbw_emu/src - so a fix upstream arrives here on
+ * the next build with nothing to do. emu_io_common.cc is the one exception:
+ * z80cpmw.vcxproj references it nowhere, because these versions use 64-bit
+ * Win32-flavoured stdio (_fseeki64, MoveFileEx) rather than the portable FILE*
+ * code it holds.
+ *
+ * The cost of that split is that nothing reports the drift. Eleven functions
+ * are duplicated between the two files and have to be kept in step by hand:
+ *
+ *     emu_disk_open   emu_disk_close  emu_disk_read   emu_disk_write
+ *     emu_disk_flush  emu_disk_flush_all              emu_disk_size
+ *     emu_file_load   emu_file_load_to_mem            emu_file_save
+ *     emu_get_time
+ *
+ * If you change one of those here, check whether emu_io_common.cc needs the
+ * same change - and if you are syncing to a new core, diff the eleven before
+ * assuming they still agree.
  */
 
 #include "pch.h"
@@ -20,14 +42,25 @@
 // Disk Image Format Definitions
 //=============================================================================
 
-enum emu_disk_format {
-    EMU_DISK_HD1K_SINGLE,  // 8MB single-unit disk
-    EMU_DISK_HD1K_COMBO,   // 128MB combo disk (16 slices)
-};
-
-// HD1K disk sizes (512-byte sectors)
-static const size_t EMU_HD1K_SINGLE_SIZE = 8 * 1024 * 1024;      // 8MB
+// The size of the combo disk image this app ships, used as the upper bound on
+// an R8 host-file import. The emu_disk_format enum and EMU_HD1K_SINGLE_SIZE
+// that used to sit here went with emu_disk_create() and
+// emu_disk_create_memory(): both were defined here, declared in no header,
+// and called from nowhere. Nothing creates a disk image in this port - images
+// arrive from the bundled set or the disk catalog.
 static const size_t EMU_HD1K_COMBO_SIZE = 128 * 1024 * 1024;     // 128MB
+
+// Upper bound for whole-file loads, matching EMU_MAX_LOAD_SIZE in
+// romwbw_emu/src/emu_io_common.cc. The point of the bound is to stop a
+// user-supplied path asking for an allocation that cannot succeed; the biggest
+// disk RomWBW can address is 256 hd1k slices plus the 1MB prefix, hence 2 GiB.
+//
+// emu_file_load used to bound itself with EMU_HD1K_COMBO_SIZE instead. That is
+// the size this app *creates*, not the largest it can be handed: it made the
+// Windows build refuse any hd1k image of more than sixteen slices while every
+// other port loaded it, and EmulatorEngine::loadDisk surfaced the refusal as
+// "cannot read the file".
+static const long long EMU_MAX_LOAD_SIZE = 2147483648LL;         // 2 GiB
 
 //=============================================================================
 // Callback Interface for GUI Integration
@@ -100,14 +133,25 @@ int emu_console_read_char() {
     }
     int ch = g_inputQueue.front();
     g_inputQueue.pop();
-    // Convert LF to CR for CP/M
-    if (ch == '\n') ch = '\r';
+    // No LF-to-CR rewrite here. Every producer already sends CR for Enter -
+    // WM_CHAR delivers 0x0D for the Return key (TerminalView::handleChar) and
+    // the paste path maps L'\n' to L'\r' itself - so the rewrite converted
+    // nothing that needed converting and destroyed the two cases that did:
+    // Ctrl+J, which is a distinct keystroke that WordStar-family editors bind,
+    // arrived as Enter, and a key binding written "\n" in z80cpmw.json was
+    // silently delivered as "\r". ioscpm dropped the same rewrite in its
+    // build 49.
     return ch;
 }
 
 void emu_console_queue_char(int ch) {
     std::lock_guard<std::mutex> lock(g_inputMutex);
-    g_inputQueue.push(ch);
+    // Mask to a byte. Every producer here hands over a `char`, which is signed
+    // on MSVC, so any byte with the high bit set arrived sign-extended - and
+    // 0xFF arrived as -1, which is exactly what emu_console_read_char() returns
+    // for "the queue is empty". A key bound to \377, or a boot string with a
+    // high byte in it, was therefore read back as no keystroke at all.
+    g_inputQueue.push(ch & 0xFF);
 }
 
 void emu_console_clear_queue() {
@@ -325,6 +369,26 @@ void emu_status(const char* fmt, ...) {
 // File I/O
 //=============================================================================
 
+// Measure an open stream in 64 bits, reporting failure instead of a bogus size,
+// and leave the position at the start. The Windows half of upstream's
+// measure_stream() in emu_io_common.cc, and it exists for the same reason: a
+// path naming a pipe or a socket opens fine but is not seekable, and the old
+// code fed the resulting -1 straight to vector::resize, which throws
+// length_error and, with no handler anywhere in the emulator, ends the process.
+//
+// _fseeki64/_ftelli64, not fseek/ftell: MSVC's long is 32 bits, so plain ftell
+// poisons the size of any file of 2GB or more.
+static bool measureStream(FILE* f, long long* outSize) {
+    if (_fseeki64(f, 0, SEEK_END) != 0) return false;
+    long long end = _ftelli64(f);
+    if (end < 0) return false;
+    // The rewind is checked too. Upstream checks it; the copy here did not, and
+    // left the caller reading from wherever the failed seek had stopped.
+    if (_fseeki64(f, 0, SEEK_SET) != 0) return false;
+    *outSize = end;
+    return true;
+}
+
 bool emu_file_load(const std::string& path, std::vector<uint8_t>& data) {
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) {
@@ -332,15 +396,8 @@ bool emu_file_load(const std::string& path, std::vector<uint8_t>& data) {
         return false;
     }
 
-    long long size = -1;
-    if (_fseeki64(f, 0, SEEK_END) == 0) {
-        size = _ftelli64(f);
-    }
-    _fseeki64(f, 0, SEEK_SET);
-    // Reject unmeasurable files and anything beyond the largest disk image
-    // (the only callers load ROMs and disk images). With 32-bit ftell a
-    // >=2GB file yielded (size_t)-1 and the resize below killed the app.
-    if (size < 0 || size > (long long)EMU_HD1K_COMBO_SIZE) {
+    long long size = 0;
+    if (!measureStream(f, &size) || size > EMU_MAX_LOAD_SIZE) {
         fclose(f);
         data.clear();
         return false;
@@ -362,18 +419,24 @@ size_t emu_file_load_to_mem(const std::string& path, uint8_t* mem,
     FILE* f = fopen(path.c_str(), "rb");
     if (!f) return 0;
 
-    fseek(f, 0, SEEK_END);
-    size_t fileSize = ftell(f);
-    fseek(f, 0, SEEK_SET);
+    // measureStream, not the bare 32-bit fseek/ftell pair this used: MSVC's
+    // long is 32 bits, so a large file measured here reported nonsense, and an
+    // unseekable one reported -1. (The shared copy in emu_io_common.cc still
+    // has the old form; it is on the list in the header comment.)
+    long long fileSize = 0;
+    if (!measureStream(f, &fileSize)) {
+        fclose(f);
+        return 0;
+    }
 
-    // Guard before subtracting: offset past mem_size would underflow, and a
-    // failed ftell makes fileSize (size_t)-1, so clamp to the space available.
+    // Guard before subtracting: an offset past mem_size would underflow.
     if (offset >= mem_size) {
         fclose(f);
         return 0;
     }
     size_t avail = mem_size - offset;
-    size_t toRead = (fileSize < avail) ? fileSize : avail;
+    size_t toRead = ((uint64_t)fileSize < (uint64_t)avail)
+                        ? (size_t)fileSize : avail;
 
     size_t bytesRead = fread(mem + offset, 1, toRead, f);
     fclose(f);
@@ -431,16 +494,16 @@ struct disk_file {
 // Track all open disks for emu_disk_flush_all
 static std::set<disk_file*> g_openDisks;
 
-// Wrap an opened image file in a disk_file, sizing it with 64-bit ftell
-// (MSVC long is 32 bits, so plain ftell poisons the size for a >=2GB file,
-// and the core's format autodetect and slice math trust this value). Closes
-// the file and returns nullptr if the size cannot be determined.
+// Wrap an opened image file in a disk_file, sizing it with the checked 64-bit
+// measurement above (the core's format autodetect and slice math trust this
+// value, so an unmeasurable stream must fail the open rather than be handed on
+// as a garbage size). Closes the file and returns nullptr if it cannot be
+// measured. measureStream also leaves the position at the start, which the
+// hand-rolled version here did not - it left every freshly opened image
+// positioned at EOF.
 static emu_disk_handle makeDiskHandle(FILE* f) {
-    long long size = -1;
-    if (_fseeki64(f, 0, SEEK_END) == 0) {
-        size = _ftelli64(f);
-    }
-    if (size < 0) {
+    long long size = 0;
+    if (!measureStream(f, &size)) {
         fclose(f);
         return nullptr;
     }
@@ -532,58 +595,6 @@ size_t emu_disk_size(emu_disk_handle handle) {
     if (!handle) return 0;
     disk_file* disk = static_cast<disk_file*>(handle);
     return disk->size;
-}
-
-//=============================================================================
-// Disk Image Creation
-//=============================================================================
-
-bool emu_disk_create(const std::string& path, emu_disk_format format) {
-    size_t size;
-    switch (format) {
-        case EMU_DISK_HD1K_SINGLE:
-            size = EMU_HD1K_SINGLE_SIZE;
-            break;
-        case EMU_DISK_HD1K_COMBO:
-            size = EMU_HD1K_COMBO_SIZE;
-            break;
-        default:
-            return false;
-    }
-
-    FILE* f = fopen(path.c_str(), "wb");
-    if (!f) return false;
-
-    // Write zeros to create the disk image
-    std::vector<uint8_t> zeros(65536, 0);  // 64KB buffer
-    size_t remaining = size;
-    while (remaining > 0) {
-        size_t toWrite = (remaining < zeros.size()) ? remaining : zeros.size();
-        size_t written = fwrite(zeros.data(), 1, toWrite, f);
-        if (written != toWrite) {
-            fclose(f);
-            return false;
-        }
-        remaining -= written;
-    }
-
-    return fclose(f) == 0;
-}
-
-std::vector<uint8_t> emu_disk_create_memory(emu_disk_format format) {
-    size_t size;
-    switch (format) {
-        case EMU_DISK_HD1K_SINGLE:
-            size = EMU_HD1K_SINGLE_SIZE;
-            break;
-        case EMU_DISK_HD1K_COMBO:
-            size = EMU_HD1K_COMBO_SIZE;
-            break;
-        default:
-            return {};
-    }
-
-    return std::vector<uint8_t>(size, 0);
 }
 
 //=============================================================================
@@ -844,14 +855,14 @@ bool emu_host_file_open_read(const char* filename) {
     // Read the file
     FILE* f = fopen(fullPath.c_str(), "rb");
     if (f) {
-        _fseeki64(f, 0, SEEK_END);
-        long long size = _ftelli64(f);
-        _fseeki64(f, 0, SEEK_SET);
         // Reject unmeasurable files (devices, ftell failure) and anything
         // larger than the biggest disk image: the whole file is buffered in
         // RAM, and no CP/M disk could hold more anyway. Unchecked, a >=2GB
-        // size would make the resize below throw and kill the app.
-        if (size < 0 || size > (long long)EMU_HD1K_COMBO_SIZE) {
+        // size would make the resize below throw and kill the app. The bound
+        // here is deliberately the disk size, not emu_file_load's 2 GiB: this
+        // is R8 importing a file into CP/M, not a disk image being opened.
+        long long size = 0;
+        if (!measureStream(f, &size) || size > (long long)EMU_HD1K_COMBO_SIZE) {
             fclose(f);
             g_hostFileState = HOST_FILE_IDLE;
             return false;

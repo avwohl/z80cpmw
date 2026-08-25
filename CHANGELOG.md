@@ -24,6 +24,194 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
+The first pass on a Windows machine since the cross-port sweep that produced
+`todo.txt`. That sweep was done on a Mac, so everything it found here was found
+by reading; this is what compiling and running it turned up.
+
+### Added
+- **The terminal conformance suite, at last.** `[1.0.20]` announced a headless
+  suite of 73 checks and said in the same breath that it was not committed; it
+  never was, and the only trace it left was the reference to `test_vt52.cpp` in
+  `TerminalView.h`. It is now in `tests/`, rebuilt from the `[1.0.20]` feature
+  list and from the parser as it stands, at **205 checks**. It drives
+  `TerminalView` the way a guest does - bytes in through `outputChar()` - and
+  reads back only through the public interface: the screen through `cellAt()`,
+  the cursor through `ESC [ 6 n`, which puts the answerback path under test
+  rather than assuming it. It needs no window, and it needs neither wxWidgets
+  nor vcpkg, so it runs on any machine with a compiler. `tests\run_tests.bat`.
+- **Ctrl+arrow keys, and modifiers in the key map generally.** A binding is now
+  identified by a virtual-key code *and* the modifiers held with it, so
+  `Ctrl+Left` is a different binding from `Left`; the config accepts `Ctrl+`,
+  `Shift+` and `Alt+` prefixes, stacked in any order. Defaults for the four
+  Ctrl+arrows follow the same xterm convention as the rest of the table
+  (`ESC[1;5A`..`D`). A modified press with no binding of its own falls back to
+  the unmodified one, which is what every modified press used to get. `cpmemu`
+  added its own Ctrl+arrows in `0b8dc2b`; this is the same gap closed in the
+  shape this port's key map wanted.
+  Alt needs care, because on Windows it is the menu key: an `Alt+` press is
+  taken from the menu only when the user has bound that exact combination, which
+  is the same rule F10 has always followed here. Nothing is bound to Alt by
+  default, so the menu behaves exactly as before unless you ask otherwise.
+- **The About box names the RomWBW release the core emulates.** A user who
+  meets the "HBIOS/CBIOS Version Mismatch" banner is being told their disk
+  images were built by a different release than this HBIOS emulates, and the
+  app displayed nothing they could compare it against. Taken from
+  `romwbw_pin.h`, which is the single source of that number.
+
+### Fixed
+- **`ESC[2J` threw away the current colours.** Erase-in-display shares its
+  implementation with the machine reset, so clearing the screen also reset the
+  SGR attribute, the reverse-video flag and the escape parser's state - none of
+  which erase-in-display says anything about. `clear()` is now the machine reset
+  alone, and a new `eraseScreen()` is what `ESC[2J` and VT52 `ESC E` call.
+  `ioscpm`'s `clearTerminal()` resets none of them either, which is what made
+  this repository's `FEATURE_PARITY.md` row 13 the odd one out. The scrolling
+  region is still deliberately preserved across an erase - that part of the old
+  comment was right, and `ioscpm` is the one that gets it wrong.
+- **A machine reset did not reset the terminal.** The flip side of the same
+  sharing: because `clear()` was also the `ESC[2J` path, it deliberately left
+  VT52 mode, DECAWM, DECTCEM and the scrolling region alone - so **Emulator >
+  Reset** booted a fresh machine into whatever modes the last session had set.
+  Now that the two paths are separate, a reset resets them.
+- **Reverse video destroyed the colours it was supposed to restore.** `SGR 7`
+  swapped the foreground and background nibbles of the attribute byte in place.
+  The foreground is four bits and the background three, so the swap is lossy and
+  `SGR 27` could not undo it: `ESC[1;31m ESC[7m ESC[27m` came back dim, and
+  `ESC[7m ESC[1m ESC[27m` came back as a colour nobody asked for. Reverse is now
+  a flag resolved at the cell write, and the stored rendition is never swapped.
+- **`ESC[1;37m` was dim while `ESC[37;1m` was bright.** Setting a foreground
+  colour masked out the intensity bit that `SGR 1` had just set, so bold
+  survived only if it arrived last.
+- **`ESC[m` was not `ESC[0m`.** It reset the attribute byte but left the
+  reverse-video flag set, so a later `ESC[27m` un-swapped a byte that had never
+  been swapped and put the whole terminal into reverse.
+- **An erase painted the default colours instead of the current ones.** Every
+  erase and every blank line scrolled in was filled with a hardcoded white-on-
+  black, which was survivable only while `ESC[2J` also reset the rendition to
+  exactly that. Once it stopped, a cleared region and the text written into it
+  afterwards no longer agreed. `ED`, `EL`, `ECH`, `IL`, `DL`, `ICH`, `DCH` and
+  the scroll paths all paint the current background now, which is what those
+  sequences mean — a program can set a colour, clear, and get a screen of it.
+- **`ESC[>m` reset the rendition.** The `m` case did not check for the private
+  parameter marker, so xterm's `modifyOtherKeys` sequences were read as SGR;
+  the bare `ESC[>m` was taken for `ESC[m`.
+- **`ESC[38;5;44m` set a background.** Extended-colour subparameters were read
+  as parameters in their own right, so the colour index landed as a CGA colour.
+  There is nothing for this terminal to apply them to, but they have to be
+  stepped over rather than misread.
+- **`ESC 7` / `ESC 8` lost the colours.** DECSC/DECRC save the graphic rendition
+  alongside the cursor position on a real VT100, which is what lets a program
+  park the cursor, draw a status line in its own colours and put everything
+  back. Only the position was saved, so the caller returned to the right cell
+  wearing the status line's colours. `CSI s` / `CSI u` are the ANSI.SYS pair and
+  correctly continue to save position alone.
+- **Ctrl+@ / Ctrl+Space never reached CP/M.** `WM_CHAR` delivers 0 for them and
+  the guard dropped it. NUL is a real byte a CP/M program can be waiting for.
+- **Ctrl+J arrived as Enter.** `emu_console_read_char()` rewrote LF to CR on the
+  way to the guest. Nothing needed it - `WM_CHAR` already delivers 0x0D for the
+  Return key and the paste path maps `\n` to `\r` itself - and it destroyed the
+  two cases that did: Ctrl+J, which WordStar-family editors bind, and any key
+  binding written `"\n"` in `z80cpmw.json`. `ioscpm` dropped the same rewrite in
+  its build 49.
+- **A disk image larger than 128 MB was refused on Windows only.**
+  `emu_file_load()` bounded whole-file loads with the size of the combo image
+  this app *creates* rather than the largest one it can be handed; the shared
+  `emu_io_common.cc` bounds them at 2 GiB. `EmulatorEngine::loadDisk` surfaced
+  the refusal as "cannot read the file".
+- **The NSIS installer built an app that could not start.** Two independent
+  causes, both from the wxWidgets upgrade and both proved by building the
+  installer and staging its output on a stripped path:
+  - It packaged the wxWidgets DLLs *by name*, so it went on shipping the 3.3.1
+    pair after the build moved to 3.3.3. Matched by wildcard now, so it follows
+    whatever the build linked against.
+  - It packaged `zlib1.dll`, which vcpkg's zlib port no longer produces - it
+    installs `z.dll`, and `wxbase`, `tiff.dll` and `libpng16.dll` all carry a
+    load-time import of it. The installer shipped a stale copy left in `bin`
+    from the previous port and omitted the one actually imported, so the loader
+    failed the whole chain with `ERROR_MOD_NOT_FOUND` before any of our code
+    ran. Worse, once that stale file was cleaned up, `makensis` aborted outright
+    rather than warning. The uninstaller still deletes `zlib1.dll` so an upgrade
+    over an older install does not leave it behind.
+- The rewind half of the shared `measure_stream()` was missing: `emu_file_load`
+  did not check it and `makeDiskHandle` did not do it at all, leaving every
+  freshly opened disk image positioned at EOF. `emu_file_load_to_mem` was on the
+  same unchecked 32-bit `ftell`, and is now on the shared helper too.
+- **A key that sent `0xFF` sent nothing at all.** `emu_console_queue_char()`
+  took an `int` and every producer handed it a `char`, which is signed on MSVC,
+  so a byte with the high bit set was queued sign-extended — and `0xFF` was
+  queued as `-1`, which is exactly what `emu_console_read_char()` returns for
+  "the queue is empty". Reachable from a key bound to `\377` or a boot string
+  with a high byte in it. Queued bytes are masked now.
+- **`ESC c` (RIS) did nothing.** The sequence a program sends to get a
+  known-good terminal was swallowed by the escape parser's default case, while
+  the function that implements exactly it — a full reset — already existed for
+  the machine reset. The scrollback is deliberately kept: the history above the
+  screen is the user's, not the guest's.
+- **An override spelled in a different case lost to the default it replaced.**
+  Bindings were merged by config name before being resolved, so `"CTRL+Left"`
+  and `"Ctrl+Left"` were two entries for one key and ASCII ordering decided
+  which was applied last. They are resolved to a key id before merging now.
+- **`"Ctrl+Left": ""` sent `Left` instead of nothing.** An empty value unbinds,
+  but an unbound *modified* key was merely absent from the table, so the
+  fallback answered it with the plain key's sequence. An explicit unbind is now
+  recorded as such and blocks the fallback.
+- **`"F1x"` bound F1.** `atoi` stops at the first non-digit and reports what it
+  read, so a name with a typo in it was silently bound to something near it
+  rather than rejected.
+- `ED 0` and `ED 1` left an armed autowrap armed, where `ED 2` cleared it.
+- **A disk or ROM too large to allocate ended the process.** A disk image is
+  read whole into RAM and then copied again into the HBIOS unit's buffer, so
+  peak use is twice the file — and with the load bound now at 2 GiB that is a
+  size a machine can legitimately fail twice over. Nothing above handled the
+  exception. Both loads turn an allocation failure into the `false` their
+  callers already model, and the ROM path says so in the error the UI shows.
+- **A default key binding added after your config was written never appeared in
+  it.** `z80cpmw.json`'s `keys` block is meant to be the visible, editable list,
+  but it was only populated when it was entirely absent — so an existing user
+  got no entry for the new Ctrl+arrows even though the app honoured them.
+  Missing names are filled in individually now — matched by the key a name
+  resolves to rather than by the name itself, so writing `Control+Left` does not
+  earn you a second entry spelled `Ctrl+Left` for the same key. Every override
+  survives, and a key deliberately unbound with `""` keeps its entry and stays
+  unbound.
+
+### Changed
+- **`QKZ80_NO_TRACE` is defined for both configurations.** This port installs no
+  tracer, so the decoder was paying a virtual call at every one of the core's
+  202 trace points for a tracer nobody sets. `ioscpm` took the flag when
+  `cpmemu` added it; this port did not.
+- **The build is warning-free.** C4244 is silenced for the four imported
+  `cpmemu` translation units and C4267 for `romwbw_emu`'s `hbios_dispatch.cc`,
+  in both cases for the imported file alone. Each was audited first rather than
+  assumed: the `cpmemu` ones are the Z80's intended mod-256 register wraps, and
+  all six in `hbios_dispatch.cc` are a `size_t` loop index promoting a `uint16_t`
+  guest address, where truncating to sixteen bits is the 64K address wrap HBIOS
+  wants. Thirty-six permanent warnings are how a real one comes to be ignored.
+- The repository's one test harness compiles again. `test_emu.cpp`,
+  `compile_test.cmd` and `run_test.bat` all pointed at `z80cpmw/Core`, a
+  directory deleted when the core moved out to the sibling checkouts, and
+  `test_emu.cpp` was written against a `set_port_out_callback()` API the core no
+  longer has. Repointed at `../cpmemu/src` and `../romwbw_emu/src`, and ported to
+  the `port_in`/`port_out` overrides the core uses now.
+- `emu_io_windows.cpp` says in its header that it is the Windows half of
+  `emu_io_common.cc`, and lists the eleven functions that have to be kept in
+  step by hand. Nothing reported that drift before.
+- Removed `emu_disk_create()` and `emu_disk_create_memory()`, defined here,
+  declared in no header and called from nowhere. Nothing in this port creates a
+  disk image.
+
+### Verified
+- **The tree builds.** Both configurations, against `romwbw_emu` `2dbf6f2` and
+  `cpmemu` `9fee3c2`. This closes `todo.txt`'s "VERIFY FIRST - already pushed,
+  never compiled" item: `0f3cc83`, which deleted the dead
+  `emu_console_check_ctrl_c_exit` stub, had never been through a compiler. It
+  compiles. The wxWidgets the project wants is `vcpkg install
+  wxwidgets:x64-windows` (3.3.3), whose library names are exactly the four the
+  project links.
+- The two `hbios_dispatch.cc` fixes the sweep flagged - `bf03758`'s `HBF_VDAKST`
+  and `HBF_VDAKRD` - arrive by reference and compile, as expected: this project
+  builds that file straight out of `romwbw_emu`.
+
 ## [1.0.22] - 2026-08-23
 
 The 1.0.21 code released to the Microsoft Store, and the first version published

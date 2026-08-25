@@ -96,12 +96,19 @@ void EmulatorEngine::logDebug(const char* fmt, ...) {
 }
 
 bool EmulatorEngine::loadROM(const std::string& path) {
-    std::vector<uint8_t> data;
-    if (!emu_file_load(path, data)) {
-        m_romError = "cannot read the file, or it is not a regular file";
+    // As loadDisk: emu_file_load will size its buffer from the file, and the
+    // user can point this at any path. m_romError is what the UI shows.
+    try {
+        std::vector<uint8_t> data;
+        if (!emu_file_load(path, data)) {
+            m_romError = "cannot read the file, or it is not a regular file";
+            return false;
+        }
+        return loadROMFromData(data.data(), data.size());
+    } catch (const std::bad_alloc&) {
+        m_romError = "the file is too large to load into memory";
         return false;
     }
-    return loadROMFromData(data.data(), data.size());
 }
 
 bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
@@ -152,11 +159,22 @@ bool EmulatorEngine::loadDisk(int unit, const std::string& path) {
     // proceeding would replace the newer in-memory image with stale on-disk
     // content and clear the dirty flag, silently discarding the writes.
     if (m_hbios->isDiskDirty(unit) && path == m_diskPaths[unit]) return false;
-    std::vector<uint8_t> data;
-    if (!emu_file_load(path, data)) return false;
-    if (m_hbios->loadDisk(unit, data.data(), data.size())) {
-        m_diskPaths[unit] = path;
-        return true;
+
+    // A disk image is read whole into RAM and then copied again into the
+    // HBIOS unit's buffer, so peak use is twice the file. emu_file_load bounds
+    // that at 2 GiB - the largest disk RomWBW can address - which is a size a
+    // machine can legitimately fail to allocate twice over. Nothing above here
+    // handles an exception, and the failure is one this function already has a
+    // return value for, so turn it into that rather than ending the process.
+    try {
+        std::vector<uint8_t> data;
+        if (!emu_file_load(path, data)) return false;
+        if (m_hbios->loadDisk(unit, data.data(), data.size())) {
+            m_diskPaths[unit] = path;
+            return true;
+        }
+    } catch (const std::bad_alloc&) {
+        emu_log("[disk] out of memory loading %s\n", path.c_str());
     }
     return false;
 }

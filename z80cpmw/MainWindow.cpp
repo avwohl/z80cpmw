@@ -15,6 +15,10 @@
 #include "Version.h"
 #include "CrashHandler.h"
 #include "emu_io.h"
+// The RomWBW release the shared core emulates, for the About box. Single source
+// of truth in romwbw_emu; DOWNSTREAM asks every port with a version display to
+// show it.
+#include "romwbw_pin.h"
 
 // External function to set main window for host file dialogs
 extern "C" void emu_io_set_main_window(HWND hwnd);
@@ -1249,7 +1253,12 @@ void MainWindow::onHelpAbout() {
     std::wstring aboutText =
         L"z80cpmw - Z80 CP/M Emulator\n"
         L"Version " + verStrW + L"\n\n"
-        L"A RomWBW/HBIOS emulator for Windows.\n\n"
+        L"A RomWBW/HBIOS emulator for Windows.\n"
+        // The RomWBW release the core is pinned to. A user who hits the
+        // "HBIOS/CBIOS Version Mismatch" banner is being told their disk images
+        // were built by a different release than this HBIOS emulates, and until
+        // now the app displayed nothing they could compare against.
+        L"Emulates RomWBW " _VER_WIDEN(ROMWBW_PIN_STR) L" (pinned).\n\n"
         L"Data Folder (disks and R8/W8 transfers):\n" + dataDirW + L"\n\n"
         L"License: GPL v3\n"
         L"CP/M OS licensed by Lineo for non-commercial use.\n\n"

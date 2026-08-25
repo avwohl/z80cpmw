@@ -67,6 +67,25 @@ Any other character stands for itself. An **empty value unbinds** that key.
 `PageDown`, and `F1` through `F12`. Names are case-insensitive; `Ins`, `Del`,
 `PgUp` and `PgDn` also work.
 
+**Modifiers.** A name may be prefixed with `Ctrl+`, `Shift+` and `Alt+`, in any
+order and any combination — `Ctrl+Left`, `Ctrl+Shift+F3`. `Control+` is accepted
+for `Ctrl+`, and prefixes are case-insensitive like the rest of the name. A
+modified key is a binding in its own right, so `Ctrl+Left` and `Left` can send
+different bytes.
+
+A modified key you have not bound falls back to the plain one, which is what
+every modified key did before prefixes existed — so `Shift+Left` sends whatever
+`Left` sends unless you say otherwise.
+
+Four combinations are reserved by the app and never reach CP/M:
+`Shift+PageUp`, `Shift+PageDown`, `Ctrl+Home` and `Ctrl+End` scroll the
+scrollback. `Alt` is the Windows menu key, so an `Alt+` binding is honoured only
+when you have bound that exact combination — the plain-key fallback does not
+apply to it, and with nothing bound to `Alt` the menus behave normally.
+
+Only `Ctrl+Up`, `Ctrl+Down`, `Ctrl+Left` and `Ctrl+Right` are bound by default;
+see the table below.
+
 ### Default bindings (VT220 / xterm)
 
 Shown as written in the file (doubled backslashes):
@@ -85,6 +104,21 @@ Shown as written in the file (doubled backslashes):
 | PageDown | `\\E[6~` | F10 | `\\E[21~` |
 |          |          | F11 | `\\E[23~` |
 |          |          | F12 | `\\E[24~` |
+
+The four Ctrl+arrows use the xterm modified-key form, where the `5` is the
+control modifier:
+
+| Key | Sends | Key | Sends |
+| --- | --- | --- | --- |
+| Ctrl+Up    | `\\E[1;5A` | Ctrl+Right | `\\E[1;5C` |
+| Ctrl+Down  | `\\E[1;5B` | Ctrl+Left  | `\\E[1;5D` |
+
+A CP/M editor is more likely to want the WordStar word-left / word-right pair,
+which is one line away:
+
+```json
+"Ctrl+Left": "^A", "Ctrl+Right": "^F"
+```
 
 These match the VT100-style sequences the terminal already used for the arrow
 keys. Change any line to suit your CP/M program. For example, to make `F1`–`F4`

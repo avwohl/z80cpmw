@@ -48,13 +48,17 @@ survive reading the code:
 
 - **10 Dazzler** was ✅ (partial) and there is no Dazzler code at all.
 - **13 terminal (web)** was ✅ on the strength of xterm.js; the output filter
-  never delivers TAB, BEL, FF or anything ≥ 0x7F to it.
-- **4 R8/W8 (CLI)** was ✅ "host paths"; only R8 takes one, W8 writes to CWD.
+  never delivered TAB, BEL, FF or anything ≥ 0x7F to it. *(Fixed upstream in
+  `2dbf6f2`, hours after this sweep was written; the row is ✅ again.)*
+- **4 R8/W8 (CLI)** was ✅ "host paths"; only R8 took one, W8 wrote to CWD.
+  *(Fixed upstream in `98eb6a1`, 50 minutes after this sweep was committed: W8
+  now takes `<cpmname> [hostpath]`. The row is ✅ again.)*
 - **5 catalog (CLI)** was ❓; there is no catalog feature, so it is N/A.
 
 Rows 8 and 9 were the only two that stood. Three more were narrowed from ✅ to
 ◐ on evidence — 7 (web NVRAM is never read back), 11 (a settings file is not
-named profiles), 12 (*Don't warn* is dropped by any mid-session disk reload) —
+named profiles), 12 (*Don't warn* was dropped by any mid-session disk reload,
+until `108856c` fixed it the same afternoon) —
 and 1, 3 and 6 moved because the plain ➖/⬜ hid a real per-frontend split.
 
 Two rows went the *other* way, which is worth saying: **3** and **6** were
@@ -67,6 +71,14 @@ The Android column describes commit `c26aeb7` plus the follow-up commit that
 finished the release: an on-screen key row driven by the key map, configuration
 profiles, a scrolled-back indicator, catalog-version tracking, and crash
 diagnostics. Rows 1 and 11 were re-checked against that later state.
+
+> **The Android column below is not currently verifiable.** It cites `cpmdroid`
+> commit `c26aeb7`, which is not a valid object in that repository —
+> `origin/master` is `7f46e98`, and none of the symbols the column references
+> (`DEFAULT_KEY_BINDINGS`, `decodeKeySequence`, `saveProfile`, any VT52 or
+> DECSTBM code) exist there. It appears to describe work that was never pushed.
+> Treat every Android cell as unverified until that branch surfaces; `todo.txt`
+> carries the item.
 
 Port-status columns are best-effort — **verify against the port's current
 source** before acting (local checkouts may lag the ports' latest builds);
@@ -104,7 +116,18 @@ Home/End, Insert/Delete, PageUp/PageDown, F1–F12) to arbitrary byte sequences
 written as termcap-style escape strings.
 - **Behaviour/spec:** escape syntax `\E` (=0x1B), `\n\r\t\b\f\s`, `\NNN` (octal),
   `^X` (control), `^?` (DEL); names case-insensitive (Ins/Del/PgUp/PgDn accepted);
-  empty value unbinds. Defaults are VT220/xterm. `f1ToCpm` / `f5ToCpm` /
+  empty value unbinds. Defaults are VT220/xterm.
+  **A name may carry `Ctrl+`, `Shift+` and `Alt+` prefixes**, stacked in any
+  order (`Ctrl+Left`, `Ctrl+Shift+F3`), so a modified key is a binding of its
+  own rather than an alias for the plain one. The four Ctrl+arrows are bound by
+  default to the xterm modified forms (`ESC[1;5A`…`D`). A modified press with no
+  binding falls back to the unmodified one, which is what every modified press
+  got before prefixes existed — so this is additive for an existing config.
+  `cpmemu` closed the same gap its own way in `0b8dc2b`, hard-coding four
+  WordStar sequences; a port adopting this schema gets the general case.
+  On Windows `Alt` doubles as the menu key, so an `Alt+` binding is honoured
+  only when that exact combination is bound — the plain-key fallback does not
+  apply to it. A port whose platform reserves a modifier should do the same. `f1ToCpm` / `f5ToCpm` /
   `ctrlRToCpm` flags decide who receives the keys that double as app shortcuts
   (F1=Help, F5/Shift+F5=Start/Stop, Ctrl+R=Reset); a key claimed by the app is
   swallowed whole and CP/M never sees it. F1/F5 default to the app because CP/M
@@ -529,8 +552,21 @@ parser and `cpmdroid` extended it - but it has now caught up.
     it, and screen content through `cellAt()`.
 
     **Still missing here:** there is no per-cell attribute beyond the packed
-    CGA byte, and `clear()` still resets the attribute and escape state, which
-    `ESC [ 2 J` alone should not do. Parser input is bounded here —
+    CGA byte. `TerminalCell` carries unpacked `foreground` and `background`
+    already, so what is absent is a flags byte for bold / underline / blink /
+    reverse and the multi-`HFONT` paint path to render it.
+
+    **Fixed since:** `clear()` no longer resets the attribute and escape state
+    on `ESC [ 2 J`. Erasing and resetting are separate functions now —
+    `eraseScreen()` for `ESC [ 2 J` and VT52 `ESC E`, `clear()` for the machine
+    reset — which also means a reset finally *does* reset VT52 mode, DECAWM,
+    DECTCEM and the scrolling region, all of which it used to leave alone
+    precisely because `ESC [ 2 J` shared the path. Note that `ESC [ 2 J`
+    deliberately still preserves the scrolling region: `ioscpm`'s
+    `clearTerminal()` resets it, and that is `ioscpm`'s bug, not a gap here.
+
+    The suite described above is committed now, in `tests/`, at **205 checks**.
+    Parser input is bounded here —
     `MAX_CSI_PARAMS` 16 and `MAX_CSI_PARAM_DIGITS` 6 in `TerminalView.cpp`,
     with intermediates consumed rather than accumulated.
   - **romwbw_emu** *(re-verified 2026-08-24)* — the CLI delegates to the host
@@ -552,9 +588,12 @@ parser and `cpmdroid` extended it - but it has now caught up.
   without the screen breaking up. **That port is done** — `TerminalView.kt` /
   `EmulatorViewModel.swift` were pulled back into `TerminalView.cpp` in 1.0.20,
   which is the code in the current Store **1.0.22** and sideload
-  **1.0.22-beta** packages. What keeps this repo's row at ◐ is only the
-  residue listed above: no per-cell attribute beyond the packed CGA byte, and
-  `clear()` resetting the attribute and escape state.
+  **1.0.22-beta** packages. What keeps this repo's row at ◐ is now a single
+  item: no per-cell attribute beyond the packed CGA byte. The other half of the
+  residue — `clear()` resetting the attribute and escape state — is fixed, along
+  with three SGR bugs the audit for it turned up: reverse video swapped the
+  attribute nibbles in place and so could not round-trip, setting a colour
+  masked out the bold bit, and `ESC [ m` left the reverse flag set.
 
 ---
 
@@ -571,7 +610,7 @@ build 50 — every row, not only the ones that changed.
 | 1. Configurable keymap (termcap) | ◐ (10 keys, no F1–F12, WordStar default) | ✅ (same 22 names + syntax as `Keymap.h`; on-screen key row too) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
 | 2. Scrollback | ✅ | ✅ (setting, drag instead of wheel) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
 | 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
-| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed) | ◐ (R8 via SAF import; W8 fixed folder + Share) | ◐ CLI (R8 any path; **W8 → CWD only**) · ✅ web (picker/download) |
+| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed) | ◐ (R8 via SAF import; W8 fixed folder + Share) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
 | 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ◐ web (hardcoded list, unpinned; 4 of 5 images ship nowhere) |
 | 6. Help system + offline fallback | ✅ / ⬜ no bundled fallback | ✅ (bundled in APK since 1.19) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
 | 7. NVRAM autoboot / bootString | ✅ | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
@@ -579,8 +618,8 @@ build 50 — every row, not only the ones that changed.
 | 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt) | ➖ |
 | 10. Dazzler | ⬜ | ⬜ (explicit no-op stubs) | ⬜ (no Dazzler code; the core only offers the hooks this repo uses) |
 | 11. Config profiles | ⬜ | ✅ (named; ROM, disks, boot, terminal, keymap) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
-| 12. Manifest write warning | ✅ (suppressible) | ✅ (suppressible, once per session) | ➖ CLI · ◐ web (fires correctly; *Don't warn* lost on disk reload) |
-| 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (+ ICH/DCH/ECH/SU/SD, DECAWM, DECTCEM) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ◐ web (xterm.js starved by the output filter) |
+| 12. Manifest write warning | ✅ (suppressible) | ✅ (suppressible, once per session) | ➖ CLI · ✅ web (*Don't warn* kept across a reload since `108856c`) |
+| 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (+ ICH/DCH/ECH/SU/SD, DECAWM, DECTCEM) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ✅ web (output filter fixed in `2dbf6f2`) |
 
 **z80cpmw's own row 13 is ◐** — see item 13 for what is missing here. Every other
 row in this document is ✅ for z80cpmw by construction; that one is not.

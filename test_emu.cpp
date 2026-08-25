@@ -1,6 +1,12 @@
 /*
  * test_emu.cpp - Console test harness for the emulator
- * Compile: cl /EHsc /I z80cpmw /I z80cpmw/Core test_emu.cpp z80cpmw/Core/*.cc /Fe:test_emu.exe
+ * Build and run: run_test.bat
+ *
+ * The core is not in this repository. z80cpmw.vcxproj compiles it straight out
+ * of the sibling checkouts, and so does this harness: qkz80* comes from
+ * ../cpmemu/src and romwbw_mem.h from ../romwbw_emu/src. The old paths under
+ * z80cpmw/Core stopped resolving when the core moved out, which left this file
+ * and both of its build scripts unable to compile at all.
  */
 
 #define _CRT_SECURE_NO_WARNINGS
@@ -19,8 +25,8 @@
 #include <functional>
 
 // Include emulator core
-#include "z80cpmw/Core/qkz80.h"
-#include "z80cpmw/Core/romwbw_mem.h"
+#include "qkz80.h"
+#include "romwbw_mem.h"
 
 // Globals for test
 static banked_mem* g_mem = nullptr;
@@ -74,20 +80,16 @@ bool load_rom(const char* filename) {
     return read > 0;
 }
 
-int main(int argc, char* argv[]) {
-    printf("=== Z80 Emulator Test Harness ===\n\n");
+// Port I/O reaches the guest by overriding qkz80's virtuals, the way
+// romwbw_emu's hbios_cpu does. It used to arrive through
+// set_port_out_callback() / set_port_in_callback(), which the core no longer
+// has; together with the include paths under the removed z80cpmw/Core, that is
+// why this harness had stopped compiling.
+class test_cpu : public qkz80 {
+public:
+    explicit test_cpu(banked_mem* memory) : qkz80(memory) {}
 
-    // Create memory
-    g_mem = new banked_mem();
-    g_mem->enable_banking();
-    printf("Memory initialized: banking=%d\n", g_mem->is_banking_enabled());
-
-    // Create CPU
-    g_cpu = new qkz80(g_mem);
-    printf("CPU initialized\n");
-
-    // Set up port callbacks
-    g_cpu->set_port_out_callback([](uint8_t port, uint8_t value) {
+    void port_out(qkz80_uint8 port, qkz80_uint8 value) override {
         g_portOutCount++;
         if (g_portOutCount <= 50) {
             printf("[OUT] port=0x%02X value=0x%02X\n", port, value);
@@ -103,9 +105,9 @@ int main(int argc, char* argv[]) {
             emu_console_write_char(value);
             break;
         }
-    });
+    }
 
-    g_cpu->set_port_in_callback([](uint8_t port) -> uint8_t {
+    qkz80_uint8 port_in(qkz80_uint8 port) override {
         g_portInCount++;
         if (g_portInCount <= 20) {
             printf("[IN] port=0x%02X\n", port);
@@ -117,7 +119,21 @@ int main(int argc, char* argv[]) {
         default:
             return 0xFF;
         }
-    });
+    }
+};
+
+int main(int argc, char* argv[]) {
+    printf("=== Z80 Emulator Test Harness ===\n\n");
+
+    // Create memory
+    g_mem = new banked_mem();
+    g_mem->enable_banking();
+    printf("Memory initialized: banking=%d\n", g_mem->is_banking_enabled());
+
+    // Create CPU. Port I/O comes from test_cpu's overrides, not from a pair of
+    // callbacks set here - see the class above.
+    g_cpu = new test_cpu(g_mem);
+    printf("CPU initialized\n");
 
     // Find and load ROM
     const char* romPaths[] = {

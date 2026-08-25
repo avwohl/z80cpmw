@@ -2,127 +2,185 @@ Todo list.  Open items only - finished work is written up in the commit
 messages that made the changes, not kept here.  WIP.md holds the longer-form
 handoff notes; this file is the list.
 
-Everything here needs a Windows machine.  It was written on a Mac, during a
-cross-port sweep of cpmemu, romwbw_emu, ioscpm and this repo, and each item is
-something that could be found from there but not finished from there.
+The previous edition of this file was written on a Mac and gathered the work
+that needed a Windows machine.  That pass has now happened.  The tree builds,
+both configurations, and the items that only wanted a compiler are closed - see
+CHANGELOG [Unreleased].  What follows is what is left.
 
 
-VERIFY FIRST - already pushed, never compiled
----------------------------------------------
+Still needs a Windows machine
+------------------------------
 
-- commit 0f3cc83 deleted emu_console_check_ctrl_c_exit() from
-z80cpmw/emu_io_windows.cpp and NOTHING HAS COMPILED IT.  romwbw_emu v1.36
-removed the declaration from emu_io.h and told every port to drop its
-definition (docs/DOWNSTREAM_2026-08-23.md section 3); ioscpm, the CLI and the
-wasm backend all did, and this repo was the last one carrying it.  The evidence
-that it is safe is static and about as strong as static gets - one occurrence in
-the whole repo, no declaration in any header here, no caller, and after the
-deletion all 64 functions emu_io.h declares are still defined - but a Mac cannot
-build a wxWidgets/MSVC target, so a compiler has never seen it.  Build once and
-this item is closed.
+- the console bugs cpmemu found and cannot fix from POSIX are still open.  They
+are cpmemu's, not this repo's - both live in cpmemu/src/os/windows/platform.cc,
+which z80cpmw compiles nothing of - but they are Windows console bugs and
+whoever has the machine can do them at the same time.  cpmemu/todo.txt has the
+measurements.  In short: (a) read_one_key() takes a 0x00/0xE0 byte from _getch()
+as a special-key prefix and uses _kbhit() as the tie-breaker, which code page
+437 loses intermittently and code page 65001 loses always; the fix is to read
+INPUT_RECORDs with ReadConsoleInputW, which removes the guess rather than
+narrowing it, and it forces five secondary changes (key-down filter, repeat-count
+expansion, UTF-16-to-bytes conversion, re-keying extended_keys[] from CRT scan
+codes to VK plus a ctrl flag, and widening the two-slot queue).  (b) ctrl+break
+leaves the console in raw mode, because the default handler ends the process
+without running atexit; one SetConsoleCtrlHandler beside the existing
+atexit(disable_raw_mode) fixes it, mirroring os/linux/platform.cc's install loop.
 
-- while you are there, confirm the shared core still compiles.  z80cpmw.vcxproj
-pulls it straight out of the sibling repos, so two changes made during the sweep
-are already in this build path with no action taken here: romwbw_emu bf03758
-fixed HBF_VDAKST (it set only E, never the status byte in A, so a guest polling
-the video keyboard read "no key" however much was queued) and HBF_VDAKRD (it
-returned without rewinding PC, so the Z80 proxy's RET fired with E holding
-whatever the previous call left there).  Both live in hbios_dispatch.cc, which
-this project compiles.
+- cpmemu's tests/win_console.cc cannot inject a non-ASCII character and cannot
+send a console control event, so neither bug above has a regression test.  Both
+are small additions to the harness.
 
+- cpmemu's tests/run_tests.sh skips two cases for want of this platform -
+"windows cross-compile" and "windows console".  Running it here turns 59
+passed / 4 skipped into a real result.
 
-emu_io_common.cc is the one core file this port does not share
---------------------------------------------------------------
-
-- z80cpmw.vcxproj references emu_io_common.cc nowhere, and emu_io_windows.cpp
-carries its own copies of the twelve functions it holds: emu_disk_{open,close,
-read,write,flush,flush_all,size}, emu_file_{load,load_to_mem,save} and
-emu_get_time.  The split is deliberate - the Windows versions use Win32 handles
-rather than FILE* - but the consequence is that a fix landing upstream never
-reaches here and nothing reports the drift.  Two have landed since: ce9268f
-hardened the shared file I/O, and 573c7cc removed fseeko/ftello, which are POSIX
-and which Windows does not have.  Worth one pass diffing the twelve against
-romwbw_emu/src/emu_io_common.cc to see whether either applies, and worth a
-comment at the top of emu_io_windows.cpp saying it is the Windows half of that
-file, so the next person looks.
+- nobody has pressed the keys.  cpmemu's win_console.cc is faithful from the
+console inward and steps past the terminal program itself: if Windows Terminal
+binds ctrl+left for its own use the test still passes and the user still loses
+the key.  The harness has a --manual mode - one pass in Windows Terminal, one in
+a legacy conhost window.  Its POSIX twin wants the same in Terminal.app and
+iTerm2, which is also not done.
 
 
-The console bugs cpmemu found and cannot fix from POSIX
--------------------------------------------------------
-
-These are cpmemu's, not this repo's, but they are Windows console bugs and
-whoever has the machine can do both at once.  cpmemu/todo.txt has the full
-measurements.
-
-- a character whose first byte is 0xE0 is still taken for a special-key prefix
-when another byte follows it.  Measured on console code page 437: alpha (U+03B1)
-alone reaches _getch() as E0 with _kbhit() false and the guest gets it; alpha
-immediately followed by A gives E0 41, the 41 is consumed as a scan code, no
-table entry matches, and the guest gets neither character.  Code page 65001
-turns the race into a certainty - U+0E01 encodes as E0 B8 81 and _getch() hands
-those back one byte at a time.  The fix is to stop using _getch() and read
-INPUT_RECORDs directly, which removes the guess rather than narrowing it.  That
-is a rewrite of the input path, not a patch to it.
-
-- ctrl+break leaves the console in raw mode.  Clearing ENABLE_PROCESSED_INPUT
-suppresses ^C but not ctrl+break, and the default handler ends the process
-without running atexit, so disable_raw_mode() never runs.  Measured: the child
-exits 0xC000013A and the console mode stays at 0x1A0 instead of returning to
-0x1F7, which leaves the shell with no echo.  A SetConsoleCtrlHandler that
-restores the mode and exits would fix it.  The POSIX half of the same problem is
-done - cpmemu's os/linux/platform.cc catches SIGHUP, SIGINT, SIGQUIT, SIGTERM,
-SIGSEGV, SIGBUS and SIGABRT, restores and re-raises, and seven cases in
-tests/pty_console.cc hold it to that.
-
-- nobody has pressed the keys.  cpmemu's tests/win_console.cc writes
-INPUT_RECORDs into the console input buffer with WriteConsoleInput; it is
-faithful from the console inward and steps past the terminal program itself.  If
-Windows Terminal binds ctrl+left for its own use the test still passes and the
-user still loses the key.  The harness has a --manual mode that runs a hex echo
-to type at: one pass in Windows Terminal, one in a legacy conhost window.  Its
-POSIX twin wants the same treatment in Terminal.app and iTerm2, which is also
-not done.
-
-- cpmemu's test suite skips two cases for want of this platform: "windows
-cross-compile (x86_64-w64-mingw32-g++ not on PATH)" and "windows console (needs
-a real Windows console)".  Running tests/run_tests.sh on Windows turns 59
-passed / 4 skipped into something better.
-
-
-This checkout, and the release that is half-finished
------------------------------------------------------
-
-- z80cpmw.vcxproj uses PlatformToolset v145 (Visual Studio 18) and expects the
-wxWidgets headers under C:\temp\vcpkg\installed\x64-windows\include.  That vcpkg
-tree is not present on the machine this was last checked from, so the tree
-cannot be rebuilt as it stands.  bin\Debug\z80cpmw.exe is a stale 1.0.19.0 build.
+Needs an installed package, which a local build cannot reproduce
+-----------------------------------------------------------------
 
 - the Store-build test plan in WIP.md has never been run.  The W8-under-MSIX
-behaviour is confirmed in source and documented in docs/FILE_TRANSFER.md, but
-only an INSTALLED Store build reproduces MSIX file-system redirection - a local
-unpackaged build cannot - so the four checkboxes there still want a real
-install.
+behaviour is confirmed in source, but only an INSTALLED MSIX build reproduces
+file-system redirection.  Sideloading dist\z80cpmw-1.0.22-beta.msix is enough -
+it is the same binary and also MSIX.
+
+  NOTE before running it: the first checkbox is probably testing the wrong
+  thing.  It expects "W8 <full path>" to write where you said, and the w8.com
+  inside the bundled disk images builds its host path from the 8.3 FCB and never
+  reads the command tail, so it cannot.  romwbw_emu 98eb6a1 gave W8 a host-path
+  argument; this repo's images predate it.  See the disk-image item below.
 
 - keystroke delivery to CP/M, mouse copy/paste rendering and the first-run Help
 auto-open visuals have never been watched by a person.  Nothing here can
-automate them.
+automate them.  The terminal parser itself is now covered - tests\run_tests.bat,
+205 checks - but that stops at the byte stream; it says nothing about whether a
+keypress becomes a byte or a cell becomes a pixel.
 
-- dist\z80cpmw-1.0.22-beta.msix, the signed sideload twin of the Store build,
-has not been published as a GitHub release.
+
+The disk images are behind the core
+------------------------------------
+
+- the bundled hd1k images still carry the pre-98eb6a1 w8.com, so W8 cannot take
+a host path however capable the Windows backend is.  Fixing it means either
+refreshing the images from romwbw_emu/disks and cutting a new ioscpm release for
+the catalog to point at, or repinning DiskCatalog.cpp's RELEASE_TAG at a release
+built from the current disks.  docs/FILE_TRANSFER.md documents the behaviour the
+new w8.com will have, not the one the shipped images do - see the doc item.
+
+- upstream added disks/verify_disk_utils.sh for exactly this drift - it checks
+that the R8/W8 inside the shipped images match their source.  Nothing under
+packaging/ runs it, or anything like it, before a release.
 
 
-Terminal residue - why this repo's own row 13 is not a tick
-------------------------------------------------------------
+Terminal residue - the other half of row 13
+--------------------------------------------
 
-- FEATURE_PARITY.md item 13 marks this repo partial for two reasons, both still
-true: there is no per-cell attribute beyond the packed CGA byte, and clear()
-resets the attribute and the escape state, which ESC[2J alone should not do.
-The 73-check conformance suite described in CHANGELOG [1.0.20] is not committed
-to this repository, which is worth fixing at the same time - it is the only
-thing that would catch a regression in any of this.
+- FEATURE_PARITY item 13 marked this repo partial for two reasons.  One is now
+fixed: clear() no longer resets the attribute and the escape state on ESC[2J.
+The other stands - there is no per-cell attribute beyond the packed CGA byte.
+TerminalCell already carries unpacked foreground and background, so the gap is a
+flags byte for bold / underline / blink / reverse plus the multi-HFONT paint
+path to render them.  Roughly a day, and it splits cleanly into a parser commit
+and a rendering commit.  The conformance suite is in the repository now, so a
+regression in any of it would be caught.
 
-- no action needed, recorded so it is not re-investigated: ioscpm gained F1-F12
-in its build 51, using this repo's exact key names and the exact VT220 sequences
-from z80cpmw/Keymap.h.  That was the last reason key maps were not portable
-between the two ports.  ioscpm also gained ICH/DCH/ECH/SU/SD and DECAWM/DECTCEM
-in the same build, which this repo has had since 1.0.20.
+
+Features the sibling ports have and this one does not
+------------------------------------------------------
+
+- the seven remote help topics have no bundled copy and no on-disk cache, so an
+offline user - or a release whose assets were not attached - gets none of them.
+ioscpm gained the offline fallback in its build 51.  The order to mirror is
+download, then cache, then the copy shipped in the binary.
+
+- a mistyped config key is silently absorbed, and then silently deleted on the
+next save.  cpmemu fixed the same class of thing in bb03afa; the two places here
+are Config.cpp's from_json and Keymap.h's KeyMap::build.
+
+- Reset reboots the machine with no confirmation, and with "ctrlRToCpm": false a
+single Ctrl+R does it.  Both mobile ports ask first.
+
+- the terminal bell is unconditional; cpmdroid made it a setting.
+
+- rebinding a key means closing the app and hand-editing JSON.  There is no
+keyboard section in Settings.  Worth more now that the key map understands
+modifiers and so has more to say.
+
+
+Documentation the cross-port sweep got wrong
+---------------------------------------------
+
+Several of these went stale within hours of being written, because the sweep and
+the upstream commits it describes landed the same afternoon.
+
+- FEATURE_PARITY.md's entire Android column describes cpmdroid commit c26aeb7,
+which is not a valid object in that repository - origin/master is 7f46e98 and
+none of the symbols the column cites exist there.  Six rows are affected.  Either
+re-verify against a branch that has actually been pushed, or mark the column as
+describing unpushed work.
+
+- row 4's romwbw_emu CLI paragraph says W8 writes to the working directory only;
+98eb6a1 gave it a host path 50 minutes after the sweep was committed.
+
+- row 13's romwbw_emu web paragraph says the output filter starves xterm.js;
+2dbf6f2 fixed it, along with implementing Module.onError.
+
+- row 12 says the web frontend loses "Don't warn" across a disk reload; 108856c
+fixed it.
+
+- the iOS/macOS column was verified at ioscpm build 50 and build 51 landed the
+same day, closing three gaps of its own.
+
+- docs/FILE_TRANSFER.md's headline example, "W8 C:\Users\me\Desktop\out.com
+writes to your Desktop", is not true of the w8.com in the shipped images.  See
+the disk-image section.
+
+
+Small things a review of the sync round raised and did not take
+---------------------------------------------------------------
+
+None of these is a regression; each was measured and left deliberately.
+
+- a 0-byte disk image is accepted and mounts as an empty disk rather than being
+refused with an error.  The shared emu_io_common.cc does the same, so fixing it
+here alone would be a divergence; better done in both.
+
+- MainWindow::startEmulator() clears the terminal, which erases the ROM-failure
+text the ROM-loading path went to some trouble to print.  Pre-existing, and only
+visible when a ROM has already failed to load.
+
+- the four scrollback combinations (Shift+PageUp/PageDown, Ctrl+Home/End) are
+intercepted before the key map, so a config that binds them is silently
+ignored rather than refused.  docs/CONFIGURATION.md now says which four they
+are; making build() reject them would be better still.
+
+
+Loose ends
+-----------
+
+- romwbw_emu's hbios_dispatch.cc emits six C4267 warnings under MSVC at /W3.
+Checked, all six: a size_t loop index promoting a uint16_t guest address, where
+the truncation to sixteen bits IS the Z80 64K wrap HBIOS wants.  Nothing to fix,
+and they are suppressed for that one imported file so a real warning is not
+buried.  Worth a matching cast upstream if romwbw_emu ever turns the warning on
+for itself - cpmemu's 9fee3c2 sweep for this class did not reach this file.
+
+- there is no .pdb for the shipped 1.0.22 build, on any channel.  The symbols
+are gone - a rebuild against wxWidgets 3.3.3 is a different binary - but
+build-msix.ps1's -Beta branch should copy one out from now on.
+
+- upstream's emu_io_common.cc uses rename() to replace the target in
+emu_file_save().  ISO C leaves that undefined when the target exists and both
+the MSVC CRT and mingw's msvcrt fail it outright, so the shared copy has a
+dormant bug on Windows that this port does not (it uses MoveFileEx).  Worth a
+shim in romwbw_emu beside the emu_fseek/emu_ftell one 573c7cc added.
+
+- the v1.0.22-beta GitHub release is flagged Latest rather than prerelease,
+unlike 1.0.16 / 1.0.17 / 1.0.21.  A judgement call, not a defect: if the -beta
+channel should stay a prerelease, `gh release edit v1.0.22-beta --prerelease`.

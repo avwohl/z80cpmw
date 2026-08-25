@@ -73,9 +73,14 @@ Section "Main Application" SecMain
     ; Main executable
     File "..\..\bin\Release\z80cpmw.exe"
 
-    ; Required DLLs
-    File "..\..\bin\Release\wxbase331u_vc_x64_custom.dll"
-    File "..\..\bin\Release\wxmsw331u_core_vc_x64_custom.dll"
+    ; Required DLLs. The wxWidgets pair is matched by wildcard rather than named:
+    ; the filenames carry the wx version (wxbase331u became wxbase333u when the
+    ; vcpkg port moved from 3.3.1 to 3.3.3), so a hardcoded name goes on building
+    ; an installer long after it has stopped shipping the DLLs the exe imports -
+    ; and the app then fails to start with no clue why. The build stages whatever
+    ; it linked against into bin\Release; this follows it.
+    File "..\..\bin\Release\wxbase*_vc_x64_custom.dll"
+    File "..\..\bin\Release\wxmsw*_core_vc_x64_custom.dll"
     File "..\..\bin\Release\tiff.dll"
     File "..\..\bin\Release\jpeg62.dll"
     File "..\..\bin\Release\libpng16.dll"
@@ -83,7 +88,12 @@ Section "Main Application" SecMain
     File "..\..\bin\Release\libwebpdecoder.dll"
     File "..\..\bin\Release\libwebpdemux.dll"
     File "..\..\bin\Release\libsharpyuv.dll"
-    File "..\..\bin\Release\zlib1.dll"
+    ; zlib, and it is called z.dll - not zlib1.dll, which is what vcpkg's zlib
+    ; port used to install and what this line used to name. wxbase, tiff.dll and
+    ; libpng16.dll all carry a load-time import of z.dll, so an installer built
+    ; without it produces an app that cannot start at all: the loader fails the
+    ; whole chain with ERROR_MOD_NOT_FOUND before any of our code runs.
+    File "..\..\bin\Release\z.dll"
     File "..\..\bin\Release\pcre2-16.dll"
     File "..\..\bin\Release\liblzma.dll"
 
@@ -171,8 +181,8 @@ SectionEnd
 Section "Uninstall"
     ; Remove files
     Delete "$INSTDIR\z80cpmw.exe"
-    Delete "$INSTDIR\wxbase331u_vc_x64_custom.dll"
-    Delete "$INSTDIR\wxmsw331u_core_vc_x64_custom.dll"
+    Delete "$INSTDIR\wxbase*_vc_x64_custom.dll"
+    Delete "$INSTDIR\wxmsw*_core_vc_x64_custom.dll"
     Delete "$INSTDIR\tiff.dll"
     Delete "$INSTDIR\jpeg62.dll"
     Delete "$INSTDIR\libpng16.dll"
@@ -180,6 +190,9 @@ Section "Uninstall"
     Delete "$INSTDIR\libwebpdecoder.dll"
     Delete "$INSTDIR\libwebpdemux.dll"
     Delete "$INSTDIR\libsharpyuv.dll"
+    Delete "$INSTDIR\z.dll"
+    ; Older installers shipped zlib under its previous name; keep deleting it so
+    ; an upgrade over one of those does not leave it behind.
     Delete "$INSTDIR\zlib1.dll"
     Delete "$INSTDIR\pcre2-16.dll"
     Delete "$INSTDIR\liblzma.dll"

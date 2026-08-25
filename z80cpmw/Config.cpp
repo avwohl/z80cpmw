@@ -9,6 +9,7 @@
 #include "include/nlohmann/json.hpp"
 #include <fstream>
 #include <filesystem>
+#include <set>
 #include <sstream>
 
 namespace fs = std::filesystem;
@@ -232,8 +233,29 @@ bool ConfigManager::load() {
     // a fresh install or when upgrading a config written before keymaps existed;
     // populate them and persist so the user can customize them. Keys still fall
     // back to built-in defaults at runtime even if this section is removed.
-    if (m_config.keyboard.keys.empty()) {
-        m_config.keyboard.keys = keymap::defaultBindings();
+    //
+    // Fill in MISSING names rather than only populating a wholly empty map. The
+    // empty-map test never fires for someone who already has a config, so a
+    // default added in a later version - the four Ctrl+arrows, say - stayed
+    // invisible in their file forever, even though the app honoured it. Only
+    // names that are absent are added, so every override the user has written
+    // survives, and a key they deliberately unbound with "" keeps its entry and
+    // stays unbound.
+    // Match by the KEY a name resolves to, not by the name itself. "Ctrl+Left",
+    // "Control+Left" and "ctrl+left" are three spellings of one binding, and
+    // adding the canonical spelling beside a user's alias would leave two
+    // entries for the same key in one file - with no defined answer as to which
+    // one the app then honours.
+    std::set<long> present;
+    for (const auto& kv : m_config.keyboard.keys) {
+        long id = keymap::keyIdForName(kv.first);
+        if (id >= 0) present.insert(id);
+    }
+    for (const auto& kv : keymap::defaultBindings()) {
+        long id = keymap::keyIdForName(kv.first);
+        if (id < 0 || present.count(id)) continue;
+        m_config.keyboard.keys[kv.first] = kv.second;
+        present.insert(id);
         needSave = true;
     }
 

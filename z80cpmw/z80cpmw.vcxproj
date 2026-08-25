@@ -58,7 +58,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR;QKZ80_NO_TRACE;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;C:\temp\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -90,7 +90,7 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
       <FunctionLevelLinking>true</FunctionLevelLinking>
       <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
-      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+      <PreprocessorDefinitions>_CRT_SECURE_NO_WARNINGS;_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR;QKZ80_NO_TRACE;NDEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;C:\temp\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
@@ -146,19 +146,30 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
     <!-- Emulator Core Files (from cpmemu) -->
     <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <DisableSpecificWarnings>4244;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80_errors.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <DisableSpecificWarnings>4244;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80_mem.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <DisableSpecificWarnings>4244;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80_reg_set.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <DisableSpecificWarnings>4244;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <!-- Emulator Core Files (from romwbw_emu) -->
     <ClCompile Include="$(SolutionDir)..\romwbw_emu\src\hbios_dispatch.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
+      <!-- C4267 six times, all the same shape: a size_t loop index promoting a
+           uint16_t guest address (write_to_bank/read_from_bank(buffer + s * 512
+           + i, ...)). Truncating to sixteen bits IS the Z80 64K address wrap
+           HBIOS wants, so there is nothing to fix - and six permanent warnings
+           in every build are how a real one comes to be ignored. Suppressed for
+           this imported file only, as C4244 is for the four cpmemu ones. -->
+      <DisableSpecificWarnings>4267;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <ClCompile Include="$(SolutionDir)..\romwbw_emu\src\hbios_cpu.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>

@@ -70,6 +70,23 @@ inline std::string decode(const std::string& s) {
     return out;
 }
 
+// Modifier bits. A binding is identified by a virtual-key code plus whatever
+// modifiers were held with it, so Ctrl+Left is a different binding from Left
+// rather than the same one. Without this the two were indistinguishable: every
+// modified press fell through to the unmodified sequence, and there was no way
+// to say otherwise in the config.
+enum : unsigned {
+    KM_MOD_NONE  = 0,
+    KM_MOD_CTRL  = 1,
+    KM_MOD_SHIFT = 2,
+    KM_MOD_ALT   = 4,
+};
+
+// Pack a virtual-key code and its modifiers into one lookup key.
+inline unsigned keyId(int vk, unsigned mods) {
+    return (static_cast<unsigned>(vk) & 0xFFFFu) | (mods << 16);
+}
+
 // Map a key name used in the config "keys" object to a Windows virtual-key code.
 // Names are case-insensitive; a few common aliases are accepted. Returns -1 for
 // names that are not bindable.
@@ -85,11 +102,39 @@ inline int vkForName(std::string name) {
     if (name == "delete" || name == "del")             return VK_DELETE;
     if (name == "pageup"   || name == "pgup" || name == "prior") return VK_PRIOR;
     if (name == "pagedown" || name == "pgdn" || name == "next")  return VK_NEXT;
-    if (name.size() >= 2 && name[0] == 'f') {
+    // "f" followed by digits and nothing else. atoi stops at the first
+    // non-digit and reports what it read, so it happily turned "F1x" - and
+    // "F1 " - into F1; a name with a typo in it should be rejected, not
+    // silently bound to something near it.
+    if (name.size() >= 2 && name[0] == 'f' &&
+        name.find_first_not_of("0123456789", 1) == std::string::npos) {
         int n = std::atoi(name.c_str() + 1);
         if (n >= 1 && n <= 12) return VK_F1 + (n - 1);  // VK_F1..VK_F12 are contiguous
     }
     return -1;
+}
+
+// Map a full config key name to a packed lookup key, accepting any number of
+// "Ctrl+", "Shift+" and "Alt+" prefixes before the key name ("Ctrl+Left",
+// "Ctrl+Shift+F3"). Case-insensitive, and "Control+" is accepted for "Ctrl+".
+// Returns -1 for a name that is not bindable.
+inline long keyIdForName(const std::string& name) {
+    std::string rest = name;
+    unsigned mods = KM_MOD_NONE;
+    for (;;) {
+        size_t plus = rest.find('+');
+        if (plus == std::string::npos) break;
+        std::string prefix = rest.substr(0, plus);
+        for (char& ch : prefix) ch = static_cast<char>(std::tolower((unsigned char)ch));
+        if (prefix == "ctrl" || prefix == "control") mods |= KM_MOD_CTRL;
+        else if (prefix == "shift")                  mods |= KM_MOD_SHIFT;
+        else if (prefix == "alt")                    mods |= KM_MOD_ALT;
+        else break;   // not a modifier - leave it for vkForName to reject
+        rest = rest.substr(plus + 1);
+    }
+    int vk = vkForName(rest);
+    if (vk < 0) return -1;
+    return static_cast<long>(keyId(vk, mods));
 }
 
 // The built-in default bindings (name -> termcap-style sequence). These follow
@@ -110,6 +155,16 @@ inline std::map<std::string, std::string> defaultBindings() {
         {"F1",  "\\EOP"}, {"F2",  "\\EOQ"}, {"F3",  "\\EOR"}, {"F4",  "\\EOS"},
         {"F5",  "\\E[15~"}, {"F6",  "\\E[17~"}, {"F7",  "\\E[18~"}, {"F8",  "\\E[19~"},
         {"F9",  "\\E[20~"}, {"F10", "\\E[21~"}, {"F11", "\\E[23~"}, {"F12", "\\E[24~"},
+        // Ctrl+arrows, in the same xterm convention as the rest of this table
+        // (CSI 1 ; 5 <final>, where the 5 is the ctrl modifier). Until the map
+        // grew modifiers these were indistinguishable from the plain arrows.
+        // A CP/M editor is more likely to want the WordStar word-left/word-right
+        // pair, which is one line of config away:
+        //     "keyboard": { "keys": { "Ctrl+Left": "^A", "Ctrl+Right": "^F" } }
+        {"Ctrl+Up",    "\\E[1;5A"},
+        {"Ctrl+Down",  "\\E[1;5B"},
+        {"Ctrl+Right", "\\E[1;5C"},
+        {"Ctrl+Left",  "\\E[1;5D"},
     };
 }
 
@@ -123,24 +178,62 @@ public:
     // An override with an empty value unbinds that key.
     void build(const std::map<std::string, std::string>& overrides) {
         m_seqs.clear();
-        std::map<std::string, std::string> merged = defaultBindings();
-        for (const auto& kv : overrides) merged[kv.first] = kv.second;
+        // Resolve names to key ids BEFORE merging. Two spellings of the same
+        // binding - "Ctrl+Left", "ctrl+left", "CTRL+Left" - are three different
+        // strings and one key, so merging by name left both the default and the
+        // override in the map and let ASCII ordering decide which was applied
+        // last. "CTRL+Left" sorts before "Ctrl+Left", so that spelling of an
+        // override lost to the default it was meant to replace.
+        std::map<unsigned, std::string> merged;
+        for (const auto& kv : defaultBindings()) {
+            long id = keyIdForName(kv.first);
+            if (id >= 0) merged[static_cast<unsigned>(id)] = kv.second;
+        }
+        for (const auto& kv : overrides) {
+            long id = keyIdForName(kv.first);
+            if (id >= 0) merged[static_cast<unsigned>(id)] = kv.second;
+        }
+        // An empty value unbinds, and is stored as an explicit empty entry
+        // rather than left absent. The difference matters to find(): an absent
+        // modified key falls back to the plain one, but a deliberately unbound
+        // one must not - "Ctrl+Left": "" means send nothing, not send Left.
         for (const auto& kv : merged) {
-            int vk = vkForName(kv.first);
-            if (vk < 0) continue;
-            std::string seq = decode(kv.second);
-            if (!seq.empty()) m_seqs[static_cast<UINT>(vk)] = seq;
+            m_seqs[kv.first] = decode(kv.second);
         }
     }
 
-    // Byte sequence for a virtual key, or nullptr if the key is unbound.
-    const std::string* find(UINT vk) const {
-        auto it = m_seqs.find(vk);
-        return it == m_seqs.end() ? nullptr : &it->second;
+    // Byte sequence for a key press, or nullptr if it is unbound.
+    //
+    // A modified press that has no binding of its own falls back to the
+    // unmodified one, which is what this did for every press before modifiers
+    // existed. That keeps Shift+Insert and the like working as they always did,
+    // and means adding a modifier to the table is opt-in rather than a silent
+    // removal of the plain binding.
+    const std::string* find(UINT vk, unsigned mods = KM_MOD_NONE) const {
+        auto it = m_seqs.find(keyId(static_cast<int>(vk), mods));
+        if (it != m_seqs.end()) {
+            // Present but empty means deliberately unbound. Report it as
+            // unbound and stop - falling back here would answer a config that
+            // said "Ctrl+Left sends nothing" with plain Left's sequence.
+            return it->second.empty() ? nullptr : &it->second;
+        }
+        if (mods != KM_MOD_NONE) return findExact(vk, KM_MOD_NONE);
+        return nullptr;
+    }
+
+    // Byte sequence bound to exactly this key and modifier combination, with no
+    // fallback to the unmodified binding. The Alt handling needs this: an Alt
+    // press is the menu key on Windows and must keep reaching the menu unless
+    // the user has bound that specific combination, and the falling-back find()
+    // would answer "bound" for every Alt press of an otherwise-bound key.
+    const std::string* findExact(UINT vk, unsigned mods) const {
+        auto it = m_seqs.find(keyId(static_cast<int>(vk), mods));
+        if (it == m_seqs.end() || it->second.empty()) return nullptr;
+        return &it->second;
     }
 
 private:
-    std::map<UINT, std::string> m_seqs;
+    std::map<unsigned, std::string> m_seqs;
 };
 
 } // namespace keymap
