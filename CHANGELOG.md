@@ -266,12 +266,28 @@ still carrying the old text are listed in `todo.txt`.
   `W8 <cpmname> [hostpath]`, and `2dbf6f2` opened `Module.onConsoleOutput` to
   every byte and implemented `Module.onError`. Each row's own paragraph still
   describes the old behaviour and is tracked in `todo.txt`.
-- **The Android column is marked unverifiable.** It describes `cpmdroid` commit
-  `c26aeb7`, which is not a valid object in that repository — `origin/master` is
-  `7f46e98`, and none of the symbols the column cites (`DEFAULT_KEY_BINDINGS`,
-  `decodeKeySequence`, `saveProfile`, any VT52 or DECSTBM code) exist there. A
-  note at the head of the file now asks the reader to treat every Android cell
-  as unverified until that branch surfaces.
+- **The Android column is rewritten from source, and the `c26aeb7` dispute is
+  settled.** `cpmdroid` was checked out on this machine for the first time, so
+  the column could finally be read against the repository rather than against a
+  commit nobody could find. The branch is not coming: `c26aeb7` is not a valid
+  object there, and none of the symbols the column cited — `DEFAULT_KEY_BINDINGS`,
+  `decodeKeySequence`, `saveProfile`, `showFileTransferDialog`,
+  `res/xml/file_paths.xml`, VT52, DECSTBM — exist at `origin/master`. Five rows
+  were overstated and three of them go from ✅ to ⬜: **1** (there is no key map
+  on Android at all), **4** (no Files button, no SAF import picker, no share
+  sheet — no UI for either transfer folder, which makes Android the *worst* cell
+  in that row rather than level with iOS), **6** (help is fetched from
+  `releases/latest` with nothing bundled — the exact trap the row exists to warn
+  about, described as fixed), **11** (no profiles; a flat `SharedPreferences`),
+  and **13** (the CSI dispatch is `H f A B C D J K m` and nothing else). Row 13's
+  lead paragraph credited `cpmdroid` with extending `ioscpm`'s parser; it has the
+  thinnest parser of the four ports.
+  What the rows shared is worth recording: each named specific symbols and file
+  paths, which reads as evidence, for code that was never pushed. A citation is
+  not a reading. Every Android cell now names something that can be grepped for.
+  Some of the column moved the same day for a better reason — `cpmdroid` took the
+  v1.36 core and closed four gaps this document names (F1–F12, the Ctrl window,
+  scrollback as a setting, TAB) — and those are marked where they land.
 - **`docs/FILE_TRANSFER.md`'s "I can't find my exported file" checklist no longer
   contradicts its own `W8` section.** Step 1 asked "Did you give a full path?
   (Windows only)" a hundred lines below the correction saying `W8` cannot take

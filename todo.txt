@@ -154,24 +154,17 @@ header summary and the row's cell in the per-port snapshot table were corrected;
 what is still wrong is the row's own paragraph, which is what a reader reaches
 without passing the summary first.
 
-- FEATURE_PARITY.md's Android column still describes cpmdroid commit c26aeb7,
-which is not a valid object in that repository - origin/master is 7f46e98, and
-several of the symbols the column cites do not exist there.  A blockquote at the
-head of the file now warns the reader, but the rows themselves have not been
-re-read against a pushed branch, and the snapshot table's own caveat line ("as
-of v1.19 / c26aeb7") repeats the claim without one.  It is broader than the six
-rows first counted - saveProfile, showFileTransferDialog, buildKeyRow, VT52 and
-DECSTBM are absent from that port too - but it is also narrower than "the whole
-column is wrong", which is why it needs reading rather than deleting.  What does
-hold at 7f46e98: row 2 scrollback (under different names than the doc cites),
-row 3 copy/paste, row 5's pinned catalog tag (DiskCatalogRepository.kt:27,
-RELEASE_TAG = "v1.4.5"), row 7's NVRAM half (SettingsRepository.kt:20), row 9's
-8-24pt font slider (fontSizeSeekBar, activity_settings.xml) and row 10's
-explicit no-op Dazzler stubs (emu_io_android.cpp:529-541).  What does not: the
-key map (row 1), the bundled help (row 6 - HelpActivity fetches over HTTP and
-app/src/main/assets holds only emu_avw.rom), named profiles (row 11) and row
-13's VT52/DECSTBM extras.  Either find the branch on the other machine or
-rewrite the column from origin/master.  Same dispute as cpmdroid/todo.txt.
+- the Android column is settled and rewritten (2026-08-25), so what is left
+here is smaller and different.  cpmdroid was checked out on this machine for the
+first time; c26aeb7 is not a valid object in it, the branch never surfaced, and
+five rows were overstated - 1, 4, 6, 11 and 13, three of them ✅ where the code
+is absent.  the column now cites only symbols that grep at origin/master.  what
+is NOT done: nothing reports the drift, and this document is only ever as
+current as the last person to read both trees.  the iOS/macOS column is dated at
+ioscpm build 50/51 and ioscpm is not checked out here, so it is the one column
+still standing on a reading nobody can repeat from this machine - and section 1
+of romwbw_emu/docs/DOWNSTREAM_2026-08-25.md says that port shipped a build 52
+with a data-destruction fix, which the column does not mention.
 
 - item 4's romwbw_emu CLI paragraph (FEATURE_PARITY.md:261) still says W8 "takes
 no path at all" and writes into the emulator's CWD; 98eb6a1 gave it

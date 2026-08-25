@@ -7,26 +7,31 @@ repo at this file (raw URL works) and have it implement the gaps against the
 referenced z80cpmw source.
 
 **Item 13 has been closed from this side.** Terminal emulation used to be the
-one row where the mobile ports led: `ioscpm` wrote the VT100/VT52 parser and
-`cpmdroid` extended it. z80cpmw ported that work back in **1.0.20**, which
+one row where a mobile port led: `ioscpm` wrote the VT100/VT52 parser. (This
+used to say `cpmdroid` extended it; it did not — see item 13 and the note
+below.) z80cpmw ported that work back in **1.0.20**, which
 reached users as the signed sideload beta **1.0.21-beta** and then, from a
 single build, as Store **1.0.22** and sideload **1.0.22-beta** (both
 2026-08-23). All three front ends now cover VT52, DECSTBM, deferred autowrap
 and the answerbacks; what still differs is the per-port detail listed in item
 13, which is why this repo's row 13 is marked ◐ rather than ✅.
 
-Last reviewed: **2026-08-07**. On that date the **Android (`cpmdroid`) column was
-re-verified against that port's source**, at commit `c26aeb7` (version 1.19 /
-versionCode 20, branch `v1.19-parity-sync`) — key map (`TerminalView.kt`:
-`DEFAULT_KEY_BINDINGS`, `decodeKeySequence`, `handleKeyDown`), scrollback
-(`TerminalView.kt`: `history`, `scrollRegionUp`, `onDraw`, `resetTerminal`),
-R8/W8 (`MainActivity.kt`: `showFileTransferDialog`, `importPickedFile`,
-`shareExportedFile`, `res/xml/file_paths.xml`), help fallback (`HelpActivity.kt`,
-`HelpTopicActivity.kt`, `app/build.gradle.kts`), catalog pinning
-(`data/DiskCatalogRepository.kt`), NVRAM (`data/SettingsRepository.kt`,
-`MainActivity.kt`), font size (`SettingsActivity.kt`,
-`data/SettingsRepository.kt`), the manifest write warning, and the Dazzler stubs
-(`app/src/main/cpp/emu_io_android.cpp`).
+**The Android (`cpmdroid`) column was rewritten from source on 2026-08-25**, at
+`origin/master` — every row, because the branch the previous review described
+never existed. The 2026-08-07 review claimed to have read commit `c26aeb7`
+(version 1.19, branch `v1.19-parity-sync`) and cited symbols from it throughout:
+`DEFAULT_KEY_BINDINGS`, `decodeKeySequence`, `saveProfile`,
+`showFileTransferDialog`, `res/xml/file_paths.xml`, an on-screen key row, VT52
+and DECSTBM. **None of those objects or symbols exist in that repository**, and
+`c26aeb7` is not a valid object in it. Five rows were overstated as a result and
+are corrected below — 1, 4, 6, 11 and 13 — three of them from ✅ to ⬜. This was
+a standing dispute in both repositories' `todo.txt`; it is settled by reading
+the pushed branch, and the branch is not coming.
+
+Some of that column moved on the same day for a better reason: `cpmdroid`
+absorbed the v1.36 core and closed four gaps this document names — F1–F12,
+the Ctrl window, terminal scrollback as a setting, and TAB. Those are marked
+where they land.
 
 **The iOS/macOS column was re-verified from `ioscpm` source on 2026-08-24**, at
 build 50 — every one of the thirteen rows, not only the ones that moved. Five
@@ -67,18 +72,12 @@ its key handler declines Ctrl+Shift+V and stays off the keycodes Ctrl+Insert
 uses — and both frontends do have *some* help, just not the fetched-topic kind
 this item measures.
 
-The Android column describes commit `c26aeb7` plus the follow-up commit that
-finished the release: an on-screen key row driven by the key map, configuration
-profiles, a scrolled-back indicator, catalog-version tracking, and crash
-diagnostics. Rows 1 and 11 were re-checked against that later state.
-
-> **The Android column below is not currently verifiable.** It cites `cpmdroid`
-> commit `c26aeb7`, which is not a valid object in that repository —
-> `origin/master` is `7f46e98`, and none of the symbols the column references
-> (`DEFAULT_KEY_BINDINGS`, `decodeKeySequence`, `saveProfile`, any VT52 or
-> DECSTBM code) exist there. It appears to describe work that was never pushed.
-> Treat every Android cell as unverified until that branch surfaces; `todo.txt`
-> carries the item.
+> **How the Android column came to be wrong, since it is worth not repeating.**
+> The overstated rows all shared a shape: they named specific symbols and file
+> paths, which reads as evidence, for code that was never in the repository. A
+> citation is not a reading. Everything in that column now names something that
+> can be grepped for at `origin/master`, and the rows that are ⬜ say what is
+> absent rather than leaving the cell blank.
 
 Port-status columns are best-effort — **verify against the port's current
 source** before acting (local checkouts may lag the ports' latest builds);
@@ -109,7 +108,7 @@ hardware emulation) and is out of scope here.
 Each entry: what it does · behaviour spec · where it lives in z80cpmw · config/keys
 · how it maps to other platforms.
 
-### 1. Configurable keyboard map (termcap-style)  — *done on Android (cpmdroid 1.19); partial on iOS/macOS*
+### 1. Configurable keyboard map (termcap-style)  — *partial on iOS/macOS; absent on Android*
 CP/M is pure ASCII with no function/navigation keys; each terminal defines its own
 escape bytes. z80cpmw lets the user bind every special key (Up/Down/Left/Right,
 Home/End, Insert/Delete, PageUp/PageDown, F1–F12) to arbitrary byte sequences
@@ -145,40 +144,28 @@ written as termcap-style escape strings.
   Mobile maps soft-key/hardware-key events; the CLI maps host-terminal keys. Adopt
   the same config schema (named keys → termcap strings) so configs are portable.
 - **Verified port behaviour (2026-08-07):**
-  - **cpmdroid (Android)** — has it, and **a map really is portable to and from
-    z80cpmw**. `TerminalView.DEFAULT_KEY_BINDINGS` holds the same 22 names as
-    `Keymap.h`'s `defaultBindings()` with the same termcap strings — the two
-    tables were extracted and compared mechanically: identical name set,
-    identical values (`Up`=`\E[A` … `Delete`=`^?` … `F12`=`\E[24~`).
-    `decodeKeySequence` accepts the same syntax as `keymap::decode` (`\E`/`\e`,
-    `\n \r \t \b \f \s`, `\\`, `\^`, 1–3 octal digits after `\`, `^X` as
-    `toupper(X) & 0x1F`, `^?` = 0x7F, anything else literal), so the strings
-    decode to the same bytes on both.
-    **Two caveats before copying a map across.** (a) *Names must be canonical.*
-    `Keymap.h::vkForName` lower-cases the name and accepts aliases
-    (`ins`, `del`, `pgup`, `pgdn`, `prior`, `next`); Android looks the name up
-    verbatim in `DEFAULT_KEY_BINDINGS`, so `pgup` or `up` is not recognised and
-    that key silently keeps its default. Use `Up`…`PageDown`, `F1`…`F12`.
-    (b) *The file is not portable, only the values.* Windows keeps them in
-    `z80cpmw.json` under `keyboard.keys` (backslashes doubled for JSON);
-    Android keeps one SharedPreference per edited key
-    (`keymap_<Name>`, `SettingsRepository.saveKeyBindings`) and stores **only
-    keys the user changed**, so a later change to the defaults still reaches
-    everyone else. An empty value unbinds on both (Android swallows the key
-    rather than falling through to the printable path).
-    There is no `f1ToCpm`/`f5ToCpm`/`ctrlRToCpm` equivalent and none is needed:
-    F1/F5 are not app shortcuts on Android, so all twelve F-keys always reach
-    CP/M, and Reset has no Ctrl+R accelerator to compete with `^R`.
-    A hardware keyboard reaches the map through `bindingNameFor`
-    (`KEYCODE_DPAD_*`, `MOVE_HOME`, `MOVE_END`, `INSERT`, `FORWARD_DEL`,
-    `PAGE_UP`, `PAGE_DOWN`, `F1`–`F12`); a touch-only device reaches it through
-    an **on-screen key row** toggled from the toolbar (arrows, Home/End,
-    PageUp/PageDown, Insert/Delete, F1–F12). Those buttons hold no sequences of
-    their own — each calls `TerminalView.sendNamedKey(name)`, so a remapping
-    applies to them too. This is the piece the other GUI ports still lack: on
-    iOS the map is likewise only reachable from a hardware keyboard. Editor:
-    Settings → **Keyboard Map** (one field per key, **Defaults** button restores
-    the VT220 table).
+  - **cpmdroid (Android)** — ⬜, and the previous ✅ here was the largest of the
+    2026-08-07 errors. There is **no key map on Android at all**: no
+    `DEFAULT_KEY_BINDINGS`, no `decodeKeySequence`, no `bindingNameFor`, no
+    `sendNamedKey`, no `keymap_` preferences, no on-screen key row and no
+    Settings → Keyboard Map. Zero grep hits for any of them at `origin/master`.
+    `TerminalView.handleKeyDown` is a fixed `when` over keycodes, and the bytes
+    it sends are compiled in.
+    What that fixed table now covers, as of 2026-08-25, is the VT220 set this
+    document specifies: Enter, Backspace, Tab, Esc, the four arrows as
+    `\E[A`–`\E[D`, and **F1–F12** as `\EOP`–`\EOS` and `\E[15~`…`\E[24~`.
+    The F-keys are new — before that they reached `else -> -1` and were dropped,
+    so the old claim that "all twelve F-keys always reach CP/M" was exactly
+    backwards. **Ctrl** now covers the whole `'@'`–`'_'` window rather than
+    A–Z alone, so Ctrl+`[` Ctrl+`\` Ctrl+`]` Ctrl+`^` Ctrl+`_` Ctrl+`@` and
+    Ctrl+Space produce their control bytes; it resolves the key through the
+    layout (`KeyEvent.getUnicodeChar` with the Ctrl bits cleared) rather than
+    hard-coded keycodes, so it works on a non-US keyboard.
+    So the *defaults* now agree with `Keymap.h` and a user gets the same bytes;
+    what is missing is the configurability this row is actually about. There is
+    still no `f1ToCpm`/`f5ToCpm`/`ctrlRToCpm` equivalent and none is needed —
+    F1/F5 are not app shortcuts on Android, and Reset has no Ctrl+R accelerator
+    to compete with `^R`, which `setupToolbar` now carries a comment to protect.
   - **ioscpm (iOS/macOS)** — ◐. `iOSCPM/Views/TerminalView.swift` has the same
     termcap escape schema (`KeyMap.expand`; it has no explicit `\^` case but its
     default arm emits the same literal `^`, so every documented escape decodes to
@@ -289,26 +276,30 @@ to find them on every platform.
     good: iOS exposes Documents to the **Files app** (`UIFileSharingEnabled` +
     `LSSupportsOpeningDocumentsInPlace`), and both platforms have **Open
     Imports/Exports Folder** menu items.
-  - **cpmdroid (Android)** *(2026-08-07, v1.19 / `c26aeb7` — this supersedes the
-    2026-07-23 reading, which described a fixed-folder arrangement with no UI)* —
-    the commands themselves are unchanged and still take **no host path**: `R8`
-    reads only `Imports/` and `W8` writes only `Exports/`, both under
-    `getExternalFilesDir(null)` (`/Android/data/com.awohl.cpmdroid/files/…`);
-    `R8` rejects a name containing `/`, `\` or `..`, and `W8` strips any path
-    components off the guest-supplied name, so neither can escape. What changed
-    is everything around them, and it closes the findability hole:
-    a **Files** button in the control strip opens a dialog that prints both
-    absolute paths with a **Copy Paths** action; **Import File…** launches a SAF
-    picker (`ActivityResultContracts.OpenDocument`, `*/*`) that stages a file
-    from anywhere on the device into `Imports/` under a sanitised 8.3 name
-    (numbered instead of overwriting when two sources collide), ready for a later
-    `R8`; and each export can leave the sandbox by **Share Export…** in that
-    dialog or the **SHARE** action on the snackbar `W8` raises, both going
-    through `ACTION_SEND` on a `FileProvider` URI. `res/xml/file_paths.xml`
-    exposes `Exports/` **only** — disk images and preferences stay private.
-    Net effect: Android now sits exactly where iOS does — arbitrary-location
-    *import* by staging, **no arbitrary-path export** — and the Android 11+
-    "`Android/data` is invisible in the Files app" trap no longer strands a file.
+  - **cpmdroid (Android)** *(2026-08-25, from `origin/master`; this supersedes
+    the 2026-08-07 reading, which described a Files button, an Import File…
+    picker and a Share action that **do not exist** — no `res/xml` directory, no
+    `FileProvider`, no `ACTION_SEND`, no `OpenDocument` anywhere in the tree)* —
+    the arrangement is the fixed-folder one the 2026-07-23 reading described.
+    `R8` reads only `Imports/` and `W8` writes only `Exports/`, both under
+    `getExternalFilesDir(null)` (`/Android/data/com.awohl.cpmdroid/files/…`),
+    and there is **no UI of any kind for either folder**: no path display, no
+    picker, no share sheet. So the Android 11+ "`Android/data` is invisible in
+    the Files app" trap is live, and this is the port where an exported file is
+    hardest to reach — which makes it, not iOS, the weakest cell in this row.
+    Containment is real, though, and as of 2026-08-25 it is asserted in the
+    right layer. The guest path is reduced to a single leaf by
+    `emu_host_path_basename()` inside `emu_host_file_open_read/write()` in the
+    C++ shim, and lowercased to match the CLI and browser convention; the Kotlin
+    checks remain as a backstop and the write is now containment-checked against
+    `Exports` before it happens. `emu_host_path_caps()` returns
+    `EMU_HOST_CAP_SAFE_PATHS` on that basis, and
+    `emu_host_file_get_write_name()` reports the full `Exports/` destination so
+    `W8` can print where the file went — which is the closest thing this port
+    has to findability until a UI exists.
+    One real bug was fixed on the way: `R8` used to fall back to **the first
+    file in `Imports/`** when the requested name was missing, and hand it to
+    CP/M under the requested name while printing its usual success line.
 - **Parity targets:** (a) let users reach **arbitrary** host locations within each
   platform's file model — a document picker / `ACTION_CREATE_DOCUMENT`; and (b) at
   minimum, **make exports findable**. (b) is now **done on Android** (share sheet
@@ -364,10 +355,16 @@ In-app help fetched from GitHub, with offline bundled topics.
   through `releases/latest` is one un-attached asset away from the same silent
   break. Ship the topics in the app and treat the download as an optional
   refresh, never as the source.
-- **Verified port behaviour (2026-08-07):** **cpmdroid** fixed this in 1.19.
-  `app/build.gradle.kts` adds the repo's `help/` directory as an assets source
-  dir, so `help_index.json` and all seven topics (quick start, CP/M 2.2, file
-  transfer, NZCOM, QPM, ZPM3, ZSDOS) ship inside the APK.
+- **Verified port behaviour (2026-08-25, correcting the 2026-08-07 entry):**
+  **cpmdroid has NOT fixed this.** The claim that `app/build.gradle.kts` adds
+  the repo's `help/` directory as an assets source dir is wrong — that file
+  mentions help nowhere, `app/src/main/assets` contains `emu_avw.rom` and
+  nothing else, and the repo's own `help/` holds two files (`help_index.json`
+  and `help_quick_start.md`), not seven topics.
+  `HelpActivity` fetches `https://github.com/avwohl/cpmdroid/releases/latest/download/help_index.json`
+  over HTTP with no bundled copy and no on-disk cache, which is precisely the
+  trap described above, still armed. The text that follows described the fix
+  that was supposed to land:
   `HelpActivity.loadHelpIndex` still **prefers** the published index — so a
   correction can go out without an app update — but falls back to the bundled
   one, and `HelpTopicActivity` falls back per topic to the bundled file of the
@@ -467,13 +464,13 @@ Emulated retro graphics card in a separate window.
   file with migration from the legacy INI format.
 - **Where:** `z80cpmw/Config.{h,cpp}` (`ConfigManager`). Each port keeps its own
   config format; parity is the *set of settings*, not the file format.
-- **cpmdroid (Android)** — ✅. `SettingsRepository.{saveProfile,loadProfile,
-  listProfiles,deleteProfile}` store a profile as JSON inside the existing
-  preferences (ROM, four disk slots, font size, wrap, scrollback capacity,
-  sound, manifest-warning, NVRAM boot setting and the key-map overrides). UI in
-  Settings → **Configuration Profiles**. Loading replaces the key map wholesale
-  rather than merging it, so a profile that omits a key means that key is at its
-  default. Disk *images* are never touched by any profile operation.
+- **cpmdroid (Android)** — ⬜. There are no profiles: `saveProfile`,
+  `loadProfile`, `listProfiles` and `deleteProfile` do not exist, and there is
+  no Settings → Configuration Profiles. `SettingsRepository` is a flat
+  `SharedPreferences` wrapper over one current setting each (ROM, four disk
+  slots, font size, wrap, scrollback, sound, manifest warning, NVRAM). That is
+  the same shape as the `romwbw_emu` CLI's single settings file, so this row is
+  ◐-at-best on three of the four ports and ✅ only here.
 
 ### 12. Manifest-disk write warning
 - **Behaviour/spec:** warn before writing to a downloaded catalog ("manifest") disk,
@@ -504,8 +501,9 @@ The front end **is** the terminal, so its escape-sequence coverage decides which
 CP/M software actually runs: WordStar, Zork, TERMDEF, VDE and anything else
 full-screen. This belongs in a front-end parity catalog for the same reason
 copy/paste does. This repo was **not** the reference for it - `ioscpm` wrote the
-parser and `cpmdroid` extended it - but it has now caught up.
-- **Behaviour/spec (what the two mobile ports implement, and the target):** VT100/ANSI
+parser - but it has now caught up. (This used to credit `cpmdroid` with
+extending it; that port's parser turned out to be the thinnest of the four.)
+- **Behaviour/spec (what `ioscpm` implements, and the target):** VT100/ANSI
   by default with **VT52** auto-detected from any VT52-exclusive sequence and left
   by `ESC <` / `ESC [ ? 2 h`; `ESC 7`/`8` (DECSC/DECRC), `ESC D`/`M`/`E`
   (IND/RI/NEL); CSI `A B C D`, `G`/`` ` ``, `d`, `H`/`f`, `J`, `K`, `L`, `M`,
@@ -527,10 +525,24 @@ parser and `cpmdroid` extended it - but it has now caught up.
     zero-padding cannot spend the digit budget. Build 49 also made SGR 7 a
     render-time toggle instead of an in-place nibble swap, so SGR 27 restores
     the original colours instead of resetting to white-on-black.
-  - **cpmdroid** — `app/src/main/java/com/awohl/cpmdroid/TerminalView.kt`, ported
-    from the above in 1.19 and slightly ahead of it: it adds `P @ X S T` and acts
-    on DECAWM (7) and DECTCEM (25). Parser input is bounded (16 params, 6 digits,
-    2 intermediates) against a runaway guest.
+  - **cpmdroid** — ⬜, and this is the row where the 2026-08-07 reading was
+    furthest from the code. `app/src/main/java/com/awohl/cpmdroid/TerminalView.kt`
+    at `origin/master` has **no VT52, no DECSTBM, no DECSC/DECRC, no
+    answerbacks, no private-mode handling, no parameter bounds and no `P @ X S
+    T`** — none of which it could have "ported from the above", since this
+    repo's own item 13 says the flow ran the other way. What is there is a
+    three-state parser whose whole CSI dispatch is `H f A B C D J K m`; SGR
+    handles foreground only (`0`, `30`–`37`, `90`–`97`, no bold, no background,
+    no reverse) and resets to green rather than white; and ESC followed by
+    anything but `[` is discarded, which is what makes every sequence above
+    unreachable rather than merely unimplemented.
+    In the normal state it handles ESC, CR, LF, BS and BEL. **TAB was dropped
+    entirely** until 2026-08-25 — the `else` arm prints 0x20 and up, so 0x09
+    matched nothing — which collapsed every tabbed layout, including RomWBW's
+    own tab-indented boot banner and `DIR`. It now advances to the next
+    8-column stop like the other ports. FF is still discarded.
+    So the mobile ports did not jointly lead this row: **`ioscpm` did**, and
+    z80cpmw's item 13 work came from there.
   - **z80cpmw (this repo)** — `TerminalView.cpp`
     (`processEscapeChar`, `processCSIChar`, `executeCSI`, `applySGR`).
     **VT52 and the answerbacks landed**, ported from `cpmdroid`: the full VT52
@@ -614,25 +626,27 @@ parser and `cpmdroid` extended it - but it has now caught up.
 
 ✅ present · ◐ partial · ⬜ missing · ➖ N/A or host-provided · ❓ verify
 
-Android `cpmdroid` is as of **v1.19 / `c26aeb7` (2026-08-07, from source)**.
+Android `cpmdroid` is as of **`origin/master`, 2026-08-25, read from source** —
+the whole column, after the `c26aeb7` citations turned out to describe code that
+was never pushed. See the note at the head of this file.
 The **iOS/macOS column was re-verified from `ioscpm` source on 2026-08-24**, at
 build 50 — every row, not only the ones that changed.
 
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
-| 1. Configurable keymap (termcap) | ◐ (10 keys, no F1–F12, WordStar default) | ✅ (same 22 names + syntax as `Keymap.h`; on-screen key row too) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
-| 2. Scrollback | ✅ | ✅ (setting, drag instead of wheel) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
-| 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
-| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed) | ◐ (R8 via SAF import; W8 fixed folder + Share) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
+| 1. Configurable keymap (termcap) | ◐ (10 keys, no F1–F12, WordStar default) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12 and full Ctrl window) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
+| 2. Scrollback | ✅ | ✅ (Settings slider incl. Off since 2026-08-25; drag instead of wheel) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
+| 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip; Copy takes the scrollback since 2026-08-25, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
+| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed) | ⬜ (both folders fixed, no picker, no share, no path UI) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
 | 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ◐ web (hardcoded list, unpinned; 4 of 5 images ship nowhere) |
-| 6. Help system + offline fallback | ✅ / ⬜ no bundled fallback | ✅ (bundled in APK since 1.19) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
+| 6. Help system + offline fallback | ✅ / ⬜ no bundled fallback | ✅ / ⬜ (fetches `releases/latest`, nothing bundled, no cache) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
 | 7. NVRAM autoboot / bootString | ✅ | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
 | 8. Window state / DPI | ⬜ (Mac Catalyst) | ➖ | ➖ |
 | 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt) | ➖ |
 | 10. Dazzler | ⬜ | ⬜ (explicit no-op stubs) | ⬜ (no Dazzler code; the core only offers the hooks this repo uses) |
-| 11. Config profiles | ⬜ | ✅ (named; ROM, disks, boot, terminal, keymap) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
+| 11. Config profiles | ⬜ | ⬜ (flat SharedPreferences, no named profiles) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
 | 12. Manifest write warning | ✅ (suppressible) | ✅ (suppressible, once per session) | ➖ CLI · ✅ web (*Don't warn* kept across a reload since `108856c`) |
-| 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (+ ICH/DCH/ECH/SU/SD, DECAWM, DECTCEM) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ✅ web (output filter fixed in `2dbf6f2`) |
+| 13. Terminal emulation (VT100 + VT52) | ✅ | ⬜ (CSI `H f A B C D J K m` only; no VT52, no DECSTBM, fg-only SGR) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ✅ web (output filter fixed in `2dbf6f2`) |
 
 **z80cpmw's own row 13 is ◐** — see item 13 for what is missing here. Every other
 row in this document is ✅ for z80cpmw by construction; that one is not.
