@@ -6,6 +6,19 @@ longer-form handoff notes; this file is the list.
 Still needs a Windows machine
 ------------------------------
 
+- ONE CHANGE IN THIS TREE HAS NEVER BEEN COMPILED: the 24 -ErrorAction Continue
+additions in the two packaging scripts, which nothing on the machine that wrote
+them could even parse.  Labelled NOT EXECUTED in CHANGELOG.md too.
+  Three other blind changes were written on 2026-08-26 and have been REVERTED
+rather than committed: a "display.bell" setting, the Reset confirmation, and
+keeping applyConfig()'s ROM notice across startEmulator()'s terminal clear.
+Review found the third defective - m_configNotice was cleared only at the top of
+applyConfig(), whose only callers are loadSettings() and the profile load, so
+onSelectROM() succeeding left it stale and a user who fixed their ROM got the
+old error reprinted at them.  One defect in three changes, on a machine that
+cannot compile any of them, is the argument against writing the other two blind
+as well.  All three are open items again below, where they were.
+
 - two Windows console bugs in cpmemu/src/os/windows/platform.cc.  Not this
 repo's code - z80cpmw compiles none of it - but whoever has the machine can take
 them at the same time; cpmemu/todo.txt has the measurements.  (a) read_one_key()
@@ -139,13 +152,35 @@ and Keymap.h's KeyMap::build, which discards any name keyIdForName rejects with
 `if (id >= 0)` and says nothing.  Note the "F1x" fix in CHANGELOG [Unreleased]
 is a different thing: it made vkForName reject the typo instead of binding F1,
 it did not make anything report it.
+  Looked at on 2026-08-26 and deliberately not written blind.  The edit is not
+the detection - collecting the member names json actually carries and
+subtracting the ones from_json consumed is a dozen lines in one function - it is
+that there is nowhere to put the answer.  Config.cpp has no window, no status
+bar and no terminal; emu_error() reaches the log nobody reads.  The terminal is
+the right place, and applyConfig() already prints there, so what this wants is
+the same channel the ROM notice uses: collect during load, hand the text to
+MainWindow and print it beside the ROM notice.  Note that channel does not
+survive startEmulator() today - see the terminal-clear item below, which the
+same design should fix at the same time.  That is a small design rather than a
+one-line edit, and it wants a compiler.  The rejected-scrollback-binding item below is the same missing
+channel seen from the other end - take the two at once.
 
 - Reset reboots the machine with no confirmation - MainWindow::onEmulatorReset()
 calls reset() straight away - and with "ctrlRToCpm": false a single Ctrl+R does
-it.  Both mobile ports ask first.
+it.  Both mobile ports ask first.  A MessageBoxW version was written on
+2026-08-26 and reverted unbuilt; if it is written again, note the choice it has
+to make and that nothing here can test either way - both mobile ports ask
+unconditionally, while asking only when isRunning() would spare the user a
+dialog on a machine that is already stopped.
 
 - the terminal bell is unconditional: TerminalView.cpp's 0x07 case calls
-MessageBeep(MB_OK) with nothing to consult.  cpmdroid made it a setting.
+MessageBeep(MB_OK) with nothing to consult.  cpmdroid made it a setting.  A
+config-file-only version of this was written on 2026-08-26 and reverted unbuilt
+along with the other two blind changes; it was six one-line edits across four
+source files plus two documentation tables, which is small but is still four
+files nothing here can compile.  Worth doing with the Settings work below rather
+than on its own - the dialog needs a terminal section as much as a keyboard one,
+and a checkbox is the discoverable half.
 
 - rebinding a key means closing the app and hand-editing JSON.  There is no
 keyboard section in Settings - SettingsDialogWx.cpp has ROM, disks, debug,
@@ -186,30 +221,26 @@ now, and in this file only the four lines just above, which are the record of
 which cites rotted rather than a cite anyone should follow.  Anything added here
 should do the same.
 
-- the Android column was settled and rewritten from source (2026-08-25) and the
-iOS/macOS column has now been re-read from source too (2026-08-26).  Both mobile
-sibling trees are checked out on this machine: cpmdroid, and ioscpm at
-/home/wohl/src/ioscpm, build 52 (49851aa).  The claim here that ioscpm was not
-checked out was wrong when it was written; it is corrected, and the column no
-longer stands on a reading nobody can repeat.  c26aeb7 is still not a valid
-object in cpmdroid and that branch never surfaced.  What is NOT done: nothing
-reports the drift, and this document is only ever as current as the last person
-to read all four trees.
-
-- a sweep of a column is not a sweep of the document.  Three c26aeb7-era claims
-outlived 944cf9f's Android rewrite: two in the "Suggested priority order" list,
-which is not a row, and one in a bullet of row 4 rather than in that row's
-per-port paragraphs.  All three are corrected now.  Priority #2 named buildKeyRow
-in MainActivity.kt and TerminalView.sendNamedKey as "the worked example" for an
-on-screen key row, and neither symbol exists in cpmdroid at 9b68ab1
-(setupControlStrip is Ctrl, Esc, Tab, Copy, Paste and nothing else).  Priority #4
-said arbitrary-path R8/W8 was "now only the export half", which reads as Android
-already having an import picker; it has neither half.  And row 4's parity-targets
-bullet said findability was "done on Android (share sheet plus the paths shown
-in-app)" when that tree has no ACTION_SEND, no FileProvider, no res/xml and no
-path display at all.  Whoever sweeps a column next should grep the whole file for
-the port's name afterwards - the priority list and the row bullets are where the
-old reading hides.
+- the drift is reported now, which was the open half of this.  FEATURE_PARITY.md
+carries a sibling-readings block naming the commit each port column was actually
+read at, and tools/check-sibling-drift.sh compares those with the checkouts
+beside this one, lists the commits that have landed since, and exits non-zero if
+any has - or if a recorded commit is not an object in the tree it names, which
+is the c26aeb7 failure caught by a script rather than by argument.  Written and
+RUN here on 2026-08-26, against the real checkouts and against doctored input
+for all four outcomes; it is the one thing in this repository that could be
+executed on the machine it was written on.
+  What it reports today is the work left.  romwbw_emu has NO recorded commit -
+the 2026-08-24 column sweep never wrote down what it read and it cannot be
+recovered now, so guessing at it would be the exact habit this file is trying to
+break - and its drift therefore cannot be measured at all; that column has to be
+re-read and the commit recorded.  ioscpm is one commit past the build 52 reading
+(6b1b731) and cpmdroid one past 9b68ab1 (c06fa58).  Neither of those two was
+re-read in full here, only checked: 6b1b731 changes no source whatever, and
+c06fa58 touches emu_io_android.cpp and MainActivity.kt so that a zero-byte W8
+export produces a file, which adds to row 4's Android paragraph and contradicts
+none of it.  So the two mobile columns need confirming and their recorded
+commits moving forward; the Linux/Web column needs an actual re-read.
 
 - a live cross-port disagreement that is a decision, not a bug, and nobody
 should settle it alone.  This port now paints the CURRENT SGR background on
@@ -222,6 +253,22 @@ consistently wrong.  cpmdroid has none of those finals to disagree with.  So
 the two ports now render the same guest byte stream differently, and one of
 them has to move.  FEATURE_PARITY.md item 13 names it as the only difference
 left in that row.
+  Stated as the decision it is, because that is all anyone here should do with
+it.  THE QUESTION: when a program has set a background colour and then erases,
+does the erased region come back in that colour or in the default?  OPTION A,
+what this port does: the current one.  Strict VT behaviour, what a program that
+sets a colour and clears is asking for, and it is what z80cpmw ships today - so
+choosing it means changing ioscpm, in every one of its erase paths including the
+@ P X S T finals build 51 added, and it means an ioscpm release.  OPTION B, what
+ioscpm does: the default cell.  Choosing it means reverting this port's
+blankCell() to a fixed white-on-black and reverting the CHANGELOG entry that
+calls the current behaviour a fix - the sequences would then mean something
+different here from what the same bytes mean in xterm.  Re-verified 2026-08-26:
+z80cpmw's TerminalView.cpp fills every erase through blankCell(), which is
+m_currentAttr with the reverse flag applied, and ioscpm's EmulatorViewModel.swift
+fills every one of its erase and scroll paths with a bare TerminalCell().  What
+is NOT decidable from here is which of A and B the family wants; it is one
+answer for three ports and it needs the person who owns all three.
 
 - the W8-takes-a-host-path claim survives in two more places.  README.md's
 "File Transfer (R8 / W8)" section, which still carries the claim and the
@@ -256,8 +303,16 @@ None of these is a regression; each was measured and left deliberately.
 - a 0-byte disk image is accepted and mounts as an empty disk rather than being
 refused with an error: emu_io_windows.cpp's emu_file_load returns true for
 size 0, EmulatorEngine::loadDisk passes it on, and HBIOSDispatch::loadDisk
-range-checks the unit and nothing else.  The shared emu_io_common.cc does the
-same, so fixing it here alone would be a divergence; better done in both.
+range-checks the unit and nothing else.  NOT FIXABLE IN THIS REPO ALONE, which
+is why it is still here: the shared emu_io_common.cc's emu_file_load does the
+identical thing - measure_stream succeeds, resize(0) leaves an empty vector, the
+fread is skipped for size 0 and it returns true - so a guard added here and
+nowhere else makes this the one port that refuses a file the other three mount,
+and divergence in the twelve hand-synced functions is the thing this port can
+least afford.  Re-checked 2026-08-26 against romwbw_emu 657d61a: still true of
+both.  It has to be taken in emu_io_common.cc first, with the ports following,
+and the same change decides whether 0 bytes is refused in the backend or in
+loadDisk - the backend is where the two trees have to agree.
 
 - MainWindow::startEmulator() clears the terminal, which erases the two notices
 applyConfig() prints when the saved ROM is unusable but loadDefaultROM() has
@@ -265,21 +320,24 @@ already put a good one in the banks - "NOTE: the saved ROM (...)" and "ERROR:
 the saved ROM (X) was not found".  hasROM() is true for both, so the no-ROM
 guard above the clear does not fire.  Pre-existing, and only visible when a ROM
 has already failed to load.
+  A fix was written on 2026-08-26 - keep the text in a member and reprint it
+after the clear - and reverted, because review found it defective: the member
+was cleared only at the top of applyConfig(), whose only callers are
+loadSettings() and the profile load, so a user who read the notice, followed it
+and picked a working ROM through onSelectROM() got the stale error reprinted at
+them.  Whoever writes it again owns that lifetime: onSelectROM() succeeding has
+to clear it, and so does anything else that makes the notice untrue.
 
 - the four scrollback combinations (Shift+PageUp/PageDown, Ctrl+Home/End) are
 intercepted at the top of TerminalView::handleKeyDown, before the
 m_keymap.find() lookup a few lines below, so a config that binds them is
 silently ignored rather than refused.  docs/CONFIGURATION.md now says which
-four they are; making KeyMap::build reject them would be better still.
-
-- the exit 1 after the new Write-Error in build-msix.ps1's symbol-keeping step
-is unreachable: $ErrorActionPreference is Stop at the top of that script, which
-makes Write-Error terminating.  So are the other 23 - both packaging scripts set
-Stop, and every one of their 24 Write-Error sites is followed by an exit 1 that
-cannot run.  The intended behaviour, loud and non-zero with no package claimed
-as good, is what happens either way, so the new site was written to match the
-23 rather than made the lone exception.  Worth doing properly for all 24 at once
-if anything ever comes to depend on the exit code itself.
+four they are; making KeyMap::build reject them would be better still.  Left
+alone on 2026-08-26 rather than written blind: dropping the binding is already
+what happens, so "reject" is only worth writing once something can say so, and
+that is the reporting channel the mistyped-config-key item above needs.  One
+job, two ends.  KeyMap::build is header-only and rebuilds every binding the app
+has, so it is not a function to edit without a compiler.
 
 
 Loose ends
@@ -297,7 +355,10 @@ cannot ship symbol-less in silence the way 1.0.22 did.  It was written on a
 machine with no PowerShell, no MSVC and no Windows, so it HAS NOT BEEN RUN -
 not once, not even -WhatIf.  First person on a Windows machine: run
 build-msix.ps1 -Beta and confirm the .pdb lands in dist\ next to the .msix.
-Until then treat the item as open.
+Until then treat the item as open.  (Its Write-Error is one of the 24 that
+gained -ErrorAction Continue on 2026-08-26, so the exit 1 under it now runs -
+which changes the exit code the script leaves behind, not what it prints.  Also
+never executed.)
   Not addressed: build-nsis.ps1 mentions no .pdb either, and the default
 (Store) branch of build-msix.ps1 still keeps none.  Note what that does and
 does not cover.  -Beta rewrites only the staged manifest, so the exe it
@@ -310,3 +371,7 @@ for whoever cuts the next Store release.
 - the v1.0.22-beta GitHub release is flagged Latest rather than prerelease,
 unlike 1.0.16 / 1.0.17 / 1.0.21.  A judgement call, not a defect: if the -beta
 channel should stay a prerelease, `gh release edit v1.0.22-beta --prerelease`.
+NEEDS THE OWNER.  It is an edit to a published release - what the repository's
+front page offers a visitor - and it is the one item here that changes something
+outward-facing without changing a line of code.  Left untouched deliberately on
+2026-08-26.

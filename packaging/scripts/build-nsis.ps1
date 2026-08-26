@@ -6,6 +6,11 @@ param(
     [switch]$SkipBuild
 )
 
+# Stop makes every cmdlet failure terminating.  It also makes Write-Error
+# terminating, which would skip the "exit 1" that follows each one and leave the
+# exit code to the host, so every Write-Error here carries -ErrorAction Continue:
+# the message still goes to the error stream, and the exit 1 below it actually
+# runs.  Any new failure site should be written the same way.
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 $RootDir = Resolve-Path (Join-Path $ScriptDir "..\..")
@@ -20,28 +25,28 @@ $OutputDir = Join-Path $RootDir "dist"
 # Deliberately inline in both build scripts rather than dot-sourced: two short
 # call sites, and a shared file would add an untested import path.
 $versionHeader = Join-Path $RootDir "z80cpmw\Version.h"
-if (!(Test-Path $versionHeader)) { Write-Error "Version header not found: $versionHeader"; exit 1 }
+if (!(Test-Path $versionHeader)) { Write-Error "Version header not found: $versionHeader" -ErrorAction Continue; exit 1 }
 $verText = Get-Content $versionHeader -Raw
 $verNums = foreach ($field in 'VERSION_MAJOR','VERSION_MINOR','VERSION_PATCH','VERSION_BUILD') {
     if ($verText -notmatch "(?m)^\s*#define\s+$field\s+(\d+)\s*$") {
-        Write-Error "Could not parse $field from $versionHeader"; exit 1
+        Write-Error "Could not parse $field from $versionHeader" -ErrorAction Continue; exit 1
     }
     [int]$Matches[1]
 }
 $pkgVersion = $verNums -join '.'         # all four fields, for the manifest
 $verShort   = $verNums[0..2] -join '.'   # major.minor.patch, for file names
 if ($verNums[0] -lt 1) {
-    Write-Error "VERSION_MAJOR must be at least 1; the Store rejects a zero first field."; exit 1
+    Write-Error "VERSION_MAJOR must be at least 1; the Store rejects a zero first field." -ErrorAction Continue; exit 1
 }
 Write-Host "Version $pkgVersion (from z80cpmw\Version.h)" -ForegroundColor Green
 
 # Guard against packaging a stale binary: -SkipBuild over an old bin\Release
 # would otherwise label the package with a version the exe does not carry.
 function Assert-ExeVersion([string]$exePath, [string]$expected) {
-    if (!(Test-Path $exePath)) { Write-Error "Executable not found: $exePath"; exit 1 }
+    if (!(Test-Path $exePath)) { Write-Error "Executable not found: $exePath" -ErrorAction Continue; exit 1 }
     $actual = (Get-Item $exePath).VersionInfo.FileVersionRaw.ToString()
     if ($actual -ne $expected) {
-        Write-Error "Version mismatch: Version.h says $expected but $exePath is $actual. Rebuild (drop -SkipBuild)."
+        Write-Error "Version mismatch: Version.h says $expected but $exePath is $actual. Rebuild (drop -SkipBuild)." -ErrorAction Continue
         exit 1
     }
     Write-Host "Binary matches Version.h ($actual)" -ForegroundColor Green
@@ -64,14 +69,14 @@ if (!$SkipBuild) {
     $msbuildPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
 
     if (!$msbuildPath) {
-        Write-Error "MSBuild not found. Install Visual Studio 18 with the C++ desktop workload (the project uses PlatformToolset v145)."
+        Write-Error "MSBuild not found. Install Visual Studio 18 with the C++ desktop workload (the project uses PlatformToolset v145)." -ErrorAction Continue
         exit 1
     }
 
     & $msbuildPath $slnPath /p:Configuration=$Configuration /p:Platform=x64 /t:Rebuild /m
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Build failed."
+        Write-Error "Build failed." -ErrorAction Continue
         exit 1
     }
 
@@ -149,7 +154,7 @@ try {
         "z80cpmw.nsi"
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "NSIS build failed."
+        Write-Error "NSIS build failed." -ErrorAction Continue
         exit 1
     }
 } finally {
@@ -165,7 +170,7 @@ Write-Host "Step 5: Finalizing..." -ForegroundColor Yellow
 $expectedName = "z80cpmw-$verShort-setup.exe"
 $builtInstaller = Join-Path $NsisDir $expectedName
 if (!(Test-Path $builtInstaller)) {
-    Write-Error "Expected $expectedName in $NsisDir but it is not there - NSIS did not produce the version it was given."
+    Write-Error "Expected $expectedName in $NsisDir but it is not there - NSIS did not produce the version it was given." -ErrorAction Continue
     exit 1
 }
 $destPath = Join-Path $OutputDir $expectedName

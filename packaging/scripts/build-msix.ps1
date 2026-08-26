@@ -23,6 +23,11 @@ param(
     [string]$PublisherSubject = "CN=Aaron Wohl, O=Aaron Wohl, L=Gainesville, S=fl, C=US"
 )
 
+# Stop makes every cmdlet failure terminating.  It also makes Write-Error
+# terminating, which would skip the "exit 1" that follows each one and leave the
+# exit code to the host, so every Write-Error here carries -ErrorAction Continue:
+# the message still goes to the error stream, and the exit 1 below it actually
+# runs.  Any new failure site should be written the same way.
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 $RootDir = Resolve-Path (Join-Path $ScriptDir "..\..")
@@ -37,28 +42,28 @@ $OutputDir = Join-Path $RootDir "dist"
 # Deliberately inline in both build scripts rather than dot-sourced: two short
 # call sites, and a shared file would add an untested import path.
 $versionHeader = Join-Path $RootDir "z80cpmw\Version.h"
-if (!(Test-Path $versionHeader)) { Write-Error "Version header not found: $versionHeader"; exit 1 }
+if (!(Test-Path $versionHeader)) { Write-Error "Version header not found: $versionHeader" -ErrorAction Continue; exit 1 }
 $verText = Get-Content $versionHeader -Raw
 $verNums = foreach ($field in 'VERSION_MAJOR','VERSION_MINOR','VERSION_PATCH','VERSION_BUILD') {
     if ($verText -notmatch "(?m)^\s*#define\s+$field\s+(\d+)\s*$") {
-        Write-Error "Could not parse $field from $versionHeader"; exit 1
+        Write-Error "Could not parse $field from $versionHeader" -ErrorAction Continue; exit 1
     }
     [int]$Matches[1]
 }
 $pkgVersion = $verNums -join '.'         # all four fields, for the manifest
 $verShort   = $verNums[0..2] -join '.'   # major.minor.patch, for file names
 if ($verNums[0] -lt 1) {
-    Write-Error "VERSION_MAJOR must be at least 1; the Store rejects a zero first field."; exit 1
+    Write-Error "VERSION_MAJOR must be at least 1; the Store rejects a zero first field." -ErrorAction Continue; exit 1
 }
 Write-Host "Version $pkgVersion (from z80cpmw\Version.h)" -ForegroundColor Green
 
 # Guard against packaging a stale binary: -SkipBuild over an old bin\Release
 # would otherwise label the package with a version the exe does not carry.
 function Assert-ExeVersion([string]$exePath, [string]$expected) {
-    if (!(Test-Path $exePath)) { Write-Error "Executable not found: $exePath"; exit 1 }
+    if (!(Test-Path $exePath)) { Write-Error "Executable not found: $exePath" -ErrorAction Continue; exit 1 }
     $actual = (Get-Item $exePath).VersionInfo.FileVersionRaw.ToString()
     if ($actual -ne $expected) {
-        Write-Error "Version mismatch: Version.h says $expected but $exePath is $actual. Rebuild (drop -SkipBuild)."
+        Write-Error "Version mismatch: Version.h says $expected but $exePath is $actual. Rebuild (drop -SkipBuild)." -ErrorAction Continue
         exit 1
     }
     Write-Host "Binary matches Version.h ($actual)" -ForegroundColor Green
@@ -81,14 +86,14 @@ if (!$SkipBuild) {
     $msbuildPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -requires Microsoft.Component.MSBuild -find MSBuild\**\Bin\MSBuild.exe | Select-Object -First 1
 
     if (!$msbuildPath) {
-        Write-Error "MSBuild not found. Install Visual Studio 18 with the C++ desktop workload (the project uses PlatformToolset v145)."
+        Write-Error "MSBuild not found. Install Visual Studio 18 with the C++ desktop workload (the project uses PlatformToolset v145)." -ErrorAction Continue
         exit 1
     }
 
     & $msbuildPath $slnPath /p:Configuration=$Configuration /p:Platform=x64 /t:Rebuild /m
 
     if ($LASTEXITCODE -ne 0) {
-        Write-Error "Build failed."
+        Write-Error "Build failed." -ErrorAction Continue
         exit 1
     }
 
@@ -136,7 +141,7 @@ $manifestText = Get-Content (Join-Path $MsixDir "AppxManifest.xml") -Raw
 
 $verPattern = '(<Identity\b[^>]*?\sVersion=")[^"]*(")'
 if (([regex]$verPattern).Matches($manifestText).Count -ne 1) {
-    Write-Error "Expected exactly one Identity/@Version in AppxManifest.xml"; exit 1
+    Write-Error "Expected exactly one Identity/@Version in AppxManifest.xml" -ErrorAction Continue; exit 1
 }
 Write-Host "Injecting version $pkgVersion into the staged manifest" -ForegroundColor Yellow
 $manifestText = $manifestText -replace $verPattern, "`${1}$pkgVersion`$2"
@@ -148,7 +153,7 @@ if ($Beta) {
     Write-Host "Beta build: setting manifest Publisher to '$PublisherSubject'" -ForegroundColor Yellow
     $pubPattern = '(<Identity\b[^>]*?\sPublisher=")[^"]*(")'
     if (([regex]$pubPattern).Matches($manifestText).Count -ne 1) {
-        Write-Error "Expected exactly one Identity/@Publisher in AppxManifest.xml"; exit 1
+        Write-Error "Expected exactly one Identity/@Publisher in AppxManifest.xml" -ErrorAction Continue; exit 1
     }
     $pubEsc = $PublisherSubject -replace '\$','$$$$'
     $manifestText = $manifestText -replace $pubPattern, "`${1}$pubEsc`$2"
@@ -159,7 +164,7 @@ if ($Beta) {
 # Read it back: a silently failed injection would otherwise ship 0.0.0.0.
 [xml]$check = Get-Content $stagedManifest -Raw
 if ($check.Package.Identity.Version -ne $pkgVersion) {
-    Write-Error "Manifest injection failed: staged version is '$($check.Package.Identity.Version)', expected '$pkgVersion'"
+    Write-Error "Manifest injection failed: staged version is '$($check.Package.Identity.Version)', expected '$pkgVersion'" -ErrorAction Continue
     exit 1
 }
 
@@ -172,7 +177,7 @@ $sdkPath = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\mak
            Select-Object -First 1
 
 if (!$sdkPath) {
-    Write-Error "Windows SDK not found. Please install Windows 10 SDK."
+    Write-Error "Windows SDK not found. Please install Windows 10 SDK." -ErrorAction Continue
     exit 1
 }
 
@@ -191,7 +196,7 @@ if (Test-Path $msixPath) {
 & $makeAppxPath pack /d $stagingDir /p $msixPath /o
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Package creation failed."
+    Write-Error "Package creation failed." -ErrorAction Continue
     exit 1
 }
 
@@ -204,14 +209,14 @@ if ($Beta) {
     $signPs1 = Join-Path $SigningKit "sign.ps1"
     if (!(Test-Path $signPs1)) {
         Remove-Item -Recurse -Force $stagingDir
-        Write-Error "Signing kit not found at '$SigningKit'. Set `$env:Z80CPMW_SIGNING_KIT or pass -SigningKit <dir> (the kit holds sign.ps1 + the Trusted Signing dlib + credentials). See docs/CODE_SIGNING.md."
+        Write-Error "Signing kit not found at '$SigningKit'. Set `$env:Z80CPMW_SIGNING_KIT or pass -SigningKit <dir> (the kit holds sign.ps1 + the Trusted Signing dlib + credentials). See docs/CODE_SIGNING.md." -ErrorAction Continue
         exit 1
     }
 
     & $signPs1 $msixPath
     if ($LASTEXITCODE -ne 0) {
         Remove-Item -Recurse -Force $stagingDir
-        Write-Error "Beta package signing failed."
+        Write-Error "Beta package signing failed." -ErrorAction Continue
         exit 1
     }
 
@@ -262,7 +267,7 @@ if ($Beta) {
         Copy-Item $pdbSource $pdbPath -Force
         Write-Host "Symbols kept: $pdbPath" -ForegroundColor Green
     } else {
-        Write-Error "No symbols at $pdbSource. The signed package at $msixPath is good, but its .pdb cannot be produced by rebuilding later. Rebuild this configuration and re-run."
+        Write-Error "No symbols at $pdbSource. The signed package at $msixPath is good, but its .pdb cannot be produced by rebuilding later. Rebuild this configuration and re-run." -ErrorAction Continue
         exit 1
     }
 }

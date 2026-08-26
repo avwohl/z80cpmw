@@ -28,6 +28,23 @@ The first pass on a Windows machine since the cross-port sweep that produced
 `todo.txt`. That sweep was done on a Mac, so everything it found here was found
 by reading; this is what compiling and running it turned up.
 
+A later pass on 2026-08-26 had no compiler at all — no MSVC, no wxWidgets, no
+Windows, no PowerShell. Everything it added is marked **NOT COMPILED** or **NOT
+EXECUTED** in its own entry and listed again at the top of `todo.txt`, because
+an unmarked entry written blind is exactly the false `DONE` this project has
+already had to correct once.
+
+That pass also wrote three changes into the Windows sources - a `display.bell`
+setting, a Reset confirmation, and keeping `applyConfig()`'s ROM notice across
+`startEmulator()`'s terminal clear - and they have been **reverted**. Review
+found the third one defective: `m_configNotice` is cleared only at the top of
+`applyConfig()`, whose sole callers are `loadSettings()` and the profile load,
+so a user who read "the saved ROM was not found", followed it, and picked a
+working ROM through `onSelectROM()` would have had the stale error reprinted at
+them. Writing blind into a tree with no compiler here produced a defect on the
+first attempt, and patching it blind would only have stacked a second
+unverifiable edit on the first. All three are open items in `todo.txt` again.
+
 ### Added
 - **`emu_host_path_caps()`, and with it the sync to the `romwbw_emu` v1.36
   core.** The core declares this function and deliberately does not define it,
@@ -83,6 +100,20 @@ by reading; this is what compiling and running it turned up.
   taken from the menu only when the user has bound that exact combination, which
   is the same rule F10 has always followed here. Nothing is bound to Alt by
   default, so the menu behaves exactly as before unless you ask otherwise.
+- **`tools/check-sibling-drift.sh`, which reports what `FEATURE_PARITY.md` is
+  behind.** That document is a reading of four repositories taken on one
+  afternoon, and three of them moved the same day; nothing said which parts had
+  rotted, so the file was only ever as current as the last person to read all
+  four trees. `FEATURE_PARITY.md` now carries a `sibling-readings` block naming
+  the commit each port column was actually read at, and this script compares
+  those with the checkouts beside this one, lists the commits that have landed
+  since, and exits non-zero if any has. It also fails a recorded commit that is
+  not an object in the tree it names — the `c26aeb7` failure caught
+  mechanically instead of by argument. **This one was run**, against the real
+  checkouts and against doctored input for each of its four outcomes; it needs
+  only `sh` and `git`. Its verdict today: `romwbw_emu`'s column has no recorded
+  commit at all and its drift cannot be measured, and both mobile columns are
+  one commit behind.
 - **The About box names the RomWBW release the core emulates.** A user who
   meets the "HBIOS/CBIOS Version Mismatch" banner is being told their disk
   images were built by a different release than this HBIOS emulates, and the
@@ -239,6 +270,25 @@ by reading; this is what compiling and running it turned up.
   all six in `hbios_dispatch.cc` are a `size_t` loop index promoting a `uint16_t`
   guest address, where truncating to sixteen bits is the 64K address wrap HBIOS
   wants. Thirty-six permanent warnings are how a real one comes to be ignored.
+- **All 24 `Write-Error` sites in the packaging scripts now reach their
+  `exit 1`. NOT EXECUTED.** Both scripts set `$ErrorActionPreference = "Stop"`,
+  which makes `Write-Error` *terminating*, so the `exit 1` written under every
+  one of them was dead code and the exit code was left to the host. The count
+  was re-derived rather than taken on the earlier note's word: 15 in
+  `build-msix.ps1`, 9 in `build-nsis.ps1`, and each one is followed by an
+  `exit 1` (the one other `exit 1`, at the NSIS-not-found branch, follows
+  `Write-Host` and was always reachable). Each site gained `-ErrorAction
+  Continue`, which overrides the preference variable for that call only, so the
+  message still goes to the error stream and the `exit 1` under it runs. The
+  visible behaviour is unchanged — loud, non-zero, no package claimed as good —
+  and what changes is that the exit code is now the script's own rather than
+  whatever the host makes of an unhandled terminating error. A comment beside
+  each `$ErrorActionPreference` line says so, so the next failure site is
+  written the same way. **Nothing here can run PowerShell**, not even `-WhatIf`
+  - there is no `pwsh` on the machine this was written on - so that `-ErrorAction`
+  overrides `$ErrorActionPreference` for the call it is on is documented
+  behaviour taken on trust, not behaviour anyone watched. It is the first thing
+  to check when one of these scripts next fails on purpose.
 - The repository's one test harness compiles again. `test_emu.cpp`,
   `compile_test.cmd` and `run_test.bat` all pointed at `z80cpmw/Core`, a
   directory deleted when the core moved out to the sibling checkouts, and
@@ -317,6 +367,19 @@ were still carrying the old text in their own paragraphs were swept on
   entry's word, it is what counting `CHECK_INT(` / `CHECK_STR(` / `CHECK_TRUE(`
   in `tests/test_vt52.cpp` gives (255, less the three macro definitions), which
   is the same number the suite reported when it was run.
+- **`FEATURE_PARITY.md` records which commit each column was read at**, in a
+  `sibling-readings` block that `tools/check-sibling-drift.sh` reads. The
+  `romwbw_emu` line says `unknown`, because the 2026-08-24 sweep never wrote
+  down what it read and it cannot be recovered — recording a plausible guess
+  there would be the same habit that produced the `c26aeb7` citations, so it
+  stays `unknown` until someone re-reads that column. The two `9b68ab1` cites
+  in the Android text were re-grepped at `c06fa58` and hold; the block still
+  names `9b68ab1`, since a re-grep of two claims is not a re-read of a column.
+- **The lesson from the three claims that outlived the Android rewrite is now
+  in `FEATURE_PARITY.md` rather than in `todo.txt`.** A sweep of a column is not
+  a sweep of the document: the three that survived were in *Suggested priority
+  order* and in a row bullet, neither of which is a row. Grep the whole file for
+  the port's name afterwards.
 - **The shipped `[1.0.14]` entry is corrected in place.** It claimed "R8 / W8
   host transfers now honor absolute paths", and that is where the same claim in
   `README.md` and in `HelpWindow.cpp` came from. `W8` took no host path until

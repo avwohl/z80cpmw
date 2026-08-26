@@ -97,6 +97,13 @@ this item measures.
 > citation is not a reading. Everything in that column now names something that
 > can be grepped for at `origin/master`, and the rows that are ⬜ say what is
 > absent rather than leaving the cell blank.
+>
+> **A sweep of a column is not a sweep of the document.** Three `c26aeb7`-era
+> claims outlived the Android rewrite because they were not in the column: two
+> in *Suggested priority order*, which is not a row, and one in a bullet of row
+> 4 rather than in that row's per-port paragraphs. Whoever sweeps a column next
+> should grep this whole file for the port's name afterwards — the priority list
+> and the row bullets are where an old reading hides.
 
 Port-status columns are best-effort — **verify against the port's current
 source** before acting (local checkouts may lag the ports' latest builds);
@@ -379,7 +386,8 @@ to find them on every platform.
   (b) used to say it was "done on Android (share sheet plus the paths shown
   in-app)"; that was the `c26aeb7` reading talking, and it is the last claim of
   that reading left in this row — there is no `ACTION_SEND`, no `FileProvider`,
-  no `res/xml` and no path display anywhere in `cpmdroid` at `9b68ab1`. The
+  no `res/xml` and no path display anywhere in `cpmdroid` at `9b68ab1`, and
+  still none at `c06fa58` (re-grepped 2026-08-26). The
   nearest thing either mobile port has to (b) is `W8` printing its own
   destination, which both do now. (a) needs a save-as for `W8` —
   `ACTION_CREATE_DOCUMENT` on Android, a document exporter on iOS — before
@@ -744,6 +752,34 @@ The **iOS/macOS column was re-read from `ioscpm` source on 2026-08-26**, at
 the ones that changed. Builds 51 and 52 both landed after the 2026-08-24 reading
 this replaces; see the note at the head of this file.
 
+**Which commit each column was read at, and what reports the drift.** A column
+is only as current as the last person who read that tree, and three of the four
+trees moved the same afternoon this document was written. The commits actually
+read are recorded below, and `tools/check-sibling-drift.sh` compares them with
+the checkouts beside this one, lists what has landed since, and exits non-zero
+if anything has - including a recorded commit that is not an object in the tree
+it names, which is the `c26aeb7` failure caught mechanically instead of by
+argument. Re-read what it reports, correct the column, then update this block.
+The `romwbw_emu` line says `unknown` because the commit that sweep read was
+never written down and cannot be recovered now; guessing at it is exactly the
+habit this document is trying to break, so it stays `unknown` until someone
+re-reads that column and records what they read.
+
+```sibling-readings
+ioscpm     49851aa  2026-08-26
+cpmdroid   9b68ab1  2026-08-25
+romwbw_emu unknown  2026-08-24
+```
+
+Checked on 2026-08-26 after both mobile trees moved again, without re-reading
+either column in full: `ioscpm` `6b1b731` changes no source at all (it is
+`CHANGELOG.md`, `KNOWN_PROBLEMS.md`, `docs/DISK_DISTRIBUTION.md`,
+`docs/notes_to_windos.md` and `todo.txt`), so build 52's reading still stands;
+`cpmdroid` `c06fa58` touches `emu_io_android.cpp` and `MainActivity.kt` to make
+a zero-byte `W8` export produce a file rather than silently nothing, which adds
+to row 4's Android paragraph and contradicts none of it. Neither is a re-read,
+so neither moves the recorded commits above.
+
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
 | 1. Configurable keymap (termcap) | ◐ (22 keys incl. F1–F12 since build 51; no modifier bindings, lower-camel names, WordStar default, no on-screen key row) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12 and full Ctrl window) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
@@ -789,9 +825,10 @@ gap together.
    is no worked example in the family to copy.** This list used to point at
    Android's `buildKeyRow` in `MainActivity.kt` backed by
    `TerminalView.sendNamedKey`; neither symbol exists in `cpmdroid` at
-   `9b68ab1`. Its `setupControlStrip` is Ctrl, Esc, Tab, Copy and Paste, and
-   nothing else. That pair was the last of the `c26aeb7` reading left in this
-   list: `944cf9f` rewrote the Android *column*, and this list is not a column.
+   `9b68ab1`, nor at `c06fa58` (re-grepped 2026-08-26). Its `setupControlStrip`
+   is Ctrl, Esc, Tab, Copy and Paste, and nothing else. That pair was the last
+   of the `c26aeb7` reading left in this list: `944cf9f` rewrote the Android
+   *column*, and this list is not a column.
 3. **Scrollback (#2)** — small, self-contained, high user value; spec in
    `TerminalView.cpp`. Done on iOS/macOS and Android.
 4. **Arbitrary-path R8/W8 (#4)** within the platform's file model. On iOS/macOS
