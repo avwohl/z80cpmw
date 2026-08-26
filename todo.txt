@@ -50,9 +50,17 @@ carry the new w8.com; see the disk-image section below.
 
 - keystroke delivery to CP/M, mouse copy/paste rendering and the first-run Help
 auto-open visuals have never been watched by a person.  Nothing here can
-automate them.  The terminal parser is covered - tests\run_tests.bat, 205
-checks - but that stops at the byte stream; it says nothing about whether a
-keypress becomes a byte or a cell becomes a pixel.
+automate them.  The terminal parser is covered - tests\run_tests.bat, 252
+checks in the terminal suite and 354 across all three - but that stops at the
+byte stream; it says nothing about whether a keypress becomes a byte or a cell
+becomes a pixel.  (Said 205 until 2026-08-26; that was the [1.0.20] number.  252
+is not taken on the CHANGELOG's word: counting CHECK_INT( / CHECK_STR( /
+CHECK_TRUE( in tests\test_vt52.cpp gives 255, less the three that are the macro
+definitions themselves, and that agrees exactly with the 252 the suite reported
+when it was run on Windows.  The 354 is only the recorded run total - the
+host-file suites run some of their check() calls from inside loops and helpers,
+so counting call sites gives 55 and 33, not the 66 and 36 that were reported.
+Those two numbers cannot be re-derived from this machine.)
 
 
 The disk images are behind the core
@@ -102,13 +110,13 @@ is wbw_hd1k, and the wrong one lists garbage rather than failing.
 Terminal residue - the other half of row 13
 --------------------------------------------
 
-- there is no per-cell attribute beyond the packed CGA byte.  TerminalCell
-(TerminalView.h:20) carries the character, an unpacked foreground and an
-unpacked background and nothing else, and the paint path selects a single
-m_font, so the gap is a flags byte for bold / underline / blink / reverse plus
-the multi-HFONT paint path to render them.  Roughly a day, and it splits cleanly
-into a parser commit and a rendering commit.  The conformance suite is in the
-repository now, so a regression in any of it would be caught.
+- there is no per-cell attribute beyond the packed CGA byte.  struct
+TerminalCell in TerminalView.h carries the character, an unpacked foreground
+and an unpacked background and nothing else, and the paint path selects a
+single m_font, so the gap is a flags byte for bold / underline / blink /
+reverse plus the multi-HFONT paint path to render them.  Roughly a day, and it
+splits cleanly into a parser commit and a rendering commit.  The conformance
+suite is in the repository now, so a regression in any of it would be caught.
 
 
 Features the sibling ports have and this one does not
@@ -149,47 +157,77 @@ Documentation the cross-port sweep got wrong
 ---------------------------------------------
 
 The sweep and the upstream commits it describes landed the same afternoon, so
-several rows went stale within hours of being written.  For each row below the
-header summary and the row's cell in the per-port snapshot table were corrected;
-what is still wrong is the row's own paragraph, which is what a reader reaches
-without passing the summary first.
+several rows went stale within hours of being written.  The stale row paragraphs
+are corrected now (2026-08-26); what is left here is what corrections cannot
+reach.
 
-- the Android column is settled and rewritten (2026-08-25), so what is left
-here is smaller and different.  cpmdroid was checked out on this machine for the
-first time; c26aeb7 is not a valid object in it, the branch never surfaced, and
-five rows were overstated - 1, 4, 6, 11 and 13, three of them ✅ where the code
-is absent.  the column now cites only symbols that grep at origin/master.  what
-is NOT done: nothing reports the drift, and this document is only ever as
-current as the last person to read both trees.  the iOS/macOS column is dated at
-ioscpm build 50/51 and ioscpm is not checked out here, so it is the one column
-still standing on a reading nobody can repeat from this machine - and section 1
-of romwbw_emu/docs/DOWNSTREAM_2026-08-25.md says that port shipped a build 52
-with a data-destruction fix, which the column does not mention.
+CITE A SYMBOL, NOT A LINE NUMBER.  This section carried eight distinct file:line
+cites.  Six of them pointed into FEATURE_PARITY.md - not at a sibling repo, at a
+file in this one - and five of those six were invalidated before anyone acted on
+them, by this repo's own next two commits, inside the same day.  They were
+written in db5392b at 03:59 on 2026-08-25; 2f10d4c broke :439, :579 and :606 at
+14:33, and 944cf9f broke :32 and :53 thirty-five minutes after that.  At HEAD
+they read :32 to :37, :53 to :58, :439 to :449, :579 to :604, :606 to :633.
+  The other three had not drifted at all: FEATURE_PARITY.md:261 still lands on
+the paragraph it named, and README.md:98-102 and HelpWindow.cpp:57 on the W8
+claim and the "Give a full path (recommended)" line.  Nor had the three cites
+outside this section pointing at this repo's own source - TerminalView.h:20,
+TerminalView.cpp:602-607 and :616 - which were rewritten for consistency, not
+because they had rotted.  That split is the argument rather than an exception to
+it: five of eight went stale inside twelve hours of being written, and nothing on
+the page said which five, so a line number looks like evidence while carrying
+none.
+  FEATURE_PARITY.md and this file now cite a function name, a symbol or a
+greppable string instead - eleven cite lines rewritten there, four rewritten here
+and one retired with the paragraph it sat in.  grep -nE
+'\.(md|cpp|h|kt|swift|cc|txt|html-template):[0-9]+' returned 11 lines in
+FEATURE_PARITY.md and 5 here at 944cf9f; it returns nothing in FEATURE_PARITY.md
+now, and in this file only the four lines just above, which are the record of
+which cites rotted rather than a cite anyone should follow.  Anything added here
+should do the same.
 
-- item 4's romwbw_emu CLI paragraph (FEATURE_PARITY.md:261) still says W8 "takes
-no path at all" and writes into the emulator's CWD; 98eb6a1 gave it
-W8 <cpmname> [hostpath].  The file now contradicts itself - :53 says the row is
-good again, :261 says "R8 yes, W8 no".
+- the Android column was settled and rewritten from source (2026-08-25) and the
+iOS/macOS column has now been re-read from source too (2026-08-26).  Both mobile
+sibling trees are checked out on this machine: cpmdroid, and ioscpm at
+/home/wohl/src/ioscpm, build 52 (49851aa).  The claim here that ioscpm was not
+checked out was wrong when it was written; it is corrected, and the column no
+longer stands on a reading nobody can repeat.  c26aeb7 is still not a valid
+object in cpmdroid and that branch never surfaced.  What is NOT done: nothing
+reports the drift, and this document is only ever as current as the last person
+to read all four trees.
 
-- item 13's romwbw_emu web paragraph (:579) still says the output filter starves
-xterm.js - only CR, LF, BS, ESC and 0x20-0x7E survive, BS rewritten as a
-destructive backspace - and item 10's Dazzler paragraph (:439) still says
-Module.onError is "emitted and implemented nowhere".  2dbf6f2 fixed both.  The
-rest of that Dazzler paragraph stands: the dead onVideo*/onDsky* against
-onVda*/onSnd* wiring was deliberately left alone in the same commit.
+- a sweep of a column is not a sweep of the document.  Three c26aeb7-era claims
+outlived 944cf9f's Android rewrite: two in the "Suggested priority order" list,
+which is not a row, and one in a bullet of row 4 rather than in that row's
+per-port paragraphs.  All three are corrected now.  Priority #2 named buildKeyRow
+in MainActivity.kt and TerminalView.sendNamedKey as "the worked example" for an
+on-screen key row, and neither symbol exists in cpmdroid at 9b68ab1
+(setupControlStrip is Ctrl, Esc, Tab, Copy, Paste and nothing else).  Priority #4
+said arbitrary-path R8/W8 was "now only the export half", which reads as Android
+already having an import picker; it has neither half.  And row 4's parity-targets
+bullet said findability was "done on Android (share sheet plus the paths shown
+in-app)" when that tree has no ACTION_SEND, no FileProvider, no res/xml and no
+path display at all.  Whoever sweeps a column next should grep the whole file for
+the port's name afterwards - the priority list and the row bullets are where the
+old reading hides.
 
-- the iOS/macOS column is dated at ioscpm build 50 (:32, :606) and build 51
-(4deea96) landed the same day, closing three of its own rows: row 1 ("10 keys,
-no F1-F12" - SpecialKey is 22 cases now, on this port's byte table), row 6
-("fallback no" - the index and all seven topics ship inside the app, behind the
-download and the cache) and row 13 ("missing only P @ X S T", plus DECAWM and
-DECTCEM parsed but not acted on - all five finals added and both modes acted
-on).
+- a live cross-port disagreement that is a decision, not a bug, and nobody
+should settle it alone.  This port now paints the CURRENT SGR background on
+every erase - ED, EL, ECH, IL, DL, ICH, DCH and the scroll paths - which is
+what a strict VT does and what a program setting a colour and clearing expects.
+ioscpm blanks with a DEFAULT cell everywhere, including the @ P X S T finals
+build 51 added, and files changing it as a decision for the whole family at
+once, on the grounds that doing it to half would be worse than being
+consistently wrong.  cpmdroid has none of those finals to disagree with.  So
+the two ports now render the same guest byte stream differently, and one of
+them has to move.  FEATURE_PARITY.md item 13 names it as the only difference
+left in that row.
 
-- the W8-takes-a-host-path claim survives in two more places.  README.md:98-102,
-which still carries the claim and the W8 C:\Users\me\Desktop\out.com example
-verbatim, and is the most prominent of them.  And HelpWindow.cpp:57, which lists
-R8 and W8 together and then says "Give a full path (recommended)", so it reads as
+- the W8-takes-a-host-path claim survives in two more places.  README.md's
+"File Transfer (R8 / W8)" section, which still carries the claim and the
+W8 C:\Users\me\Desktop\out.com example verbatim, and is the most prominent of
+them.  And HelpWindow.cpp's "File Transfer (R8 / W8)" topic, which lists R8 and
+W8 together and then says "Give a full path (recommended)", so it reads as
 endorsing both at runtime.  Both come right when the images are refreshed - and
 FILE_TRANSFER.md's W8 section (the "does not take one yet" paragraphs and the
 step 0/1 caveats in the checklist) has to be reverted then, along with the
@@ -197,6 +235,17 @@ sentence in the checklist that says W8 prints the name you gave.  The third
 place, FILE_TRANSFER.md's own checklist, is corrected: it now says which W8 you
 have to have before a full path means anything, and it gained a step 0 for
 reading what W8 printed, since the refreshed W8 reports the real destination.
+  The fourth place - the one those three were copied from - is corrected as of
+2026-08-26.  CHANGELOG.md's shipped [1.0.14] entry claimed "R8 / W8 host
+transfers now honor absolute paths"; W8 took no host path until romwbw_emu
+98eb6a1 on 2026-08-24, two and a half months later.  89a4f28 changed the
+backend (isAbsolutePath / resolveHostPath), which only R8 ever reached.  The
+entry carries a dated correction in place rather than being edited, and the
+correction also records that the same line's second half - "the resolved data
+folder is shown in About, Settings, and the boot banner" - was true of Settings
+alone at 1.0.14; About showed the un-redirected path and the banner printed a
+literal %LOCALAPPDATA%\Packages\<package>\... template until 1f44e20 shipped in
+1.0.15.
 
 
 Small things a review of the sync round raised and did not take
@@ -218,19 +267,45 @@ guard above the clear does not fire.  Pre-existing, and only visible when a ROM
 has already failed to load.
 
 - the four scrollback combinations (Shift+PageUp/PageDown, Ctrl+Home/End) are
-intercepted at TerminalView.cpp:602-607, before the key-map lookup at :616, so a
-config that binds them is silently ignored rather than refused.
-docs/CONFIGURATION.md now says which four they are; making KeyMap::build reject
-them would be better still.
+intercepted at the top of TerminalView::handleKeyDown, before the
+m_keymap.find() lookup a few lines below, so a config that binds them is
+silently ignored rather than refused.  docs/CONFIGURATION.md now says which
+four they are; making KeyMap::build reject them would be better still.
+
+- the exit 1 after the new Write-Error in build-msix.ps1's symbol-keeping step
+is unreachable: $ErrorActionPreference is Stop at the top of that script, which
+makes Write-Error terminating.  So are the other 23 - both packaging scripts set
+Stop, and every one of their 24 Write-Error sites is followed by an exit 1 that
+cannot run.  The intended behaviour, loud and non-zero with no package claimed
+as good, is what happens either way, so the new site was written to match the
+23 rather than made the lone exception.  Worth doing properly for all 24 at once
+if anything ever comes to depend on the exit code itself.
 
 
 Loose ends
 -----------
 
-- there is no .pdb for the shipped 1.0.22 build, on any channel.  The symbols
-are gone - a rebuild against wxWidgets 3.3.3 is a different binary - but
-build-msix.ps1's -Beta branch should copy one out from now on.  It mentions no
-.pdb anywhere, and dist\ holds z80cpmw-1.0.21-beta.pdb and nothing for 1.0.22.
+- there is still no .pdb for the shipped 1.0.22 build, on any channel, and
+there never will be: the symbols are gone, and a rebuild - against wxWidgets
+3.3.3, or against anything else vcpkg has moved on to - is a different binary
+with different symbols.  A crash report from 1.0.22 cannot be resolved.  Nothing
+can be done about that half.
+  The other half is done and UNVERIFIED.  build-msix.ps1's -Beta branch now
+copies bin\<Configuration>\z80cpmw.pdb out to dist\z80cpmw-<ver>-beta.pdb after
+the package is signed, and errors out if it is not there, so a future beta
+cannot ship symbol-less in silence the way 1.0.22 did.  It was written on a
+machine with no PowerShell, no MSVC and no Windows, so it HAS NOT BEEN RUN -
+not once, not even -WhatIf.  First person on a Windows machine: run
+build-msix.ps1 -Beta and confirm the .pdb lands in dist\ next to the .msix.
+Until then treat the item as open.
+  Not addressed: build-nsis.ps1 mentions no .pdb either, and the default
+(Store) branch of build-msix.ps1 still keeps none.  Note what that does and
+does not cover.  -Beta rewrites only the staged manifest, so the exe it
+packages is whatever is in bin\<Configuration> - the same exe the Store branch
+packages from the same build.  When both channels come off one build, as 1.0.22
+did, the kept .pdb matches the Store binary too.  When they do not, the Store
+package has no symbols kept anywhere.  Whether that is good enough is a call
+for whoever cuts the next Store release.
 
 - the v1.0.22-beta GitHub release is flagged Latest rather than prerelease,
 unlike 1.0.16 / 1.0.17 / 1.0.21.  A judgement call, not a defect: if the -beta

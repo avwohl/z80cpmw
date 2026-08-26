@@ -251,12 +251,26 @@ by reading; this is what compiling and running it turned up.
 - Removed `emu_disk_create()` and `emu_disk_create_memory()`, defined here,
   declared in no header and called from nowhere. Nothing in this port creates a
   disk image.
+- **`build-msix.ps1 -Beta` keeps the build's symbols.** There is no `.pdb` for
+  the shipped 1.0.22 on either channel, and there cannot be one: a rebuild is a
+  different binary, so a crash report from that build can never be resolved. The
+  `-Beta` branch now copies `bin\<Configuration>\z80cpmw.pdb` out to
+  `dist\z80cpmw-<ver>-beta.pdb` after the package is signed, and *fails* if it is
+  not there rather than warning, because silence is exactly how the 1.0.22
+  symbols were lost. **This has not been run.** It was written on a machine with
+  no PowerShell, no MSVC and no Windows; nothing here can execute it, not even
+  `-WhatIf`. `todo.txt` keeps the item open until someone runs
+  `build-msix.ps1 -Beta` on a Windows machine and sees the `.pdb` land in
+  `dist\`. The default (Store) branch and `build-nsis.ps1` still keep no
+  symbols, which matters only when the two channels do not come off one build
+  the way 1.0.22 did.
 
 ### Documentation
 The cross-port sweep that produced `FEATURE_PARITY.md` was committed the same
 afternoon as several of the upstream commits it describes, so parts of it were
-stale within the hour. These are the corrections that have landed; the rows
-still carrying the old text are listed in `todo.txt`.
+stale within the hour. These are the corrections that have landed. The rows that
+were still carrying the old text in their own paragraphs were swept on
+2026-08-26; `todo.txt` no longer lists any.
 - **Row 12 no longer says the web frontend forgets *Don't warn*.** `romwbw_emu`
   `108856c` moved the suppression call outside the `diskData` guard in
   `reloadDisks()`, so the checkbox survives a mid-session disk reload. This row
@@ -265,7 +279,8 @@ still carrying the old text are listed in `todo.txt`.
   the per-port snapshot table: `98eb6a1` gave the `romwbw_emu` CLI
   `W8 <cpmname> [hostpath]`, and `2dbf6f2` opened `Module.onConsoleOutput` to
   every byte and implemented `Module.onError`. Each row's own paragraph still
-  describes the old behaviour and is tracked in `todo.txt`.
+  described the old behaviour at that point; both were rewritten on 2026-08-26,
+  below.
 - **The Android column is rewritten from source, and the `c26aeb7` dispute is
   settled.** `cpmdroid` was checked out on this machine for the first time, so
   the column could finally be read against the repository rather than against a
@@ -298,7 +313,24 @@ still carrying the old text are listed in `todo.txt`.
   the effective-destination reporting and the two suites that cover them. The
   row's own status is unchanged - none of it is user-visible until the images
   are refreshed. The terminal suite's check count is corrected there and in this
-  file: it is 252, not the 205 both claimed.
+  file: it is 252, not the 205 both claimed - and 252 is not taken on the earlier
+  entry's word, it is what counting `CHECK_INT(` / `CHECK_STR(` / `CHECK_TRUE(`
+  in `tests/test_vt52.cpp` gives (255, less the three macro definitions), which
+  is the same number the suite reported when it was run.
+- **The shipped `[1.0.14]` entry is corrected in place.** It claimed "R8 / W8
+  host transfers now honor absolute paths", and that is where the same claim in
+  `README.md` and in `HelpWindow.cpp` came from. `W8` took no host path until
+  `romwbw_emu` `98eb6a1` on 2026-08-24, two and a half months after that
+  release; `89a4f28` changed the *backend*, which only `R8` ever reached. The
+  entry keeps a dated correction beside it rather than being edited away - the
+  same treatment `cpmemu` `b821ec0` gave its own bad `DONE` claims - and the
+  correction also records that the line's second half was early rather than
+  invented: at 1.0.14 only **Settings** showed the resolved data folder, while
+  About still showed the un-redirected `%LocalAppData%\z80cpmw` and the boot
+  banner printed a literal `%LOCALAPPDATA%\Packages\<package>\...` template.
+  `1f44e20` put the real path in both and shipped in `[1.0.15]`, whose own entry
+  records only the About half. `README.md` and `HelpWindow.cpp` are deliberately
+  left alone; they come right when the disk images are refreshed.
 - **`docs/FILE_TRANSFER.md` no longer promises a `W8` that takes a host path.**
   Its headline example, `W8 C:\Users\me\Desktop\out.com`, described the `w8.com`
   `98eb6a1` introduced, not the one inside the disk images this app ships —
@@ -306,6 +338,85 @@ still carrying the old text are listed in `todo.txt`.
   type. The quick-reference table and the Windows section now say so, and say
   what to do until the images are refreshed. The same claim survives elsewhere
   in `README.md` and the in-app help; `todo.txt` lists where.
+- **Row 4's `romwbw_emu` CLI paragraph is rewritten.** It still said `W8` "takes
+  no path at all" and wrote into the emulator's CWD, a hundred lines below a
+  summary saying the row was good again, so the file contradicted itself for
+  whoever reached the row without reading the header. Checked against
+  `romwbw_emu` `src/w8.asm` and `src/emu_io_cli.cc`: `W8 <cpmname> [hostpath]`,
+  the whole rest of the line taken as the path so a directory may contain
+  spaces, `resolve_write_path` resolving the parent case-insensitively and
+  lowercasing the leaf, `emu_host_file_get_write_name()` answering with the
+  absolute path that was opened, and the `0xE9` capability guard that makes it
+  refuse a path to a backend that will not promise it is safe. The CLI's own
+  `--help` describes all of it now, where it used to say "Export CP/M file to
+  emulator CWD".
+- **Row 13's web paragraph and row 10's `Module.onError` sentence are
+  corrected.** `2dbf6f2` fixed both and the sweep predated it by hours. The web
+  output filter no longer starves xterm.js - every byte reaches `term.write()`,
+  with LF the one exception, written as CR LF - and `Module.onError` is
+  implemented, to the status line and to `console.error`. The rest of the
+  Dazzler paragraph stands and is deliberately kept: the C++ side still emits
+  `Module.onVideo*` / `Module.onDsky*` while the page implements `Module.onVda*`
+  / `Module.onSnd*`, zero overlap, and that same commit looked at the dead
+  wiring and left it. Worth keeping the connection the fix makes explicit: the
+  channel that would have complained about the dead wiring was itself unplugged.
+- **The iOS/macOS column is re-read from source, at build 52.** It was dated at
+  build 50, and build 51 (`4deea96`) landed the same day; `ioscpm` is checked out
+  on this machine, which `todo.txt` denied, so the column no longer stands on a
+  reading nobody here can repeat. Build 51 closed the three complaints this
+  document had left against that port, and each row now says so rather than only
+  the header: **1** (`SpecialKey` is twenty-two cases carrying this repo's own
+  VT220 bytes, not ten with no F-keys - the row stays ◐ for the modifier
+  bindings, the key names and the absent on-screen key row, not for its size),
+  **6** (the index and all seven topics ship in the app, behind the download and
+  the cache, referenced in place from `release_assets/` so there is no second
+  copy to drift), and **13** (`@ P X S T` all implemented, DECAWM and DECTCEM
+  acted on rather than parsed and dropped). Build 52 (`bb5543f`) is recorded
+  under row 4 because it is this family's own hazard: `98eb6a1` gave `W8` a host
+  path, that port stored it unsanitised, and `W8 ANYFILE.TXT ..` deleted the
+  user's whole `Documents` folder - every downloaded disk image - while
+  reporting success to the guest. That is what the release order in
+  `romwbw_emu` `docs/RELEASE_ORDER_2026-08-25.md` exists to sequence around.
+- **Three `c26aeb7`-era claims survived the Android column rewrite.** `944cf9f`
+  swept the rows; two of these sat in the "Suggested priority order" list, which
+  is not a row, and the third in a bullet of row 4 rather than in that row's
+  per-port paragraphs. Priority #2 named `buildKeyRow` in `MainActivity.kt` and
+  `TerminalView.sendNamedKey` as "the worked example" for an on-screen key row -
+  neither symbol is in `cpmdroid` at `9b68ab1`, whose `setupControlStrip` is
+  Ctrl, Esc, Tab, Copy and Paste. Priority #4 said arbitrary-path R8/W8 was "now
+  only the export half", which reads as Android already having an import picker;
+  it has neither half - no picker, no `ACTION_CREATE_DOCUMENT`, no path shown
+  anywhere. And row 4's parity-targets bullet said findability was "done on
+  Android (share sheet plus the paths shown in-app)" when that tree has no
+  `ACTION_SEND`, no `FileProvider`, no `res/xml` and no path display at all. All
+  three corrected; `todo.txt` records the lesson, which is that sweeping a column
+  is not sweeping the document.
+- **`todo.txt` and `FEATURE_PARITY.md` cite symbols instead of line numbers now,
+  and say why.** The cross-port sweep section of `todo.txt` carried eight
+  distinct `file:line` cites. Six pointed into `FEATURE_PARITY.md` - this repo's
+  own file, not a sibling's - and five of those six were invalidated before
+  anyone acted on them, by this repo's own next two commits, inside the same day.
+  They were written in `db5392b` at 03:59 on 2026-08-25; `2f10d4c` broke `:439`,
+  `:579` and `:606` at 14:33, and `944cf9f` broke `:32` and `:53` thirty-five
+  minutes after that. At HEAD they read `:32` to `:37`, `:53` to `:58`, `:439` to
+  `:449`, `:579` to `:604`, `:606` to `:633`. The other three had not drifted at
+  all: `FEATURE_PARITY.md:261` still lands on the paragraph it named, and
+  `README.md:98-102` and `HelpWindow.cpp:57` on the `W8` claim and the "Give a
+  full path (recommended)" line. Nor had the three cites elsewhere in `todo.txt`
+  pointing at this repo's own source - `TerminalView.h:20`,
+  `TerminalView.cpp:602-607` and `:616` - which were rewritten for consistency,
+  not because they had rotted. That split is the argument rather than an
+  exception to it: five of eight went stale inside twelve hours of being written
+  and nothing on the page said which five, so a line number reads as evidence
+  while carrying none.
+  Eleven cite lines in `FEATURE_PARITY.md` and four in `todo.txt` are now a
+  function name, a symbol or a greppable string, and the fifth was retired with
+  the paragraph it sat in.
+  `grep -nE '\.(md|cpp|h|kt|swift|cc|txt|html-template):[0-9]+'` returned 11
+  lines in `FEATURE_PARITY.md` and 5 in `todo.txt` at `944cf9f`; it now returns
+  nothing in `FEATURE_PARITY.md`, and in `todo.txt` only the four lines of that
+  paragraph itself, which record which cites rotted rather than ask anyone to
+  follow one.
 
 ### Verified
 - **The tree builds against the v1.36 core.** Both configurations, against
@@ -597,6 +708,34 @@ Microsoft Store release.
 - Help-window font scaling on high-DPI displays.
 - R8 / W8 host transfers now honor absolute paths; the resolved data folder is
   shown in About, Settings, and the boot banner.
+
+**Correction, 2026-08-26.** The second line above is wrong in both halves. It is
+left standing rather than quietly edited away, because it is what this release
+was announced as and because it is where the same claim in `README.md` and the
+in-app help came from.
+
+`89a4f28` changed the *host-side backend*: `isAbsolutePath` / `resolveHostPath`
+in `emu_io_windows.cpp` stopped prepending the data folder to a path that was
+already rooted. That part is real, and it is what made
+`R8 C:\Users\me\Desktop\getkey2.com` work. It says nothing about `W8`, because
+no `W8` ever handed it a path: `w8.asm` read the default FCB and nothing else,
+and its usage line was `Usage: W8 <cpmname>`. `W8` did not take a host path
+until `romwbw_emu` `98eb6a1` on **2026-08-24**, two and a half months after this
+release - and the disk images this app bundles still carry the older utility, so
+it is not true today either. The line should have read "R8 host transfers now
+honor absolute paths".
+
+The second half is early rather than invented. This release added
+`emu_io_get_data_folder_display()` and showed the resolved folder in **Settings**
+alone. **About** still showed the un-redirected `%LocalAppData%\z80cpmw`, and the
+boot banner printed the literal template
+`%LOCALAPPDATA%\Packages\<package>\LocalCache\Local\z80cpmw\data` rather than
+anything resolved. `1f44e20` put the real path in both, and shipped in
+**[1.0.15]** - whose own entry records only the About half of that.
+
+`README.md` and `HelpWindow.cpp` still carry the `W8`-takes-a-path claim.
+`todo.txt` lists where; both come right when the disk images are refreshed, and
+neither is edited here.
 
 ## [1.0.13] - 2026-06-07
 

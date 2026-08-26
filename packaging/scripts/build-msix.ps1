@@ -247,6 +247,26 @@ elseif (!$SkipSign -and $CertificatePath) {
 # Cleanup
 Remove-Item -Recurse -Force $stagingDir
 
+# Step 6: Keep the beta build's symbols.
+# The Store package is re-signed and served by Microsoft, but the sideload beta
+# is the binary testers actually run, and a crash dump from it is unreadable
+# without the .pdb built alongside that exact exe. It cannot be recovered later:
+# a rebuild - against a different vcpkg wxWidgets, say - is a different binary
+# with a different debug GUID, so its symbols will not load against the one
+# that shipped. 1.0.22 shipped with no .pdb on either channel for
+# exactly that reason. Named to match the package so the pair stays obvious.
+if ($Beta) {
+    $pdbSource = Join-Path $BinDir "z80cpmw.pdb"
+    $pdbPath = Join-Path $OutputDir "z80cpmw-$verShort-beta.pdb"
+    if (Test-Path $pdbSource) {
+        Copy-Item $pdbSource $pdbPath -Force
+        Write-Host "Symbols kept: $pdbPath" -ForegroundColor Green
+    } else {
+        Write-Error "No symbols at $pdbSource. The signed package at $msixPath is good, but its .pdb cannot be produced by rebuilding later. Rebuild this configuration and re-run."
+        exit 1
+    }
+}
+
 Write-Host ""
 Write-Host "Package build complete!" -ForegroundColor Cyan
 Write-Host "Output: $msixPath" -ForegroundColor Green

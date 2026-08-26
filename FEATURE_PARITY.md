@@ -33,17 +33,36 @@ absorbed the v1.36 core and closed four gaps this document names — F1–F12,
 the Ctrl window, terminal scrollback as a setting, and TAB. Those are marked
 where they land.
 
-**The iOS/macOS column was re-verified from `ioscpm` source on 2026-08-24**, at
-build 50 — every one of the thirteen rows, not only the ones that moved. Five
-were wrong and are corrected here: item 5 said the disk catalog was unpinned
-when it has been pinned to `v1.4.5` since build 42; item 6 claimed the help
-system outright when the offline fallback that item exists for is absent; and
-items 8, 9 and 12 were unverified `❓` when window state is missing and font
-size and the manifest warning are both present. Item 13 gained the parser
-bounds build 49 added. The rows that did **not** move — 1, 2, 3, 4, 7, 10, 11 —
-were re-checked against source and are unchanged, so item 4's `ioscpm`
-paragraph, written on **2026-07-23**, still holds: `R8`/`W8` use the
-`Imports`/`Exports` folders with no picker.
+**The iOS/macOS column was re-read from `ioscpm` source on 2026-08-26**, at
+**build 52** (`49851aa`), and for the first time from a checkout on this machine
+rather than at a distance. It supersedes the 2026-08-24 reading at build 50,
+which was right when it was written and went stale within the day: build 51
+(`4deea96`) landed that afternoon and build 52 (`bb5543f`) the next morning.
+
+What the 2026-08-24 pass corrected stands. Item 5 said the disk catalog was
+unpinned when it has been pinned to `v1.4.5` since build 42; item 6 claimed the
+help system outright when the offline fallback that item exists for was absent;
+items 8, 9 and 12 were unverified `❓` when window state is missing and font size
+and the manifest warning are both present; item 13 gained the parser bounds
+build 49 added.
+
+**Build 51 closed the three complaints this document still had against that
+port**, and each is corrected in the row below rather than only here. Item 1's
+"ten keys, no F1–F12" is gone: `SpecialKey` in `iOSCPM/Views/KeyMap.swift` is
+twenty-two cases and carries this repo's own VT220 byte table. Item 6's missing
+offline fallback is gone: the index and all seven topics ship inside the app,
+behind the download and the cache. Item 13's "missing only `P @ X S T`" is gone,
+and DECAWM and DECTCEM are acted on rather than merely parsed.
+
+**Build 52 is not a parity change**, and is the reason this column is worth
+re-reading rather than re-dating: `W8 ANYFILE.TXT ..` destroyed the whole
+`Documents` folder — `Disks`, `Imports` and `Exports`, so every disk image the
+user had downloaded — and reported success to the guest. `R8` had the matching
+bug on the read side, falling back to the *first file in the folder* when the
+requested name missed. Both are fixed, in three overlapping layers; see item 4.
+This is why refreshing the shared disk images is sequenced behind the port
+fixes — `romwbw_emu` `docs/RELEASE_ORDER_2026-08-25.md`, of which that build is
+step 1.
 
 **The Linux/Web `romwbw_emu` column was swept from source on 2026-08-24** as
 well — all thirteen rows, CLI and web frontend separately. It was the last
@@ -166,17 +185,30 @@ written as termcap-style escape strings.
     still no `f1ToCpm`/`f5ToCpm`/`ctrlRToCpm` equivalent and none is needed —
     F1/F5 are not app shortcuts on Android, and Reset has no Ctrl+R accelerator
     to compete with `^R`, which `setupToolbar` now carries a comment to protect.
-  - **ioscpm (iOS/macOS)** — ◐. `iOSCPM/Views/TerminalView.swift` has the same
-    termcap escape schema (`KeyMap.expand`; it has no explicit `\^` case but its
-    default arm emits the same literal `^`, so every documented escape decodes to
-    the same bytes) and a per-key editor. What differs is the *shape* of the map:
-    the key set is **ten keys** (arrows, Home/End, PageUp/PageDown,
-    Insert/Delete) with **no F1–F12**; the names are lower-camel raw values
-    (`up`, `pageUp`) rather than `Up`/`PageUp`; and it is organised as named
-    profiles (`WordStar`, `VT100/ANSI`, `VT52`, `Custom`) whose default is the
-    **WordStar diamond** (`^E`/`^X`/`^S`/`^D`), not the VT220 table — and even
-    its `VT100/ANSI` profile binds Delete to `\E[3~` where z80cpmw and cpmdroid
-    send `^?`. Individual values copy across; a whole map does not.
+  - **ioscpm (iOS/macOS)** *(2026-08-26, build 52)* — ◐, and closer than it was.
+    The map moved out to `iOSCPM/Views/KeyMap.swift` in build 51 and it has the
+    same termcap escape schema (`KeyMap.expand`; it has no explicit `\^` case but
+    its default arm emits the same literal `^`, so every documented escape
+    decodes to the same bytes) and a per-key editor. **Build 51 closed the
+    F1–F12 gap**: `SpecialKey` is twenty-two cases now, not ten, and its F-key
+    bytes are this repo's — `\EOP`..`\EOS` then `\E[15~`, `\E[17~` and up,
+    skipping 16 and 22 the way a real VT220 does. Its own tests assert them
+    against this table rather than against "something reasonable", which is the
+    check that keeps the two maps portable. The `VT52` profile deliberately
+    differs: PF1–PF4 as `\EP`..`\ES` and nothing for F5–F12, because a VT52
+    program cannot be expecting a VT100 sequence.
+    What still differs is the *shape* of the map, not its size. There is no
+    modifier concept at all — `SpecialKey` names a key, so `Ctrl+Left` cannot be
+    bound separately from `Left`, which is the gap this repo closed for itself in
+    `[Unreleased]`. The names are lower-camel raw values (`up`, `pageUp`) rather
+    than `Up`/`PageUp`. It is organised as named profiles (`WordStar`,
+    `VT100/ANSI`, `VT52`, `Custom`) whose default is still the **WordStar
+    diamond** (`^E`/`^X`/`^S`/`^D`), not the VT220 table, and its `VT100/ANSI`
+    profile still binds Delete to `\E[3~` where z80cpmw and cpmdroid send `^?`.
+    And there is still no on-screen way to press any of them: the twenty-two
+    bindable keys need a hardware keyboard. `ioscpm`'s `todo.txt` calls that its
+    largest remaining gap, and `4deea96`'s own message notes that build 51 made
+    it larger rather than smaller.
 
 ### 2. Scrollback history  — *new in Windows; done on iOS/macOS (ioscpm build 43) and Android (cpmdroid 1.19)*
 Lines that scroll off the top are retained so the user can scroll back (great for
@@ -258,24 +290,65 @@ to find them on every platform.
   `emu_io_get_data_folder_display` / `resolveRealPath`). Covered by
   `tests/test_hostfile.cpp` and `tests/test_hbios_hostfile.cpp`, 102 checks.
 - **Verified port behaviour:**
-  - **romwbw_emu (CLI)** *(2026-08-24)* — **R8 yes, W8 no.** `R8` copies the
-    command tail at 0x80 and the backend `fopen`s it verbatim
-    (`emu_io_cli.cc:764-790`), with a case-insensitive per-component retry to
-    undo the CCP's uppercasing — so any host path works. `W8` takes no path at
-    all: `w8.asm` never reads `CMDBUF`, only the default FCB, so it builds a
-    bare lowercased 8.3 name and writes it into the emulator's CWD. The CLI's
-    own `--help` says so — "Export CP/M file to emulator CWD" — which is why
-    this row read ✅ for years: the R8 half is genuinely unrestricted and the
-    W8 half was never checked.
-  - **ioscpm (iOS/macOS)** *(2026-07-23)* — `W8` always writes `Documents/Exports`, `R8` always
-    reads `Documents/Imports` (no per-transfer dialog). As of **v1.4.11 / build 41**
-    an **Import File…** picker (enabled on iOS *and* Mac Catalyst) stages an
-    arbitrary-location file into `Imports` for a later `R8`; the old opt-in
-    per-transfer picker was removed. So arbitrary-path *import* is covered (via
-    staging), but `W8` export still has no save-as/arbitrary path. Findability is
-    good: iOS exposes Documents to the **Files app** (`UIFileSharingEnabled` +
-    `LSSupportsOpeningDocumentsInPlace`), and both platforms have **Open
-    Imports/Exports Folder** menu items.
+  - **romwbw_emu (CLI)** *(2026-08-26)* — **both halves, since `98eb6a1`.** `R8`
+    copies the command tail at 0x80 and the backend `fopen`s it verbatim
+    (`emu_io_cli.cc`, `emu_host_file_open_read`), with a case-insensitive
+    per-component retry (`resolve_path_case_insensitive`) to undo the CCP's
+    uppercasing — so any host path works. `W8` is `W8 <cpmname> [hostpath]` now:
+    `w8.asm` reads the command tail as well as the default FCB, takes the whole
+    rest of the line as the path so a directory name may contain spaces, and
+    still falls back to the bare lowercased 8.3 name in the emulator's CWD when
+    no path is given. On the backend side `resolve_write_path` resolves the
+    parent case-insensitively, canonicalises it and lowercases the leaf it
+    creates, and `emu_host_file_get_write_name()` answers with the absolute path
+    that was actually opened, so `W8` prints where the file went rather than
+    echoing what was typed. The CLI's `--help` describes all of it — see the
+    "File transfer (run inside CP/M)" block in `romwbw_emu.cc`.
+    `W8` also refuses to hand a host path to an emulator that does not answer the
+    `0xE9` capability probe with `CAP_SAFE_PATH`; the CLI's
+    `emu_host_path_caps()` returns `EMU_HOST_CAP_SAFE_PATHS`, so the guard is
+    invisible here and is what protects an older port that syncs the utility
+    without the backend.
+    Worth recording why this row read ✅ for years before it was true: the R8
+    half is genuinely unrestricted, the W8 half was never checked, and the CLI's
+    own `--help` said "Export CP/M file to emulator CWD" the whole time.
+  - **ioscpm (iOS/macOS)** *(2026-08-26, build 52)* — `W8` always writes
+    `Documents/Exports`, `R8` always reads `Documents/Imports` (no per-transfer
+    dialog). As of **v1.4.11 / build 41** an **Import File…** picker (enabled on
+    iOS *and* Mac Catalyst) stages an arbitrary-location file into `Imports` for a
+    later `R8`; the old opt-in per-transfer picker was removed. So arbitrary-path
+    *import* is covered (via staging), but `W8` export still has no
+    save-as/arbitrary path. Findability is good: iOS exposes Documents to the
+    **Files app** (`UIFileSharingEnabled` + `LSSupportsOpeningDocumentsInPlace`),
+    and both platforms have **Open Imports/Exports Folder** menu items. Since
+    build 52 `emu_host_file_get_write_name()` answers with the real `Exports`
+    path, so `W8` prints where the file went rather than echoing the guest's
+    string — the same `HBF_HOST_GETNAME` (`0xE8`) contract this repo implements.
+    **The hazard the fixed-folder model was hiding.** `98eb6a1` gave `W8` an
+    optional host path and it is sent verbatim; that port stored it unsanitised
+    as the export *filename*, and `saveToExportsFolder` then built a destination
+    with `appendingPathComponent` — which does not escape `..` — followed by
+    `try? fm.removeItem(at:)`. `W8 ANYFILE.TXT ..` therefore resolved to
+    `Documents` and deleted it recursively: `Disks`, `Imports` and `Exports`, so
+    every disk image the user had downloaded. The `try?` swallowed the error and
+    `emu_host_file_close_write()` returns before the Swift layer runs, so the
+    guest was told the export succeeded. `R8` had the matching bug on the read
+    side: an unsanitised path missed and fell back to **the first file in
+    `Imports`**, loading unrelated contents into CP/M under the requested name,
+    with a success message on both sides. Build 52 fixes both in three
+    overlapping layers — the core reduces the string in
+    `emu_host_file_open_write()` through the shared `emu_host_path_basename()`
+    new in `romwbw_emu` v1.36, a new `ExportPath` type owns the reduction and
+    proves the result lands directly inside `Exports`, and `saveToExportsFolder`
+    no longer calls `removeItem` at all, since `Data.write(to:)` replaces a file
+    by itself.
+    Two things this repo should take from it rather than merely note. First, the
+    reason `romwbw_emu` `docs/RELEASE_ORDER_2026-08-25.md` puts the port fixes
+    ahead of the disk-image refresh: it is refreshing the images that puts a
+    path-capable `W8` in front of every user, so an unfixed port is only safe
+    while the old `w8.com` is what ships. Second, containment belongs in the
+    layer the capability bit is about — `emu_host_path_caps()`, not the UI above
+    it.
   - **cpmdroid (Android)** *(2026-08-25, from `origin/master`; this supersedes
     the 2026-08-07 reading, which described a Files button, an Import File…
     picker and a Share action that **do not exist** — no `res/xml` directory, no
@@ -302,15 +375,21 @@ to find them on every platform.
     CP/M under the requested name while printing its usual success line.
 - **Parity targets:** (a) let users reach **arbitrary** host locations within each
   platform's file model — a document picker / `ACTION_CREATE_DOCUMENT`; and (b) at
-  minimum, **make exports findable**. (b) is now **done on Android** (share sheet
-  plus the paths shown in-app); (a) is still open on both mobile ports, which
-  need a save-as for `W8` — `ACTION_CREATE_DOCUMENT` on Android, a document
-  exporter on iOS — before either can be called ✅. The shared iOS/Mac
-  **`help_file_transfer.md`** was stale (wrong bundle id `com.awohl.iOSCPM`,
-  wrong app name "iOSCPM", no mention of Import File…); `ioscpm` commit `9a9d7fd`
-  fixed it on 2026-07-23. cpmdroid ships its own Android-worded
-  `help/help_file_transfer.md` as of 1.19, so the two no longer share that text —
-  a change to one no longer fixes the other.
+  minimum, **make exports findable**. Both are still open on both mobile ports.
+  (b) used to say it was "done on Android (share sheet plus the paths shown
+  in-app)"; that was the `c26aeb7` reading talking, and it is the last claim of
+  that reading left in this row — there is no `ACTION_SEND`, no `FileProvider`,
+  no `res/xml` and no path display anywhere in `cpmdroid` at `9b68ab1`. The
+  nearest thing either mobile port has to (b) is `W8` printing its own
+  destination, which both do now. (a) needs a save-as for `W8` —
+  `ACTION_CREATE_DOCUMENT` on Android, a document exporter on iOS — before
+  either can be called ✅.
+  The shared iOS/Mac **`help_file_transfer.md`** was stale (wrong bundle id
+  `com.awohl.iOSCPM`, wrong app name "iOSCPM", no mention of Import File…);
+  `ioscpm` commit `9a9d7fd` fixed it on 2026-07-23. `cpmdroid` has its own
+  Android-worded copy at `release_assets/help_file_transfer.md`, split off the
+  same day (`78e6ec6`), so the two no longer share that text — a change to one no
+  longer fixes the other.
 
 ### 5. Remote disk catalog + downloader (pinned)
 Download prebuilt disk images from the shared release host instead of bundling
@@ -331,7 +410,7 @@ copyrighted content.
     HBIOS/CBIOS mismatch). Help deliberately stays on `releases/latest` — see
     item 6 for why that choice is only safe with a bundled fallback.
   - **ioscpm (iOS/macOS)** *(re-verified 2026-08-24)* — **pinned**, since build
-    42. `EmulatorViewModel.swift:128` holds a single
+    42. `EmulatorViewModel.swift` holds a single
     `releaseTag = "v1.4.5"` from which both `catalogURL` and `releaseBaseURL`
     are built, with the reason in a comment (the core reports RomWBW v3.5.1;
     slices from another release print an HBIOS/CBIOS mismatch). Like cpmdroid,
@@ -369,19 +448,26 @@ In-app help fetched from GitHub, with offline bundled topics.
   correction can go out without an app update — but falls back to the bundled
   one, and `HelpTopicActivity` falls back per topic to the bundled file of the
   same name. Help now works offline and survives an unpublished release asset.
-- **Verified ioscpm behaviour (2026-08-24):** help **yes**, fallback **no** — so
-  this is now the port the trap above applies to. `HelpView.swift:187-188`
-  resolves both `help_index.json` and every topic through
-  `releases/latest/download/`, and the seven markdown topics live in
-  `release_assets/` — attached to releases, **not** bundled: the app's
-  `Resources/` holds only `emu_avw.rom`, and the Xcode target references no help
-  file. There is a *cache* (`HelpView.swift:214`), which helps a user who has
-  loaded help once before and does nothing for a first run offline or for the
-  404 case. It also has a live consequence: `release_assets/help_quick_start.md`
-  was corrected in ioscpm build 49 — it advertised a `Ctrl+E` emulator console
-  that does not exist, which is actively harmful because `^E` is WordStar
-  cursor-up — and because help resolves through `releases/latest`, users keep
-  getting the wrong text until the file is re-attached to the newest release.
+- **Verified ioscpm behaviour (2026-08-26, build 52):** help **yes**, fallback
+  **yes, since build 51** — the port this trap applied to on 2026-08-24 is out of
+  it, and `cpmdroid` is the only one still in. `HelpView.swift` still resolves
+  `help_index.json` and every topic through `releases/latest/download/`, which is
+  the right way round: a published correction still reaches users without an app
+  update. What changed is what sits behind it. The index and all seven topics
+  ship inside the app, and the order is **download, then the on-disk cache, then
+  the shipped copy** — `offlineIndex` / `offlineContent` and the
+  `Bundle.main.url(forResource:)` arms behind them — never the shipped copy
+  first. The assets are referenced in place from `release_assets/` with
+  `sourceTree = SOURCE_ROOT` rather than copied into the target, so there is no
+  second copy to drift from the one that gets attached to a release. That is the
+  detail worth taking here: this repo has the same seven topics to bundle and the
+  same `release_assets/` problem to avoid.
+  One consequence of preferring the published copy survives, and it is not a
+  defect in the fallback: `release_assets/help_quick_start.md` was corrected in
+  build 49 — it advertised a `Ctrl+E` emulator console that does not exist, which
+  is actively harmful because `^E` is WordStar cursor-up — and a user with a
+  network keeps getting the stale published text until that file is re-attached
+  to the newest release. `ioscpm`'s `todo.txt` carries it as a release chore.
 
 ### 7. NVRAM / autoboot / boot string
 - **Behaviour/spec:** RomWBW autoboot config via `W` at the boot menu persists;
@@ -430,8 +516,9 @@ In-app help fetched from GitHub, with offline bundled topics.
   the app on every launch once the value has been persisted. Worth copying: clamp
   where the value is *stored*, not where it is *entered*.
 - **Verified ioscpm behaviour (2026-08-24):** **present**, as a six-step menu
-  (14, 16, 18, 20, 24, 28 pt) in `ContentView.swift:187-202`, persisted with
-  `@AppStorage("terminalFontSize")` and applied by recreating the terminal view
+  (14, 16, 18, 20, 24, 28 pt) in `ContentView.swift` — the `Label("Font Size…`
+  menu — persisted with `@AppStorage("terminalFontSize")` and applied by
+  recreating the terminal view
   on change. A fixed choice list rather than a slider, so Android's stored-value
   clamp problem cannot arise here. There is no pinch-to-zoom.
 
@@ -440,14 +527,19 @@ Emulated retro graphics card in a separate window.
 - **Verified romwbw_emu behaviour (2026-08-24):** **absent**, not partial — this
   row said ✅ (partial) and there is no Dazzler code in that repo at all. Every
   "Dazzler" string in it is a *comment* on a hook provided **for** a client like
-  this one: `handleUnknownPortOut` (`hbios_cpu.h:38`) and the memory-write
-  callback (`romwbw_mem.h:10`). Neither romwbw_emu frontend overrides the hook,
+  this one: `handleUnknownPortOut` in `hbios_cpu.h` and the memory-write
+  callback in `romwbw_mem.h`. Neither romwbw_emu frontend overrides the hook,
   so unknown ports hit the base no-op. What probably produced the ✅ is the
   web frontend's video/DSKY/sound code, and that is dead: the C++ side emits
   `Module.onVideo*` and `Module.onDsky*` while the page implements
   `Module.onVda*` and `Module.onSnd*` — **zero overlap**, ~200 lines on each
-  side that have never executed. `Module.onError` is emitted and implemented
-  nowhere, which is why nothing ever reported it.
+  side that have never executed. That half still stands: `2dbf6f2` looked at it
+  and deliberately left it alone. What that commit did fix is the one channel
+  that would have complained — `Module.onError`, called by `emu_error()`
+  (`src/emu_io_wasm.cc`) and implemented nowhere, so every error the core
+  reported went nowhere at all. The page implements it now, to the status line
+  and to `console.error`, which is a large part of why the dead wiring above
+  survived unnoticed for so long.
 - **Behaviour/spec:** enable + base I/O port + scale, rendered in its own window.
 - **Where:** `z80cpmw/Dazzler.cpp`, `DazzlerWindow.cpp`; config `hardware.dazzler`.
 - **Status:** absent in iOS. **Android is not partial — it is stubbed out on
@@ -489,8 +581,8 @@ Emulated retro graphics card in a separate window.
   (`applyManifestWarningPreference`), but turning it back **on** does not clear
   the suppression — that waits for the next disk reload or boot.
 - **Verified ioscpm behaviour (2026-08-24):** **present and suppressible.** A
-  "Disk May Be Overwritten" alert (`ContentView.swift:304-310`, and again at
-  :729 for the second presentation site) fires on a write to a catalog disk, and
+  "Disk May Be Overwritten" alert (grep `ContentView.swift` for that string —
+  it has two presentation sites) fires on a write to a catalog disk, and
   Settings has a *Warn on manifest writes* toggle bound to
   `EmulatorViewModel.warnManifestWrites`, persisted in `UserDefaults` with the
   default applied when the key is absent. The alert is informational — it points
@@ -515,12 +607,25 @@ extending it; that port's parser turned out to be the thinnest of the four.)
   per-cell foreground **and background** so reverse video renders; TAB advancing
   to the next 8-column stop.
 - **Where (per port):**
-  - **ioscpm** — `iOSCPM/Views/EmulatorViewModel.swift`. The origin of the
-    parser: full VT52, scrolling region, answerbacks, deferred autowrap, charset
-    consumption. Missing only `P` (DCH), `@` (ICH), `X` (ECH), `S`/`T` (SU/SD),
-    and its DEC private modes other than DECANM are acknowledged but not acted on
-    (so DECAWM and DECTCEM do nothing) — all still true on 2026-08-24. Parser
-    input **is** bounded, since build 49: `maxCSIParams` 16 and
+  - **ioscpm** *(2026-08-26, build 52)* — `iOSCPM/Views/EmulatorViewModel.swift`.
+    The origin of the parser: full VT52, scrolling region, answerbacks, deferred
+    autowrap, charset consumption. **Build 51 closed the gap this entry used to
+    name.** `@` (ICH), `P` (DCH), `X` (ECH), `S` (SU) and `T` (SD) are all
+    implemented, and DECAWM (`?7`) and DECTCEM (`?25`) are acted on rather than
+    parsed and dropped — both returning to their power-on state on cold boot, so
+    a guest that hides the cursor and dies does not leave it hidden for the next
+    session. SU routes through `scrollUp()` only when the region is the whole
+    screen and through `scrollRegion()` otherwise, which is the rule LF already
+    followed: lines pushed out of a status-line window were never history.
+    One difference remains and it is deliberate on that side: the new finals
+    blank with a *default* cell rather than the current SGR background, matching
+    the rest of that port's erase family, where this repo now paints the current
+    background everywhere. That port files changing it as a decision for the
+    whole family at once, on the grounds that doing it to half would be worse
+    than being consistently wrong. It is the live disagreement in this row and
+    the only one left; `todo.txt` here carries it as a decision nobody should
+    take alone.
+    Parser input **is** bounded, since build 49: `maxCSIParams` 16 and
     `maxCSIParamDigits` 6, matching cpmdroid, with leading zeros dropped so
     zero-padding cannot spend the digit budget. Build 49 also made SGR 7 a
     render-time toggle instead of an in-place nibble swap, so SGR 27 restores
@@ -595,20 +700,25 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     `MAX_CSI_PARAMS` 16 and `MAX_CSI_PARAM_DIGITS` 6 in `TerminalView.cpp`,
     with intermediates consumed rather than accumulated.
   - **romwbw_emu** *(re-verified 2026-08-24)* — the CLI delegates to the host
-    terminal, but not transparently: `emu_console_write_char`
-    (`emu_io_cli.cc:366-374`) does `ch &= 0x7F` and then drops every CR, not
+    terminal, but not transparently: `emu_console_write_char` in
+    `emu_io_cli.cc` does `ch &= 0x7F` and then drops every CR, not
     just the CR of a CR LF pair — so a guest returning to column 0 without a
     newline (progress counters, status-line redraws) overwrites nothing, and
     8-bit output is gone before the tty sees it.
 
     The web build loads **xterm.js 5.3**, which *is* a far more complete VT than
-    any native front end — but the app starves it. `Module.onConsoleOutput`
-    (`web/romwbw.html-template:402-414`) forwards only CR, LF, BS, ESC and
-    `0x20–0x7E`; **TAB, BEL, FF, every other control byte and everything ≥ 0x7F
-    are dropped**, and BS is rewritten as `\b \b`, a *destructive* backspace, so
-    a guest moving the cursor left erases a character instead. CSI sequences
-    survive only because their bodies happen to be printable ASCII. This row was
-    ✅ on the strength of the library; the wiring is what decides it.
+    any native front end, and since `2dbf6f2` the app no longer starves it.
+    `Module.onConsoleOutput` (the `Module.onConsoleOutput =` assignment in
+    `web/romwbw.html-template`) hands every byte to `term.write()` unchanged,
+    with LF the single exception: it is written as CR LF, because a CP/M guest's
+    bare LF means new line and xterm.js would otherwise leave the column where
+    it was. The filter it replaced passed only CR, LF, BS, ESC and `0x20–0x7E`,
+    dropped **TAB, BEL, FF, every other control byte and everything ≥ 0x7F**,
+    and rewrote BS as `\b \b` — a *destructive* backspace, so a guest moving the
+    cursor left erased a character. CSI sequences survived that only because
+    their bodies happen to be printable ASCII. The row was ✅ on the strength of
+    the library while the wiring was what decided it; the wiring now agrees with
+    the library.
 - **Parity target:** the mobile ports' coverage, i.e. run WordStar and Zork
   without the screen breaking up. **That port is done** — `TerminalView.kt` /
   `EmulatorViewModel.swift` were pulled back into `TerminalView.cpp` in 1.0.20,
@@ -629,17 +739,19 @@ extending it; that port's parser turned out to be the thinnest of the four.)
 Android `cpmdroid` is as of **`origin/master`, 2026-08-25, read from source** —
 the whole column, after the `c26aeb7` citations turned out to describe code that
 was never pushed. See the note at the head of this file.
-The **iOS/macOS column was re-verified from `ioscpm` source on 2026-08-24**, at
-build 50 — every row, not only the ones that changed.
+The **iOS/macOS column was re-read from `ioscpm` source on 2026-08-26**, at
+**build 52** (`49851aa`), from a checkout on this machine — every row, not only
+the ones that changed. Builds 51 and 52 both landed after the 2026-08-24 reading
+this replaces; see the note at the head of this file.
 
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
-| 1. Configurable keymap (termcap) | ◐ (10 keys, no F1–F12, WordStar default) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12 and full Ctrl window) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
+| 1. Configurable keymap (termcap) | ◐ (22 keys incl. F1–F12 since build 51; no modifier bindings, lower-camel names, WordStar default, no on-screen key row) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12 and full Ctrl window) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
 | 2. Scrollback | ✅ | ✅ (Settings slider incl. Off since 2026-08-25; drag instead of wheel) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
 | 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip; Copy takes the scrollback since 2026-08-25, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
-| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed) | ⬜ (both folders fixed, no picker, no share, no path UI) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
+| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52) | ⬜ (both folders fixed, no picker, no share, no path UI) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
 | 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ◐ web (hardcoded list, unpinned; 4 of 5 images ship nowhere) |
-| 6. Help system + offline fallback | ✅ / ⬜ no bundled fallback | ✅ / ⬜ (fetches `releases/latest`, nothing bundled, no cache) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
+| 6. Help system + offline fallback | ✅ / ✅ bundled since build 51 (download, cache, then the shipped copy) | ✅ / ⬜ (fetches `releases/latest`, nothing bundled, no cache) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
 | 7. NVRAM autoboot / bootString | ✅ | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
 | 8. Window state / DPI | ⬜ (Mac Catalyst) | ➖ | ➖ |
 | 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt) | ➖ |
@@ -652,8 +764,9 @@ build 50 — every row, not only the ones that changed.
 row in this document is ✅ for z80cpmw by construction; that one is not.
 
 **One caveat spans the whole web column.** `xterm.js`, its CSS and the fit addon
-are three jsdelivr `<script>`/`<link>` tags (`web/romwbw.html-template:6,340-341`)
-with no vendored copy and no SRI, and `release.yml` packages only
+are three jsdelivr `<script>`/`<link>` tags in `web/romwbw.html-template` (grep
+it for `cdn.jsdelivr.net`) with no vendored copy and no SRI, and `release.yml`
+packages only
 `romwbw.html`/`.js`/`.wasm`. So offline — or from an installed deb — `new
 Terminal(...)` throws at top level and there is **no terminal at all**: rows 2, 3
 and 13 are ✅/◐ only for a browser with internet access. romwbw_emu's `todo.txt`
@@ -669,18 +782,29 @@ gap together.
    detail, listed per port above.
 2. **Configurable keymap (#1)** — biggest remaining UX win, fully specced in
    `docs/CONFIGURATION.md`, and portable as a config schema. For iOS/macOS the
-   remaining work is the F1–F12 half, the canonical key names, and an on-screen
-   way to press them — Android's key row (`buildKeyRow` in `MainActivity.kt`,
-   backed by `TerminalView.sendNamedKey`) is the worked example.
+   F1–F12 half landed in build 51; what remains is modifier bindings (`Ctrl+Left`
+   as a binding distinct from `Left`), the canonical key names, and an on-screen
+   way to press any of the twenty-two — which build 51 made *more* pressing, not
+   less, since there are now twelve more keys with no touch affordance. **There
+   is no worked example in the family to copy.** This list used to point at
+   Android's `buildKeyRow` in `MainActivity.kt` backed by
+   `TerminalView.sendNamedKey`; neither symbol exists in `cpmdroid` at
+   `9b68ab1`. Its `setupControlStrip` is Ctrl, Esc, Tab, Copy and Paste, and
+   nothing else. That pair was the last of the `c26aeb7` reading left in this
+   list: `944cf9f` rewrote the Android *column*, and this list is not a column.
 3. **Scrollback (#2)** — small, self-contained, high user value; spec in
    `TerminalView.cpp`. Done on iOS/macOS and Android.
-4. **Arbitrary-path R8/W8 (#4)** within the platform's file model — now only the
-   export half (`ACTION_CREATE_DOCUMENT` on Android, a document exporter on iOS).
+4. **Arbitrary-path R8/W8 (#4)** within the platform's file model. On iOS/macOS
+   the import half is covered by staging through **Import File…** and what is
+   left is the export half — a document exporter. On Android *neither* half has
+   a UI: no import picker, no `ACTION_CREATE_DOCUMENT`, no path shown anywhere,
+   which is what makes it the weakest cell in that row.
 5. **Pin the disk catalog to an explicit release tag (#5)** to stop HBIOS/CBIOS
    version drift. **Done on both** — Android and iOS/macOS are each pinned to
    `v1.4.5`. What is left is the other half of the same trap: help still
    resolves through `releases/latest`, which is only safe with a bundled
-   fallback, and iOS/macOS has none (#6).
+   fallback. iOS/macOS gained one in build 51; **Android has none**, and this
+   repo has only its own two topics (#6).
 6. Align **help topics / offline fallback (#6)** and **NVRAM/autoboot (#7)** —
    for Android the remaining piece of #7 is the `bootString` auto-type.
 7. Desktop-only: **window state + DPI (#8)** for the Mac build.
