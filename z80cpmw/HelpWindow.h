@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "HelpAssets.h"
+
 #include <windows.h>
 #include <winhttp.h>
 #include <string>
@@ -17,19 +19,24 @@
 
 #pragma comment(lib, "winhttp.lib")
 
-// Ids for the bundled (offline) help topics, served from the app itself.
+// Ids for the bundled (offline) help topics, served from the app itself, and
+// the markdown behind them.
+//
+// The two getters were file-static in HelpWindow.cpp and are declared here so
+// tests\test_help.cpp can read what the pane will show. They stay in
+// HelpWindow.cpp rather than moving to HelpAssets.cpp with the renderer: they
+// are prose this application wrote about this application, not an asset it
+// fetches or a transformation it performs. The Getting Started one in
+// particular carries a long comment recording what was measured about the
+// R8 and W8 on the shipped disk images and which of its blocks come out when,
+// and moving the prose away from that record would strand it.
 namespace help_topics {
     inline constexpr const char* GettingStarted = "local:gettingstarted";
     inline constexpr const char* Configuration  = "local:configuration";
-}
 
-// Help topic entry from index
-struct HelpTopic {
-    std::string id;
-    std::string title;
-    std::string description;
-    std::string filename;
-};
+    std::string gettingStartedMarkdown();
+    std::string configurationMarkdown();
+}
 
 // Help content cache entry
 struct HelpCache {
@@ -72,14 +79,8 @@ private:
     // Display topic content
     void displayContent(const std::string& markdown);
 
-    // Convert markdown to plain text (simple conversion)
-    std::string markdownToText(const std::string& markdown);
-
     // HTTP helper
     bool downloadToString(const std::wstring& url, std::string& result, std::string& error);
-
-    // Parse JSON index (simple parser)
-    bool parseIndexJson(const std::string& json, std::vector<HelpTopic>& topics, std::string& error);
 
     // Local (bundled) help topics, shown even when the online index is
     // unavailable. Served from the app rather than fetched over the network.
@@ -102,7 +103,7 @@ private:
     HWND m_contentView = nullptr;
     HWND m_statusLabel = nullptr;
 
-    std::vector<HelpTopic> m_topics;
+    std::vector<help_assets::HelpTopic> m_topics;
     std::vector<HelpCache> m_cache;
     std::string m_currentTopicId;
     std::atomic<bool> m_loading{false};

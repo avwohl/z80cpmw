@@ -51,6 +51,45 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM The help suite is second because it can be.  HelpAssets.cpp includes
+REM windows.h and the standard library; HelpWindow.cpp adds pch.h, resource.h
+REM and Version.h and reaches no project symbol outside those two files.  The
+REM suite itself reads no disk image and no help asset - its copy of
+REM help_index.json is a string literal, so ..\ioscpm need not be checked out
+REM either - and it needs no window station.  Both blocks further down exit /b 1
+REM when ..\romwbw_emu or ..\cpmemu is missing, so a suite appended at the end
+REM is unreachable on a machine that has only this repository, and this one has
+REM no reason to be there.
+REM
+REM comdlg32.lib is deliberately absent: pch.h already pragma-comments
+REM comctl32/shlwapi/winmm and HelpWindow.h pragma-comments winhttp, so the only
+REM libraries left to name are the two the window and its font need.
+if not exist "obj\tests\help" mkdir "obj\tests\help"
+
+echo.
+echo === Building the help renderer and asset suite ===
+cl /nologo /EHsc /W3 /O2 /std:c++17 ^
+    /D _CRT_SECURE_NO_WARNINGS ^
+    /I z80cpmw ^
+    tests\test_help.cpp ^
+    z80cpmw\HelpAssets.cpp ^
+    z80cpmw\HelpWindow.cpp ^
+    /Fo:obj\tests\help\ ^
+    /Fe:obj\tests\help\test_help.exe ^
+    /link /SUBSYSTEM:CONSOLE user32.lib gdi32.lib
+if errorlevel 1 (
+    echo Build failed.
+    exit /b 1
+)
+
+echo.
+obj\tests\help\test_help.exe
+if errorlevel 1 (
+    echo.
+    echo HELP RENDERER AND ASSET SUITE FAILED
+    exit /b 1
+)
+
 REM The rendering suite is the only one here that needs a window station: it
 REM creates a real window, asks the DWM to render it with PrintWindow, and
 REM samples the pixels.  That is what settles a question like "is ESC[31m red",

@@ -134,6 +134,18 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
     <ClCompile Include="EmulatorEngine.cpp" />
     <ClCompile Include="emu_io_windows.cpp" />
     <ClCompile Include="DiskCatalog.cpp" />
+    <!-- NotUsing so the file can stay small. It includes windows.h,
+         <algorithm>, <sstream>, <string> and <vector> and nothing else, which
+         is the property tests\test_help.cpp is built on; putting pch.h at the
+         top of it to satisfy /Yu would silently pull in commdlg, shlobj,
+         <thread> and <random> and make that claim false. The cost is one parse
+         of windows.h that the other sources get from the PCH. SettingsDialogWx
+         .cpp is NotUsing as well, for a reason this repository does not record;
+         it includes pch.h itself, so whatever that reason is, it is not this
+         one. -->
+    <ClCompile Include="HelpAssets.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="HelpWindow.cpp" />
     <ClCompile Include="Dazzler.cpp" />
     <ClCompile Include="DazzlerWindow.cpp" />
@@ -186,6 +198,7 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
     <ClInclude Include="TerminalView.h" />
     <ClInclude Include="EmulatorEngine.h" />
     <ClInclude Include="DiskCatalog.h" />
+    <ClInclude Include="HelpAssets.h" />
     <ClInclude Include="HelpWindow.h" />
     <ClInclude Include="Dazzler.h" />
     <ClInclude Include="DazzlerWindow.h" />

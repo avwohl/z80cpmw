@@ -69,7 +69,7 @@ static HelpWindow* g_helpWindow = nullptr;
 // matching turnover in README.md and docs/FILE_TRANSFER.md is a single [RELEASE] item
 // in todo.txt, and the wording here is deliberately README.md's so the two cannot drift
 // apart while they wait.
-static std::string getLocalGettingStartedMarkdown() {
+std::string help_topics::gettingStartedMarkdown() {
     return R"DOC(# Getting Started
 
   1. Download disk images:
@@ -158,11 +158,13 @@ Ctrl+C and Ctrl+V are left untouched so they still reach CP/M as ^C and ^V.
 }
 
 // Markdown for the bundled Configuration topic. Kept in sync with
-// docs/CONFIGURATION.md. Uses indented blocks instead of ``` fences because the
-// in-app markdown renderer (markdownToText) does not understand code fences.
+// docs/CONFIGURATION.md. Its code blocks are indented rather than fenced. That
+// used to be forced - markdownToText had no branch for a fence and printed the
+// backticks - and is now only a house preference, since the renderer understands
+// both and indents a fenced block to match an indented one.
 // Note: backslashes are doubled here so the displayed text matches the doubled
 // backslashes the user actually sees in z80cpmw.json.
-static std::string getLocalConfigHelpMarkdown() {
+std::string help_topics::configurationMarkdown() {
     return R"DOC(# Configuration File (z80cpmw.json)
 
 z80cpmw keeps its settings in a JSON file you can edit by hand:
@@ -302,6 +304,41 @@ Most of these are easier to change from Emulator > Settings.
 #define IDC_TOPIC_LIST      1001
 #define IDC_CONTENT_VIEW    1002
 #define IDC_STATUS_LABEL    1003
+
+// Payload for WM_APP + 2, "a topic's content is ready". Allocated and posted
+// by the download thread fetchTopic() detaches; read and deleted by the thread
+// that owns m_hwnd, because PostMessage() queues to the thread that created
+// the window and only that thread runs handleMessage().
+//
+// topicId is here so the window thread can DROP a result the reader has moved
+// off. It is not a nicety: the bundled-topic branch at the top of fetchTopic()
+// runs AHEAD of the "if (m_loading) return" guard, so clicking Getting Started
+// while a remote download is still in flight really does reassign
+// m_currentTopicId and repaint the pane. A late failure then used to paste
+// "This topic could not be downloaded." over a topic nobody had asked about.
+// The same holds for a late success, and dropping it costs nothing because
+// cacheContent() has already stored it - reselecting the topic shows it at
+// once from the cache.
+//
+// Rejected: having the download thread compare m_currentTopicId itself before
+// posting. m_currentTopicId is a std::string the window thread assigns without
+// a lock, so reading it off-thread is a data race, and the answer would be
+// stale by the time the message was dequeued anyway. Comparing inside the
+// handler is a same-thread read of a value only that thread writes (fetchTopic
+// is reached from WM_COMMAND/LBN_SELCHANGE and from show(), which MainWindow
+// calls from its own WindowProc), so it needs no synchronisation.
+//
+// status is the status-line text to show in place of displayContent()'s
+// "Viewing: <title>"; empty leaves it to displayContent(). It travels in the
+// same message as the pane text so the two are dropped together - a single
+// message cannot be half-accepted, which is why this replaced a second
+// PostMessage whose correctness rested on posted messages coming back in the
+// order they went in.
+struct HelpContentMsg {
+    std::string topicId;
+    std::string content;
+    std::string status;
+};
 
 HelpWindow::HelpWindow() {
 }
@@ -479,8 +516,7 @@ LRESULT HelpWindow::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         // Error message from background thread
         std::string* errMsg = reinterpret_cast<std::string*>(lParam);
         if (errMsg) {
-            std::wstring wErr(errMsg->begin(), errMsg->end());
-            SetWindowTextW(m_statusLabel, wErr.c_str());
+            SetWindowTextW(m_statusLabel, help_assets::toWide(*errMsg).c_str());
             delete errMsg;
         }
         return 0;
@@ -492,11 +528,20 @@ LRESULT HelpWindow::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_APP + 2: {
-        // Topic content loaded
-        std::string* content = reinterpret_cast<std::string*>(lParam);
-        if (content) {
-            displayContent(*content);
-            delete content;
+        // Topic content loaded. Discarded outright if the reader has selected
+        // another topic since the download started - see HelpContentMsg for
+        // why that can happen while a fetch is in flight. Called payload and
+        // not msg because handleMessage's own parameter is msg, which /W4
+        // rightly flags as a shadow (C4457).
+        HelpContentMsg* payload = reinterpret_cast<HelpContentMsg*>(lParam);
+        if (payload) {
+            if (payload->topicId == m_currentTopicId) {
+                displayContent(payload->content);
+                if (!payload->status.empty()) {
+                    SetWindowTextW(m_statusLabel, help_assets::toWide(payload->status).c_str());
+                }
+            }
+            delete payload;
         }
         return 0;
     }
@@ -590,8 +635,8 @@ void HelpWindow::fetchIndex() {
             return;
         }
 
-        std::vector<HelpTopic> topics;
-        if (!parseIndexJson(json, topics, error)) {
+        std::vector<help_assets::HelpTopic> topics;
+        if (!help_assets::parseIndexJson(json, topics, error)) {
             seedLocalTopics();
             PostMessage(m_hwnd, WM_APP, 0, (LPARAM)new std::string("Could not parse online index - showing local topics."));
             m_loading = false;
@@ -616,7 +661,7 @@ void HelpWindow::seedLocalTopics() {
         for (const auto& t : m_topics) {
             if (t.id == id) return;
         }
-        HelpTopic t;
+        help_assets::HelpTopic t;
         t.id = id;
         t.title = title;
         t.description = desc;
@@ -633,8 +678,8 @@ bool HelpWindow::isLocalTopic(const std::string& topicId) const {
 }
 
 std::string HelpWindow::localTopicContent(const std::string& topicId) const {
-    if (topicId == help_topics::GettingStarted) return getLocalGettingStartedMarkdown();
-    if (topicId == help_topics::Configuration)  return getLocalConfigHelpMarkdown();
+    if (topicId == help_topics::GettingStarted) return help_topics::gettingStartedMarkdown();
+    if (topicId == help_topics::Configuration)  return help_topics::configurationMarkdown();
     return std::string();
 }
 
@@ -658,9 +703,17 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
 
     if (m_loading) return;
 
-    // Check cache first
+    // Check cache first. m_currentTopicId moves with the pane here as well as
+    // on the fetch path: it is what says which topic is on screen, both for
+    // displayContent()'s "Viewing: <title>" line and for the staleness test in
+    // the WM_APP + 2 handler. Leaving it behind on a cache hit put the wrong
+    // title in the status bar, and - because the download thread clears
+    // m_loading just BEFORE it posts - would have let a result still sitting in
+    // the queue pass the staleness test and repaint over the cached topic the
+    // reader had just switched to.
     std::string* cached = findCachedContent(topicId);
     if (cached) {
+        m_currentTopicId = topicId;
         displayContent(*cached);
         return;
     }
@@ -670,9 +723,11 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
 
     // Find filename for topic
     std::string filename;
+    std::string topicTitle = topicId;
     for (const auto& topic : m_topics) {
         if (topic.id == topicId) {
             filename = topic.filename;
+            topicTitle = topic.title;
             break;
         }
     }
@@ -684,7 +739,7 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
 
     SetWindowTextW(m_statusLabel, L"Loading topic...");
 
-    std::thread([this, filename, topicId]() {
+    std::thread([this, filename, topicId, topicTitle]() {
         // Build URL
         std::wstring url = CONTENT_BASE_URL;
         for (char c : filename) {
@@ -695,8 +750,36 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
         std::string error;
 
         if (!downloadToString(url, content, error)) {
-            PostMessage(m_hwnd, WM_APP, 0, (LPARAM)new std::string("Failed to load topic: " + error));
+            // Report the failure IN THE PANE, not only on the status line. An
+            // earlier version posted only the status line, so the pane went on
+            // showing the topic the reader had been reading before - a failed
+            // click looked like a click that had not registered, and a reader
+            // who then scrolled was reading the wrong topic under the new
+            // topic's name.
+            //
+            // Pane text and status line travel in one HelpContentMsg tagged
+            // with topicId, so the window thread shows both or neither. What
+            // stood here instead was two posts (WM_APP + 2 then WM_APP) whose
+            // correctness was argued from posted messages arriving in order,
+            // resting on the claim that m_currentTopicId was still "the topic
+            // that just failed". That claim is false the moment the reader
+            // picks a bundled topic mid-download, because isLocalTopic() is
+            // handled above the m_loading guard - so the error could land on
+            // top of Getting Started.
+            //
+            // m_loading is cleared before the post, not after, so that the
+            // "select the topic again" this message advises is not swallowed
+            // by the guard when the reader acts on it immediately.
             m_loading = false;
+            HelpContentMsg* msg = new HelpContentMsg;
+            msg->topicId = topicId;
+            msg->content = "# " + topicTitle + "\n\nThis topic could not be downloaded.\n\n"
+                + error + "\n\nIt is fetched from the network when you open it; "
+                  "check the connection and select the topic again.\n";
+            msg->status = "Failed to load topic: " + error;
+            if (!PostMessage(m_hwnd, WM_APP + 2, 0, (LPARAM)msg)) {
+                delete msg;   // window already gone; nothing will dequeue it
+            }
             return;
         }
 
@@ -705,7 +788,12 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
         m_loading = false;
 
         // Update UI on main thread
-        PostMessage(m_hwnd, WM_APP + 2, 0, (LPARAM)new std::string(content));
+        HelpContentMsg* msg = new HelpContentMsg;
+        msg->topicId = topicId;
+        msg->content = content;
+        if (!PostMessage(m_hwnd, WM_APP + 2, 0, (LPARAM)msg)) {
+            delete msg;
+        }
     }).detach();
 }
 
@@ -715,7 +803,7 @@ void HelpWindow::updateTopicList() {
     SendMessage(m_topicList, LB_RESETCONTENT, 0, 0);
 
     for (const auto& topic : m_topics) {
-        std::wstring title(topic.title.begin(), topic.title.end());
+        std::wstring title = help_assets::toWide(topic.title);
         SendMessageW(m_topicList, LB_ADDSTRING, 0, (LPARAM)title.c_str());
     }
 
@@ -725,215 +813,18 @@ void HelpWindow::updateTopicList() {
 void HelpWindow::displayContent(const std::string& markdown) {
     if (!m_contentView) return;
 
-    std::string text = markdownToText(markdown);
-    std::wstring wtext(text.begin(), text.end());
+    std::wstring wtext = help_assets::toWide(help_assets::markdownToText(markdown));
     SetWindowTextW(m_contentView, wtext.c_str());
 
     // Find current topic title
     for (const auto& topic : m_topics) {
         if (topic.id == m_currentTopicId) {
             std::wstring status = L"Viewing: ";
-            status += std::wstring(topic.title.begin(), topic.title.end());
+            status += help_assets::toWide(topic.title);
             SetWindowTextW(m_statusLabel, status.c_str());
             break;
         }
     }
-}
-
-std::string HelpWindow::markdownToText(const std::string& markdown) {
-    std::stringstream result;
-    std::istringstream stream(markdown);
-    std::string line;
-
-    // Table parsing state
-    std::vector<std::vector<std::string>> tableRows;
-    std::vector<size_t> colWidths;
-    bool inTable = false;
-
-    // Helper to parse a table row
-    auto parseTableRow = [](const std::string& row) -> std::vector<std::string> {
-        std::vector<std::string> cells;
-        size_t start = 0;
-        if (!row.empty() && row[0] == '|') start = 1;
-
-        size_t pos = start;
-        while (pos < row.length()) {
-            size_t next = row.find('|', pos);
-            if (next == std::string::npos) next = row.length();
-
-            std::string cell = row.substr(pos, next - pos);
-            // Trim whitespace
-            size_t first = cell.find_first_not_of(" \t");
-            size_t last = cell.find_last_not_of(" \t");
-            if (first != std::string::npos && last != std::string::npos) {
-                cell = cell.substr(first, last - first + 1);
-            } else {
-                cell = "";
-            }
-            cells.push_back(cell);
-            pos = next + 1;
-        }
-        // Remove trailing empty cell if line ended with |
-        if (!cells.empty() && cells.back().empty()) {
-            cells.pop_back();
-        }
-        return cells;
-    };
-
-    // Helper to check if line is table separator (|---|---|)
-    auto isTableSeparator = [](const std::string& row) -> bool {
-        for (char c : row) {
-            if (c != '|' && c != '-' && c != ':' && c != ' ' && c != '\t') {
-                return false;
-            }
-        }
-        return row.find('-') != std::string::npos;
-    };
-
-    // Helper to flush table
-    auto flushTable = [&]() {
-        if (tableRows.empty()) return;
-
-        // Calculate column widths
-        colWidths.clear();
-        for (const auto& row : tableRows) {
-            for (size_t i = 0; i < row.size(); i++) {
-                if (i >= colWidths.size()) {
-                    colWidths.push_back(row[i].length());
-                } else {
-                    colWidths[i] = (std::max)(colWidths[i], row[i].length());
-                }
-            }
-        }
-
-        // Output table with proper spacing
-        bool firstRow = true;
-        for (const auto& row : tableRows) {
-            std::stringstream rowOut;
-            for (size_t i = 0; i < row.size(); i++) {
-                if (i > 0) rowOut << "  ";
-                rowOut << row[i];
-                if (i < colWidths.size()) {
-                    size_t padding = colWidths[i] - row[i].length();
-                    rowOut << std::string(padding, ' ');
-                }
-            }
-            result << rowOut.str() << "\r\n";
-
-            // Add separator line after header
-            if (firstRow && tableRows.size() > 1) {
-                for (size_t i = 0; i < colWidths.size(); i++) {
-                    if (i > 0) result << "  ";
-                    result << std::string(colWidths[i], '-');
-                }
-                result << "\r\n";
-                firstRow = false;
-            }
-        }
-
-        tableRows.clear();
-        colWidths.clear();
-    };
-
-    while (std::getline(stream, line)) {
-        // Remove trailing \r if present
-        if (!line.empty() && line.back() == '\r') {
-            line.pop_back();
-        }
-
-        // Remove leading/trailing whitespace for processing
-        size_t start = line.find_first_not_of(" \t");
-        if (start == std::string::npos) {
-            if (inTable) {
-                flushTable();
-                inTable = false;
-            }
-            result << "\r\n";
-            continue;
-        }
-
-        std::string trimmed = line.substr(start);
-
-        // Check for table row (starts with |)
-        if (trimmed[0] == '|') {
-            if (isTableSeparator(trimmed)) {
-                // Skip separator row, we draw our own
-                inTable = true;
-                continue;
-            }
-
-            std::vector<std::string> cells = parseTableRow(trimmed);
-            if (!cells.empty()) {
-                tableRows.push_back(cells);
-                inTable = true;
-            }
-            continue;
-        }
-
-        // Not a table row - flush any pending table
-        if (inTable) {
-            flushTable();
-            inTable = false;
-        }
-
-        // Convert headers (# to underlined text)
-        if (trimmed[0] == '#') {
-            size_t level = 0;
-            while (level < trimmed.length() && trimmed[level] == '#') level++;
-            std::string headerText = trimmed.substr(level);
-            // Trim leading space
-            if (!headerText.empty() && headerText[0] == ' ') {
-                headerText = headerText.substr(1);
-            }
-            result << headerText << "\r\n";
-            if (level == 1) {
-                result << std::string(headerText.length(), '=') << "\r\n";
-            } else if (level == 2) {
-                result << std::string(headerText.length(), '-') << "\r\n";
-            }
-            continue;
-        }
-
-        // Convert bullet points
-        if (trimmed.length() >= 2 && (trimmed[0] == '-' || trimmed[0] == '*') && trimmed[1] == ' ') {
-            result << "  * " << trimmed.substr(2) << "\r\n";
-            continue;
-        }
-
-        // Convert bold (**text** or __text__)
-        std::string processed = line;
-        size_t pos = 0;
-        while ((pos = processed.find("**", pos)) != std::string::npos) {
-            size_t end = processed.find("**", pos + 2);
-            if (end != std::string::npos) {
-                std::string bold = processed.substr(pos + 2, end - pos - 2);
-                processed = processed.substr(0, pos) + bold + processed.substr(end + 2);
-            } else {
-                break;
-            }
-        }
-
-        // Convert inline code (`code`)
-        pos = 0;
-        while ((pos = processed.find("`", pos)) != std::string::npos) {
-            size_t end = processed.find("`", pos + 1);
-            if (end != std::string::npos) {
-                std::string code = processed.substr(pos + 1, end - pos - 1);
-                processed = processed.substr(0, pos) + code + processed.substr(end + 1);
-            } else {
-                break;
-            }
-        }
-
-        result << processed << "\r\n";
-    }
-
-    // Flush any remaining table
-    if (inTable) {
-        flushTable();
-    }
-
-    return result.str();
 }
 
 bool HelpWindow::downloadToString(const std::wstring& url, std::string& result, std::string& error) {
@@ -1056,75 +947,6 @@ cleanup:
     if (hConnect) WinHttpCloseHandle(hConnect);
     if (hSession) WinHttpCloseHandle(hSession);
     return success;
-}
-
-bool HelpWindow::parseIndexJson(const std::string& json, std::vector<HelpTopic>& topics, std::string& error) {
-    topics.clear();
-
-    // Simple JSON parsing for help_index.json format:
-    // { "version": 1, "base_url": "...", "topics": [ { "id": "", "title": "", "description": "", "filename": "" }, ... ] }
-
-    size_t topicsStart = json.find("\"topics\"");
-    if (topicsStart == std::string::npos) {
-        error = "No topics array found";
-        return false;
-    }
-
-    size_t arrayStart = json.find('[', topicsStart);
-    if (arrayStart == std::string::npos) {
-        error = "Invalid topics format";
-        return false;
-    }
-
-    size_t pos = arrayStart + 1;
-
-    while (true) {
-        // Find next topic object
-        size_t objStart = json.find('{', pos);
-        if (objStart == std::string::npos) break;
-
-        size_t objEnd = json.find('}', objStart);
-        if (objEnd == std::string::npos) break;
-
-        std::string obj = json.substr(objStart, objEnd - objStart + 1);
-        HelpTopic topic;
-
-        // Extract fields
-        auto extractField = [&obj](const std::string& field) -> std::string {
-            std::string key = "\"" + field + "\"";
-            size_t keyPos = obj.find(key);
-            if (keyPos == std::string::npos) return "";
-
-            size_t colonPos = obj.find(':', keyPos);
-            if (colonPos == std::string::npos) return "";
-
-            size_t valueStart = obj.find('"', colonPos);
-            if (valueStart == std::string::npos) return "";
-
-            size_t valueEnd = obj.find('"', valueStart + 1);
-            if (valueEnd == std::string::npos) return "";
-
-            return obj.substr(valueStart + 1, valueEnd - valueStart - 1);
-        };
-
-        topic.id = extractField("id");
-        topic.title = extractField("title");
-        topic.description = extractField("description");
-        topic.filename = extractField("filename");
-
-        if (!topic.id.empty() && !topic.title.empty()) {
-            topics.push_back(topic);
-        }
-
-        pos = objEnd + 1;
-    }
-
-    if (topics.empty()) {
-        error = "No valid topics found";
-        return false;
-    }
-
-    return true;
 }
 
 std::string* HelpWindow::findCachedContent(const std::string& topicId) {
