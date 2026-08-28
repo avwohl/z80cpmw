@@ -87,9 +87,15 @@ static void check(bool ok, const char* what, const std::string& got,
 struct Term {
     TerminalView tv;
     std::string replies;
+    int bells = 0;
 
     Term() {
         tv.setKeyInputCallback([this](char ch) { replies += ch; });
+        // Count bells instead of ringing them. This is not only how test_bell()
+        // asks its questions: without it the suite is audible, because
+        // test_control_chars()'s "BEL does not move the cursor" sends a real
+        // 0x07 and reached MessageBeep() on every run.
+        tv.setBellHook([this]() { bells++; });
     }
 
     void send(const std::string& s) {
@@ -118,6 +124,7 @@ struct Term {
     char at(int r, int c) { return tv.cellAt(r, c).character; }
     uint8_t fg(int r, int c) { return tv.cellAt(r, c).foreground; }
     uint8_t bg(int r, int c) { return tv.cellAt(r, c).background; }
+    uint8_t flags(int r, int c) { return tv.cellAt(r, c).flags; }
 
     // A whole row as text, with trailing blanks trimmed.
     std::string line(int r) {
@@ -170,6 +177,67 @@ static void test_control_chars() {
 
     { Term t; t.send("A\177B");
       CHECK_STR(t.line(0), "AB", "DEL (0x7F) is not printable"); }
+}
+
+//=============================================================================
+// The bell (BEL, 0x07)
+//
+// todo.txt: "the terminal bell is unconditional: TerminalView.cpp's 0x07 case
+// calls MessageBeep(MB_OK) with nothing to consult. cpmdroid made it a
+// setting." It now consults setBellEnabled(), and every Term in this file
+// installs a counting hook in place of MessageBeep() - which is what makes the
+// suite silent as well as testable.
+//=============================================================================
+
+static void test_bell() {
+    section("bell");
+
+    { Term t;
+      CHECK_TRUE(t.tv.isBellEnabled(), "the bell is on by default"); }
+
+    { Term t; t.send("\007");
+      CHECK_INT(t.bells, 1, "one BEL rings once"); }
+
+    { Term t; t.send("\007\007\007");
+      CHECK_INT(t.bells, 3, "three BELs ring three times"); }
+
+    { Term t; t.tv.setBellEnabled(false); t.send("\007\007\007");
+      CHECK_INT(t.bells, 0, "a disabled bell rings not at all");
+      CHECK_TRUE(!t.tv.isBellEnabled(), "and reads back as disabled"); }
+
+    { Term t; t.tv.setBellEnabled(false); t.send("\007");
+      t.tv.setBellEnabled(true); t.send("\007");
+      CHECK_INT(t.bells, 1, "switching the bell back on rings again"); }
+
+    // Suppressing the bell suppresses the bell and nothing else: BEL has never
+    // moved the cursor or printed anything, and must not start doing either.
+    { Term t; t.tv.setBellEnabled(false); t.home(1, 5); t.send("\007");
+      CHECK_INT(t.col(), 5, "a suppressed BEL leaves the cursor column alone");
+      CHECK_INT(t.row(), 1, "a suppressed BEL leaves the cursor row alone");
+      CHECK_STR(t.line(0), "", "a suppressed BEL prints nothing"); }
+
+    // The bell setting is the user's, not the guest's. clear() is the machine
+    // reset AND the ESC c path, so if it reset m_bellEnabled a program could
+    // turn the bell back on for someone who had switched it off.
+    { Term t; t.tv.setBellEnabled(false); t.tv.clear(); t.send("\007");
+      CHECK_TRUE(!t.tv.isBellEnabled(), "clear() does not re-enable the bell");
+      CHECK_INT(t.bells, 0, "and no bell rings after it"); }
+
+    { Term t; t.tv.setBellEnabled(false); t.send("\033c\007");
+      CHECK_TRUE(!t.tv.isBellEnabled(), "ESC c does not re-enable the bell");
+      CHECK_INT(t.bells, 0, "and no bell rings after it either"); }
+
+    // What a BEL arriving mid-CSI actually does, read off processCSIChar()
+    // rather than assumed: 0x07 is none of the private markers, not an
+    // intermediate byte (those are 0x20-0x2F), not a digit and not ';', so it
+    // falls through to the final-character branch and ends the sequence.
+    // executeCSI() has no case for it, so ESC[3 BEL is swallowed whole - no
+    // bell, no output - and the parser is left in Normal state.
+    { Term t; t.send("\033[3\007");
+      CHECK_INT(t.bells, 0, "a BEL inside a CSI is eaten as the final byte, not rung");
+      t.send("A");
+      CHECK_STR(t.line(0), "A", "and the parser is back in Normal state after it");
+      CHECK_INT(t.col(), 2, "with the '3' never applied as a movement"); }
 }
 
 //=============================================================================
@@ -628,6 +696,188 @@ static void test_sgr() {
 
     { Term t; t.send("\033[31m\033[s\033[32m\033[u"); t.send("A");
       CHECK_INT(t.fg(0, 0), 2, "CSI u restores the cursor only, not the rendition"); }
+}
+
+//=============================================================================
+// Per-cell attributes - TerminalCell::flags
+//
+// todo.txt: "there is no per-cell attribute beyond the packed CGA byte...
+// bold / underline / blink / reverse have nowhere to live and nothing to
+// render them." That item splits into a parser commit and a rendering commit
+// by its own account; this section is the parser half - where the bits are
+// stored and what moves them. Nothing paints them yet, so every check here
+// reads cellAt().flags.
+//
+// The item's list of four is out of date on one entry, and two things are NOT
+// in the flags byte:
+//
+//   - Reverse video, which was done before this and is not new here. It is
+//     resolved into the colour nibbles at the write, and that is what makes
+//     SGR 7 and 27 exact inverses (see test_sgr above); a reversed cell
+//     therefore carries flags == 0.
+//   - Bold's visibility. SGR 1 still sets the CGA intensity bit as well as
+//     TCELL_BOLD, because the intensity bit is the only thing that shows
+//     today. The five bold checks in test_sgr() are the tripwire for that: if
+//     a change here moves any of them, bold has stopped setting 0x08.
+//=============================================================================
+
+static void test_attributes() {
+    section("per-cell attributes");
+
+    // Bold in both places at once.
+    { Term t; t.send("\033[1mA");
+      CHECK_TRUE((t.flags(0, 0) & TCELL_BOLD) != 0, "SGR 1 sets TCELL_BOLD");
+      CHECK_INT(t.fg(0, 0), 0x0F, "and still sets the CGA intensity bit"); }
+
+    { Term t; t.send("\033[1m\033[22mA");
+      CHECK_INT((int)t.flags(0, 0), 0, "SGR 22 clears TCELL_BOLD");
+      CHECK_INT(t.fg(0, 0), 0x07, "and still clears the intensity bit"); }
+
+    { Term t; t.send("\033[4mA");
+      CHECK_INT((int)t.flags(0, 0), (int)TCELL_UNDERLINE, "SGR 4 sets TCELL_UNDERLINE"); }
+
+    { Term t; t.send("\033[4m\033[24mA");
+      CHECK_INT((int)t.flags(0, 0), 0, "SGR 24 clears it"); }
+
+    { Term t; t.send("\033[5mA");
+      CHECK_INT((int)t.flags(0, 0), (int)TCELL_BLINK, "SGR 5 sets TCELL_BLINK"); }
+
+    // One bit for both blink rates: nothing here can draw two speeds, so
+    // storing two flags would be storing a distinction that cannot be honoured.
+    { Term t; t.send("\033[6mA");
+      CHECK_INT((int)t.flags(0, 0), (int)TCELL_BLINK, "SGR 6 (rapid blink) sets the same bit"); }
+
+    { Term t; t.send("\033[5m\033[25mA");
+      CHECK_INT((int)t.flags(0, 0), 0, "SGR 25 clears blink"); }
+
+    { Term t; t.send("\033[6m\033[25mA");
+      CHECK_INT((int)t.flags(0, 0), 0, "SGR 25 clears rapid blink too"); }
+
+    { Term t; t.send("\033[1;4;5mA");
+      CHECK_INT((int)t.flags(0, 0), (int)(TCELL_BOLD | TCELL_UNDERLINE | TCELL_BLINK),
+                "the three accumulate in one byte"); }
+
+    { Term t; t.send("\033[1;4;5m\033[0mA");
+      CHECK_INT((int)t.flags(0, 0), 0, "SGR 0 clears all of them"); }
+
+    { Term t; t.send("\033[1;4;5m\033[mA");
+      CHECK_INT((int)t.flags(0, 0), 0, "and so does a bare ESC[m"); }
+
+    // SGR 21 is left unhandled on purpose. ECMA-48 calls it double-underline
+    // and several terminals treat it as bold-off; nothing available here can
+    // settle which a CP/M guest meant, so it does nothing at all rather than
+    // doing one of the two and looking deliberate.
+    { Term t; t.send("\033[1m\033[21mA");
+      CHECK_TRUE((t.flags(0, 0) & TCELL_BOLD) != 0, "SGR 21 is a no-op: bold is not cleared");
+      CHECK_INT(t.fg(0, 0), 0x0F, "SGR 21 is a no-op: the intensity bit is not cleared");
+      CHECK_INT((int)t.flags(0, 0), (int)TCELL_BOLD, "SGR 21 is a no-op: no underline appears"); }
+
+    // Reverse video is not a flag. It is already in the colours by the time the
+    // cell is written.
+    { Term t; t.send("\033[7mA");
+      CHECK_INT((int)t.flags(0, 0), 0, "a reversed cell carries no flag bit");
+      CHECK_INT(t.fg(0, 0), 0, "the swap is in the colours instead"); }
+
+    // ...which is exactly why bold needs the flag. The swap moves the
+    // foreground into a three-bit background nibble and the intensity bit falls
+    // off the end; TCELL_BOLD is the only surviving record that this cell was
+    // written bold.
+    { Term t; t.send("\033[1;31m\033[7mA");
+      CHECK_TRUE((t.flags(0, 0) & TCELL_BOLD) != 0, "bold survives the reverse-video swap as a flag");
+      CHECK_INT(t.bg(0, 0), 4, "though the intensity bit is lost to the swap");
+      CHECK_INT(t.fg(0, 0), 0, "and the background becomes the foreground"); }
+
+    // An erase carries the colour and drops the flags. A background colour on a
+    // space is the only way an erase can show a colour at all; underline and
+    // blink on a space are not colour, and carrying them would underline all
+    // 2000 cells or set the whole screen strobing. See blankCell().
+    { Term t; t.send("\033[4;5m\033[2J");
+      CHECK_INT((int)t.flags(0, 0), 0, "ESC[2J does not underline or blink the blanks"); }
+
+    { Term t; t.send("\033[44m\033[2J");
+      CHECK_INT(t.bg(0, 0), 1, "ESC[2J still paints the current background"); }
+
+    { Term t; t.send("\033[4;44mAB\033[2K");
+      CHECK_INT((int)t.flags(0, 0), 0, "ESC[2K drops the flags as well");
+      CHECK_INT(t.bg(0, 0), 1, "and keeps the background, like every other erase"); }
+
+    // Extended-colour subparameters must be stepped over, or their digits land
+    // as renditions in their own right. This is a sharper test of the skip than
+    // the colour one in test_sgr(): the "5" of ESC[38;5;n is the same number as
+    // SGR 5, so a broken skip sets the whole run blinking.
+    { Term t; t.send("\033[38;5;5m"); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), 0, "the ;5 of ESC[38;5;5m is an index, not SGR 5 blink"); }
+
+    { Term t; t.send("\033[48;5;4m"); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), 0, "and the ;4 of ESC[48;5;4m is not SGR 4 underline"); }
+
+    { Term t; t.send("\033[38;2;1;4;5m"); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), 0, "the r;g;b form is consumed whole too"); }
+
+    { Term t; t.send("\033[4;38;5;5;1m"); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), (int)(TCELL_UNDERLINE | TCELL_BOLD),
+                "parameters around an extended colour still apply"); }
+
+    // The private forms are not renditions: ESC[>4;2m is xterm's
+    // modifyOtherKeys and its "4" is a key-modifier resource, not underline.
+    { Term t; t.send("\033[>4;2m"); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), 0, "ESC[>4;2m is not SGR 4"); }
+
+    { Term t; t.send("\033[4m\033[>4;2m"); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), (int)TCELL_UNDERLINE,
+                "and it leaves an underline already in force alone"); }
+
+    // Scrolling moves whole cells, so the flags travel with them. The blank
+    // line scrolled in underneath comes from blankCell() and does not.
+    { Term t; t.home(2, 1); t.send("\033[4mA"); t.home(25, 1); t.send("\n");
+      CHECK_INT((int)t.at(0, 0), (int)'A', "the cell moved up a row");
+      CHECK_INT((int)t.flags(0, 0), (int)TCELL_UNDERLINE, "and kept its underline across the scroll");
+      CHECK_INT((int)t.flags(24, 0), 0, "while the line scrolled in underneath is plain"); }
+
+    // Editing sequences copy whole cells for the same reason.
+    { Term t; t.send("\033[4mA\033[H\033[@");
+      CHECK_INT((int)t.at(0, 1), (int)'A', "ICH shifted the cell right");
+      CHECK_INT((int)t.flags(0, 1), (int)TCELL_UNDERLINE, "and its flags went with it");
+      CHECK_INT((int)t.flags(0, 0), 0, "and the cell it inserts is plain"); }
+
+    // DECSC/DECRC save and restore the flags with the rest of the rendition,
+    // as they already do for the attribute byte and the reverse flag.
+    { Term t; t.send("\033[4m\0337\033[24m\0338"); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), (int)TCELL_UNDERLINE, "ESC 8 restores the saved flags"); }
+
+    { Term t; t.send("\033[1;4m\0337\033[0m\0338"); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), (int)(TCELL_BOLD | TCELL_UNDERLINE),
+                "ESC 8 restores all of them at once");
+      CHECK_INT(t.fg(0, 0), 0x0F, "and the attribute byte with them"); }
+
+    // A machine reset clears the SAVED flags too, or an ESC 8 with no ESC 7
+    // since would restore a face from before the reset.
+    { Term t; t.send("\033[4m\0337"); t.tv.clear(); t.send("\0338"); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), 0, "clear() resets the saved flags, not just the current ones"); }
+
+    { Term t; t.send("\033[1;4;5m"); t.tv.clear(); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), 0, "clear() resets the current flags"); }
+
+    { Term t; t.send("\033[1;4;5m\033c"); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), 0, "and so does ESC c, which is the same path"); }
+
+    // setAttr() is the VDA path: the caller hands over a whole CGA attribute
+    // byte, which says nothing about underline or blink, so an ESC[4m still in
+    // force must not underline what it draws.
+    { Term t; t.send("\033[4m"); t.tv.setAttr(0x07); t.send("A");
+      CHECK_INT((int)t.flags(0, 0), 0, "setAttr() clears the flags"); }
+
+    // writeChar() likewise takes its whole rendition as arguments. It is one of
+    // only two places in TerminalView.cpp that assign a cell's fields one at a
+    // time, so without an explicit flags line it would inherit whatever the
+    // parser last left in that cell.
+    { Term t; t.send("\033[4mA"); t.tv.writeChar(0, 0, 'B', 7, 0);
+      CHECK_INT((int)t.at(0, 0), (int)'B', "writeChar() replaced the character");
+      CHECK_INT((int)t.flags(0, 0), 0, "and did not inherit the underline that was there"); }
+
+    // A fresh cell has nothing set.
+    { Term t;
+      CHECK_INT((int)t.flags(0, 0), 0, "an untouched cell carries no flags"); }
 }
 
 //=============================================================================
@@ -1226,12 +1476,14 @@ int main() {
     printf("==============================\n");
 
     test_control_chars();
+    test_bell();
     test_cursor_movement();
     test_erase();
     test_insert_delete();
     test_scroll_region();
     test_autowrap();
     test_sgr();
+    test_attributes();
     test_private_modes();
     test_designators();
     test_answerback();

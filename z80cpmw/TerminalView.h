@@ -16,11 +16,34 @@
 #include <array>
 #include "Keymap.h"
 
+// Per-cell rendition bits that have nowhere to live in a packed CGA attribute
+// byte, kept in TerminalCell::flags.
+//
+// Reverse video is deliberately NOT one of these. It is resolved into the
+// colour nibbles at the write - see swapAttrNibbles() in TerminalView.cpp - so
+// a reversed cell is stored as its swapped colours and carries no flag. That is
+// what makes SGR 7 and SGR 27 exact inverses, and moving reverse in here would
+// undo it.
+//
+// Bold is the one bit that lives in both places. SGR 1 keeps setting the CGA
+// intensity bit (0x08 of the foreground nibble) AND sets TCELL_BOLD, because
+// the intensity bit is the only way bold shows today and is what the colour
+// checks in tests/test_vt52.cpp pin; the flag is what a renderer that draws a
+// heavier face will read, and it is also the only record of bold that survives
+// the reverse-video swap, which pushes the intensity bit off the end of the
+// three-bit background nibble.
+enum : uint8_t {
+    TCELL_BOLD      = 0x01,
+    TCELL_UNDERLINE = 0x02,
+    TCELL_BLINK     = 0x04,
+};
+
 // Terminal cell structure
 struct TerminalCell {
     char character = ' ';
     uint8_t foreground = 7;  // White
     uint8_t background = 0;  // Black
+    uint8_t flags = 0;       // TCELL_* bits; see the enum above
 };
 
 // Input callback type
@@ -64,6 +87,27 @@ public:
     void setScrollbackLines(int lines);          // capacity in lines; 0 disables
     int getScrollbackLines() const { return m_scrollbackLines; }
     void resetScrollback();                      // clear history (on start/reset)
+
+    // The bell (BEL, 0x07). On by default. cpmdroid made the bell a setting and
+    // todo.txt asked for the same here, because this one was unconditional: the
+    // 0x07 case called MessageBeep() with nothing to consult.
+    //
+    // Nothing calls setBellEnabled() yet. The config side already exists and
+    // round-trips - "display.bell" / AppConfig::bellEnabled, checked by
+    // tests/test_config.cpp - and the MainWindow call that joins the two is a
+    // separate change; this is the terminal half of it.
+    //
+    // The state is a user preference and NOT part of the terminal's power-on
+    // state, so clear() and ESC c leave it alone.
+    void setBellEnabled(bool on) { m_bellEnabled = on; }
+    bool isBellEnabled() const { return m_bellEnabled; }
+
+    // Divert the bell. The hook is called INSTEAD of MessageBeep(), and only
+    // when the bell is enabled, so a caller sees exactly the bells a user would
+    // have heard. tests/test_vt52.cpp installs a counter here: without it the
+    // suite audibly beeps on every run, because test_control_chars()'s "BEL
+    // does not move the cursor" reaches the real bell.
+    void setBellHook(std::function<void()> hook) { m_bellHook = hook; }
 
     // Input callback
     void setKeyInputCallback(KeyInputCallback cb) { m_keyCallback = cb; }
@@ -126,6 +170,10 @@ private:
     // typing.
     void sendAnswerback(const char* s);
     void applySGR(int param);
+    // Sound the bell, honouring setBellEnabled() and setBellHook(). The 0x07
+    // case calls this and nothing else; it used to call MessageBeep() straight
+    // out with nothing to consult.
+    void ringBell();
     // The cell an erase leaves behind: a space carrying the CURRENT rendition,
     // not the power-on default. Erasing paints the current background, which is
     // what lets a program set a colour, clear, and have the cleared area be that
@@ -173,8 +221,13 @@ private:
     // a VT100 does. CSI s / CSI u are the ANSI.SYS pair and save position only.
     uint8_t m_savedAttr = 0x07;
     bool m_savedReverse = false;
+    uint8_t m_savedFlags = 0;      // the TCELL_* half of the saved rendition
 
     uint8_t m_currentAttr = 0x07;  // Default: white on black
+    // The rendition bits that do not fit in the attribute byte, stamped into
+    // every cell a printable character writes. Not the reverse-video flag,
+    // which is resolved into the colours instead; see the TCELL_* enum.
+    uint8_t m_currentFlags = 0;
 
     int m_fontSize = 16;
     int m_charWidth = 8;
@@ -227,6 +280,11 @@ private:
     // exact inverses - swapping the byte in place cannot round-trip, because
     // the foreground is four bits and the background only three.
     bool m_reverse = false;
+
+    // BEL. A user preference, not part of the terminal's power-on state: see
+    // setBellEnabled(). m_bellHook, when set, stands in for MessageBeep().
+    bool m_bellEnabled = true;
+    std::function<void()> m_bellHook;
 
     KeyInputCallback m_keyCallback;
     std::function<bool()> m_inputReadyCallback;

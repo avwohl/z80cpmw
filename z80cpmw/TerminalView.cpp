@@ -169,12 +169,25 @@ void TerminalView::createFont() {
 // also reset the rendition to that same default; once the erase stopped
 // resetting it, a cleared region and the text written into it afterwards no
 // longer agreed.
+//
+// The colour carries; the TCELL_* flags do NOT, and that split is deliberate.
+// A background colour on a space is the only way an erase can show a colour at
+// all, which is the whole point of the paragraph above. Underline and blink on
+// a space are not colour: ESC[4m ESC[2J would draw an underscore under all
+// 2000 cells and ESC[5m ESC[2J would set the whole screen strobing, neither of
+// which is what a program asking to clear its screen meant. Whether a real
+// VT100 would agree is not settled here and was not measured; the choice is
+// made on what the software this app runs would expect to see, and it is
+// written down so that the next person meets an argument rather than a
+// surprise. If a guest turns up that wants underlined blanks, this is the line
+// to argue with.
 TerminalCell TerminalView::blankCell() const {
     const uint8_t attr = m_reverse ? swapAttrNibbles(m_currentAttr) : m_currentAttr;
     TerminalCell c;
     c.character = ' ';
     c.foreground = attr & 0x0F;
     c.background = (attr >> 4) & 0x07;
+    c.flags = 0;
     return c;
 }
 
@@ -223,6 +236,7 @@ void TerminalView::clear() {
     // with whatever colour the last session happened to end on.
     m_currentAttr = 0x07;
     m_reverse = false;
+    m_currentFlags = 0;
 
     eraseScreen();
 
@@ -234,6 +248,15 @@ void TerminalView::clear() {
     m_savedCursorCol = 0;
     m_savedAttr = 0x07;
     m_savedReverse = false;
+    // The saved rendition is reset for the same reason as the saved attribute
+    // beside it: a DECRC (ESC 8) issued after a machine reset, with no DECSC
+    // since, must restore the default face and not the one the last session
+    // happened to save.
+    m_savedFlags = 0;
+    // m_bellEnabled is deliberately NOT reset here. It is a user preference
+    // arriving through setBellEnabled(), not part of the terminal's power-on
+    // state, and clear() is also the ESC c (RIS) path - a guest must not be
+    // able to switch the bell back on for a user who turned it off.
     m_scrollTop = 0;
     m_scrollBottom = ROWS - 1;
     m_vt52Mode = false;
@@ -253,6 +276,12 @@ void TerminalView::writeChar(int row, int col, char ch, uint8_t fg, uint8_t bg) 
         m_cells[row][col].character = ch;
         m_cells[row][col].foreground = fg;
         m_cells[row][col].background = bg;
+        // Not m_currentFlags: this entry point takes the complete rendition as
+        // arguments and never consults m_currentAttr either, so anything the
+        // caller did not pass is off. Assigning the fields individually is
+        // also why the line is needed at all - without it the cell would keep
+        // the underline of whatever the parser last wrote there.
+        m_cells[row][col].flags = 0;
         invalidate();
     }
 }
@@ -354,6 +383,10 @@ void TerminalView::setAttr(uint8_t attr) {
     // reverse video. Leaving the flag set from an earlier ESC[7m would show the
     // caller's colours swapped.
     m_reverse = false;
+    // Same argument for the TCELL_* bits: a VDA attribute byte says nothing
+    // about underline or blink, so an ESC[4m still in force would underline
+    // text the guest asked to be drawn in a plain attribute.
+    m_currentFlags = 0;
 }
 
 void TerminalView::outputChar(uint8_t ch) {
@@ -1036,7 +1069,7 @@ void TerminalView::processChar(uint8_t ch) {
 void TerminalView::processNormalChar(uint8_t ch) {
     switch (ch) {
     case 0x07:  // Bell
-        MessageBeep(MB_OK);
+        ringBell();
         break;
 
     case 0x08:  // Backspace
@@ -1089,6 +1122,12 @@ void TerminalView::processNormalChar(uint8_t ch) {
             m_cells[m_cursorRow][m_cursorCol].character = (char)ch;
             m_cells[m_cursorRow][m_cursorCol].foreground = attr & 0x0F;
             m_cells[m_cursorRow][m_cursorCol].background = (attr >> 4) & 0x07;
+            // The rest of the rendition - underline, blink, and the bold flag
+            // that survives the swap above. This site and writeChar() are the
+            // only two in this file that assign a cell's fields one at a time;
+            // everywhere else copies a whole TerminalCell or assigns
+            // blankCell(), so the new field travels for free.
+            m_cells[m_cursorRow][m_cursorCol].flags = m_currentFlags;
 
             if (m_cursorCol >= COLS - 1) {
                 // At the rightmost column: arm the wrap rather than taking it,
@@ -1123,6 +1162,7 @@ void TerminalView::processEscapeChar(uint8_t ch) {
         m_savedCursorCol = m_cursorCol;
         m_savedAttr = m_currentAttr;
         m_savedReverse = m_reverse;
+        m_savedFlags = m_currentFlags;
         m_escapeState = EscapeState::Normal;
         break;
 
@@ -1132,6 +1172,7 @@ void TerminalView::processEscapeChar(uint8_t ch) {
         m_cursorCol = m_savedCursorCol;
         m_currentAttr = m_savedAttr;
         m_reverse = m_savedReverse;
+        m_currentFlags = m_savedFlags;
         m_escapeState = EscapeState::Normal;
         invalidate();
         break;
@@ -1604,12 +1645,41 @@ void TerminalView::applySGR(int param) {
     case 0:  // Reset
         m_currentAttr = 0x07;
         m_reverse = false;
+        m_currentFlags = 0;
         break;
     case 1:  // Bold
+        // Both halves, and the 0x08 is not optional. The CGA intensity bit is
+        // the only thing that makes bold visible today, and five checks in
+        // tests/test_vt52.cpp pin it: "SGR 1 sets the bold (intensity) bit",
+        // "SGR 22 clears the bold bit", "ESC[1;37m is bright white",
+        // "ESC[37;1m is bright white too" and "a colour after bold keeps the
+        // intensity bit". TCELL_BOLD is the record a renderer can draw a
+        // heavier face from, and the only one that survives the reverse-video
+        // swap.
         m_currentAttr |= 0x08;
+        m_currentFlags |= TCELL_BOLD;
         break;
     case 22:  // Bold off
         m_currentAttr &= (uint8_t)~0x08;
+        m_currentFlags &= (uint8_t)~TCELL_BOLD;
+        break;
+    case 4:  // Underline
+        m_currentFlags |= TCELL_UNDERLINE;
+        break;
+    case 24:  // Underline off
+        m_currentFlags &= (uint8_t)~TCELL_UNDERLINE;
+        break;
+    case 5:  // Slow blink
+    case 6:  // Rapid blink
+        // One flag for both rates. Nothing here can tell them apart: the only
+        // blink this terminal owns is the cursor timer, and a renderer reading
+        // TCELL_BLINK would have exactly one phase to work with. ECMA-48
+        // separates them; a single bit is the honest thing to store until
+        // something can draw two speeds.
+        m_currentFlags |= TCELL_BLINK;
+        break;
+    case 25:  // Blink off - both rates
+        m_currentFlags &= (uint8_t)~TCELL_BLINK;
         break;
     case 7:  // Reverse on
         // A flag, not an edit. Setting it twice is naturally idempotent, and
@@ -1621,6 +1691,13 @@ void TerminalView::applySGR(int param) {
         m_reverse = false;
         break;
     default:
+        // SGR 21 falls through here on purpose and does nothing. ECMA-48 calls
+        // it double-underline; several terminals treat it as bold-off, and the
+        // two readings disagree about the bit this file would have to touch.
+        // Nothing available here can settle which a CP/M guest meant, and
+        // guessing wrong is worse than ignoring it, so it stays a documented
+        // no-op rather than becoming a plausible-looking case above.
+        //
         // 0xF8 keeps the background nibble AND bit 3, which is the intensity
         // bit SGR 1 sets. Masking with 0xF0 instead - which is what this did -
         // cleared bold every time a colour arrived, so ESC[1;37m came out dim
@@ -1660,6 +1737,25 @@ void TerminalView::applySGR(int param) {
         }
         break;
     }
+}
+
+// Sound the bell. The 0x07 case used to call MessageBeep(MB_OK) straight out
+// with nothing to consult, so a guest that BELs in a loop could not be shut up;
+// cpmdroid made the bell a setting and this is the same rule. The preference
+// itself arrives through setBellEnabled(); see the note there about the config
+// key, which exists but is not yet wired to it.
+//
+// The hook replaces MessageBeep() rather than running alongside it, and is
+// reached only when the bell is enabled - so a caller counting hook calls
+// counts exactly the bells the user would have heard. That is what
+// tests/test_vt52.cpp relies on, and it is also what keeps the suite silent.
+void TerminalView::ringBell() {
+    if (!m_bellEnabled) return;
+    if (m_bellHook) {
+        m_bellHook();
+        return;
+    }
+    MessageBeep(MB_OK);
 }
 
 void TerminalView::clearFromCursor() {

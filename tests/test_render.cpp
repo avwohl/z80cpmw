@@ -90,10 +90,6 @@ int main() {
     ShowWindow(owner, SW_SHOWNOACTIVATE);
     UpdateWindow(owner);
     term.repaint();
-    MSG msg;
-    for (int i = 0; i < 200 && PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE); i++) {
-        TranslateMessage(&msg); DispatchMessageW(&msg);
-    }
 
     RECT wr, tr;
     GetWindowRect(owner, &wr);
@@ -102,23 +98,78 @@ int main() {
     shot.w = wr.right - wr.left; shot.h = wr.bottom - wr.top;
     shot.offX = tr.left - wr.left; shot.offY = tr.top - wr.top;
 
-    HDC screen = GetDC(nullptr);
-    HDC mem = CreateCompatibleDC(screen);
-    BITMAPINFO bi = {};
-    bi.bmiHeader.biSize = sizeof bi.bmiHeader;
-    bi.bmiHeader.biWidth = shot.w;
-    bi.bmiHeader.biHeight = -shot.h;      // top-down
-    bi.bmiHeader.biPlanes = 1;
-    bi.bmiHeader.biBitCount = 32;
-    bi.bmiHeader.biCompression = BI_RGB;
-    void* bits = nullptr;
-    HBITMAP dib = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
-    HGDIOBJ old = SelectObject(mem, dib);
-    BOOL ok = PrintWindow(owner, mem, 2 /* PW_RENDERFULLCONTENT */);
-    SelectObject(mem, old);
-    shot.px.assign((uint32_t*)bits, (uint32_t*)bits + (size_t)shot.w * shot.h);
-    DeleteObject(dib); DeleteDC(mem); ReleaseDC(nullptr, screen);
-    if (!ok) { printf("  SKIP: PrintWindow refused\n"); DestroyWindow(owner); return 0; }
+    // PW_RENDERFULLCONTENT asks the DESKTOP COMPOSITOR for the window, not the
+    // window itself, and the compositor has its own idea of when it is ready.
+    // A window shown a moment ago composes to a uniform black bitmap often
+    // enough to matter: measured on this machine, one capture in four came back
+    // entirely black, and every colour check then read CGA 0 and failed. A
+    // suite that reds one run in four teaches people to re-run it rather than
+    // read it, which is worse than not having it.
+    //
+    // So the capture is retried until the TERMINAL'S OWN AREA stops being one
+    // flat colour. The area matters: the first version of this asked whether
+    // the whole window bitmap was uniform, and it never was - the title bar and
+    // the frame are painted by the compositor before the client area is, so a
+    // capture with a completely blank terminal in it passed the check and then
+    // failed 22 of 27 colour checks. The predicate has to look where the
+    // question is being asked.
+    //
+    // "Not uniform" rather than "not black" because the failure mode is the
+    // compositor handing back a region it has not drawn into, whatever it fills
+    // it with. Row 1 alone is eight background swatches in eight different
+    // palette entries, so a composed capture cannot be uniform - and neither
+    // can any translation regression, which changes WHICH colours appear, not
+    // how many. The one regression this cannot tell from a blank capture is a
+    // renderer that stopped painting altogether; that is what the model-level
+    // suite in tests/test_vt52.cpp is for.
+    //
+    // If it never composes, this prints SKIP and exits 0. A machine with no
+    // desktop compositor cannot answer the question this suite asks, and
+    // failing there would say the colours are wrong rather than unmeasurable.
+    auto capture = [&]() -> bool {
+        HDC screen = GetDC(nullptr);
+        HDC mem = CreateCompatibleDC(screen);
+        BITMAPINFO bi = {};
+        bi.bmiHeader.biSize = sizeof bi.bmiHeader;
+        bi.bmiHeader.biWidth = shot.w;
+        bi.bmiHeader.biHeight = -shot.h;      // top-down
+        bi.bmiHeader.biPlanes = 1;
+        bi.bmiHeader.biBitCount = 32;
+        bi.bmiHeader.biCompression = BI_RGB;
+        void* bits = nullptr;
+        HBITMAP dib = CreateDIBSection(screen, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+        HGDIOBJ old = SelectObject(mem, dib);
+        BOOL ok = PrintWindow(owner, mem, 2 /* PW_RENDERFULLCONTENT */);
+        SelectObject(mem, old);
+        if (ok) {
+            shot.px.assign((uint32_t*)bits, (uint32_t*)bits + (size_t)shot.w * shot.h);
+        }
+        DeleteObject(dib); DeleteDC(mem); ReleaseDC(nullptr, screen);
+        if (!ok) return false;
+        // The three rows the checks below read, in the terminal's coordinates.
+        COLORREF first = shot.at(0, 0);
+        for (int y = 0; y < 3 * ch; y++) {
+            for (int x = 0; x < 8 * cw; x++) {
+                if (shot.at(x, y) != first) return true;
+            }
+        }
+        return false;   // one flat colour: the compositor has not drawn it yet
+    };
+
+    bool composed = false;
+    for (int attempt = 0; attempt < 40 && !composed; attempt++) {
+        MSG msg;
+        for (int i = 0; i < 200 && PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE); i++) {
+            TranslateMessage(&msg); DispatchMessageW(&msg);
+        }
+        composed = capture();
+        if (!composed) Sleep(50);
+    }
+    if (!composed) {
+        printf("  SKIP: the window never composed (no desktop compositor?)\n");
+        DestroyWindow(owner);
+        return 0;
+    }
 
     // Count pixels of a given colour inside one cell.
     auto countIn = [&](int row, int col, COLORREF want) {
@@ -176,6 +227,9 @@ int main() {
     }
 
     section("SGR 40-47 paint the whole cell");
+    // i == 0 is in the loop for symmetry but cannot fail: the default
+    // background is already black, so the cell is black whether ESC[40m took
+    // effect or not. The other seven carry the section.
     for (int i = 0; i < 8; i++) {
         char what[160];
         int n = countIn(1, i, cga(ANSI_TO_CGA[i]));
@@ -184,14 +238,29 @@ int main() {
         check(n > (cw * ch) / 2, what);
     }
 
-    section("no colour is drawn as its bit-reversed twin");
+    section("no colour is drawn untranslated");
+    // The regression this section exists to catch is the removal of the
+    // ANSI-to-CGA translation from the SGR path, which would make ESC[41m
+    // (ANSI red) fill CGA 1 (blue) instead of CGA 4 (red). The value the cell
+    // would then carry is the SGR parameter itself, i - so that is what must
+    // be absent from the cell, not some transformation of it.
+    //
+    // Only four of the eight indices can witness it. ansiToCGAColor() swaps
+    // bits 0 and 2, so 0, 2, 5 and 7 map to themselves: for those the
+    // translated and untranslated colours are the same and there is nothing to
+    // tell apart. The loop skips exactly those and checks 1, 3, 4 and 6.
+    //
+    // This guard used to compare ANSI_TO_CGA[i] against the bit-reversal of i,
+    // which IS the mapping - so it was true for all eight indices, check() was
+    // never reached, and the section contributed nothing while its comment
+    // claimed four skips. Measured on this machine: the suite reported 23
+    // checks with that guard and 27 with this one.
     for (int i = 0; i < 8; i++) {
-        int mirrored = ((i & 1) << 2) | (i & 2) | ((i >> 2) & 1);
-        if (mirrored == ANSI_TO_CGA[i]) continue;   // 0, 2, 5, 7 are their own mirror
+        if (i == ANSI_TO_CGA[i]) continue;   // 0, 2, 5, 7: the translation is the identity here
         char what[160];
-        int n = countIn(1, i, cga(mirrored));
+        int n = countIn(1, i, cga(i));
         snprintf(what, sizeof what, "ESC[4%dm is not CGA %d (the untranslated value); %d pixels",
-                 i, mirrored, n);
+                 i, i, n);
         check(n == 0, what);
     }
 
