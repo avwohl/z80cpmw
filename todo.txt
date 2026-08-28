@@ -16,79 +16,50 @@ glance what that machine can take.
 Needs a Windows machine
 ------------------------
 
-- [WINDOWS] the Dazzler group in Settings is inert.  SettingsDialogWx's
-loadSettings() and saveSettings() read and write m_settings.dazzlerEnabled,
-dazzlerPort and dazzlerScale, but MainWindow::onEmulatorSettings seeds none of
-them and reads none of them back, so the checkbox opens unchecked however the
-machine is actually configured and anything set in it is discarded at OK.  The
-real state lives in cfg.dazzlers[0], which only onViewDazzler touches.  Seeding
-and writing back are two lines each; the question the fix has to answer first is
-which of the two is authoritative when they disagree at startup.
+- [WINDOWS] DazzlerWindow::setScale sizes the window from the card's CURRENT
+video mode - updateSize() uses m_dazzler->getWidth() * m_scale, which is 32 on a
+fresh card - while DazzlerWindow::create() uses a fixed 128 * scale and says why
+in a comment: "Fixed size for maximum resolution (128x128 in X4 2K mode).
+Smaller modes will be scaled to fill this space", and paint() StretchBlt's the
+mode over the whole client rect.  So setScale shrinks a window create() sized
+correctly.  It now has NO caller: MainWindow::applyDazzlerState rebuilds through
+create() instead, and says there that this block collapses back to one setScale
+call once the function sizes from Dazzler::MAX_WIDTH.  Fix it that way or delete
+it; leaving a function whose only behaviour is wrong is the third option and the
+worst one.
 
-- [WINDOWS] settings.debugMode is assigned false with a "TODO: get from
-emulator" comment before the dialog opens and handed straight to
-m_emulator->setDebug() after it, so the box always opens unticked and an OK from
-someone who never touched it turns debug off.  Same function as the item above,
-and the same shape of fault - a control with no seed - so take them together.
+- [WINDOWS] closing the Dazzler window does not tell MainWindow.  DazzlerWindow
+answers WM_CLOSE with show(false) under the comment "Hide instead of destroy -
+let main window manage lifetime", and nothing notifies the owner, so
+m_dazzlerEnabled stays true and View > Dazzler stays ticked over a window that
+is not on screen.  Reopening it costs two clicks, off and on again.  The fix is
+a notification from DazzlerWindow's WM_CLOSE; applyDazzlerState already reads
+the window's real visibility, so it needs the message rather than a new rule.
 
-- [WINDOWS] the seven remote help topics can be bundled now, and the reason not
-to has gone.  help_assets::resolveTopic already holds the order - download, then
-cache, then the copy in the binary - and its third step is reached with an empty
-bundled string, so this is one argument at one call site plus whatever carries
-the bytes (RCDATA in z80cpmw.rc referencing ..\ioscpm\release_assets in place is
-the shape that was scoped; verify rc.exe /i resolves a data file through an
-include directory before writing eight lines of it, and note that it makes
-..\ioscpm a THIRD required sibling checkout, which README.md's Requirements and
-tests\run_tests.bat's guards would both have to say).  What blocked it was that
-the topics were written for iOS, and that is fixed upstream rather than forked:
-avwohl/ioscpm branch help-platform-neutral, "The shared help assets stop being
-written for iOS only".  Bundling reads release_assets/ out of the sibling
-checkout, so it gets the corrected text as soon as that branch is merged - a
-NETWORKED reader still gets the old wording until those files are attached to a
-GitHub release, which is ioscpm's own [RELEASE] item and not this port's to do.
+- [WINDOWS] MainWindow::applyConfig() carries its own copy of the Dazzler
+create-and-show code, and it is the copy that did not get fixed: it does not
+rebuild for a scale change, it does not re-port an existing card (enableDazzler
+returns early when one exists), and it still show(true)s unconditionally, so
+loading a profile reopens a Dazzler window the user had closed.  Routing it
+through applyDazzlerState() fixes all three at once, which is why that function
+was written as a function.
 
-- [WINDOWS] nothing calls help_assets::setCacheRoot(), so the help cache picks
-its own directory.  HelpAssets.h says what the call should be -
-EmulatorEngine::getUserDataDirectory() plus a help subdirectory - and until
-MainWindow makes it, cacheDir builds the path out of %LOCALAPPDATA% from the
-environment rather than through SHGetKnownFolderPath, which is what the other
-three copies of that snippet do (getUserDataDirectory, DiskCatalog's
-constructor, and getDataFolder in emu_io_windows.cpp).  One line, before the
-first help window can open.
+- [WINDOWS] docs/CONFIGURATION.md's "Wrong kind of value" bullet is now true of
+only one case out of two.  It says "the next save of any kind writes the
+built-in defaults over the section that was skipped ... Simply quitting the app
+is enough to lose the section".  A section skipped in a file that otherwise READ
+is carried through saves now and is safe; the sentence survives only for a file
+that is both wrongly typed AND unreadable, where the carry is deliberately
+dropped because the file has been quarantined.  The bullet does not distinguish
+them, and it does not say that a carry goes back only to the file it came from,
+so a user who saves a profile out of a config with a skipped section gets a
+different file from the one the bullet leads them to expect.
 
-- [WINDOWS] help_topics::configurationMarkdown() carries an in-app copy of the
-settings table that has drifted from the file it documents: there is no
-display.bell row, and nothing tells the reader that keys can be bound from
-Emulator > Settings > Keyboard rather than by hand.  It is a raw string literal
-in HelpWindow.cpp and so needs a build to see, which is exactly how the File
-Transfer topic outlived the same correction in README.md.
-
-- [WINDOWS] a wrongly-typed section in z80cpmw.json is still lost to a later
-save.  ConfigManager::load() suppresses the save it would have made itself,
-which is a complete answer for a file that could not be read at all - the
-quarantine has renamed it out from under every other save - but not for one that
-parses with a section skipped by from_json's is_array()/is_object() guards.
-Nothing quarantines that file, so the next explicit save writes our defaults
-over text nobody read: MainWindow::saveWindowPlacement() at WM_CLOSE, the
-first-run welcome flag, an NVRAM change.  Measured with "keyboard.keys" written
-as an array - the user's binding was gone within twelve seconds of boot.  The
-comment above partlyUnread in Config.cpp states both the gap and the fix: carry
-the text we could not read through to the next to_json, which is a change to the
-shape of the format rather than to its loader.
-
-- [WINDOWS] ConfigManager::loadProfile() clears m_diagnostics before it can
-fail, so loading a profile that will not parse takes down the report about
-z80cpmw.json - settings which are still in force, since a failed profile load
-changes nothing.  The clear was deliberately moved off the top of that function
-so that asking for a profile which does not exist keeps the report; the same
-reasoning applies one step further in.
-
-- [WINDOWS] tests/test_render.cpp's "SGR 40-47 paint the whole cell" section
-cannot fail for i == 0: ESC[40m sets a black background over a background that
-is already black, so that one iteration asserts nothing.  The other seven carry
-the section, so this is a hole in the evidence rather than a wrong result -
-either give index 0 a non-black background to come back from, or skip it and say
-why in the source.
+- [WINDOWS] MANUAL_CHECKS.md's "keys as an array" step stops at "the block on
+screen is the only warning the user gets".  It is now worth two more lines,
+because both are behaviours that a regression would silently take away: the
+block is still there after pressing OK in Settings, and still there after a
+restart.
 
 - [WINDOWS] cpmemu has Windows work of its own - the rewritten console input
 path, its test harness, and the cases its suite skips for want of the platform.
@@ -126,11 +97,6 @@ really is where it is expected to be.
   out beside the .msix and errors out if it is not there, so a beta cannot ship
   symbol-less in silence again; the first signed -Beta run on a version that has
   not shipped is what proves that end to end, and 1.0.23 is where it happens.
-
-- [WINDOWS] packaging/scripts/build-nsis.ps1 still has no [CmdletBinding()], so
-a stray -WhatIf there is collected into $args and the run proceeds, exactly as
-build-msix.ps1 did until dacdce5.  It is one line and its own commit;
-STORE_SUBMISSION.md already names the gap.
 
 
 The disk images are behind the core

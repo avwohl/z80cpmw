@@ -400,23 +400,23 @@ the `build-msix.ps1 -Beta` entry under **Changed** and the correction under it.
   reach the file system without it having said yes, and `fetchTopic` refuses to
   build a download URL out of a name it rejects rather than pasting a string
   that arrived over the network into `WinHttpCrackUrl`.
-  **The bundled copy did not land; this is the cache half only.**
-  `resolveTopic`'s third step is written and `bundled` is empty for every topic
-  that reaches it, so today the cache is the whole of the offline story - the
-  bundling commit changes one argument at one call site and nothing else. It is
-  blocked on a decision rather than on work: three of the seven published topics
+  **The bundled copy did not land in this entry; it landed later on the same
+  day, once the wording question below was answered upstream.** As written here,
+  `resolveTopic`'s third step exists and `bundled` is empty for every topic that
+  reaches it, so at this point the cache is the whole of the offline story. It
+  was blocked on a decision rather than on work: three of the seven published topics
   are worded for iOS ("tap the gear icon", "Cmd+C copies the screen text", an
   "iOS / iPadOS" heading) and the published `help_index.json` calls Quick Start
   "Getting started with iOSCPM", so compiling them into a Windows binary would
   make the wrong wording durable and offline, which is the opposite of what the
   item wants. Somebody has to decide whether the text is forked here or fixed
   upstream in `avwohl/ioscpm`; `cpmdroid` forked in `78e6ec6`, which is the
-  precedent, and `todo.txt` holds it as a decision. Nothing calls
-  `help_assets::setCacheRoot()` yet either - it is a seam, not a fourth copy of
-  the `SHGetKnownFolderPath` snippet this repository already has three of, and
-  until `MainWindow` calls it with `getUserDataDirectory()` plus a help
-  subdirectory, `cacheDir` computes its path from the environment. The header
-  says so. An MSIX install needs no change, because writes to `%LOCALAPPDATA%`
+  precedent, and `todo.txt` held it as a decision. Nothing called
+  `help_assets::setCacheRoot()` at this point either - it is a seam, not a
+  fourth copy of the `SHGetKnownFolderPath` snippet this repository already has
+  three of - so `cacheDir` computed its path from the environment. Both of those
+  were closed later the same day: the wording was fixed upstream rather than
+  forked, and `MainWindow::onCreate` now makes the call. An MSIX install needs no change, because writes to `%LOCALAPPDATA%`
   are redirected by the OS exactly as the config file and the disk images
   already are, and both the scratch file and its target sit in one directory so
   the rename stays inside it - argued from how the existing writes work, not
