@@ -7,20 +7,27 @@
  * tests\run_tests.bat, ahead of the two blocks that exit /b 1 when
  * ..\romwbw_emu or ..\cpmemu are missing.
  *
+ * The bundled-asset readers at the bottom are the one part of that which a
+ * third sibling, ..\ioscpm, has anything to do with, and even they only READ a
+ * resource: the checkout is a build input to z80cpmw.rc, not a compile-time
+ * dependency of this file. That is what lets the suite still run without it -
+ * see the help block in tests\run_tests.bat.
+ *
  * The renderer and the name and text helpers take strings and return strings.
  * The cache half below does touch the file system, which is the point of it,
  * and is kept testable by setCacheRoot(): the suite gives it a scratch
  * directory, so the round trip that runs in the suite is the real one and not a
  * simulation of it.
  *
- * The split is not tidying for its own sake. todo.txt asks for the seven remote
- * topics to be bundled and cached on disk, and both halves of that job are
- * built out of exactly these functions: bundling makes markdownToText's output
- * the only thing a reader ever sees of those topics, in every build and with
- * the network down, and caching turns a filename that arrived over the network
- * into a path on the user's machine. Whatever the renderer gets wrong today is
- * shipped and taken offline by the first of those, so it is fixed and pinned
- * before either is written.
+ * The split is not tidying for its own sake. todo.txt asked for the seven
+ * remote topics to be bundled and cached on disk, and both halves of that job
+ * are built out of exactly these functions: bundling makes markdownToText's
+ * output the only thing a reader ever sees of those topics, in every build and
+ * with the network down, and caching turns a filename that arrived over the
+ * network into a path on the user's machine. Whatever the renderer got wrong
+ * would have been shipped and taken offline by the first of those, which is why
+ * it was fixed and pinned before either was written. Both halves exist now -
+ * see the bundled-asset section below the cache one.
  */
 
 #pragma once
@@ -148,8 +155,8 @@ bool downloadIsComplete(long long declaredLength,
 //
 // todo.txt: "the seven remote help topics have no bundled copy and no on-disk
 // cache, so an offline user - or a release whose assets were not attached -
-// gets none of them." This is the cache half of that item and not the bundling
-// half; see resolveTopic below for why the other half is still blocked.
+// gets none of them." This is the cache half of that item; the bundled half is
+// the section after this one.
 //
 // What it buys: HelpWindow's m_cache keeps a topic in RAM for CACHE_TTL_MS
 // (fifteen minutes) and loses it at exit, so a reader who read the CP/M 2.2
@@ -178,10 +185,12 @@ bool downloadIsComplete(long long declaredLength,
 // real round trip in a scratch directory instead of writing into the user's
 // profile.
 //
-// MainWindow should call setCacheRoot(EmulatorEngine::getUserDataDirectory() +
-// "\\help") before ShowHelpWindow can run. NOTHING IN THIS REPOSITORY CALLS IT
-// YET - this commit owns HelpAssets and HelpWindow only - so until that line
-// exists the default below is what runs.
+// MainWindow::onCreate makes that call - setCacheRoot(
+// EmulatorEngine::getUserDataDirectory() + "\\help"), grep "Point the help
+// cache at the same root" - and makes it there rather than later for the reason
+// in the paragraph above: onCreate has run before any WM_COMMAND can reach
+// ShowHelpWindow. So in the shipping app the root is set and cacheDir()'s
+// default below is NOT what runs.
 //
 // An empty string puts the cache back on that default, which is how
 // tests\test_help.cpp gets at it.
@@ -190,8 +199,12 @@ void setCacheRoot(const std::string& dir);
 // The directory the cache lives in: whatever setCacheRoot was given, or, when
 // it was never called, %LOCALAPPDATA%\z80cpmw\help read from the environment.
 //
-// The default is a fallback and not the intended configuration. It normally
-// names the same directory getUserDataDirectory() + "\\help" would, since
+// The default is a fallback and not the intended configuration, and in the
+// shipping app it is not reached at all - MainWindow::onCreate sets the root
+// before a help window can exist. What still reaches it is tests\test_help.cpp,
+// which resets the root to "" between cases, and any future host of this file
+// that forgets the call. It normally names the same directory
+// getUserDataDirectory() + "\\help" would, since
 // LOCALAPPDATA and FOLDERID_LocalAppData normally agree - "normally" because
 // that equivalence has NOT been checked inside an MSIX package here, and this
 // says so rather than implying it was measured. If they ever disagreed the
@@ -245,6 +258,87 @@ bool readCached(const std::string& assetName, std::string& content);
 // returns success for an HTTP 200 with an empty body.
 bool writeCached(const std::string& assetName, const std::string& content);
 
+//=============================================================================
+// The copy compiled into the binary
+//
+// The other half of the same todo item, and the thing that carries the bytes:
+// z80cpmw.rc names each file of the sibling ..\ioscpm\release_assets checkout
+// as an RCDATA resource, so in a build made with that checkout all eight
+// published assets - help_index.json and the seven markdown topics - are inside
+// z80cpmw.exe and readable with the network down and the cache empty. In a
+// build made without it there are no such resources, and the first consequence
+// below says what that costs.
+//
+// Four consequences worth stating, because each is easy to be surprised by:
+//
+//   ..\ioscpm is an OPTIONAL sibling checkout, unlike ..\cpmemu and
+//   ..\romwbw_emu, which are required because the vcxproj compiles their
+//   sources and nothing runs without them. z80cpmw.vcxproj tests Exists() on
+//   $(SolutionDir)..\ioscpm\release_assets\help_index.json; when it is absent
+//   the resource compiler gets NO_BUNDLED_HELP_ASSETS and z80cpmw.rc's eight
+//   RCDATA lines are guarded out, so the build succeeds and ships no bundled
+//   help. When it is present the vcxproj also passes $(SolutionDir).. to the
+//   resource compiler as an include directory, which is how
+//   "ioscpm\release_assets\help_index.json" in the .rc resolves. Measured
+//   before that line was written: rc.exe DOES look for an RCDATA data file
+//   along /i, and reports RC2135 "file not found" without it.
+//
+//   That RC2135 is exactly what the guard exists to stop. It shipped briefly as
+//   a hard build failure, which made a checkout of z80cpmw + cpmemu + romwbw_emu
+//   - a complete build the day before - stop compiling for the sake of help
+//   TEXT. Losing a feature is the right price for a missing optional input.
+//   msbuild /p:BundleHelpAssets=false forces the no-sibling build on a machine
+//   that has the sibling, which is how the empty-resource path is tested.
+//
+//   The bundled text is whatever is in that checkout at BUILD time, while a
+//   networked reader gets whatever is attached to the ioscpm GitHub release.
+//   Those two can differ, and did on the day this landed. Measured 2026-08-28
+//   against https://github.com/avwohl/ioscpm/releases/latest/download/: the
+//   eight released assets mention Windows ZERO times, open help_cpm22.md with
+//   "on iOS and macOS", tell the reader to "tap the gear icon (Settings)" and
+//   describe Quick Start as "Getting started with iOSCPM". The checkout has
+//   none of that and gained a Windows section naming
+//   %LOCALAPPDATA%\z80cpmw\data. Cutting the release that closes the gap is
+//   ioscpm's item, not this port's, and the resolve order below means the
+//   difference only shows to a reader whose download works.
+//
+//   The index is bundled as well as the topics, and it has to be: without it
+//   HelpWindow::fetchIndex has no list to put in the topic pane when the
+//   download fails, so an offline reader could never select a remote topic at
+//   all and the bundled copies would be unreachable.
+//
+// EVERY FUNCTION HERE RETURNS EMPTY WHEN THE RESOURCE IS ABSENT. That is not a
+// theoretical case, and since bundling became optional it is a SHIPPING one:
+// tests\test_help.cpp is linked without the .res on a machine with no
+// ..\ioscpm, and so is z80cpmw.exe itself whenever BundleHelpAssets comes out
+// false. Empty is what resolveTopic already reads as "this build ships no
+// copy", so such a build behaves exactly as every build did before bundling -
+// download, then the on-disk cache, then the failure page - rather than
+// failing.
+//
+// Nothing here is compiled out to match. readModuleResource asks FindResourceW
+// for an id resource.h defines either way and takes false for an answer, so
+// there is no #ifdef in this file and no second place for the truth about a
+// build to be recorded and go stale.
+//=============================================================================
+
+// The compiled-in help_index.json, or empty. Hand it to parseIndexJson.
+std::string bundledIndexJson();
+
+// The compiled-in copy of one topic, keyed on HelpTopic::filename - the same
+// key the cache uses, and for the same reason. False with content cleared for
+// any name this build carries no copy of, which includes every name that is not
+// one of the seven: the mapping is a fixed table written against the .rc, not a
+// lookup of whatever arrived in the index over the network.
+bool bundledTopic(const std::string& assetName, std::string& content);
+
+// The names in that table, in the order z80cpmw.rc lists them, which is the
+// published index's order. Exposed so tests\test_help.cpp can ask the question
+// in both directions - every topic the bundled index names has a resource, and
+// every resource is named by the index - because a one-way check passes just as
+// happily on a .rc that bundles a file nothing will ever ask for.
+std::vector<std::string> bundledTopicNames();
+
 // Which copy of a topic the reader is looking at.
 enum class TopicSource {
     None,        // no copy anywhere - the failure page
@@ -273,16 +367,16 @@ struct ResolvedTopic {
 // and treating them alike is what stops an empty HTTP 200 from displacing the
 // cached copy.
 //
-// TODAY BUNDLED IS ALWAYS EMPTY FOR THE SEVEN REMOTE TOPICS, so their chain
-// really ends at the cache. The third step is written anyway because the
-// bundling commit is a change to what HelpWindow passes here and to nothing
-// else. That commit is blocked on wording, not on plumbing: three of the seven
-// published topics are written for iOS ("tap the gear icon", "Cmd+C copies the
-// screen text", an "iOS / iPadOS" heading) and the published index calls Quick
-// Start "Getting started with iOSCPM", so compiling them into a Windows binary
-// would make the wrong wording durable and offline - which is the opposite of
-// what the todo item wants. The cache carries no such question: it stores the
-// text the user has already been shown.
+// The third step is now reached with real bytes for all seven remote topics:
+// HelpWindow::fetchTopic passes bundledTopic()'s answer, and a build made
+// without the resources passes an empty string and gets the pre-bundling
+// behaviour. What held the third argument empty until now was wording rather
+// than plumbing - the published topics told the reader to "tap the gear icon"
+// and never mentioned Windows at all, and compiling that into a Windows binary
+// would have made it durable and offline, which is the opposite of what the
+// todo item wanted. It was fixed upstream, in avwohl/ioscpm 7569745 "The shared
+// help assets stop being written for iOS only", and the .rc reads that
+// checkout rather than a fork of it.
 ResolvedTopic resolveTopic(const std::string& assetName,
                            const std::string& downloaded,
                            const std::string& bundled);

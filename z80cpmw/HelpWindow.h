@@ -19,8 +19,17 @@
 
 #pragma comment(lib, "winhttp.lib")
 
-// Ids for the bundled (offline) help topics, served from the app itself, and
-// the markdown behind them.
+// Ids for the two LOCAL help topics, served from the app itself, and the
+// markdown behind them.
+//
+// "Bundled" now means two different things and they are worth keeping apart.
+// These two are prose written here, compiled in as string literals, listed by
+// seedLocalTopics() and shown by isLocalTopic()'s branch in fetchTopic() with
+// no network step at all. The seven REMOTE topics are also in the binary since
+// the bundling commit, but as RCDATA copied from ..\ioscpm\release_assets, and
+// they reach the reader only as resolveTopic's third step, behind a download
+// and behind the on-disk cache. Both end up labelled "bundled with the app" on
+// the status line, which is the truth as the reader needs it.
 //
 // The two getters were file-static in HelpWindow.cpp and are declared here so
 // tests\test_help.cpp can read what the pane will show. They stay in

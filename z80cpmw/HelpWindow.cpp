@@ -157,8 +157,17 @@ Ctrl+C and Ctrl+V are left untouched so they still reach CP/M as ^C and ^V.
 )DOC";
 }
 
-// Markdown for the bundled Configuration topic. Kept in sync with
-// docs/CONFIGURATION.md. Its code blocks are indented rather than fenced. That
+// Markdown for the bundled Configuration topic. It is the in-app copy of
+// docs/CONFIGURATION.md, and "kept in sync" is a promise this file has already
+// broken once: todo.txt caught it missing the display.bell row, the four
+// Ctrl+arrow defaults, the reserved scrollback combinations and any mention
+// that Emulator > Settings > Keyboard edits the same keyboard section. Nothing
+// compares the two, and a raw string literal needs a build to look at, which is
+// how a correction lands in the .md and not here. tests\test_help.cpp now pins
+// the specific rows that went missing, so the next omission of one of them
+// fails a suite instead of waiting to be noticed.
+//
+// Its code blocks are indented rather than fenced. That
 // used to be forced - markdownToText had no branch for a fence and printed the
 // backticks - and is now only a house preference, since the renderer understands
 // both and indents a fenced block to match an indented one.
@@ -179,6 +188,12 @@ build or the signed sideload beta - both live under
 type that: Settings and Help > About show the real, resolved path.
 
 Close z80cpmw before editing the file, then restart for changes to take effect.
+
+You do not have to edit the file to change a key. Emulator > Settings > Keyboard
+lists every bindable key with what it sends, and edits the same "keyboard"
+section described below. Changes there take effect when you press OK, with no
+restart, and anything in the file the page does not recognise is left exactly as
+you wrote it.
 
 ## Keyboard Map
 
@@ -222,6 +237,16 @@ Any other character stands for itself. An empty value unbinds that key.
 Up, Down, Left, Right, Home, End, Insert, Delete, PageUp, PageDown, and F1
 through F12. Names are case-insensitive; Ins, Del, PgUp and PgDn also work.
 
+A name may carry Ctrl+, Shift+ and Alt+ prefixes, in any number and any order,
+so Ctrl+Left and Ctrl+Shift+F3 are bindings of their own and are separate from
+plain Left and F3. Control+ is accepted for Ctrl+.
+
+Four combinations are kept by the app and cannot be bound: Shift+PageUp and
+Shift+PageDown scroll the terminal history a page at a time, Ctrl+Home jumps to
+the oldest scrollback line and Ctrl+End returns to the live screen. The
+Keyboard page lists them as greyed Reserved rows rather than leaving them out,
+and z80cpmw names one at startup if the file binds it.
+
 ### Default Bindings
 
 VT220 / xterm defaults, shown as written in the file (doubled backslashes):
@@ -251,6 +276,21 @@ VT220 / xterm defaults, shown as written in the file (doubled backslashes):
 | F11 | \\E[23~ |
 | F12 | \\E[24~ |
 
+The four Ctrl+arrows are bound by default too, in the xterm modified-key form
+where the 5 is the control modifier:
+
+| Key | Sends |
+| --- | --- |
+| Ctrl+Up | \\E[1;5A |
+| Ctrl+Down | \\E[1;5B |
+| Ctrl+Right | \\E[1;5C |
+| Ctrl+Left | \\E[1;5D |
+
+A CP/M editor is more likely to want the WordStar word-left / word-right pair,
+which is one line away:
+
+    "Ctrl+Left": "^A", "Ctrl+Right": "^F"
+
 Change any line to suit your CP/M program. For example, to make F1-F4 easier to
 parse in a hand-written key reader, give them the same CSI form as the rest:
 
@@ -277,6 +317,11 @@ these three settings decide who receives the keystroke, not what it sends. The
 menu updates its own shortcut hints to match, so an item never advertises a key
 that is no longer bound.
 
+The Keyboard page carries these three as checkboxes, worded the other way round:
+a tick means the app keeps the key. Changing one there rebuilds the accelerator
+table and relabels the menu straight away, so the shortcut starts or stops
+working when you press OK rather than at the next launch.
+
 F10 normally opens the Windows menu bar; z80cpmw delivers it to CP/M when it is
 bound in the keymap.
 
@@ -292,6 +337,7 @@ and ^V. Paste works only while the emulator is running.
 | --- | --- |
 | display.fontSize | Terminal font size, in points |
 | display.scrollbackLines | Lines of history kept for scrollback (0 = off) |
+| display.bell | Whether BEL (character 7) makes a sound (default true) |
 | core.rom | ROM image to load at startup |
 | core.bootString | Text typed automatically at the boot menu |
 | disks | Disk images assigned to units 0-3 |
@@ -656,29 +702,60 @@ void HelpWindow::fetchIndex() {
         std::string json;
         std::string error;
 
-        if (!downloadToString(INDEX_URL, json, error)) {
-            // Online index unavailable: still offer the bundled local topics.
-            seedLocalTopics();
-            PostMessage(m_hwnd, WM_APP, 0, (LPARAM)new std::string("Online help unavailable - showing local topics."));
-            m_loading = false;
-            PostMessage(m_hwnd, WM_APP + 1, 0, 0);
-            return;
-        }
+        // The index goes through the same three-step order fetchTopic uses for
+        // a topic, minus the cache: the network first, then the copy compiled
+        // in from ..\ioscpm\release_assets. It has to have the second step, and
+        // that is the whole reason the index is bundled alongside the seven
+        // topics. Without a list the topic pane holds only Getting Started and
+        // Configuration, so an offline reader can never SELECT one of the seven
+        // - and the bundled copies fetchTopic would hand them are unreachable.
+        //
+        // The index is not cached on disk and this does not consult one. A
+        // stale list naming a topic the release no longer carries would send
+        // the reader to a download that 404s and a bundled copy that does not
+        // exist; the compiled-in list, by contrast, names exactly the seven
+        // this binary carries.
+        bool online = downloadToString(INDEX_URL, json, error);
 
         std::vector<help_assets::HelpTopic> topics;
-        if (!help_assets::parseIndexJson(json, topics, error)) {
-            seedLocalTopics();
-            PostMessage(m_hwnd, WM_APP, 0, (LPARAM)new std::string("Could not parse online index - showing local topics."));
-            m_loading = false;
-            PostMessage(m_hwnd, WM_APP + 1, 0, 0);
-            return;
+        bool haveIndex = online && help_assets::parseIndexJson(json, topics, error);
+
+        std::string note;
+        if (!haveIndex) {
+            std::string fallbackError;
+            std::vector<help_assets::HelpTopic> bundledTopics;
+            if (help_assets::parseIndexJson(help_assets::bundledIndexJson(),
+                                            bundledTopics, fallbackError)) {
+                topics = bundledTopics;
+                haveIndex = true;
+                note = online ? "Could not read the online index - listing the topics bundled with the app."
+                              : "Online help unavailable - listing the topics bundled with the app.";
+            } else {
+                // Neither a usable index from the network nor one in the
+                // binary, so back to the two local topics - what this window
+                // did before either half of the todo item existed. The two
+                // notes are kept apart because "online" is still true when the
+                // download arrived and would not parse.
+                topics.clear();
+                note = online ? "Could not parse online index - showing local topics."
+                              : "Online help unavailable - showing local topics.";
+            }
         }
 
-        m_topics = topics;
-        seedLocalTopics();  // bundled topics appear above the online ones
-        m_loading = false;
+        if (haveIndex) m_topics = topics;
+        seedLocalTopics();  // bundled topics appear above the listed ones
 
-        // Update UI on main thread
+        // Post order kept exactly as it was: the note, then m_loading, then the
+        // repaint. Which of the two writes to the status line survives is
+        // unchanged by this commit and is not obviously right either way -
+        // updateTopicList takes the line back with "Select a topic from the
+        // list" when no topic is on screen, while the note takes it from a
+        // "Viewing:" line when one is - so it is left as found rather than
+        // adjusted in passing by a commit about something else.
+        if (!note.empty()) {
+            PostMessage(m_hwnd, WM_APP, 0, (LPARAM)new std::string(note));
+        }
+        m_loading = false;
         PostMessage(m_hwnd, WM_APP + 1, 0, 0);
     }).detach();
 }
@@ -824,11 +901,18 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
         // todo.txt's order, and the only place this window expresses it:
         // download, then cache, then the copy in the binary. resolveTopic
         // writes the cache when the download succeeded, reads it when it did
-        // not, and falls through to a bundled copy - which today is empty for
-        // every topic that reaches here, so the chain really ends at the cache.
-        // The bundling commit changes the third argument and nothing else.
+        // not, and falls through to the bundled copy when there is none.
+        //
+        // The third argument is read here rather than passed down as an id
+        // because resolveTopic takes bytes: it has to treat "no bundled copy"
+        // and "an empty bundled copy" alike, and a lookup that returns a string
+        // is the shape that does. bundledTopic leaves it empty for a build
+        // linked without the resources, which is the pre-bundling behaviour.
+        std::string bundled;
+        help_assets::bundledTopic(filename, bundled);
+
         help_assets::ResolvedTopic resolved = help_assets::resolveTopic(
-            filename, downloaded ? content : std::string(), std::string());
+            filename, downloaded ? content : std::string(), bundled);
 
         if (resolved.source == help_assets::TopicSource::None) {
             // Report the failure IN THE PANE, not only on the status line. An

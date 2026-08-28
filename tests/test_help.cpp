@@ -3,11 +3,10 @@
  *
  * todo.txt: "the seven remote help topics have no bundled copy and no on-disk
  * cache." The renderer sections came first, before either half could bake a
- * defect into a binary or into a file on the user's disk; the cache sections at
- * the bottom cover the half of the item that is now done. The bundling half is
- * still blocked on wording rather than on plumbing - see resolveTopic in
- * z80cpmw\HelpAssets.h - and the resolve-order section pins the three-step
- * chain it will slot into.
+ * defect into a binary or into a file on the user's disk; the cache sections
+ * further down cover the second half, and the bundled-asset section at the
+ * bottom covers the third, which is the one that puts the renderer's output in
+ * front of a reader with no network at all.
  *
  * What this suite would have caught, measured over the eight assets published
  * in avwohl/ioscpm at ..\ioscpm\release_assets:
@@ -23,12 +22,14 @@
  *   U+2026 twice, U+2192 six times - mangled into two or three wchar_t each by
  *   std::wstring(text.begin(), text.end()).
  *
- * Those assets are NOT read here. This suite needs no sibling checkout and no
- * window station, which is what lets it sit second in tests\run_tests.bat: the
- * host-file and HBIOS blocks below it exit /b 1 when ..\romwbw_emu or ..\cpmemu
- * are missing, so a block appended after them is unreachable on a machine that
- * has only this repository. The index JSON below is a copy of the published one
- * rather than a read of it, for the same reason.
+ * Those assets are read in ONE section, the bundled-asset one at the bottom,
+ * and that section is compiled out when ..\ioscpm is not there. Everything else
+ * needs no sibling checkout and no window station, which is what lets the suite
+ * sit second in tests\run_tests.bat: the host-file and HBIOS blocks below it
+ * exit /b 1 when ..\romwbw_emu or ..\cpmemu are missing, so a block appended
+ * after them is unreachable on a machine that has only this repository. The
+ * index JSON in test_parse_index is a copy of the published one rather than a
+ * read of it, for the same reason.
  *
  * The cache sections do touch the file system - that is what they are for - but
  * only under %TEMP%\z80cpmw_help_cache_<pid>, which help_assets::setCacheRoot
@@ -40,9 +41,18 @@
 
 #include "HelpAssets.h"
 #include "HelpWindow.h"
+// For the IDR_HELP_* ids the bundled-asset section checks the module's RCDATA
+// resources against. Harmless in a build without them: it is #defines only.
+#include "resource.h"
+// For keymap::defaultBindings() and keymap::reservedKeys(), which the
+// Configuration topic's two tables are checked against instead of against a
+// copy of them written out here. Header-only over windows.h, <string>, <map>,
+// <cctype> and <cstdlib>, so it adds nothing to link and needs no sibling.
+#include "Keymap.h"
 
 #include <windows.h>
 
+#include <algorithm>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -261,6 +271,77 @@ static void test_bundled_render_invariants() {
     checkTrue(contains(help_assets::markdownToText(help_topics::configurationMarkdown()),
                        "\\\\E[A"),
               "the doubled backslash of a default binding survives the renderer");
+}
+
+static void test_bundled_configuration_matches_docs() {
+    section("bundled topics: the settings the Configuration topic documents");
+
+    // todo.txt: the in-app copy of the settings table "has drifted from the
+    // file it documents: there is no display.bell row, and nothing tells the
+    // reader that keys can be bound from Emulator > Settings > Keyboard rather
+    // than by hand." Both are fixed, and pinned here because the copy is a raw
+    // string literal that needs a build to look at - the same property that let
+    // the last correction land in docs\CONFIGURATION.md and not in this string.
+    //
+    // These are substring checks and not a diff against docs\CONFIGURATION.md.
+    // A diff is not possible: the topic is deliberately NOT that file - it
+    // carries none of the markdown constructs the EDIT-control renderer handles
+    // badly, and it is shorter. What is checkable is that each fact the item
+    // named is present in some wording, which is what fails when one is dropped
+    // again.
+    const std::string cfg = help_topics::configurationMarkdown();
+
+    checkTrue(contains(cfg, "| display.bell |"),
+              "the Other Settings table has a display.bell row");
+    checkTrue(contains(cfg, "BEL (character 7)"),
+              "and says what it does, in docs\\CONFIGURATION.md's words");
+    checkTrue(contains(cfg, "default true"),
+              "and gives its default, which is AppConfig::bellEnabled's");
+
+    checkTrue(contains(cfg, "Emulator > Settings > Keyboard"),
+              "the reader is told keys can be bound from the Keyboard page");
+    checkTrue(contains(cfg, "You do not have to edit the file to change a key"),
+              "and told it before the hand-editing instructions, not after");
+
+    // The Default Bindings table, walked against keymap::defaultBindings()
+    // rather than against a list written out here. That is the difference
+    // between pinning the four Ctrl+arrows that had gone missing and pinning
+    // the PROPERTY that went wrong - a fifth default added to Keymap.h and not
+    // to this topic fails the suite on its own, with no test to remember to
+    // update. Keymap.h costs nothing to include: it is header-only over
+    // windows.h and four standard headers, and links nothing.
+    //
+    // The topic shows each sequence with its backslashes DOUBLED, because that
+    // is how the user types it into z80cpmw.json, so the comparison doubles
+    // them too. Everything else about the row is literal.
+    for (const auto& binding : keymap::defaultBindings()) {
+        std::string shown;
+        for (char ch : binding.second) {
+            shown += ch;
+            if (ch == '\\') shown += '\\';
+        }
+        std::string row = "| " + binding.first + " | " + shown + " |";
+        checkTrue(contains(cfg, row), "the default bindings table has " + row);
+    }
+    checkTrue(contains(cfg, "Ctrl+, Shift+ and Alt+ prefixes"),
+              "and the modifier prefixes a Ctrl+arrow row needs are explained");
+
+    // The reserved combinations, walked the same way out of
+    // keymap::reservedKeys(). Keymap.h's own comment records that
+    // docs\CONFIGURATION.md carries a hand-maintained copy of this list which
+    // nothing checks against the table - that is still true of the .md; it is
+    // no longer true of the in-app copy.
+    size_t reservedCount = 0;
+    const keymap::ReservedKey* reserved = keymap::reservedKeys(&reservedCount);
+    checkTrue(reservedCount > 0, "keymap has reserved combinations to document");
+    for (size_t i = 0; i < reservedCount; ++i) {
+        std::string name = keymap::nameForKeyId(
+            (reserved[i].mods << 16) | (unsigned)reserved[i].vk);
+        checkTrue(!name.empty(), "reserved row " + std::to_string(i) + " has a name");
+        checkTrue(contains(cfg, name), name + " is named as reserved");
+    }
+    checkTrue(contains(cfg, "kept by the app and cannot be bound"),
+              "and they are said to be unbindable, not merely listed");
 }
 
 //=============================================================================
@@ -748,7 +829,8 @@ static bool endsWith(const std::string& s, const std::string& suffix) {
 static void test_cache_paths() {
     section("cache: paths");
 
-    // The default, which is what runs until MainWindow calls setCacheRoot.
+    // The default. The shipping app does not reach it - MainWindow::onCreate
+    // calls setCacheRoot first - so this suite is what keeps it honest.
     // Needs LOCALAPPDATA, which every interactive Windows session has; with it
     // unset the default is empty by design and these two checks are the ones
     // that would say so.
@@ -1198,6 +1280,242 @@ static void test_download_truncation_leaves_the_cache_alone() {
 }
 
 //=============================================================================
+// The seven remote topics compiled into the binary
+//
+// z80cpmw.rc turns each file of ..\ioscpm\release_assets into an RCDATA
+// resource; help_assets::bundledIndexJson and bundledTopic read them back, and
+// HelpWindow hands the latter to resolveTopic as its third step. The checks
+// below are what stops that wiring being wrong in the two ways it can be
+// without anything crashing: a topic the index names that no resource answers
+// for - the reader gets the failure page offline, exactly as before bundling -
+// and a resource nothing will ever ask for, which is bytes in every binary for
+// nothing.
+//
+// THIS SECTION IS THE ONLY PART OF THE SUITE THAT NEEDS ..\ioscpm, and it is
+// compiled only when tests\run_tests.bat found that checkout and linked the
+// resources in; see the help block there. Everything above still runs on a
+// machine holding this repository and nothing else, which is what lets the
+// suite sit second, ahead of the blocks that exit /b 1 for a missing sibling.
+//
+// It sits here, below the cache sections, for one reason: check 7 runs the real
+// resolveTopic, whose second step reads the cache. Up with the other bundled-
+// topic sections it would consult whatever help the person running the suite
+// happens to have cached in their own profile. scratchDir() is declared above,
+// so down here it can point the cache at an empty directory instead.
+//=============================================================================
+
+#ifdef HELP_BUNDLED_ASSETS
+// Where run_tests.bat's rc.exe invocation compiled the blobs FROM, relative to
+// the repository root it cds to. Comparing against these files is the point of
+// the section: a resource that is not byte-for-byte the file it was made from
+// means the .rc, the resource compiler's include path or the id table in
+// HelpAssets.cpp is pointing somewhere other than where it claims.
+static const char* const kAssetDir = "..\\ioscpm\\release_assets";
+
+static bool readWholeFile(const std::string& path, std::string& out) {
+    out.clear();
+    HANDLE h = CreateFileW(wide(path).c_str(), GENERIC_READ, FILE_SHARE_READ,
+                           nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+
+    LARGE_INTEGER size = {};
+    if (!GetFileSizeEx(h, &size) || size.QuadPart <= 0 || size.QuadPart > (1 << 20)) {
+        CloseHandle(h);
+        return false;
+    }
+
+    out.resize((size_t)size.QuadPart);
+    DWORD got = 0;
+    bool ok = ReadFile(h, &out[0], (DWORD)out.size(), &got, nullptr) &&
+              got == (DWORD)out.size();
+    CloseHandle(h);
+    if (!ok) out.clear();
+    return ok;
+}
+
+// Every RT_RCDATA resource in this executable, by integer id. One given a STRING
+// name is recorded as -1 rather than dropped, so it still shows up as an orphan:
+// this list is compared against the eight ids resource.h defines, and "not an
+// integer id at all" is not one of them.
+static BOOL CALLBACK collectRcdataId(HMODULE, LPCWSTR, LPWSTR name, LONG_PTR param) {
+    std::vector<long>* ids = reinterpret_cast<std::vector<long>*>(param);
+    ids->push_back(IS_INTRESOURCE(name) ? (long)(ULONG_PTR)name : -1);
+    return TRUE;
+}
+
+static std::vector<long> rcdataIds() {
+    std::vector<long> ids;
+    // MAKEINTRESOURCEW(10) rather than RT_RCDATA for the reason spelled out on
+    // kResourceTypeRcData in HelpAssets.cpp: RT_RCDATA is the ANSI spelling in
+    // a translation unit that does not define UNICODE, and this suite is one.
+    //
+    // Nothing is asserted about the return value. FALSE with
+    // ERROR_RESOURCE_TYPE_NOT_FOUND is what a module carrying no RCDATA at all
+    // gives back, and it leaves ids empty - which is exactly the answer the
+    // caller wants for that case, and one the count check below then fails on.
+    EnumResourceNamesW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(10),
+                       collectRcdataId, (LONG_PTR)&ids);
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
+static std::string joined(const std::vector<std::string>& v) {
+    std::string s;
+    for (const auto& item : v) {
+        if (!s.empty()) s += ", ";
+        s += item;
+    }
+    return s.empty() ? "(none)" : s;
+}
+#endif  // HELP_BUNDLED_ASSETS
+
+static void test_bundled_remote_assets() {
+    section("bundled assets: the compiled-in copies of the seven remote topics");
+
+#ifndef HELP_BUNDLED_ASSETS
+    printf("  SKIP: built without ..\\ioscpm\\release_assets, so this binary "
+           "carries no help resources to check\n");
+#else
+    // 1. The index is there, and is the file it was compiled from.
+    const std::string index = help_assets::bundledIndexJson();
+    checkTrue(!index.empty(), "the bundled help_index.json is not empty");
+
+    std::string onDisk;
+    checkTrue(readWholeFile(std::string(kAssetDir) + "\\help_index.json", onDisk),
+              "and the file it was compiled from can be read");
+    check(index == onDisk, "the bundled index is byte-identical to that file",
+          std::to_string(index.size()) + " bytes",
+          std::to_string(onDisk.size()) + " bytes");
+
+    // 2. It parses to exactly seven topics, through the same parser fetchIndex
+    //    runs on the downloaded copy - so the fallback list and the online list
+    //    are built by the same code and cannot differ in shape.
+    std::vector<help_assets::HelpTopic> topics;
+    std::string error;
+    checkTrue(help_assets::parseIndexJson(index, topics, error),
+              "the bundled index parses: " + error);
+    checkInt((long)topics.size(), 7, "and yields exactly seven topics");
+
+    // 3. Every topic the index names resolves to a resource holding the file's
+    //    bytes. This is the direction that decides whether an offline reader
+    //    gets the topic at all.
+    std::vector<std::string> named;
+    for (const auto& topic : topics) {
+        named.push_back(topic.filename);
+
+        checkTrue(help_assets::isSafeAssetName(topic.filename),
+                  topic.filename + ": the index names it safely");
+
+        std::string blob;
+        bool got = help_assets::bundledTopic(topic.filename, blob);
+        checkTrue(got, topic.filename + ": a bundled copy exists");
+        if (!got) continue;
+
+        std::string file;
+        checkTrue(readWholeFile(std::string(kAssetDir) + "\\" + topic.filename, file),
+                  topic.filename + ": the file it was compiled from can be read");
+        check(blob == file, topic.filename + ": the blob is byte-identical to it",
+              std::to_string(blob.size()) + " bytes",
+              std::to_string(file.size()) + " bytes");
+    }
+
+    // 4. And the other direction. A one-way check passes just as happily on a
+    //    build that bundles a file nobody will ever ask for, so the id table is
+    //    held to the index's names AND to its order - the order is what a
+    //    renumbering breaks while every individual lookup still succeeds.
+    std::vector<std::string> table = help_assets::bundledTopicNames();
+    checkInt((long)table.size(), 7, "the name-to-id table holds seven names");
+    check(table == named, "and holds exactly the index's names, in its order",
+          joined(table), joined(named));
+
+    // 5. No orphan resource: eight RCDATA ids, and exactly the eight resource.h
+    //    defines. A ninth is bytes in every binary that nothing can reach.
+    std::vector<long> want = {
+        IDR_HELP_INDEX, IDR_HELP_QUICK_START, IDR_HELP_CPM22, IDR_HELP_ZSDOS,
+        IDR_HELP_NZCOM, IDR_HELP_ZPM3, IDR_HELP_QPM, IDR_HELP_FILE_TRANSFER,
+    };
+    std::sort(want.begin(), want.end());
+    std::vector<long> have = rcdataIds();
+    checkInt((long)have.size(), 8, "the module carries eight RCDATA resources");
+    checkTrue(have == want, "and they are exactly the eight resource.h defines");
+
+    // 6. The wording this todo item was held open for. Compiling text written
+    //    for iOS into a Windows binary would have made the wrong wording
+    //    durable and offline, so the strings that named the problem are
+    //    asserted absent and the Windows wording that replaced them asserted
+    //    present. If avwohl/ioscpm ever goes back, this fails here instead of
+    //    shipping.
+    //
+    //    The three strings were measured against the assets attached to
+    //    https://github.com/avwohl/ioscpm/releases/latest/download/ on
+    //    2026-08-28, which at that date still carried the pre-fix text:
+    //    "tap the **gear icon** (Settings)" and "Return to main screen and tap
+    //    **Play**" in help_cpm22.md, "Files app -> iOSCPM -> Imports" and a
+    //    com.awohl.iOSCPM container path in help_file_transfer.md, "This guide
+    //    covers using CP/M 2.2 in the Z80CPM emulator on iOS and macOS" at the
+    //    top of help_cpm22.md, and "Getting started with iOSCPM" as Quick
+    //    Start's description in the index. "gear icon" and not "tap the gear
+    //    icon" because the published line has the bold markers inside it.
+    checkFalse(contains(index, "iOSCPM"),
+               "the bundled index does not describe a topic as iOSCPM's");
+    for (const auto& name : named) {
+        std::string blob;
+        if (!help_assets::bundledTopic(name, blob)) continue;
+        checkFalse(contains(blob, "gear icon"), name + ": no \"gear icon\"");
+        checkFalse(contains(blob, "iOSCPM"), name + ": no \"iOSCPM\"");
+        checkFalse(contains(blob, "on iOS and macOS"),
+                   name + ": no \"on iOS and macOS\"");
+    }
+
+    // And the positive half, on the three topics that carry platform-specific
+    // instructions at all. The other four - the ZSDOS, NZCOM, ZPM3 and QPM
+    // guides - describe an operating system and name no platform, so requiring
+    // "Windows" of them would be requiring a sentence that has no business
+    // being there. Measured the same day: those three named Windows zero times
+    // in the released assets and 3, 1 and 5 times in the checkout.
+    const char* platformTopics[] = {
+        "help_quick_start.md", "help_cpm22.md", "help_file_transfer.md",
+    };
+    for (const char* name : platformTopics) {
+        std::string blob;
+        if (!help_assets::bundledTopic(name, blob)) continue;
+        checkTrue(contains(blob, "Windows"),
+                  std::string(name) + ": names Windows, not only the Apple ports");
+    }
+
+    std::string transfer;
+    if (help_assets::bundledTopic("help_file_transfer.md", transfer)) {
+        checkTrue(contains(transfer, "### Windows"),
+                  "the File Transfer topic has a Windows section of its own");
+        checkTrue(contains(transfer, "%LOCALAPPDATA%\\z80cpmw\\data"),
+                  "and names this port's data folder in it");
+    }
+
+    // 7. The resolve order with a bundled copy in hand, which is what the
+    //    wiring is for: the same three arguments fetchTopic builds, with no
+    //    download and nothing cached, so the third step is the one that
+    //    answers. The cache is pointed at an empty scratch directory first -
+    //    on the default root this would read whatever the person running the
+    //    suite has cached under their own profile and could resolve to Cached.
+    help_assets::setCacheRoot(scratchDir() + "\\bundled");
+    std::string blob;
+    if (help_assets::bundledTopic("help_qpm.md", blob)) {
+        help_assets::ResolvedTopic r =
+            help_assets::resolveTopic("help_qpm.md", std::string(), blob);
+        checkTrue(r.source == help_assets::TopicSource::Bundled,
+                  "a topic with no download and no cache file resolves to Bundled");
+        checkStr(help_assets::sourceLabel(r.source), "bundled with the app",
+                 "and the status line says so");
+        checkStr(r.content, blob, "with the compiled-in bytes as its content");
+    }
+    // Put the root back so nothing after this reads a directory this section
+    // chose. removeScratch() below takes the tree away either way - it is keyed
+    // on scratchDir(), not on the cache root.
+    help_assets::setCacheRoot("");
+#endif  // HELP_BUNDLED_ASSETS
+}
+
+//=============================================================================
 
 int main() {
     printf("Help renderer and asset suite\n");
@@ -1205,6 +1523,7 @@ int main() {
 
     test_bundled_file_transfer();
     test_bundled_render_invariants();
+    test_bundled_configuration_matches_docs();
     test_render_headers();
     test_render_bullets();
     test_render_inline();
@@ -1221,6 +1540,10 @@ int main() {
     test_cache_half_written_file();
     test_download_completeness();
     test_download_truncation_leaves_the_cache_alone();
+
+    // Last, because it is the only one that can be compiled out and because it
+    // borrows the scratch root the cache sections established.
+    test_bundled_remote_assets();
 
     // Everything the cache sections wrote lives under %TEMP%; take it away
     // whether they passed or failed, so a failing run does not leave the next

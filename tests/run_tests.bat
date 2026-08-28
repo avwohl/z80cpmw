@@ -52,28 +52,65 @@ if errorlevel 1 (
 )
 
 REM The help suite is second because it can be.  HelpAssets.cpp includes
-REM windows.h and the standard library; HelpWindow.cpp adds pch.h, resource.h
+REM windows.h, resource.h and the standard library; HelpWindow.cpp adds pch.h
 REM and Version.h and reaches no project symbol outside those two files.  The
-REM suite itself reads no disk image and no help asset - its copy of
-REM help_index.json is a string literal, so ..\ioscpm need not be checked out
-REM either - and it needs no window station.  Both blocks further down exit /b 1
-REM when ..\romwbw_emu or ..\cpmemu is missing, so a suite appended at the end
-REM is unreachable on a machine that has only this repository, and this one has
-REM no reason to be there.
+REM suite needs no disk image and no window station.  Both blocks further down
+REM exit /b 1 when ..\romwbw_emu or ..\cpmemu is missing, so a suite appended at
+REM the end is unreachable on a machine that has only this repository, and this
+REM one has no reason to be there.
+REM
+REM ..\ioscpm is the exception, and it is handled by SKIPPING rather than by
+REM exiting: this block is too high up to exit /b 1 from - everything below it
+REM would stop running - and the sibling is needed by exactly one section of the
+REM suite.  When it is there, z80cpmw.rc is compiled and linked in so the
+REM bundled help resources are present in the test binary, and /D
+REM HELP_BUNDLED_ASSETS turns on the section that checks each blob against the
+REM file it came from.  When it is not, both are left out and that section
+REM prints SKIP; the other sections do not read a help asset at all.
+REM
+REM The .rc compiled here is the APPLICATION'S, not a copy written for the
+REM suite, which is the point: "no orphan resource" and "byte-identical to the
+REM file" are then claims about the resource script that really ships.
+REM
+REM It needs two /i paths where the vcxproj needs one.  "..", the directory
+REM holding the sibling checkouts, is the vcxproj's ResourceCompile
+REM AdditionalIncludeDirectories in both configurations, and is what makes the
+REM "ioscpm\release_assets\..." data files resolve.  "z80cpmw" is extra: MSBuild
+REM runs rc.exe with the project directory as the working directory, so
+REM #include "resource.h" and "Version.h" resolve beside the .rc there, while
+REM this script runs from the repository root.
 REM
 REM comdlg32.lib is deliberately absent: pch.h already pragma-comments
 REM comctl32/shlwapi/winmm and HelpWindow.h pragma-comments winhttp, so the only
 REM libraries left to name are the two the window and its font need.
 if not exist "obj\tests\help" mkdir "obj\tests\help"
 
+set "HELPRES="
+set "HELPDEF="
+if exist "..\ioscpm\release_assets\help_index.json" (
+    rc /nologo /i z80cpmw /i .. /fo obj\tests\help\z80cpmw.res z80cpmw\z80cpmw.rc
+    if errorlevel 1 (
+        echo Compiling z80cpmw.rc for the help suite failed.
+        exit /b 1
+    )
+    set "HELPRES=obj\tests\help\z80cpmw.res"
+    set "HELPDEF=/D HELP_BUNDLED_ASSETS"
+) else (
+    echo.
+    echo Missing ..\ioscpm - clone it beside this repository to check the
+    echo bundled help assets.  Skipping that section; the rest of the help
+    echo suite still runs.
+)
+
 echo.
 echo === Building the help renderer and asset suite ===
 cl /nologo /EHsc /W3 /O2 /std:c++17 ^
-    /D _CRT_SECURE_NO_WARNINGS ^
+    /D _CRT_SECURE_NO_WARNINGS %HELPDEF% ^
     /I z80cpmw ^
     tests\test_help.cpp ^
     z80cpmw\HelpAssets.cpp ^
     z80cpmw\HelpWindow.cpp ^
+    %HELPRES% ^
     /Fo:obj\tests\help\ ^
     /Fe:obj\tests\help\test_help.exe ^
     /link /SUBSYSTEM:CONSOLE user32.lib gdi32.lib

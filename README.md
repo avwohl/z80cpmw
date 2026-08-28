@@ -48,6 +48,30 @@ Requirements:
   [`romwbw_emu`](https://github.com/avwohl/romwbw_emu) checked out **next to**
   this one: the project compiles emulator sources directly from
   `..\cpmemu\src` and `..\romwbw_emu\src`.
+- **Optional:** the sibling repository
+  [`ioscpm`](https://github.com/avwohl/ioscpm), also next to this one. When it
+  is there, `z80cpmw.rc` compiles the eight shared help assets in
+  `..\ioscpm\release_assets` into the executable as `RCDATA`, so the seven
+  online help topics can still be read with no network and an empty cache. It is
+  a build input only — nothing links against it, and the text it carries is
+  whatever that checkout holds at build time.
+
+  Without it the build succeeds and simply ships no compiled-in help:
+  `z80cpmw.vcxproj` tests for
+  `..\ioscpm\release_assets\help_index.json` and, when it is missing, defines
+  `NO_BUNDLED_HELP_ASSETS`, which guards those eight `RCDATA` lines out. What is
+  lost is the offline floor for those seven topics — a reader who has never
+  successfully downloaded one, and has nothing in the on-disk cache, gets *"This
+  topic could not be downloaded"* instead of the bundled text. Everything else
+  is unchanged: the topics still download, still cache to disk, and the two
+  written-in topics (**Getting Started** and **Configuration File**) are not
+  affected at all. Pass `/p:BundleHelpAssets=false` to force that build on a
+  machine that does have the checkout.
+
+`tests\run_tests.bat` needs `..\cpmemu` and `..\romwbw_emu` for its last three
+suites and stops without them. `..\ioscpm` it treats differently, for the same
+reason the build does: the help suite skips the one section that checks the
+bundled assets and runs the rest.
 
 Open `z80cpmw.sln` in Visual Studio and build the solution.
 
@@ -126,8 +150,22 @@ Settings are stored in `%LOCALAPPDATA%\z80cpmw\z80cpmw.json`, which you can edit
 by hand. This includes the keyboard map (`keyboard.keys`, written as termcap-style
 escape strings), the `f1ToCpm` / `f5ToCpm` / `ctrlRToCpm` toggles, fonts, ROM and disk
 assignments. The keyboard map and a Getting Started guide are also viewable
-in-app from **Help → Help Topics** (the **Getting Started** and **Configuration
-File** topics, which work even offline).
+in-app from **Help → Help Topics**, and every topic there works offline in a
+build made with the optional `..\ioscpm` checkout: the **Getting Started** and
+**Configuration File** topics are written into the app, and the seven guides
+that normally come from the network fall back to a downloaded copy on disk and
+then to the copy compiled in from `..\ioscpm\release_assets` (see
+[Building](#building) for what a build without that checkout loses).
+
+The status line at the foot of the help window names the copy you are reading:
+`downloaded`, `offline copy` (with the date it was saved), `bundled with the
+app`, or `unavailable`. There is a fifth answer, **`this session's copy`**, and
+it means something different from the others — the help window keeps a topic in
+memory for fifteen minutes after it is first shown, and re-reading it inside
+that window repaints from memory without touching the network or the disk. That
+in-memory entry does not record which of the four the text originally came from,
+so the status line does not guess — it tells you only that nothing was fetched
+just now.
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference,
 including the escape syntax, bindable key names, and the default bindings.

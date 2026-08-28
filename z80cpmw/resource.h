@@ -51,3 +51,21 @@
 // Timer
 #define IDT_EMULATOR            7001
 
+// The eight help assets compiled in from ..\ioscpm\release_assets: the index
+// and the seven topics it lists, in the index's own order. z80cpmw.rc turns
+// each into an RCDATA resource and help_assets::bundledTopic reads them back;
+// the name-to-id table lives in HelpAssets.cpp, so a new topic needs a line
+// here, a line in the .rc and a line in that table.
+//
+// 8000 rather than an id near the menu's: these are data, not user interface,
+// and nothing dispatches on them, so they are kept clear of the WM_COMMAND
+// ranges above where a collision would be a silently wrong menu item.
+#define IDR_HELP_INDEX          8000
+#define IDR_HELP_QUICK_START    8001
+#define IDR_HELP_CPM22          8002
+#define IDR_HELP_ZSDOS          8003
+#define IDR_HELP_NZCOM          8004
+#define IDR_HELP_ZPM3           8005
+#define IDR_HELP_QPM            8006
+#define IDR_HELP_FILE_TRANSFER  8007
+

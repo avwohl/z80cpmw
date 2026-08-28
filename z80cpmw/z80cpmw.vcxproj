@@ -43,6 +43,40 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
+  <!-- Is the sibling ..\ioscpm checkout here, and therefore can z80cpmw.rc
+       compile the eight shared help assets in? This is a DETECTION and not a
+       requirement: ..\cpmemu and ..\romwbw_emu are required because their
+       sources are compiled below and nothing runs without them, while ..\ioscpm
+       supplies help text only. Before this property existed the .rc named those
+       eight files unconditionally, so a tree with the two emulator siblings and
+       no third one stopped with "error RC2135 : file not found:
+       ioscpm\release_assets\help_index.json", reported against the
+       IDR_HELP_INDEX line - a complete build turned into no build by an
+       optional input. (The line number rc.exe prints is deliberately not
+       quoted here: it moves whenever the .rc does, and a comment that cites one
+       is a comment that goes quietly wrong.)
+
+       help_index.json is the file tested rather than the directory because it
+       is the one asset that MUST be there for bundling to be worth anything:
+       without a bundled index HelpWindow::fetchIndex has no list to show an
+       offline reader and the bundled topics are unreachable. It is also the
+       first line the .rc names, so it is the file the old RC2135 quoted.
+
+       Overridable, and the override is how the no-sibling build is tested on a
+       machine that HAS the sibling: msbuild /p:BundleHelpAssets=false compiles
+       the .rc with NO_BUNDLED_HELP_ASSETS defined and produces a binary with no
+       RT_RCDATA at all. Forcing it true without the checkout gets RC2135 back,
+       which is the honest answer to asking for a bundle of files that are not
+       there. Same value in both configurations on purpose: there is one .rc, so
+       a Debug build that disagreed with Release about this would ship offline
+       help in only one of them.
+
+       tests\run_tests.bat does its own "if exist" on the same file and does not
+       read this property - it invokes rc.exe directly, outside MSBuild. -->
+  <PropertyGroup Label="HelpAssetBundling">
+    <BundleHelpAssets Condition="'$(BundleHelpAssets)' == '' And Exists('$(SolutionDir)..\ioscpm\release_assets\help_index.json')">true</BundleHelpAssets>
+    <BundleHelpAssets Condition="'$(BundleHelpAssets)' == ''">false</BundleHelpAssets>
+  </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
     <OutDir>$(SolutionDir)bin\$(Configuration)\</OutDir>
     <IntDir>$(SolutionDir)obj\$(Configuration)\$(ProjectName)\</IntDir>
@@ -63,6 +97,24 @@
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;C:\temp\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
+    <ResourceCompile>
+      <!-- The directory holding the sibling checkouts, so z80cpmw.rc's
+           "ioscpm\release_assets\..." RCDATA lines resolve. rc.exe searches /i
+           for a data file as well as for a #include - measured by running
+           rc.exe over this .rc with the path left out, which reported
+           "error RC2135 : file not found:
+           ioscpm\release_assets\help_index.json" against the IDR_HELP_INDEX
+           line.
+
+           Set unconditionally, in both configurations, even though the
+           BundleHelpAssets group below can compile those lines out. An /i
+           naming a directory that does not exist costs rc.exe nothing, and one
+           search path that is always the same is easier to reason about than a
+           second thing that has to agree with NO_BUNDLED_HELP_ASSETS. Both
+           configurations for the same reason the guard is one value for both:
+           there is one .rc. -->
+      <AdditionalIncludeDirectories>$(SolutionDir)..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
@@ -95,6 +147,12 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
       <LanguageStandard>stdcpp17</LanguageStandard>
       <AdditionalIncludeDirectories>$(ProjectDir);$(ProjectDir)include;$(SolutionDir)..\cpmemu\src;$(SolutionDir)..\romwbw_emu\src;C:\temp\vcpkg\installed\x64-windows\include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
     </ClCompile>
+    <ResourceCompile>
+      <!-- See the Debug ItemDefinitionGroup above for why this is here, why it
+           is in both, and why it stays set even when BundleHelpAssets is
+           false. -->
+      <AdditionalIncludeDirectories>$(SolutionDir)..;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+    </ResourceCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <EnableCOMDATFolding>true</EnableCOMDATFolding>
@@ -122,6 +180,23 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
       <Message>Copying app-local VC++ runtime DLLs and staging ROMs...</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
+  <!-- No ..\ioscpm: compile the .rc with the eight RCDATA lines guarded out.
+       Configuration-independent, and placed after both ItemDefinitionGroups
+       above so it appends to the AdditionalIncludeDirectories they set rather
+       than being overwritten by them.
+
+       Only the RESOURCE compiler is told. HelpAssets.cpp needs no matching
+       define: readModuleResource asks FindResourceW for an id from resource.h,
+       which is defined either way, and returns false when the resource is not
+       in the image - so bundledIndexJson() answers "" and bundledTopic()
+       answers false without knowing why. Defining this for ClCompile as well
+       would create a second source of truth about the same fact and a way for
+       the two to disagree. -->
+  <ItemDefinitionGroup Condition="'$(BundleHelpAssets)' != 'true'">
+    <ResourceCompile>
+      <PreprocessorDefinitions>NO_BUNDLED_HELP_ASSETS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ResourceCompile>
+  </ItemDefinitionGroup>
   <ItemGroup>
     <!-- Application Source Files -->
     <ClCompile Include="pch.cpp">
@@ -135,11 +210,12 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
     <ClCompile Include="emu_io_windows.cpp" />
     <ClCompile Include="DiskCatalog.cpp" />
     <!-- NotUsing so the file can stay small. It includes windows.h,
-         <algorithm>, <sstream>, <string> and <vector> and nothing else, which
-         is the property tests\test_help.cpp is built on; putting pch.h at the
-         top of it to satisfy /Yu would silently pull in commdlg, shlobj,
-         <thread> and <random> and make that claim false. The cost is one parse
-         of windows.h that the other sources get from the PCH. SettingsDialogWx
+         <algorithm>, <sstream>, <string>, <vector> and resource.h and nothing
+         else, which is the property tests\test_help.cpp is built on; resource.h
+         is a file of #define lines and pulls in nothing itself. Putting pch.h
+         at the top to satisfy /Yu would silently add commdlg, shlobj, <thread>
+         and <random> and make that claim false. The cost is one parse of
+         windows.h that the other sources get from the PCH. SettingsDialogWx
          .cpp is NotUsing as well, for a reason this repository does not record;
          it includes pch.h itself, so whatever that reason is, it is not this
          one. -->

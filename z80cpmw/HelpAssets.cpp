@@ -6,6 +6,12 @@
 
 #include "HelpAssets.h"
 
+// resource.h for the IDR_HELP_* ids only. It is a file of #define lines with no
+// includes of its own, so it does not cost this translation unit anything and
+// does not disturb the property the vcxproj's NotUsing comment rests on: the
+// only header here that pulls in anything is windows.h.
+#include "resource.h"
+
 #include <windows.h>
 
 #include <algorithm>
@@ -501,8 +507,12 @@ static std::string toUtf8(const std::wstring& wide) {
     return out;
 }
 
-// %LOCALAPPDATA%\z80cpmw\help. Used only until MainWindow calls setCacheRoot;
-// the header records that no caller exists yet and what the call should be.
+// %LOCALAPPDATA%\z80cpmw\help, computed from the environment rather than through
+// SHGetKnownFolderPath the way this project's three other copies of that idea
+// do. In the shipping app it is NOT what runs: MainWindow::onCreate calls
+// setCacheRoot with EmulatorEngine::getUserDataDirectory() plus a help
+// subdirectory before any window can reach the help viewer. What still reaches
+// this is tests\test_help.cpp, which sets the root back to "" to exercise it.
 static std::string defaultCacheDir() {
     wchar_t buf[MAX_PATH];
     DWORD n = GetEnvironmentVariableW(L"LOCALAPPDATA", buf, MAX_PATH);
@@ -686,6 +696,100 @@ bool writeCached(const std::string& assetName, const std::string& content) {
     return true;
 }
 
+//=============================================================================
+// The copy compiled into the binary
+//
+// See HelpAssets.h for why ..\ioscpm is an OPTIONAL checkout and what an
+// absent resource means.
+//=============================================================================
+
+// The one place the asset names and the resource ids are written down together.
+// Order is the published index's, which is what bundledTopicNames() promises.
+//
+// help_index.json is deliberately NOT in this table. It is not a topic - no
+// HelpTopic::filename ever names it, so bundledTopic() must never answer for it
+// - and tests\test_help.cpp counts the table against the seven the index lists.
+static const struct { const char* name; int id; } kBundledTopics[] = {
+    { "help_quick_start.md",   IDR_HELP_QUICK_START   },
+    { "help_cpm22.md",         IDR_HELP_CPM22         },
+    { "help_zsdos.md",         IDR_HELP_ZSDOS         },
+    { "help_nzcom.md",         IDR_HELP_NZCOM         },
+    { "help_zpm3.md",          IDR_HELP_ZPM3          },
+    { "help_qpm.md",           IDR_HELP_QPM           },
+    { "help_file_transfer.md", IDR_HELP_FILE_TRANSFER },
+};
+
+// The RT_RCDATA ordinal, respelled for the W entry points.
+//
+// RT_RCDATA is MAKEINTRESOURCE(10), and MAKEINTRESOURCE is the ANSI form unless
+// UNICODE is defined. This file is compiled BOTH ways - the vcxproj sets
+// CharacterSet to Unicode, tests\run_tests.bat's cl line does not - and handing
+// the A spelling to FindResourceW is a hard error, not a warning. The ordinal
+// itself is fixed by the Win32 resource format, which is what makes writing it
+// out safe in a way that hard-coding a number usually is not.
+static LPCWSTR const kResourceTypeRcData = MAKEINTRESOURCEW(10);
+
+// Copy an RCDATA resource out of the running module.
+//
+// Nothing is released afterwards and nothing needs to be: on Win32 a module
+// resource is a mapped, read-only part of the image itself. LoadResource hands
+// back a pointer dressed as an HGLOBAL, LockResource does not lock anything
+// (its documentation says so in as many words), and FreeResource and
+// UnlockResource survive only for 16-bit compatibility. The bytes are copied
+// into the caller's string rather than aliased because the caller owns its
+// string, and because a topic is at most a few kilobytes.
+//
+// GetModuleHandleW(nullptr) is the EXE, which is where z80cpmw.rc's resources
+// land, and where tests\test_help.cpp's linked-in .res lands too. It is not
+// GetModuleHandleW(L"z80cpmw") - nothing here should care what the image is
+// called - and there is no DLL in this project for the two to disagree about.
+//
+// A zero-length resource is reported as absent. rc.exe will happily compile an
+// empty file into one, and an empty topic is the same thing as a missing one
+// everywhere else in this file - readCached() refuses one, and resolveTopic()
+// steps past one - so it is the same thing here.
+static bool readModuleResource(int id, std::string& out) {
+    out.clear();
+
+    HMODULE module = GetModuleHandleW(nullptr);
+    if (!module) return false;
+
+    HRSRC found = FindResourceW(module, MAKEINTRESOURCEW(id), kResourceTypeRcData);
+    if (!found) return false;
+
+    DWORD size = SizeofResource(module, found);
+    if (size == 0) return false;
+
+    HGLOBAL loaded = LoadResource(module, found);
+    if (!loaded) return false;
+
+    const void* bytes = LockResource(loaded);
+    if (!bytes) return false;
+
+    out.assign(static_cast<const char*>(bytes), size);
+    return true;
+}
+
+std::string bundledIndexJson() {
+    std::string json;
+    readModuleResource(IDR_HELP_INDEX, json);   // leaves json empty on failure
+    return json;
+}
+
+bool bundledTopic(const std::string& assetName, std::string& content) {
+    content.clear();
+    for (const auto& entry : kBundledTopics) {
+        if (assetName == entry.name) return readModuleResource(entry.id, content);
+    }
+    return false;
+}
+
+std::vector<std::string> bundledTopicNames() {
+    std::vector<std::string> names;
+    for (const auto& entry : kBundledTopics) names.push_back(entry.name);
+    return names;
+}
+
 ResolvedTopic resolveTopic(const std::string& assetName,
                            const std::string& downloaded,
                            const std::string& bundled) {
@@ -714,8 +818,9 @@ ResolvedTopic resolveTopic(const std::string& assetName,
         return out;
     }
 
-    // 3. The copy in the binary, which today exists for no topic that reaches
-    //    here - see resolveTopic in HelpAssets.h.
+    // 3. The copy in the binary. bundledTopic() above supplies it for all seven
+    //    remote topics; it is empty only in a build linked without the
+    //    resources - see the bundled-asset section in HelpAssets.h.
     if (!bundled.empty()) {
         out.source = TopicSource::Bundled;
         out.content = bundled;

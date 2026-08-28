@@ -9,6 +9,61 @@
 // Application Icon
 IDI_APPICON ICON "z80cpmw.ico"
 
+// The eight shared help assets, compiled in from the sibling ..\ioscpm
+// checkout so that a reader with no network and an empty cache still gets the
+// seven remote topics. help_assets::bundledTopic reads them back out.
+//
+// The paths are relative and resolved through the resource compiler's include
+// path, which the vcxproj sets to $(SolutionDir).. in both configurations.
+// Measured before this was written, because it is not what an include path
+// obviously does: rc.exe searches /i for an RCDATA DATA FILE, not only for a
+// #include, and without it reports "error RC2135: file not found:
+// ioscpm\release_assets\help_index.json". A relative path was chosen over an
+// absolute one so the .rc says nothing about where anybody's tree lives, and
+// over a PreBuildEvent that generates a .rc because a generated file that has
+// to exist before the resource compiler runs is a second build step to get
+// wrong for no gain.
+//
+// BUNDLING IS OPTIONAL, and the #ifndef below is what makes it so. ..\cpmemu
+// and ..\romwbw_emu are required siblings because they ARE the emulator - the
+// vcxproj compiles their sources and nothing runs without them. ..\ioscpm
+// supplies help TEXT only, and charging a hard RC2135 for it turned a checkout
+// of z80cpmw + cpmemu + romwbw_emu, which was a complete build the day before,
+// into one that does not build at all. A missing feature is the right price for
+// a missing optional input; a stopped build is not.
+//
+// z80cpmw.vcxproj tests Exists() on
+// $(SolutionDir)..\ioscpm\release_assets\help_index.json and defines
+// NO_BUNDLED_HELP_ASSETS when it is not there. Nothing else changes: the
+// bundled* readers in HelpAssets.cpp go through readModuleResource, which
+// answers empty for a resource FindResourceW cannot find, and
+// help_assets::resolveTopic already reads empty as "this build ships no copy".
+// A build without ..\ioscpm therefore behaves exactly as every build did before
+// bundling existed - download, then the on-disk cache, then the failure page -
+// rather than failing to link or crashing on a missing id. The ids themselves
+// live in resource.h unconditionally, so HelpAssets.cpp compiles either way.
+//
+// The sense is NEGATIVE - resources present by default, suppressed by a define
+// - on purpose, and not because a positive HELP_BUNDLED_ASSETS would read
+// better. rc.exe is run over this file from two places. The other is
+// tests\run_tests.bat, which passes no /D at all and compiles the .rc only
+// inside an "if exist ..\ioscpm\release_assets\help_index.json" block. Under a
+// positive guard that invocation would quietly produce a .res with no help
+// resources while the suite's own /D HELP_BUNDLED_ASSETS section went on
+// asserting each blob is byte-identical to its file - a green precondition
+// turned into a red suite by a rename. Under this sense that script needs no
+// edit and keeps working unchanged.
+#ifndef NO_BUNDLED_HELP_ASSETS
+IDR_HELP_INDEX          RCDATA "ioscpm\\release_assets\\help_index.json"
+IDR_HELP_QUICK_START    RCDATA "ioscpm\\release_assets\\help_quick_start.md"
+IDR_HELP_CPM22          RCDATA "ioscpm\\release_assets\\help_cpm22.md"
+IDR_HELP_ZSDOS          RCDATA "ioscpm\\release_assets\\help_zsdos.md"
+IDR_HELP_NZCOM          RCDATA "ioscpm\\release_assets\\help_nzcom.md"
+IDR_HELP_ZPM3           RCDATA "ioscpm\\release_assets\\help_zpm3.md"
+IDR_HELP_QPM            RCDATA "ioscpm\\release_assets\\help_qpm.md"
+IDR_HELP_FILE_TRANSFER  RCDATA "ioscpm\\release_assets\\help_file_transfer.md"
+#endif
+
 // Menu
 IDR_MAINMENU MENU
 BEGIN
