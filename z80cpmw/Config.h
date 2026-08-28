@@ -7,6 +7,8 @@
 
 #pragma once
 
+#include "ConfigReport.h"
+
 #include <string>
 #include <vector>
 #include <optional>
@@ -87,6 +89,15 @@ struct AppConfig {
     std::string fontName = "Consolas";
     int scrollbackLines = 1000;       // terminal history capacity, in lines (0 = off)
 
+    // Whether BEL (0x07) sounds. Default true, because a terminal that has
+    // always beeped and silently stops is a bug report, whereas a terminal that
+    // beeps too much is a setting the user can find. It is worth having a
+    // setting at all: CP/M software rings the bell freely - WordStar on every
+    // rejected keystroke - and MessageBeep is the system sound, not a soft
+    // click. The Settings checkbox and the TerminalView side of this belong to
+    // another change; the format carries it first so neither has to invent it.
+    bool bellEnabled = true;
+
     // Keyboard / key bindings
     KeyboardConfig keyboard;
 
@@ -123,6 +134,12 @@ public:
     AppConfig& get() { return m_config; }
     const AppConfig& get() const { return m_config; }
 
+    // What the last load() or loadProfile() found in the file that it could not
+    // use. Empty when the file was understood completely. Cleared at the start
+    // of each load, so this always describes the configuration now in force
+    // rather than accumulating across profile switches.
+    const Diagnostics& diagnostics() const { return m_diagnostics; }
+
     // Path utilities
     std::string getConfigDir() const;
     std::string getConfigPath() const;
@@ -144,6 +161,7 @@ private:
 
     AppConfig m_config;
     std::string m_currentProfile;  // Empty = using main config
+    Diagnostics m_diagnostics;
 };
 
 } // namespace config

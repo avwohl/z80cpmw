@@ -170,6 +170,37 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM The configuration diagnostics suite sits last because it needs BOTH sibling
+REM checkouts on the include path, and so has to come after the guard above:
+REM Config.cpp includes EmulatorEngine.h, which includes hbios_cpu.h, which
+REM includes qkz80.h.  Nothing from either sibling is linked - the suite stubs
+REM EmulatorEngine::getUserDataDirectory() to point at %TEMP% and never builds
+REM an engine - but the headers still have to be findable.
+if not exist "obj\tests\config" mkdir "obj\tests\config"
+
+echo.
+echo === Building the configuration diagnostics suite ===
+cl /nologo /EHsc /W3 /O2 /std:c++17 ^
+    /D _CRT_SECURE_NO_WARNINGS ^
+    /I z80cpmw /I ..\cpmemu\src /I ..\romwbw_emu\src ^
+    tests\test_config.cpp ^
+    z80cpmw\Config.cpp ^
+    /Fo:obj\tests\config\ ^
+    /Fe:obj\tests\config\test_config.exe ^
+    /link /SUBSYSTEM:CONSOLE user32.lib shell32.lib ole32.lib
+if errorlevel 1 (
+    echo Build failed.
+    exit /b 1
+)
+
+echo.
+obj\tests\config\test_config.exe
+if errorlevel 1 (
+    echo.
+    echo CONFIGURATION DIAGNOSTICS SUITE FAILED
+    exit /b 1
+)
+
 echo.
 echo All suites passed.
 endlocal
