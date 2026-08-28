@@ -328,17 +328,47 @@ Most of these are easier to change from Emulator > Settings.
 // is reached from WM_COMMAND/LBN_SELCHANGE and from show(), which MainWindow
 // calls from its own WindowProc), so it needs no synchronisation.
 //
-// status is the status-line text to show in place of displayContent()'s
-// "Viewing: <title>"; empty leaves it to displayContent(). It travels in the
-// same message as the pane text so the two are dropped together - a single
-// message cannot be half-accepted, which is why this replaced a second
-// PostMessage whose correctness rested on posted messages coming back in the
-// order they went in.
+// status is the whole status line to show; both arms of the download thread
+// fill it in, and an empty one would leave the line reading "Loading topic..."
+// under a pane that had finished loading. It travels in the same message as the
+// pane text so the two are dropped together - a single message cannot be
+// half-accepted, which is why this replaced a second PostMessage whose
+// correctness rested on posted messages coming back in the order they went in.
+// That pairing matters more now than it did: the status line names WHICH COPY
+// of the topic the pane is showing, so a status that outlived its pane text
+// would be a claim about the wrong bytes.
 struct HelpContentMsg {
     std::string topicId;
     std::string content;
     std::string status;
 };
+
+// The status line for a topic that is on screen: which topic, and WHICH COPY of
+// it the reader is looking at.
+//
+// The second half is the point. With an on-disk cache there are four possible
+// answers - the network, m_cache from earlier in this session, the cache
+// directory, and (once the bundling commit lands) the binary itself - and a
+// reader who cannot tell them apart cannot tell a topic that is current from
+// one saved before a release. Every path that puts text in the pane goes
+// through here or through a failure line, which is why displayContent() no
+// longer writes a status of its own: it is handed markdown and has no idea
+// where the markdown came from, so the only status it could write is one that
+// does not answer the question.
+static std::string viewingStatus(const std::string& title, const std::string& source) {
+    return "Viewing: " + title + "  (" + source + ")";
+}
+
+// The title help_index.json gave a topic, or the id when the list has no such
+// entry - which is what show() passes when MainWindow opens a topic by name
+// before the index has loaded.
+static std::string titleOf(const std::vector<help_assets::HelpTopic>& topics,
+                           const std::string& topicId) {
+    for (const auto& topic : topics) {
+        if (topic.id == topicId) return topic.title;
+    }
+    return topicId;
+}
 
 HelpWindow::HelpWindow() {
 }
@@ -694,27 +724,44 @@ void HelpWindow::selectTopicInList(const std::string& topicId) {
 }
 
 void HelpWindow::fetchTopic(const std::string& topicId) {
-    // Bundled topics are rendered directly, with no network access.
+    // Bundled topics are rendered directly, with no network access. This is
+    // step three of the resolve order arriving first, which is not a
+    // contradiction: these two topics have no remote copy to prefer, so there
+    // is nothing for a download to be ahead of.
     if (isLocalTopic(topicId)) {
         m_currentTopicId = topicId;
         displayContent(localTopicContent(topicId));
+        SetWindowTextW(m_statusLabel, help_assets::toWide(viewingStatus(
+            titleOf(m_topics, topicId),
+            help_assets::sourceLabel(help_assets::TopicSource::Bundled))).c_str());
         return;
     }
 
     if (m_loading) return;
 
-    // Check cache first. m_currentTopicId moves with the pane here as well as
-    // on the fetch path: it is what says which topic is on screen, both for
-    // displayContent()'s "Viewing: <title>" line and for the staleness test in
-    // the WM_APP + 2 handler. Leaving it behind on a cache hit put the wrong
-    // title in the status bar, and - because the download thread clears
-    // m_loading just BEFORE it posts - would have let a result still sitting in
-    // the queue pass the staleness test and repaint over the cached topic the
-    // reader had just switched to.
+    // Check the in-memory cache first - m_cache, fifteen minutes, lost at exit;
+    // the on-disk one is consulted inside resolveTopic on the download thread
+    // below, after the download it is a fallback for.
+    //
+    // m_currentTopicId moves with the pane here as well as on the fetch path:
+    // it is what says which topic is on screen, and it is read in two places -
+    // the staleness test in the WM_APP + 2 handler, and updateTopicList's guard
+    // against taking the status line back. Leaving it behind on a cache hit -
+    // because the download thread clears m_loading just BEFORE it posts - would
+    // let a result still sitting in the queue pass that test and repaint over
+    // the cached topic the reader had just switched to.
     std::string* cached = findCachedContent(topicId);
     if (cached) {
         m_currentTopicId = topicId;
         displayContent(*cached);
+        // "this session's copy" and not one of sourceLabel()'s answers, because
+        // m_cache does not record which of them its entry came from - it may be
+        // a download from a minute ago or the offline copy that download failed
+        // over to. HelpCache lives in HelpWindow.h, which this commit does not
+        // own, so the honest answer is the vague one rather than a guess. What
+        // it does say truthfully is that no network read happened just now.
+        SetWindowTextW(m_statusLabel, help_assets::toWide(viewingStatus(
+            titleOf(m_topics, topicId), "this session's copy")).c_str());
         return;
     }
 
@@ -732,24 +779,58 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
         }
     }
 
-    if (filename.empty()) {
+    // The name from help_index.json is judged BEFORE it is pasted into a URL or
+    // turned into a path. It arrived over the network, and isSafeAssetName is a
+    // whitelist of what a plain file name may contain, so a name carrying a
+    // separator, a drive letter, a leading dot or a device stem never reaches
+    // WinHttpCrackUrl or CreateFileW. help_assets::cachePath applies the same
+    // test again on its own first statement - that is not redundancy for its
+    // own sake, it is the file-system half refusing to depend on this caller
+    // having remembered.
+    //
+    // Both arms report IN THE PANE. Leaving the pane alone was the earlier
+    // behaviour and it is the same defect the download failure arm was fixed
+    // for: m_currentTopicId has already moved, so the reader would be looking
+    // at the previous topic under this topic's name, with a status line that
+    // still said "Viewing:" the old one. The rejected name is deliberately not
+    // echoed - it is unbounded, attacker-chosen text, and it would tell the
+    // reader nothing they can act on.
+    if (filename.empty() || !help_assets::isSafeAssetName(filename)) {
         m_loading = false;
+        std::string why = filename.empty()
+            ? "The help index lists this topic with no file name."
+            : "The help index gives this topic a file name that is not a plain "
+              "file name, so this build will not fetch it or store it.";
+        displayContent("# " + topicTitle + "\n\nThis topic cannot be loaded.\n\n" + why + "\n");
+        SetWindowTextW(m_statusLabel,
+                       help_assets::toWide("Cannot load topic: " + topicTitle).c_str());
         return;
     }
 
     SetWindowTextW(m_statusLabel, L"Loading topic...");
 
     std::thread([this, filename, topicId, topicTitle]() {
-        // Build URL
-        std::wstring url = CONTENT_BASE_URL;
-        for (char c : filename) {
-            url += static_cast<wchar_t>(c);
-        }
+        // toWide rather than the char-by-char widening that stood here. The
+        // isSafeAssetName test above makes the two identical - a name that
+        // passes it is ASCII by construction - so this is not a fix, it is the
+        // file having one rule for narrow-to-wide instead of two.
+        std::wstring url = CONTENT_BASE_URL + help_assets::toWide(filename);
 
         std::string content;
         std::string error;
 
-        if (!downloadToString(url, content, error)) {
+        bool downloaded = downloadToString(url, content, error);
+
+        // todo.txt's order, and the only place this window expresses it:
+        // download, then cache, then the copy in the binary. resolveTopic
+        // writes the cache when the download succeeded, reads it when it did
+        // not, and falls through to a bundled copy - which today is empty for
+        // every topic that reaches here, so the chain really ends at the cache.
+        // The bundling commit changes the third argument and nothing else.
+        help_assets::ResolvedTopic resolved = help_assets::resolveTopic(
+            filename, downloaded ? content : std::string(), std::string());
+
+        if (resolved.source == help_assets::TopicSource::None) {
             // Report the failure IN THE PANE, not only on the status line. An
             // earlier version posted only the status line, so the pane went on
             // showing the topic the reader had been reading before - a failed
@@ -771,11 +852,20 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
             // "select the topic again" this message advises is not swallowed
             // by the guard when the reader acts on it immediately.
             m_loading = false;
+
+            // A download that succeeded and returned nothing lands here too:
+            // resolveTopic treats empty as absent, and downloadToString reports
+            // success for an HTTP 200 with an empty body, so "error" would
+            // otherwise be an empty string in the middle of the message.
+            if (downloaded) error = "The server returned an empty file.";
+
             HelpContentMsg* msg = new HelpContentMsg;
             msg->topicId = topicId;
             msg->content = "# " + topicTitle + "\n\nThis topic could not be downloaded.\n\n"
                 + error + "\n\nIt is fetched from the network when you open it; "
-                  "check the connection and select the topic again.\n";
+                  "check the connection and select the topic again. No offline "
+                  "copy of it has been saved on this machine - one is kept for "
+                  "each topic after the first time you read it.\n";
             msg->status = "Failed to load topic: " + error;
             if (!PostMessage(m_hwnd, WM_APP + 2, 0, (LPARAM)msg)) {
                 delete msg;   // window already gone; nothing will dequeue it
@@ -783,14 +873,25 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
             return;
         }
 
-        // Cache the content
-        cacheContent(topicId, content);
+        // The in-memory cache takes whatever was resolved, not only a fresh
+        // download: a reader who is offline should not wait out a WinHTTP
+        // timeout again to reread the topic they just read from disk. The
+        // fifteen-minute TTL still expires it, so the network is retried.
+        //
+        // This assignment stays BEFORE the m_loading store, which is what
+        // publishes it. m_cache is written here on the download thread and read
+        // by findCachedContent on the window thread, and the only thing
+        // ordering the two is that the reader tests the atomic m_loading first.
+        cacheContent(topicId, resolved.content);
         m_loading = false;
 
-        // Update UI on main thread
+        std::string source = help_assets::sourceLabel(resolved.source);
+        if (!resolved.savedWhen.empty()) source += ", saved " + resolved.savedWhen;
+
         HelpContentMsg* msg = new HelpContentMsg;
         msg->topicId = topicId;
-        msg->content = content;
+        msg->content = resolved.content;
+        msg->status = viewingStatus(topicTitle, source);
         if (!PostMessage(m_hwnd, WM_APP + 2, 0, (LPARAM)msg)) {
             delete msg;
         }
@@ -807,7 +908,17 @@ void HelpWindow::updateTopicList() {
         SendMessageW(m_topicList, LB_ADDSTRING, 0, (LPARAM)title.c_str());
     }
 
-    SetWindowTextW(m_statusLabel, L"Select a topic from the list");
+    // Only claim the status line while the pane is empty. This runs from
+    // WM_CREATE and again from WM_APP + 1 when the index arrives, and show()
+    // can put a bundled topic on screen in between - so the unconditional write
+    // that stood here replaced "Viewing: Getting Started (bundled with the
+    // app)" with "Select a topic from the list" a moment after the reader was
+    // shown the topic they asked for. The status line answers "which copy of
+    // what am I reading"; it must not be taken back by an event that changed
+    // neither.
+    if (m_currentTopicId.empty()) {
+        SetWindowTextW(m_statusLabel, L"Select a topic from the list");
+    }
 }
 
 void HelpWindow::displayContent(const std::string& markdown) {
@@ -816,15 +927,19 @@ void HelpWindow::displayContent(const std::string& markdown) {
     std::wstring wtext = help_assets::toWide(help_assets::markdownToText(markdown));
     SetWindowTextW(m_contentView, wtext.c_str());
 
-    // Find current topic title
-    for (const auto& topic : m_topics) {
-        if (topic.id == m_currentTopicId) {
-            std::wstring status = L"Viewing: ";
-            status += help_assets::toWide(topic.title);
-            SetWindowTextW(m_statusLabel, status.c_str());
-            break;
-        }
-    }
+    // The status line is the caller's, not this function's. It used to write
+    // "Viewing: <title>" here, and as of this commit all four callers write
+    // their own line straight afterwards - the three synchronous branches of
+    // fetchTopic, and the WM_APP + 2 handler with HelpContentMsg::status, which
+    // both arms of the download thread now fill in - so keeping it would mean
+    // setting the line twice and never showing the first value.
+    //
+    // It is also the one value that could not be right. This function is handed
+    // markdown and cannot tell whether it came from the network, from
+    // help_assets' cache or from the binary, and with a cache in the picture
+    // that is exactly what the reader needs to know. Leaving the write here
+    // would let a future caller inherit a status line that names the topic and
+    // quietly lies about which copy of it is on screen.
 }
 
 bool HelpWindow::downloadToString(const std::wstring& url, std::string& result, std::string& error) {
@@ -915,31 +1030,93 @@ bool HelpWindow::downloadToString(const std::wstring& url, std::string& result, 
         }
     }
 
-    // Read data
+    // Read data, and then decide whether what was read is the whole document.
+    //
+    // This loop used to end with an unconditional "success = true", which made
+    // both of its exits silent failures: a WinHttpQueryDataAvailable that
+    // returned FALSE was taken for the end of the body, and a WinHttpReadData
+    // that returned FALSE dropped a chunk on the floor and kept looping. The
+    // caller could not tell a half-topic from a topic, so fetchTopic cached the
+    // fragment over the complete offline copy and told the reader
+    // "(downloaded)". help_assets::downloadIsComplete carries the rule and the
+    // measurements behind it; the two things this half owes it are the
+    // Content-Length and an honest error code.
     {
         std::stringstream ss;
         DWORD bytesAvailable = 0;
         DWORD bytesRead = 0;
         char buffer[8192];
+        DWORD readError = 0;
+
+        // NUMBER64 rather than NUMBER: the 32-bit form cannot represent a
+        // length above 4 GB, and this file should not have to reason about
+        // what it does with one.
+        //
+        // -1 is "the response announced no length" and is NOT the same as
+        // zero. A chunked response carries no Content-Length at all - measured
+        // against a localhost server, WinHttpQueryHeaders failed it with
+        // ERROR_WINHTTP_HEADER_NOT_FOUND (12150) - and refusing those would
+        // take remote help offline the day the asset host switched to chunked.
+        // downloadIsComplete is where that decision is written down.
+        //
+        // The redirects are already behind us here: WinHTTP follows GitHub's
+        // two 302s itself, and the same probe pointed at the published
+        // help_cpm22.md URL saw status 200 with Content-Length 5147, so this
+        // reads the asset's own header rather than a redirect's.
+        long long declaredLength = -1;
+        {
+            DWORD64 contentLength = 0;
+            DWORD lengthSize = sizeof(contentLength);
+            if (WinHttpQueryHeaders(hRequest,
+                                    WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER64,
+                                    WINHTTP_HEADER_NAME_BY_INDEX, &contentLength,
+                                    &lengthSize, WINHTTP_NO_HEADER_INDEX)
+                && contentLength <= (DWORD64)MAXLONGLONG) {
+                declaredLength = (long long)contentLength;
+            }
+        }
 
         do {
             bytesAvailable = 0;
             if (!WinHttpQueryDataAvailable(hRequest, &bytesAvailable)) {
+                // The connection dropped, or the server sent something WinHTTP
+                // could not make a body out of. Either way the rest of the
+                // document is not coming; breaking without recording it is what
+                // turned this into an end-of-body.
+                //
+                // The zero guard is not decoration: downloadIsComplete reads 0
+                // as "every read returned", so a failed call whose last-error
+                // happened to be clear would be laundered back into a success.
+                readError = GetLastError();
+                if (readError == 0) readError = ERROR_WINHTTP_INTERNAL_ERROR;
                 break;
             }
 
             if (bytesAvailable == 0) {
-                break;
+                break;   // the ONLY clean exit from this loop
             }
 
             DWORD toRead = (bytesAvailable < sizeof(buffer)) ? bytesAvailable : (DWORD)sizeof(buffer);
-            if (WinHttpReadData(hRequest, buffer, toRead, &bytesRead)) {
-                ss.write(buffer, bytesRead);
+            if (!WinHttpReadData(hRequest, buffer, toRead, &bytesRead)) {
+                // Skipping the chunk and looping - what stood here - assembled a
+                // document with a hole in the middle and reported success. Same
+                // zero guard as above, for the same reason.
+                readError = GetLastError();
+                if (readError == 0) readError = ERROR_WINHTTP_INTERNAL_ERROR;
+                break;
             }
+            ss.write(buffer, bytesRead);
         } while (bytesAvailable > 0);
 
         result = ss.str();
-        success = true;
+        success = help_assets::downloadIsComplete(declaredLength, result.size(),
+                                                  readError, error);
+
+        // The fragment does not leave this function even as an out-parameter.
+        // fetchTopic already reads "result" only when this returns true, but
+        // that is the caller's discipline and this is the one place that knows
+        // the bytes are a fragment.
+        if (!success) result.clear();
     }
 
 cleanup:

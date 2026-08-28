@@ -1,13 +1,13 @@
 /*
- * test_help.cpp - Help renderer, index parser and asset-name suite.
+ * test_help.cpp - Help renderer, index parser, asset-name and cache suite.
  *
  * todo.txt: "the seven remote help topics have no bundled copy and no on-disk
- * cache." This is the step before that one. Bundling renders markdown that has
- * never been through markdownToText, and a cache turns a filename that arrived
- * over the network into a path on this machine, so both halves of the job are
- * built out of z80cpmw\HelpAssets.cpp - and every defect the renderer already
- * had would have been baked into a binary and taken offline with it. They are
- * fixed and pinned here first.
+ * cache." The renderer sections came first, before either half could bake a
+ * defect into a binary or into a file on the user's disk; the cache sections at
+ * the bottom cover the half of the item that is now done. The bundling half is
+ * still blocked on wording rather than on plumbing - see resolveTopic in
+ * z80cpmw\HelpAssets.h - and the resolve-order section pins the three-step
+ * chain it will slot into.
  *
  * What this suite would have caught, measured over the eight assets published
  * in avwohl/ioscpm at ..\ioscpm\release_assets:
@@ -30,11 +30,18 @@
  * has only this repository. The index JSON below is a copy of the published one
  * rather than a read of it, for the same reason.
  *
+ * The cache sections do touch the file system - that is what they are for - but
+ * only under %TEMP%\z80cpmw_help_cache_<pid>, which help_assets::setCacheRoot
+ * points them at and removeScratch() takes away at the end of main(). Nothing
+ * is written under the user's profile and no network is used.
+ *
  * Build and run: tests\run_tests.bat
  */
 
 #include "HelpAssets.h"
 #include "HelpWindow.h"
+
+#include <windows.h>
 
 #include <cstdio>
 #include <string>
@@ -609,6 +616,588 @@ static void test_parse_index() {
 }
 
 //=============================================================================
+// The on-disk cache
+//
+// This is the half of the todo item that is not blocked. It writes real files,
+// which is why help_assets::setCacheRoot exists: the suite points the cache at
+// a scratch directory under %TEMP% and the round trip below is the real one -
+// CreateFileW, WriteFile, MoveFileExW - and not a simulation of it. Nothing is
+// written under the user's profile, and removeScratch() takes the directory
+// away at the end of main().
+//=============================================================================
+
+static std::wstring wide(const std::string& s) {
+    return help_assets::toWide(s);
+}
+
+static bool fileExists(const std::string& path) {
+    DWORD attr = GetFileAttributesW(wide(path).c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && !(attr & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+// Read a file without going through readCached, so an assertion about what is
+// ON DISK does not rest on the function it is checking.
+static std::string readRaw(const std::string& path) {
+    HANDLE h = CreateFileW(wide(path).c_str(), GENERIC_READ,
+                           FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return std::string();
+    std::string out;
+    char buf[4096];
+    DWORD n = 0;
+    while (ReadFile(h, buf, (DWORD)sizeof(buf), &n, nullptr) && n > 0) out.append(buf, n);
+    CloseHandle(h);
+    return out;
+}
+
+// Plant a file, for the half-written scratch file the cache must never publish.
+static bool writeRaw(const std::string& path, const std::string& content) {
+    HANDLE h = CreateFileW(wide(path).c_str(), GENERIC_WRITE, 0, nullptr,
+                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (h == INVALID_HANDLE_VALUE) return false;
+    DWORD n = 0;
+    BOOL ok = WriteFile(h, content.data(), (DWORD)content.size(), &n, nullptr);
+    CloseHandle(h);
+    return ok && n == (DWORD)content.size();
+}
+
+// The file names in the scratch directory. Narrowed the crude way on purpose:
+// every name this suite creates is ASCII, and a byte over 0x7F would be a
+// finding in itself, so it is mapped to '?' and shows up in the message.
+static std::vector<std::string> dirEntries(const std::string& dir) {
+    std::vector<std::string> names;
+    WIN32_FIND_DATAW fd = {};
+    HANDLE h = FindFirstFileW(wide(dir + "\\*").c_str(), &fd);
+    if (h == INVALID_HANDLE_VALUE) return names;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        std::string name;
+        for (const wchar_t* p = fd.cFileName; *p; ++p) {
+            name += (*p >= 32 && *p < 127) ? (char)*p : '?';
+        }
+        names.push_back(name);
+    } while (FindNextFileW(h, &fd));
+    FindClose(h);
+    return names;
+}
+
+// %TEMP%\z80cpmw_help_cache_<pid>. The process id is in the name so two agents
+// running this suite at once do not share a cache directory - which would make
+// the "the directory gained no files" checks below read each other's writes.
+static std::string scratchDir() {
+    static std::string cached;
+    if (!cached.empty()) return cached;
+
+    wchar_t tmp[MAX_PATH];
+    DWORD n = GetTempPathW(MAX_PATH, tmp);
+    if (n == 0 || n >= MAX_PATH) return std::string();
+
+    std::wstring w(tmp, n);
+    if (!w.empty() && w.back() != L'\\') w += L'\\';
+    wchar_t leaf[64];
+    swprintf(leaf, 64, L"z80cpmw_help_cache_%lu", (unsigned long)GetCurrentProcessId());
+    w += leaf;
+
+    int need = WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(),
+                                   nullptr, 0, nullptr, nullptr);
+    if (need <= 0) return std::string();
+    std::string out((size_t)need, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.data(), (int)w.size(), &out[0], need, nullptr, nullptr);
+    cached = out;
+    return cached;
+}
+
+// The directory the scratch directory sits in, which is where "../evil.md"
+// would land if isSafeAssetName ever stopped refusing it.
+static std::string scratchParent() {
+    std::string dir = scratchDir();
+    size_t sep = dir.find_last_of('\\');
+    return sep == std::string::npos ? dir : dir.substr(0, sep);
+}
+
+// Recursive, because the "a missing directory is created" check below leaves
+// two nested levels behind.
+static void removeTree(const std::wstring& dir) {
+    if (dir.empty()) return;
+    WIN32_FIND_DATAW fd = {};
+    HANDLE h = FindFirstFileW((dir + L"\\*").c_str(), &fd);
+    if (h != INVALID_HANDLE_VALUE) {
+        do {
+            std::wstring name = fd.cFileName;
+            if (name == L"." || name == L"..") continue;
+            if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+                removeTree(dir + L"\\" + name);
+            } else {
+                DeleteFileW((dir + L"\\" + name).c_str());
+            }
+        } while (FindNextFileW(h, &fd));
+        FindClose(h);
+    }
+    RemoveDirectoryW(dir.c_str());
+}
+
+static void removeScratch() {
+    removeTree(wide(scratchDir()));
+}
+
+static bool endsWith(const std::string& s, const std::string& suffix) {
+    return s.size() >= suffix.size() &&
+           s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+static void test_cache_paths() {
+    section("cache: paths");
+
+    // The default, which is what runs until MainWindow calls setCacheRoot.
+    // Needs LOCALAPPDATA, which every interactive Windows session has; with it
+    // unset the default is empty by design and these two checks are the ones
+    // that would say so.
+    help_assets::setCacheRoot("");
+    std::string dflt = help_assets::cacheDir();
+    checkTrue(!dflt.empty(), "an unconfigured cache still names a directory");
+    checkTrue(endsWith(dflt, "\\z80cpmw\\help"),
+              "and it is where getUserDataDirectory() + \"\\help\" would be: " + dflt);
+
+    const std::string dir = scratchDir();
+    checkTrue(!dir.empty(), "the suite can name a scratch directory");
+
+    help_assets::setCacheRoot(dir);
+    checkStr(help_assets::cacheDir(), dir, "setCacheRoot moves the cache");
+    checkStr(help_assets::cachePath("help_qpm.md"), dir + "\\help_qpm.md",
+             "a cache path is the directory and the asset name");
+
+    // isSafeAssetName is called by cachePath itself, so there is no way to get
+    // a path out of this file without it having said yes.
+    checkTrue(help_assets::cachePath("../evil.md").empty(),
+              "no path at all for ../evil.md");
+    checkTrue(help_assets::cachePath("..\\evil.md").empty(),
+              "none for ..\\evil.md either");
+    checkTrue(help_assets::cachePath("NUL.md").empty(), "none for a device name");
+    checkTrue(help_assets::cachePath("").empty(), "none for an empty name");
+    checkTrue(help_assets::cacheTempPath("../evil.md").empty(),
+              "and none from cacheTempPath, which applies the same test");
+
+    // The scratch name must differ from the real one, or the rename is not a
+    // rename and a half-written file is visible under the name a reader reads.
+    std::string temp = help_assets::cacheTempPath("help_qpm.md");
+    checkTrue(!temp.empty(), "a safe name does get a scratch path");
+    checkTrue(temp != help_assets::cachePath("help_qpm.md"),
+              "the scratch path is not the real path");
+    checkTrue(endsWith(temp, ".tmp"), "and is marked as scratch: " + temp);
+    checkTrue(temp.rfind(dir + "\\", 0) == 0,
+              "it sits in the cache directory, so the rename stays on one volume");
+}
+
+static void test_cache_creates_its_directory() {
+    section("cache: the directory is created on demand");
+
+    // The first write on a new machine happens into a directory nobody has
+    // made: %LOCALAPPDATA%\z80cpmw exists but its help subdirectory does not.
+    // Two levels deep here rather than one, because writeCached's helper walks
+    // up only when Windows says a component ABOVE the leaf is missing, and one
+    // level never exercises that walk.
+    const std::string deep = scratchDir() + "\\made\\on\\demand";
+    help_assets::setCacheRoot(deep);
+    checkStr(help_assets::cacheDir(), deep, "the cache is pointed at a path that does not exist");
+    checkTrue(GetFileAttributesW(wide(deep).c_str()) == INVALID_FILE_ATTRIBUTES,
+              "and it really does not exist yet");
+
+    checkTrue(help_assets::writeCached("help_qpm.md", "# QPM\n"),
+              "writeCached makes the missing directories");
+    checkTrue(fileExists(deep + "\\help_qpm.md"), "and the file lands in the deepest one");
+    std::string back;
+    checkTrue(help_assets::readCached("help_qpm.md", back), "and reads back from there");
+    checkStr(back, "# QPM\n", "with its content");
+
+    // readCached creates nothing: a miss must not leave a directory behind.
+    const std::string never = scratchDir() + "\\never\\made";
+    help_assets::setCacheRoot(never);
+    std::string nothing;
+    checkFalse(help_assets::readCached("help_qpm.md", nothing), "a read from a missing directory misses");
+    checkTrue(GetFileAttributesW(wide(never).c_str()) == INVALID_FILE_ATTRIBUTES,
+              "and did not create the directory it looked in");
+
+    help_assets::setCacheRoot(scratchDir());
+}
+
+static void test_cache_round_trip() {
+    section("cache: round trip");
+
+    help_assets::setCacheRoot(scratchDir());
+    const std::string name = "help_qpm.md";
+
+    // Bytes, not text. A CRLF, a bare LF, the UTF-8 em dash that really is in
+    // help_file_transfer.md, and an embedded NUL: what comes back must be what
+    // went in, because markdownToText is fed the cached copy and the downloaded
+    // copy alike and must not be able to tell them apart.
+    std::string content = "# QPM\r\nline\nem dash \xE2\x80\x94 here\n";
+    content.push_back('\0');
+    content += "after the NUL\n";
+
+    checkTrue(help_assets::writeCached(name, content), "writeCached stores a topic");
+    checkTrue(fileExists(help_assets::cachePath(name)),
+              "the file is on disk under its real name");
+    checkTrue(readRaw(help_assets::cachePath(name)) == content,
+              "and holds the bytes it was given, with no line-ending translation");
+
+    std::string back = "left over from before";
+    checkTrue(help_assets::readCached(name, back), "readCached finds it");
+    checkInt((long)back.size(), (long)content.size(), "the same number of bytes");
+    checkTrue(back == content, "byte for byte, NUL and em dash included");
+
+    std::string missing = "left over from before";
+    checkFalse(help_assets::readCached("help_zpm3.md", missing),
+               "a topic never written is a miss");
+    checkTrue(missing.empty(),
+              "and the caller's string is cleared rather than left holding the last topic");
+
+    checkTrue(help_assets::writeCached(name, "second"), "a second write replaces the first");
+    back.clear();
+    checkTrue(help_assets::readCached(name, back), "readCached answers after the replace");
+    checkStr(back, "second", "with the new copy");
+
+    // An HTTP 200 with an empty body reaches writeCached as an empty string.
+    // Storing it would replace the reader's only offline copy with a file
+    // readCached then reports as absent.
+    checkFalse(help_assets::writeCached(name, ""), "an empty topic is refused");
+    back.clear();
+    checkTrue(help_assets::readCached(name, back), "and the copy that was there survives");
+    checkStr(back, "second", "unchanged");
+
+    // The largest published asset is 5,468 bytes (help_cpm22.md). Something far
+    // larger still has to survive the write and the read.
+    std::string big(300000, 'x');
+    checkTrue(help_assets::writeCached("help_cpm22.md", big), "a 300 KB topic is stored");
+    back.clear();
+    checkTrue(help_assets::readCached("help_cpm22.md", back), "and found again");
+    checkInt((long)back.size(), 300000, "at its full length");
+    checkTrue(back == big, "with its content intact");
+}
+
+static void test_cache_refuses_unsafe_names() {
+    section("cache: an unsafe name reaches no file");
+
+    help_assets::setCacheRoot(scratchDir());
+
+    // Where "../evil.md" would land if the whitelist ever stopped refusing it.
+    const std::string escapee = scratchParent() + "\\evil.md";
+    DeleteFileW(wide(escapee).c_str());
+    checkFalse(fileExists(escapee), "nothing at the escape target to begin with");
+
+    std::vector<std::string> before = dirEntries(scratchDir());
+
+    checkFalse(help_assets::writeCached("../evil.md", "x"), "writeCached refuses ../evil.md");
+    checkFalse(fileExists(escapee), "and no file appeared above the cache directory");
+    checkFalse(help_assets::writeCached("..\\evil.md", "x"), "refuses ..\\evil.md");
+    checkFalse(fileExists(escapee), "still nothing above the cache directory");
+    checkFalse(help_assets::writeCached("C:\\Windows\\z80cpmw_help.md", "x"),
+               "refuses an absolute path");
+    checkFalse(fileExists("C:\\Windows\\z80cpmw_help.md"),
+               "and wrote nothing where it pointed");
+
+    // The reason the device names are on isSafeAssetName's list at all: a write
+    // to NUL.md succeeds and stores nothing, so without the refusal the cache
+    // would report a topic saved that can never be read back.
+    checkFalse(help_assets::writeCached("NUL.md", "x"), "refuses NUL.md");
+    std::string junk = "left over from before";
+    checkFalse(help_assets::readCached("NUL.md", junk), "and will not read it back either");
+
+    checkFalse(help_assets::writeCached("help .md", "x"), "refuses a name with a space");
+    checkFalse(help_assets::writeCached(".hidden.md", "x"), "refuses a leading dot");
+
+    std::vector<std::string> after = dirEntries(scratchDir());
+    checkInt((long)after.size(), (long)before.size(),
+             "and the cache directory gained no files at all");
+}
+
+static void test_cache_resolve_order() {
+    section("cache: download, then cache, then the binary");
+
+    help_assets::setCacheRoot(scratchDir());
+    const std::string name = "help_zsdos.md";
+    const std::string BUNDLED  = "# ZSDOS\n\nthe copy compiled into the binary\n";
+    const std::string DOWNLOAD = "# ZSDOS\n\nthe copy fetched from the network\n";
+
+    DeleteFileW(wide(help_assets::cachePath(name)).c_str());
+    checkFalse(fileExists(help_assets::cachePath(name)), "no cached copy to start with");
+
+    // Step three on its own.
+    help_assets::ResolvedTopic r = help_assets::resolveTopic(name, "", BUNDLED);
+    checkTrue(r.source == help_assets::TopicSource::Bundled,
+              "with no download and no cache, the bundled copy");
+    checkStr(r.content, BUNDLED, "and its text");
+    checkTrue(r.savedWhen.empty(), "a bundled copy carries no saved-at time");
+    checkStr(help_assets::sourceLabel(r.source), "bundled with the app",
+             "which the status line calls what it is");
+    checkFalse(fileExists(help_assets::cachePath(name)),
+               "and nothing was cached - the cache holds what was downloaded, "
+               "not what the binary already has");
+
+    // Step one, which also writes step two.
+    r = help_assets::resolveTopic(name, DOWNLOAD, BUNDLED);
+    checkTrue(r.source == help_assets::TopicSource::Downloaded,
+              "a download beats both of the others");
+    checkStr(r.content, DOWNLOAD, "and is what the reader is shown");
+    checkStr(help_assets::sourceLabel(r.source), "downloaded", "labelled as fresh");
+    checkTrue(fileExists(help_assets::cachePath(name)),
+              "and it was cached on the way past");
+    checkStr(readRaw(help_assets::cachePath(name)), DOWNLOAD,
+             "with the downloaded bytes, not the bundled ones");
+
+    // Step two: this is the whole point of the commit. Offline, with a bundled
+    // copy available, the reader still gets the topic they actually read.
+    r = help_assets::resolveTopic(name, "", BUNDLED);
+    checkTrue(r.source == help_assets::TopicSource::Cached,
+              "with the download gone, the cache");
+    checkStr(r.content, DOWNLOAD, "and it is the DOWNLOADED text, not the bundled text");
+    checkStr(help_assets::sourceLabel(r.source), "offline copy", "labelled as offline");
+    checkInt((long)r.savedWhen.size(), 16,
+             "a cached copy says when it was saved: \"" + r.savedWhen + "\"");
+    checkTrue(r.savedWhen.compare(0, 2, "20") == 0,
+              "as a local YYYY-MM-DD HH:MM: \"" + r.savedWhen + "\"");
+
+    // And back to step three once the file is gone.
+    DeleteFileW(wide(help_assets::cachePath(name)).c_str());
+    r = help_assets::resolveTopic(name, "", BUNDLED);
+    checkTrue(r.source == help_assets::TopicSource::Bundled,
+              "the bundled copy again after the cache file is deleted");
+    checkStr(r.content, BUNDLED, "and its text again");
+
+    // What all seven remote topics do today: no bundled copy exists, so the
+    // chain really ends at the cache.
+    r = help_assets::resolveTopic(name, "", "");
+    checkTrue(r.source == help_assets::TopicSource::None,
+              "no download, no cache and no bundled copy is None");
+    checkTrue(r.content.empty(), "with no content for the pane");
+    checkStr(help_assets::sourceLabel(r.source), "unavailable", "and a label saying so");
+
+    // An empty download is an absent one, not a topic. This is the HTTP 200
+    // with an empty body again, seen from the resolve side.
+    r = help_assets::resolveTopic(name, "", BUNDLED);
+    checkTrue(r.source == help_assets::TopicSource::Bundled,
+              "an empty download does not count as a download");
+
+    // A name the whitelist refuses must not cost the reader the text that was
+    // downloaded - it costs them only the offline copy.
+    r = help_assets::resolveTopic("../evil.md", DOWNLOAD, "");
+    checkTrue(r.source == help_assets::TopicSource::Downloaded,
+              "an unsafe name still shows what was downloaded");
+    checkStr(r.content, DOWNLOAD, "in full");
+    checkFalse(fileExists(scratchParent() + "\\evil.md"),
+               "but nothing was written above the cache directory");
+    r = help_assets::resolveTopic("../evil.md", "", BUNDLED);
+    checkTrue(r.source == help_assets::TopicSource::Bundled,
+              "and with no download it falls straight past the cache it cannot name");
+}
+
+static void test_cache_half_written_file() {
+    section("cache: a half-written file is never read whole");
+
+    help_assets::setCacheRoot(scratchDir());
+    const std::string name = "help_nzcom.md";
+    const std::string GOOD = "# NZCOM\n\nthe whole topic\n";
+    const std::string NEXT = "# NZCOM\n\nthe next whole topic\n";
+
+    checkTrue(help_assets::writeCached(name, GOOD), "a good copy is cached");
+
+    // What a killed writer, a full disk or a power loss leaves behind: a
+    // scratch file holding part of a topic. It is not under the real name, so
+    // no reader can reach it - that is what the rename buys.
+    // Deliberately LONGER than what the next write stores. A write that opened
+    // the scratch file without truncating it would then leave the tail of this
+    // one behind the new topic, which is exactly what the "no leftovers" check
+    // below is looking for; with a shorter plant that mutation survives.
+    const std::string temp = help_assets::cacheTempPath(name);
+    checkTrue(writeRaw(temp, "# NZCOM\n\nthe first half of a topic whose writer "
+                             "was killed before it could be renamed into place\n"),
+              "a half-written scratch file is planted");
+    checkTrue(fileExists(temp), "and it is really there");
+
+    std::string back;
+    checkTrue(help_assets::readCached(name, back), "readCached still answers");
+    checkStr(back, GOOD, "with the whole copy, not the half-written one");
+
+    // CREATE_ALWAYS, so the stale scratch file is truncated rather than
+    // appended to: without that the next write would publish the leftovers of
+    // the last one followed by the new topic.
+    checkTrue(help_assets::writeCached(name, NEXT),
+              "the next write succeeds over the stale scratch file");
+    back.clear();
+    checkTrue(help_assets::readCached(name, back), "and the topic is readable");
+    checkStr(back, NEXT, "as exactly the new content, with no leftovers in front of it");
+    checkFalse(fileExists(temp), "and the scratch file is gone - the rename consumed it");
+
+    int forTopic = 0;
+    for (const auto& entry : dirEntries(scratchDir())) {
+        if (entry.rfind(name, 0) == 0) forTopic++;
+    }
+    checkInt(forTopic, 1, "the topic leaves exactly one file in the cache directory");
+
+    // The other shape a killed writer leaves, and the one that gets past the
+    // rename: a file of the right name and no length. readCached calls it a
+    // miss - a reader shown a blank pane cannot tell it from a topic that
+    // loaded and said nothing - so the resolve falls through to the next step
+    // rather than publishing a blank topic as this one.
+    checkTrue(writeRaw(help_assets::cachePath(name), ""),
+              "a zero-byte file is planted under the real name");
+    checkTrue(fileExists(help_assets::cachePath(name)), "and it is really there");
+    back = "left over from before";
+    checkFalse(help_assets::readCached(name, back), "readCached calls an empty file a miss");
+    checkTrue(back.empty(), "and clears the caller's string rather than leaving it stale");
+
+    const std::string BUNDLED = "# NZCOM\n\nthe copy compiled into the binary\n";
+    help_assets::ResolvedTopic r = help_assets::resolveTopic(name, "", BUNDLED);
+    checkTrue(r.source == help_assets::TopicSource::Bundled,
+              "and the resolve steps over it to the bundled copy");
+    checkStr(r.content, BUNDLED, "showing the bundled text and not a blank pane");
+}
+
+//=============================================================================
+// A download that did not all arrive
+//
+// HelpWindow::downloadToString used to end its read loop with an unconditional
+// "success = true", so a body cut off part-way was handed back as a document.
+// With the cache in place that stopped being a one-session annoyance: fetchTopic
+// passes a successful download to resolveTopic, which writes it over the
+// complete offline copy and labels the pane "(downloaded)". The fragment became
+// the durable copy of the topic.
+//
+// downloadToString itself needs a live WinHTTP session and cannot be called
+// from here. help_assets::downloadIsComplete is the seam it was split at: the
+// RULE is covered below, the WIRING - that downloadToString queries the real
+// Content-Length, counts the real bytes and passes a real error code - is
+// argued in the comment on the read loop and not tested here.
+//
+// The numbers below are the measured ones. help_cpm22.md is 5147 bytes from
+// the release URL HelpWindow fetches; 5468/2000 and the chunked 500 with
+// WinHTTP error 12152 are what a throwaway localhost server and a WinHTTP probe
+// produced on 2026-08-28 - see HelpAssets.h for what each of those two shapes
+// proved and why one check could not cover both.
+//=============================================================================
+
+static void test_download_completeness() {
+    section("download: judging a body against what the response announced");
+
+    std::string error = "left over from an earlier failure";
+    checkTrue(help_assets::downloadIsComplete(5147, 5147, 0, error),
+              "a body of exactly the announced length is complete");
+    checkStr(error, "left over from an earlier failure",
+             "and a complete body does not touch the caller's error string, so "
+             "no stale reason can be printed beside it");
+
+    error.clear();
+    checkFalse(help_assets::downloadIsComplete(5468, 2000, 0, error),
+               "2000 bytes of an announced 5468 is not a document - the shape "
+               "WinHTTP reports as a clean end of body");
+    checkTrue(contains(error, "2000") && contains(error, "5468"),
+              "and the reason names both lengths: \"" + error + "\"");
+
+    error.clear();
+    checkFalse(help_assets::downloadIsComplete(5147, 5148, 0, error),
+               "one byte MORE than announced is a mismatch too, not a pass");
+    checkTrue(contains(error, "5148") && contains(error, "5147"),
+              "with both lengths again: \"" + error + "\"");
+
+    error.clear();
+    checkFalse(help_assets::downloadIsComplete(5468, 0, 0, error),
+               "and nothing at all against an announced 5468 is a failure, not "
+               "an empty topic");
+
+    // The chunked case: no Content-Length to compare, so the read error is the
+    // only evidence. Refusing a response for having no length would take the
+    // remote help system offline the day the asset host switched to chunked.
+    error = "untouched";
+    checkTrue(help_assets::downloadIsComplete(-1, 1000, 0, error),
+              "no Content-Length and a clean read is complete, because a "
+              "chunked response carries no length to check");
+    checkStr(error, "untouched", "with the error string left alone");
+
+    error.clear();
+    checkFalse(help_assets::downloadIsComplete(-1, 500, 12152, error),
+               "no Content-Length and a failed read is NOT complete - this is "
+               "the truncated chunked body, ERROR_WINHTTP_INVALID_SERVER_RESPONSE");
+    checkTrue(contains(error, "12152"),
+              "and the WinHTTP code reaches the reader: \"" + error + "\"");
+
+    error.clear();
+    checkFalse(help_assets::downloadIsComplete(5468, 5468, 12152, error),
+               "a failed read is a failed download even when the announced "
+               "length was reached: the rule is absolute so it does not have to "
+               "be re-argued whenever the read loop changes");
+
+    // An empty 200 stays what it was: a complete response with nothing in it.
+    // resolveTopic is the one that calls an empty download absent, and that is
+    // what keeps an empty body from displacing the cached copy - see the
+    // resolve-order section. Pinned here so the two do not both start
+    // claiming it, or both stop.
+    error = "untouched";
+    checkTrue(help_assets::downloadIsComplete(0, 0, 0, error),
+              "\"Content-Length: 0\" with an empty body is complete here");
+    checkStr(error, "untouched", "and says nothing about it");
+    error = "untouched";
+    checkTrue(help_assets::downloadIsComplete(-1, 0, 0, error),
+              "and so is an empty body with no announced length");
+    checkStr(error, "untouched", "with nothing said about that either");
+}
+
+static void test_download_truncation_leaves_the_cache_alone() {
+    section("download: a truncated body does not become the offline copy");
+
+    help_assets::setCacheRoot(scratchDir());
+
+    // Two topics, so the "what the defect did" half below cannot damage what
+    // the "what happens now" half is asserting.
+    const std::string FIXED  = "help_cpm3.md";
+    const std::string BROKEN = "help_zcpr.md";
+    const std::string WHOLE =
+        "# CP/M Plus\n\nthe complete topic, read yesterday and cached\n";
+    const std::string FRAGMENT = WHOLE.substr(0, 20);
+
+    checkTrue(help_assets::writeCached(FIXED, WHOLE),
+              "a complete copy of the topic is in the cache from an earlier read");
+
+    // What downloadToString now does with a body that stopped short, and what
+    // fetchTopic does with the answer: it passes resolveTopic an empty
+    // download, exactly as it does for a connection that never opened. A FAILED
+    // download and an EMPTY one take the same path there.
+    std::string error;
+    bool downloaded = help_assets::downloadIsComplete(
+        (long long)WHOLE.size(), FRAGMENT.size(), 0, error);
+    checkFalse(downloaded, "the short body is refused");
+
+    help_assets::ResolvedTopic r = help_assets::resolveTopic(
+        FIXED, downloaded ? FRAGMENT : std::string(), "");
+    checkTrue(r.source == help_assets::TopicSource::Cached,
+              "so the reader gets the cached copy");
+    checkStr(r.content, WHOLE, "which is the WHOLE topic, not the fragment");
+    checkStr(help_assets::sourceLabel(r.source), "offline copy",
+             "and the status line does not call it a fresh download");
+    std::string back;
+    checkTrue(help_assets::readCached(FIXED, back), "the cache file is still there");
+    checkStr(back, WHOLE, "still holding the whole topic");
+
+    // And the shape being fixed, so it is clear WHERE the guard has to live.
+    // resolveTopic cannot tell a fragment from a topic - both are non-empty
+    // strings - so it caches the fragment and reports Downloaded. Nothing below
+    // downloadToString can catch this; that is why the length check is up
+    // there and not here.
+    checkTrue(help_assets::writeCached(BROKEN, WHOLE),
+              "the second topic starts with a complete copy cached too");
+    help_assets::ResolvedTopic bad = help_assets::resolveTopic(BROKEN, FRAGMENT, "");
+    checkTrue(bad.source == help_assets::TopicSource::Downloaded,
+              "handed a fragment as a successful download, resolveTopic calls "
+              "it downloaded");
+    checkStr(help_assets::sourceLabel(bad.source), "downloaded",
+             "and the status line would say so");
+    back.clear();
+    checkTrue(help_assets::readCached(BROKEN, back),
+              "and it has written it to the cache");
+    checkStr(back, FRAGMENT,
+             "over the complete copy - the truncation outliving the session is "
+             "the whole reason downloadToString has to refuse it");
+}
+
+//=============================================================================
 
 int main() {
     printf("Help renderer and asset suite\n");
@@ -624,6 +1213,19 @@ int main() {
     test_safe_asset_name();
     test_to_wide();
     test_parse_index();
+    test_cache_paths();
+    test_cache_creates_its_directory();
+    test_cache_round_trip();
+    test_cache_refuses_unsafe_names();
+    test_cache_resolve_order();
+    test_cache_half_written_file();
+    test_download_completeness();
+    test_download_truncation_leaves_the_cache_alone();
+
+    // Everything the cache sections wrote lives under %TEMP%; take it away
+    // whether they passed or failed, so a failing run does not leave the next
+    // one reading its litter.
+    removeScratch();
 
     printf("\n=============================\n");
     printf("%d checks, %d failed\n", g_checks, g_failed);
