@@ -34,19 +34,32 @@ From a bare machine that is:
     build.bat                                               # Debug
     build_release.bat                                       # Release
 
-The last recorded clean build of both configurations was against `romwbw_emu`
-`17cd380` (`v1.36-1`) and `cpmemu` `9fee3c2`. The sibling checkouts have to be
-present beside this one — the project compiles the core straight out of them,
-with no version gate, so a core that grows a required backend function breaks
-the link here on the next build and not before. `romwbw_emu` has moved four
-commits past that reading and `cpmemu` three; `emu_host_file_get_read_name()` in
-`emu_io_windows.cpp` answers the newest of those requirements and has never been
-compiled. `tools/check-sibling-drift.sh` reports where the siblings stand.
+The sibling checkouts have to be present beside this one — the project compiles
+the core straight out of them, with no version gate, so a core that grows a
+required backend function breaks the link here on the next build and not before.
+That stopped being a live question on 2026-08-28: the tree was built and driven
+(`978b623`), so `emu_host_file_get_read_name()` in `emu_io_windows.cpp` — added
+because `hbios_dispatch.cc` had grown a requirement, and until then never
+compiled with MSVC — links. Nobody wrote down which sibling shas that build was
+taken against, which is worth doing next time. The last reading this file
+recorded is `romwbw_emu` `17cd380` (`v1.36-1`) and `cpmemu` `9fee3c2`, and both
+checkouts stand five commits past it as of 2026-08-28.
+`tools/check-sibling-drift.sh` reports where the siblings stand.
 
-**The terminal conformance suite needs none of that.** `TerminalView.cpp`
-includes only `pch.h`, which is Win32 and the standard library, so
-`tests\run_tests.bat` builds and runs on any machine with a compiler, whether or
-not the app itself can be built.
+**Three of the six suites need none of that.** `tests\run_tests.bat` runs the
+terminal conformance suite, then the help renderer and asset suite, then the
+rendering suite, all before the two blocks that `exit /b 1` when a sibling
+checkout is missing: `TerminalView.cpp` and `HelpAssets.cpp` reach for Win32 and
+the standard library and nothing else, so those three build and run on any
+machine with a compiler, whether or not the app itself can be built. The
+rendering suite wants one thing more — an interactive window station, since it
+renders a real window with `PrintWindow(PW_RENDERFULLCONTENT)` and samples the
+pixels — and prints SKIP and exits 0 where there is no desktop rather than
+turning CI red for want of one. The host file transfer suite needs
+`..\romwbw_emu`, the HBIOS suite needs `..\cpmemu` as well, and the
+configuration diagnostics suite is last because it needs both on the include
+path even though it links nothing out of either. All six pass: 516, 244, 50, 66,
+36 and 108 checks, 1020 in total.
 
 ## Not verified on hardware
 
@@ -57,6 +70,30 @@ reproduces file-system redirection, and the hands-on pass over keystroke
 delivery, mouse copy/paste rendering and the first-run Help window. A check is
 deleted from that file once someone runs it, and the result goes to
 `CHANGELOG.md` under **Verified**.
+
+## Driving the app from a script
+
+`MainWindow.cpp` is in no suite — it needs wxWidgets and a real window — so the
+changes that live there were verified by building the app into a private
+directory and driving it with `WM_COMMAND` and `PrintWindow`, with the real
+`z80cpmw.json` backed up first and restored byte-identical afterwards. Three
+things cost an hour each on 2026-08-28 and are worth not rediscovering.
+
+**Common-control messages that carry a pointer are not marshalled across a
+process boundary.** `TCM_GETITEMRECT`, `LVM_GETITEMTEXTW` and `LVM_SETITEMSTATE`
+all take an address, and one sent from another process hands the app the
+*driver's* address: it dereferences it and dies with an access violation inside
+`comctl32`. That crashed z80cpmw twice and wrote two dumps. Either allocate the
+structure inside the target with `VirtualAllocEx` / `WriteProcessMemory`, or
+stay on pointer-free messages.
+
+**Call `SetProcessDPIAware()` before measuring anything.** The display here is at
+200% scaling, and a DPI-unaware driver process gets every `GetWindowRect` result
+halved by virtualisation — the 900x819 Settings dialog reads back as 450x410,
+which looks exactly like `SetSize` being ignored.
+
+**wx's notebook tab control is class `_wx_SysTabCtl32`, not `SysTabControl32`.**
+A `FindWindowEx` on the documented name finds nothing.
 
 ## The core is shared by reference; `emu_io_common.cc` is not
 

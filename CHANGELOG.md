@@ -45,6 +45,18 @@ them. Writing blind into a tree with no compiler here produced a defect on the
 first attempt, and patching it blind would only have stacked a second
 unverifiable edit on the first. All three are open items in `todo.txt` again.
 
+**Correction, 2026-08-28.** All three landed, on a machine with a compiler, and
+the revert is the reason the third one is now right. `display.bell` is a real
+setting with a checkbox on **Settings > Terminal**; Reset asks before it reboots
+a running machine; and the ROM notices survive `startEmulator()`'s clear - but
+not by being cleared at the top of `applyConfig()`, which is exactly the defect
+the review caught. A notice lives as long as the claim it makes is true, so
+`clearNotice()` is called from the four `loadROM()` success branches instead,
+and a user who reads "the saved ROM was not found", follows it into
+`onSelectROM()` and picks a working ROM retracts the notice by doing so. The
+paragraph above stands as the record of why they were pulled; the entries below
+are what replaced them.
+
 A further pass on 2026-08-27, again with no MSVC and no Windows, wrote **two**
 changes into the Windows sources. The first is
 `emu_host_file_get_read_name()`, below. It is there because without it this
@@ -59,6 +71,35 @@ window, so the real `TerminalView.cpp` was compiled here against a stubbed
 fixed and the deliberately-unfixed direction. It is still not an MSVC build, and
 it is marked accordingly. Everything else that pass produced is a shell script
 or a document, and the scripts were run here.
+
+The pass on 2026-08-28 is the first one here with MSVC, wxWidgets, PowerShell
+and a screen all present at once, and its purpose was to settle what the three
+blind passes could only mark. Twelve commits. Everything marked **NOT COMPILED**
+above is compiled, and the one item that asked for a person to look at a real
+screen and agree that `ESC[31m` is red is answered by a suite that reads the
+pixels instead. The suites went from three to six and from 370 checks to
+**1020**, all passing from `tests\run_tests.bat`: terminal conformance 516 (268
+that morning), help renderer and assets 244 (new), rendering conformance 50
+(new, and the only one that opens a window), host file transfer 66, HBIOS host
+file extension 36, configuration diagnostics 108 (new).
+
+What that total does not reach is worth naming before the entries rather than
+after them. `MainWindow.cpp` and `SettingsDialogWx.cpp` are in no headless suite
+and cannot be put in one - they need wxWidgets, a real window and an interactive
+window station - so the Reset confirmation, the notice lifetime, the Settings
+pages and the Keyboard page were verified by building the app into a private
+directory and driving it with `WM_COMMAND` and `PrintWindow`, with the real
+`z80cpmw.json` backed up and restored byte-identical afterwards. That is a
+person watching a machine drive the app once; it is not a check that will fail
+tomorrow if someone breaks it. The paint path is the exception: it lives in
+`TerminalView.cpp`, and the rendering suite opens a window of its own, so bold,
+underline and blink were read back as pixels rather than looked at. Where an
+entry below names no suite, it was checked the first way.
+
+`Version.h` still reads **1.0.22** and does not move here. 1.0.22 is published
+on both channels, so a signed `-Beta` package run would overwrite a published
+artifact under its own name; the number moves when this work is released. See
+the `build-msix.ps1 -Beta` entry under **Changed** and the correction under it.
 
 ### Added
 - **`emu_host_path_caps()`, and with it the sync to the `romwbw_emu` v1.36
@@ -190,6 +231,213 @@ or a document, and the scripts were run here.
   images were built by a different release than this HBIOS emulates, and the
   app displayed nothing they could compare it against. Taken from
   `romwbw_pin.h`, which is the single source of that number.
+- **Bold, underline and blink are per cell, and painted.** `TerminalCell` gains
+  a flags byte carrying `TCELL_BOLD`, `TCELL_UNDERLINE` and `TCELL_BLINK`, set
+  from SGR 1/4/5/6/22/24/25 and saved with the cursor, and `paint()` draws them
+  from four GDI faces - `m_fonts[4]`, indexed by bold and underline - because
+  GDI cannot turn weight or underline on for a single `TextOut`. The parser half
+  and the paint half are deliberately separate commits, and the evidence that
+  the first changed no pixels is that the rendering suite's checks did not move
+  across it. Reverse video stays out of the flags byte: it is resolved into the
+  colour nibbles at the write, which is what makes SGR 7 and 27 exact inverses.
+  There is no italic face, because nothing can ask for one. `blankCell()` zeroes
+  the flags, so `ESC[4m ESC[2J` does not underline all 2000 cells and
+  `ESC[5m ESC[2J` does not strobe the whole screen - an erase paints the current
+  colours, which is what lets a program set a colour and clear, but not the
+  current face. SGR 21 is left in the default arm as a documented no-op, because
+  ECMA-48 says double-underline, several terminals say bold-off, and nothing
+  here can settle it.
+  Blink shares the cursor's existing 500 ms timer rather than starting a second
+  one that could drift out of phase with it, and the tick invalidates only the
+  rows containing a blinking cell, so a screen with none repaints exactly as
+  often as it did before. That guarantee needed a check of a kind the suite did
+  not have - a window repainting twice a second to the same pixels looks like
+  one not repainting, and counting `WM_PAINT` cannot see it either, because the
+  cursor's own invalidation already produces one per tick - so the suite
+  dispatches the tick itself and reads `GetUpdateRect`. The off phase is
+  foreground = background, applied *after* the selection swap: collapsing first
+  would leave a selected blinking cell blinking its highlight instead of its
+  text. Tried in a scratch copy rather than reasoned about, and with the two
+  lines exchanged the suite reports exactly one failure, in the section written
+  for it.
+- **The bell is a setting.** `TerminalView`'s `0x07` case called
+  `MessageBeep(MB_OK)` with nothing to consult; `cpmdroid` made it a setting and
+  this is the same thing here. `display.bell` round-trips in `AppConfig`,
+  `setBellEnabled` / `isBellEnabled` / `setBellHook` are on the terminal, and
+  there is a checkbox on **Settings > Terminal**. `applyConfig()` pushes the
+  saved value at launch, which the item did not ask for and is the half that
+  matters: `TerminalView` constructs with the bell on, so without that line a
+  saved `"bell": false` would have been ignored on every start until the user
+  next opened Settings and pressed OK - a setting that only works after you
+  change it again. `clear()` deliberately does not touch it, because a guest's
+  `ESC c` resets the machine and not the user's preferences. The hook is also
+  what stopped the conformance suite beeping on every run since "BEL does not
+  move the cursor" was written.
+- **The Settings dialog is a notebook, and it has a Keyboard page.** Machine,
+  Terminal, Disk Images and Keyboard, with every control reparented to its page
+  panel. The restructure came first and added no settings and moved no handlers,
+  because `wxCommandEvent` propagates up through the page panel and the event
+  table is byte-identical; `m_statusText` stays on the dialog below the
+  notebook, since six handlers write it and they do not share a page. The
+  Keyboard page lists every bindable key with what it sends and a status, a box
+  to edit the sequence, **Default** and **Unbind**, and the three app-shortcut
+  switches. Rows are keyed by the id a name *resolves* to, so the
+  `"Control+Left": "^A"` already in the config on this machine shows as one row
+  rather than as a stranger beside `Ctrl+Left`; unrecognised entries are carried
+  through untouched, which is what `KeyMap::build`'s refusal to filter was for;
+  and the whole write-back is gated on a dirty flag, so an OK from someone who
+  never opened the page cannot rewrite `keyboard.keys` at all. The four reserved
+  combinations are greyed rows carrying `reservedPurpose()`'s words - absent,
+  they are a mystery.
+  `Keymap.h` gained `baseNameForVk()`, `nameForKeyId()` and `validateSequence()`
+  so the page's questions could be asked somewhere a test can reach. The names
+  written back are `defaultBindings()`'s spellings, because that is what a fresh
+  `z80cpmw.json` contains and therefore what a user reading their own file sees,
+  and the modifier prefix order is fixed at Ctrl, Shift, Alt - which is not
+  formatting. `keyIdForName` accepts the prefixes in any order, so a writer that
+  did not choose one order and then always choose it would add `Ctrl+Shift+F3`
+  beside an existing `Shift+Ctrl+F3` and leave two entries for one key, with the
+  winner decided by `KeyMap::build`'s merge order rather than by anything
+  visible.
+- **`keymap::reservedKeys()`, one list instead of four hand-written `if`s.**
+  Shift+PageUp, Shift+PageDown, Ctrl+Home and Ctrl+End drive the scrollback
+  viewer, and `handleKeyDown` answered them above its `m_keymap.find()`, so a
+  config that bound one of them was ignored in silence rather than refused, and
+  nothing outside that function knew the list - `docs/CONFIGURATION.md` restated
+  it in prose and a Settings dialog would have restated it a third time. The
+  table carries one row per combination with the words a dialog puts beside a
+  row it will not let you edit, and `reservedFor()`, `reservedPurpose()`,
+  `isReservedForApp()` and `classifyName()` ask of it; `classifyName()` answers
+  Ok, Unknown, or Reserved with the reason attached and the id still reported,
+  so a line can be refused out loud and pointed at instead of dropped.
+  `KeyMap::build` is untouched, deliberately, and now says why: being reserved
+  is a fact about the user interface, not about the map - the app wins the press
+  in `handleKeyDown` and the stored sequence simply never fires. The modifier
+  test stays a mask rather than an exact match, which is what the replaced code
+  did, so Ctrl+Shift+PageUp still scrolls back; narrowing it would have been a
+  behaviour change no test pinned, made under cover of a refactor. The suite
+  iterates the table itself rather than a fourth hand-written copy of the same
+  four rows.
+- **The configuration file reports what it holds that nothing reads.**
+  `ConfigManager` subtracts the schema from the document and collects five kinds
+  of problem - unrecognised setting, wrong kind of value, unknown key name,
+  reserved key name, could not be read - and `renderBlock` states the fate of
+  each kind separately, because they differ: an unrecognised member really is
+  dropped at the next save, an unknown or reserved key name is *kept* (`to_json`
+  writes `"keys"` back whole and nothing prunes it), and an unreadable file was
+  not read at all. One sentence for all of them, which is what the first draft
+  had, was false of a key binding and contradicted the note this repository had
+  just added to `KeyMap::build`. nlohmann 3.11.3 keeps no record of which
+  members a `from_json` consumed, so the schema has to be supplied rather than
+  observed: `referenceDocument()` is built from `to_json`'s own output, which
+  makes the writer the single source of the schema and turns any disagreement
+  into a test failure, with two further canaries for what that cannot catch
+  structurally - a member the writer emits that no reader reads, and a default
+  literal that differs between the pair.
+- **The startup notices have a lifetime, and the configuration report is
+  shown.** `startEmulator()` clears the terminal three lines below its own
+  no-ROM guard, and the guard cannot cover for it: the case that matters is a
+  saved ROM that is unusable while `loadDefaultROM()` has already put a good one
+  in the banks, where `hasROM()` is true, the guard does not fire, and the lines
+  saying which ROM is actually about to boot are wiped. The five ROM messages
+  and the configuration report go through `setNotice()` into an ordered map now,
+  and `printNotices()` runs after both of this file's
+  `clear(); resetScrollback();` pairs. `setNotice()` prints as well as
+  remembers, because a notice raised where nothing is about to clear the screen
+  would otherwise sit unread until the first Start.
+  `ConfigManager::diagnostics()` had no reader at all;
+  `reportConfigDiagnostics()` runs between `load()` and `applyConfig()`, and
+  again on `loadProfile()`, and raises one notice per problem kind rather than
+  one for the whole report, because the kinds stop being true at different
+  moments.
+  The could-not-be-read notice is the interesting one, and an adversarial pass
+  caught it being retracted wrongly. That block is the only place in the UI that
+  shows the backup file's name and the parser's line and column, and the
+  retraction was not merely reachable but ordinary: a config that will not parse
+  leaves `cfg.disks` empty, so the first Start routes through
+  `downloadAndStartWithDefaults`, whose both-disks-present branch calls
+  `saveSettings(); startEmulator();` back to back - retracting the notice one
+  statement before the `printNotices()` that exists to survive that very clear.
+  It is conditional on the quarantine having actually happened, because in the
+  one case where the rename *failed* the original really is still there and the
+  save really does replace it. Checked both ways on screen, including with all
+  twenty backup names pre-taken.
+- **Reset asks first.** `onEmulatorReset()` cleared the terminal and called
+  `reset()` with no guard, and both mobile ports ask. It asks when the machine
+  is running and not when it is stopped, because `onEmulatorStart()` already
+  cold-boots with no confirmation and confirming Reset-while-stopped but not
+  Start would be arbitrary. `MB_DEFBUTTON2`, so Enter cancels. Driven end to end
+  to check it: the dialog appears, **No** leaves the typed character on screen,
+  **Yes** really reboots, and a stopped machine gets no dialog at all. A profile
+  that could not be read used to be quarantined in total silence, vanishing from
+  the Load Profile list with nothing said but "Failed to load profile."; the
+  failure branch reports now, and the message box says the file could not be
+  read, points at the terminal for the reason, and says current settings are
+  unchanged.
+- **`z80cpmw/HelpAssets.{h,cpp}`, and help topics that survive going offline.**
+  The state-free half of the help system - `HelpTopic`, `parseIndexJson`,
+  `markdownToText`, plus a new `isSafeAssetName` and `toWide` - moved into
+  `namespace help_assets` so it could be built against a test, and then gained a
+  disk cache: `cacheDir`, `cachePath`, `cacheTempPath`, `readCached`,
+  `writeCached`, `resolveTopic` and `sourceLabel`. `HelpWindow`'s in-memory
+  cache held a topic for fifteen minutes and lost it at exit, so a reader who
+  read the CP/M 2.2 guide yesterday and opened it on a train today got "This
+  topic could not be downloaded." `resolveTopic` is the one place the order
+  lives - download, then cache, then the copy in the binary - and the status
+  line names which copy is on screen ("(downloaded)", "(offline copy, saved
+  ...)", "(bundled with the app)", "(this session's copy)"), because a reader
+  who cannot tell a fresh topic from one saved before a release cannot judge
+  what they are reading; `displayContent` stops writing a status of its own,
+  since it is handed markdown and cannot tell where the markdown came from.
+  Writes go to `<asset>.<pid>.tmp` and are renamed onto the real name, so the
+  name a reader reads appears with all of its content or not at all: the file
+  being overwritten is the only offline copy the user has, and a truncating open
+  that then fails leaves them with less than they had. The pid is in the scratch
+  name because two copies of z80cpmw can run, and an empty body is refused,
+  because a blank pane is indistinguishable from a topic that loaded and said
+  nothing. `isSafeAssetName` finally has callers, which is what it was written
+  for: it is the first statement of both path functions, so there is no way to
+  reach the file system without it having said yes, and `fetchTopic` refuses to
+  build a download URL out of a name it rejects rather than pasting a string
+  that arrived over the network into `WinHttpCrackUrl`.
+  **The bundled copy did not land; this is the cache half only.**
+  `resolveTopic`'s third step is written and `bundled` is empty for every topic
+  that reaches it, so today the cache is the whole of the offline story - the
+  bundling commit changes one argument at one call site and nothing else. It is
+  blocked on a decision rather than on work: three of the seven published topics
+  are worded for iOS ("tap the gear icon", "Cmd+C copies the screen text", an
+  "iOS / iPadOS" heading) and the published `help_index.json` calls Quick Start
+  "Getting started with iOSCPM", so compiling them into a Windows binary would
+  make the wrong wording durable and offline, which is the opposite of what the
+  item wants. Somebody has to decide whether the text is forked here or fixed
+  upstream in `avwohl/ioscpm`; `cpmdroid` forked in `78e6ec6`, which is the
+  precedent, and `todo.txt` holds it as a decision. Nothing calls
+  `help_assets::setCacheRoot()` yet either - it is a seam, not a fourth copy of
+  the `SHGetKnownFolderPath` snippet this repository already has three of, and
+  until `MainWindow` calls it with `getUserDataDirectory()` plus a help
+  subdirectory, `cacheDir` computes its path from the environment. The header
+  says so. An MSIX install needs no change, because writes to `%LOCALAPPDATA%`
+  are redirected by the OS exactly as the config file and the disk images
+  already are, and both the scratch file and its target sit in one directory so
+  the rename stays inside it - argued from how the existing writes work, not
+  measured inside a package, and the comment says which.
+- **Three new suites, and `tests\run_tests.bat` now runs six.**
+  `tests/test_render.cpp` (rendering conformance, 50 checks) creates a real
+  window, drives the parser with real bytes, asks the DWM to render the window
+  with `PrintWindow(PW_RENDERFULLCONTENT)` and samples the bitmap;
+  `tests/test_help.cpp` (help renderer and assets, 244) and
+  `tests/test_config.cpp` (configuration diagnostics, 108) need neither a window
+  nor the sibling checkouts, so they are wired in ahead of the two blocks that
+  `exit /b 1` when a sibling checkout is missing - a suite appended at the end
+  is unreachable on a machine that has only this repository. The rendering suite
+  writes its palette out independently of `TerminalView::cgaToRGB()` on purpose,
+  because a test that reads the same table it is checking asserts nothing, and
+  it prints SKIP and exits 0 where there is no interactive window station, so it
+  cannot turn CI red for want of a desktop. One detail in it is worth keeping:
+  the font is created with `CLEARTYPE_QUALITY`, so a glyph's pixels are
+  subpixel-blended and almost none is exactly the requested colour, which makes
+  "which colour is this cell" a nearest-neighbour question asked of the pixel
+  furthest from the background rather than an equality test.
 
 ### Fixed
 - **`W8` was told the name it asked for, not where the file went.**
@@ -363,6 +611,187 @@ or a document, and the scripts were run here.
   earn you a second entry spelled `Ctrl+Left` for the same key. Every override
   survives, and a key deliberately unbound with `""` keeps its entry and stays
   unbound.
+- **`ESC[91m` drew in grey.** SGR 90-97 and 100-107 were not handled at all:
+  they fell through `applySGR()`'s default and left the attribute byte alone, so
+  a bright colour from a fresh reset drew in CGA 7. That was measured by the new
+  rendering suite on its first run, not inferred, and it is the gap that suite
+  earned its place by finding. The bright half is the same ANSI index with the
+  intensity bit set, which is the bit SGR 1 already sets, so `22` dims a bright
+  colour and a `3x` after a `9x` deliberately does not - that consequence of the
+  earlier `0xF8` fix is pinned by a check now rather than left to be
+  rediscovered. 100-107 fold onto the plain background, because the background
+  nibble is three bits wide and the fourth is blink on real hardware: a wrong
+  shade beats a cell that starts strobing. `cpmdroid`'s `TerminalView.kt` has
+  had the branch since its own ANSI fix; `ioscpm`'s `applySGR` has the same hole
+  - `EmulatorViewModel.swift` handles 30-37 and 40-47 only - and `todo.txt`
+  notes it for whoever is next at a Mac.
+- **The disk downloader was unreachable from Settings at 200% scaling.**
+  Measured, not suspected: the single column's sizer wanted 850x1320 while the
+  constructor pinned `SetSize(900, 750)`, `GetWindowRect` put the catalog list
+  at 844x0, and a `PrintWindow` capture showed the whole download section -
+  header, folder path, list, **Download** and **Delete**, progress - not
+  rendering at all, with the Dazzler box clipped mid-group. A fixed pixel count
+  falls further short the more the display scales. `Fit()` derives the height
+  now: the tallest page is Machine at 762x559, the dialog settles at 900x819,
+  and the list gets its 250px back. The notebook border and the page inset do
+  cost the list 36px of content width, widening a column overflow that already
+  existed. Two more of the same family were caught before they shipped - the
+  constructor took `Fit()`'s answer as both the size *and* the minimum, so a
+  dialog taller than the screen could not be made shorter, and the Keyboard page
+  took the fitted height from 819 to 1105 against a 1366x768 laptop's 728px work
+  area, while the key list's height was a raw pixel count that stayed 420
+  however small the screen. The height is clamped to the monitor work area, the
+  list height is `FromDIP`, and the notebook is what gives way rather than the
+  status line and OK/Cancel sliding off the bottom. Checked by forcing the
+  window to 1024x768 and to 300x200 and measuring where the buttons landed.
+- **A disk catalog arriving from the worker thread put back everything you had
+  just ticked.** `onCatalogLoaded` called `loadSettings()` to reapply the disk
+  dropdowns after `populateDiskLists()` emptied them, and `loadSettings()`
+  resets *every* control from `m_settings` - from a posted event seconds after
+  the dialog opened, so anything changed in the meantime was silently undone. It
+  repopulates the dropdowns alone now.
+- **A mistyped key in `z80cpmw.json` was absorbed in silence and then deleted in
+  silence.** `from_json` reads the fields it knows by name and `to_json` writes
+  only those, so an unrecognised member was read by nobody and gone at the next
+  save, and `KeyMap::build` discarded any name `vkForName` rejected without a
+  word. Both are reported now - see the diagnostics entry under **Added** - and
+  three cases in that family were worth their own measurement. `"keys"` written
+  as an **array** loaded clean, left the keymap empty, and the very next save
+  replaced every custom binding with the defaults, in the same launch:
+  `collectMemberProblems` recursed only where both sides were objects or both
+  arrays, which coincides exactly with the three places `from_json` guards on
+  type instead of throwing (`disks`, `dazzler`, `keyboard.keys`), so a member of
+  the right name and the wrong type was invisible. `"F13"`, `"PgeUp"` and
+  `"Ctrl_Left"` resolve to nothing, so the binding never fires while the line
+  looks exactly like a working one from every other angle. And a reserved name
+  resolves but loses the press to the app.
+  This is not the whole of that bug, and the entry says so rather than implying
+  otherwise. The save suppression covers `load()`'s own save, which is enough
+  for a file that could not be read, because the quarantine has renamed it away
+  - but a wrongly-typed section is not quarantined, so a *later* explicit save
+  (`saveWindowPlacement()` at `WM_CLOSE`, the welcome flag, an NVRAM change)
+  still writes the defaults over it. Measured: a `keyboard.keys` written as an
+  array lost the user's binding within twelve seconds of boot. Fixing it
+  properly means carrying the unread text through to the next `to_json`, and
+  `todo.txt` keeps it open.
+- **A config file that could not be read was saved over.** `load()` ignored
+  whether the read had succeeded: on a failure `m_config` was left default, the
+  fill-in-missing-bindings loop found every binding absent and set `needSave`,
+  and `save()` landed on the original bytes. The rule now is that we do not save
+  over a file we failed to read, and it is a guard at the one place that can
+  break it. That matters more than the quarantine it backs up, because the
+  quarantine can fail: the file is renamed to `z80cpmw.json.bad` first, but a
+  rename can be refused by an ACL, a sync agent or a handle held without
+  `FILE_SHARE_DELETE`, and the previous draft then wrote defaults over a file it
+  had neither read nor moved. A file that could not be *opened* took an early
+  return ahead of all of this and produced no diagnostic at all - the one case
+  where "could not be read" is literally true was the case with no report - and
+  now carries its `errno` reason through the same path. The backup name no
+  longer clobbers either: `.bad`, then `.bad2`, `.bad3`, to a cap of 20, after
+  which the file is left alone, because the copy worth keeping is the first one,
+  made when the settings were still the user's, not the near-defaults file a
+  second failure would replace it with.
+- **Five defects in the help renderer**, each measured over the eight assets
+  published in `avwohl/ioscpm` rather than reasoned about, and fixed before
+  bundling could make them durable and offline. `markdownToText` had no case for
+  a fence at all, so both marker lines fell through to the ordinary-text branch
+  and printed their own backticks - 170 such lines across the eight assets, 60
+  of them in `help_cpm22.md` - and a fence is consumed now with what it encloses
+  emitted verbatim, which is the point: a dash inside a fence is a diff line,
+  not a bullet. The bullet branch emitted its marker and ran `continue` *before*
+  the bold and backtick passes at the bottom of the loop, so a bullet carrying
+  inline markup showed its markers, and the table and header branches had the
+  same shape and the same fault - 63 bullet lines carry markup, and six table
+  rows in `help_quick_start.md` carry backticks. The two passes are a lambda
+  called from all four places that emit text, so no future branch can forget
+  them. `displayContent` widened the rendered text with a char-by-char copy into
+  a `std::wstring`, and `char` is signed on MSVC, so every byte over 0x7F became
+  a `wchar_t` up near 0xFF80: exactly one published asset is not ASCII,
+  `help_file_transfer.md`, 30 bytes making 10 characters, and each came out as
+  three pieces of garbage. `toWide` calls `MultiByteToWideChar(CP_UTF8, ...)`
+  and the three other narrowing sites go through it, deliberately without
+  `MB_ERR_INVALID_CHARS`, so a stray byte becomes U+FFFD and the reader still
+  gets the rest of the topic where a failed call would hand the pane an empty
+  string. `fetchTopic`'s failure arm posted a status line and never a body, so
+  the pane went on showing the previous topic and a failed click looked like a
+  click that had not registered. Fixing that exposed the fifth: the local-topic
+  branch sits *above* the `m_loading` guard, so selecting a bundled topic while
+  a download is outstanding really does move `m_currentTopicId`, which means an
+  unconditional repaint on failure would have replaced a topic the reader had
+  just chosen with an error about one they had left. The content message carries
+  the topic id now and is dropped unless it still matches, the success arm is
+  tagged the same way, and the cache-hit branch that never assigned
+  `m_currentTopicId` at all - wrong title in the status bar on every cache hit -
+  assigns it.
+- **A truncated download was reported as a complete topic.**
+  `downloadToString` ended its read loop with an unconditional success: a
+  `WinHttpQueryDataAvailable` that failed broke out as though the body had
+  ended, a `WinHttpReadData` that failed skipped its chunk and the loop carried
+  on, and nothing compared the assembled length to anything. Before the cache
+  that meant one pane showing half a topic for one session; with a cache behind
+  it, `resolveTopic` would report Downloaded, `writeCached` would replace a
+  complete offline copy with the fragment, and the status line would call it
+  "(downloaded)" - the truncation becomes the durable copy. Both halves of the
+  new check are needed, and which half catches what was measured rather than
+  assumed: a server that announces `Content-Length: 5468`, sends 2000 bytes and
+  closes produces **no** WinHTTP error at all, because the next
+  `WinHttpQueryDataAvailable` returns TRUE with 0 available, identical to a
+  clean end of body - so treating a failed read as failure would not have caught
+  the reported bug - while a truncated *chunked* response does raise
+  `ERROR_WINHTTP_INVALID_SERVER_RESPONSE` and has no `Content-Length` to compare
+  against, so the length check alone would not have caught that one. A missing
+  `Content-Length` is therefore deliberately non-fatal: "no length, no document"
+  would kill remote help the day the host switched to chunked. What GitHub
+  actually sends was checked rather than assumed -
+  `release-assets.githubusercontent.com` answers the final 200 with
+  `Content-Length` and no `Transfer-Encoding` - so the live path is really
+  length-checked rather than vacuously passing. A refused download takes the
+  same path as an empty one, so the reader gets the cached copy and a status
+  line that does not claim a fresh download.
+- **A key sequence `decode()` would mangle is refused instead of sent.**
+  `decode()` has no error return and every arm of its switch pushes a byte, so a
+  mistake was not diagnosed, it was transmitted. `validateSequence()`'s refusals
+  were read out of `decode`'s arms rather than guessed: a trailing backslash, an
+  unknown escape letter, an octal escape over 377 (`val & 0xFF`, so `\400` is
+  NUL - measured, and the case the function was written for), a trailing caret,
+  and a caret on anything whose upper-case form is outside 0x40..0x5F. An empty
+  string is accepted, because that is how a key is unbound. It is a second copy
+  of `decode`'s arm structure and nothing in the language keeps the two
+  together, so the suite ties them: for all three arms that can refuse, it
+  decides what `validateSequence` *ought* to say by running `decode` and looking
+  at the bytes - over all 256 successors of a backslash, all 256 of a caret, and
+  every octal value from 000 to 777. On the page itself, validating per
+  keystroke and *storing* per keystroke turned out to be different things, and
+  the first version got that wrong in a way that was measured rather than
+  reasoned about: typing an over-long octal escape left the row bound to a
+  prefix of it, because every prefix raises its own `wxEVT_TEXT` and some
+  prefixes are legal on their own, so a live commit cannot tell "finished" from
+  "half typed". The box validates on every keystroke and commits only when the
+  selection leaves the row or OK is pressed. And a refused sequence stayed
+  refused on the status line after **Default** or **Unbind** had made it valid
+  again, because the retraction lived in one of the five places that set the
+  flag; the flag has a single writer now.
+- **The rendering suite reddened one run in four, and one of its sections was
+  asserting nothing.** Measured, not suspected: the same binary run twenty times
+  failed five times, all twenty-two colour checks at once, because
+  `PrintWindow(PW_RENDERFULLCONTENT)` asks the desktop compositor for the window
+  and the compositor sometimes hands back a region it has not drawn into. A
+  suite that reds a quarter of its runs teaches people to re-run it rather than
+  read it. The capture is retried until the terminal's *own area* stops being
+  one flat colour, and prints SKIP if it never composes; the area is the point,
+  because the first attempt asked whether the whole window bitmap was uniform,
+  which it never is - the frame and title bar compose before the client area
+  does - so a blank terminal passed that check and failed everything after it.
+  Thirty consecutive runs clean, against fifteen of twenty before. And the
+  section called "no colour is drawn as its bit-reversed twin" skipped any index
+  whose bit-reversal equalled its expected CGA value - but `ANSI_TO_CGA` *is*
+  that bit reversal, so the guard was true for all eight and `check()` was never
+  reached. Its comment said "0, 2, 5, 7 are their own mirror", which understated
+  it by half. The guard is `i == ANSI_TO_CGA[i]` now, which really does skip
+  exactly those four, and the other four assert that no pixel of the cell
+  carries the untranslated value. Proved by sabotage: with `ansiToCGAColor`
+  patched in a scratch copy to return its argument, the section fails four
+  checks that it did not previously even print.
 
 ### Changed
 - **`QKZ80_NO_TRACE` is defined for both configurations.** This port installs no
@@ -420,6 +849,21 @@ or a document, and the scripts were run here.
   `dist\`. The default (Store) branch and `build-nsis.ps1` still keep no
   symbols, which matters only when the two channels do not come off one build
   the way 1.0.22 did.
+  **Correction, 2026-08-28.** It has been run, and the instruction above is now
+  the *forbidden* run. Because `-Beta` reached the signing call before anything
+  looked at `-SkipSign`, the only way to obey that sentence on 1.0.22 was to
+  spend a real signing call and write `dist\z80cpmw-1.0.22-beta.msix` - the
+  name 1.0.22 is already published under - over the published artifact, which is
+  what happened; see the `-SkipSign` entry below. What to run instead is the
+  unsigned rehearsal, `build-msix.ps1 -Beta -SkipBuild -SkipSign`, which exits
+  0, writes `dist\z80cpmw-1.0.22-beta-unsigned.msix` and its `.pdb`, and leaves
+  the published package untouched. A **signed** `-Beta` run stays forbidden
+  while `Version.h` says 1.0.22, and `todo.txt` keeps the item open on those
+  terms rather than on the sentence above. The symbols themselves are not
+  recovered and cannot be:
+  `dist\` holds no `z80cpmw-1.0.22-beta.pdb`, a rebuild is a different binary,
+  and a crash report from the shipped 1.0.22 stays unresolvable. What the change
+  buys is 1.0.23 onward.
 
 - **`tools/check-sibling-drift.sh` measures against `origin`, not against the
   local checkout.** Comparing a recorded reading with a sibling's local `HEAD`
@@ -437,6 +881,45 @@ or a document, and the scripts were run here.
   leaving the age to be assumed, and `--fetch` updates them first — the only
   thing the script does that writes to a sibling, which is why it is off by
   default.
+- **`build-msix.ps1 -Beta` honours `-SkipSign`, and `-WhatIf` is a binding error
+  rather than a word the script ignores.** The signing test was
+  `if ($Beta) { ... } elseif (!$SkipSign -and $CertificatePath) { ... }`, so
+  `-Beta` reached the Azure Trusted Signing call before anything looked at
+  `$SkipSign`: the one switch whose whole purpose is to keep a run off the
+  network was overridden by the one branch that goes to the network, and the
+  beta vehicle therefore had no dry run at all. Nothing would have reported
+  that. The signing kit is complete at the hardcoded default
+  `C:\temp\in\z80cpmw-signing-kit` and `$env:Z80CPMW_SIGNING_KIT` is unset, so
+  the "Signing kit not found" guard does not fire; `Assert-ExeVersion` compares
+  `bin\Release\z80cpmw.exe` against `Version.h` and says nothing about the
+  artifact being replaced; and both binaries carry 1.0.22.0 while differing in
+  size - 607,744 bytes in `bin\Release` against 605,184 inside the published
+  package - so the guard passes while two different builds wear one version
+  number. The branch is three arms now, `$SkipSign` checked first on each, and
+  the unsigned outputs are named from a single `$betaStem` carrying
+  `-unsigned`, so the `.msix` and its `.pdb` cannot be named by two expressions
+  and drift apart, and the only file the "remove existing package" step can
+  delete is a previous rehearsal's. The marker is in the file name rather than
+  only in the console output, because the file outlives the console: a beta is
+  identified by its name when it is attached to a release. Step 6's symbol copy
+  and its `Write-Error` run on both beta arms, since that copy is the thing a
+  rehearsal exists to check.
+  `[CmdletBinding()]` is added for what it refuses, not for the common
+  parameters it brings, **and this was measured expensively.** A `param()` block
+  without it makes a *simple* script, and PowerShell quietly collects unmatched
+  arguments into `$args` instead of failing. `-Beta -SkipBuild -SkipSign
+  -WhatIf` was run against the old script on the expectation that `-WhatIf`
+  would be rejected; instead `-WhatIf` fell into `$args`, the run proceeded for
+  real, made a live Trusted Signing call, and re-minted the published 1.0.22
+  beta package from a different binary. The GitHub release was never touched and
+  the local copy was restored from it - its published digest `1549c223...`
+  matches `dist\` again - but the signing call is spent. That is the reason the
+  guard exists, and it is recorded here rather than left in a commit message.
+  `SupportsShouldProcess` is deliberately not taken: a token `-WhatIf` that
+  skipped only the steps someone remembered to guard would be a worse lie than
+  none. `packaging/scripts/build-nsis.ps1` has the same missing
+  `[CmdletBinding()]` and still swallows a stray `-WhatIf`; it is left for its
+  own commit, and `todo.txt` and `STORE_SUBMISSION.md` both name the gap.
 
 ### Documentation
 The cross-port sweep that produced `FEATURE_PARITY.md` was committed the same
@@ -716,6 +1199,40 @@ were still carrying the old text in their own paragraphs were swept on
   dormant `rename()` bug it said was upstream's to fix, which upstream has fixed
   — `emu_io_common.cc` grew its own `emu_rename()` using `MoveFileExA` with
   `MOVEFILE_REPLACE_EXISTING`.
+- **The in-app File Transfer topic stops endorsing a path `W8` will not take**,
+  which closes the "survives in `HelpWindow.cpp`" note two entries above.
+  **Help > Help Topics > Getting Started** listed R8 and W8 together and then
+  said "Give a full path (recommended)", which reads as a recommendation for
+  both and is true of R8 only. The `w8.com` in the images this build ships
+  prints `Usage: W8 <cpmname>` with no `[hostpath]` and carries none of the
+  `06 E9 CF` bytes of the `HBF_HOST_CAPS` probe - measured over
+  `bin/Release/disks`, not inferred from the lineage - so it reads only the FCB
+  the CCP has already parsed, and every export lands in the data folder whatever
+  the user types. `README.md` lost the same claim earlier; this one lives in a
+  `.cpp` and needs a build to see, which is why it outlived the document. The
+  replacement is `README.md`'s wording rather than new prose, so the two cannot
+  drift apart while they wait. The two cautions stay, and one fact neither
+  document carried is added, because the topic four lines above tells the reader
+  to download the Games disk: `hd1k_games.img` has no `r8.com` or `w8.com`
+  directory entry at all, so nothing transfers from it. A comment above the
+  literal names the blocks that are *deleted* rather than reworded when
+  refreshed images land, and each block carries its own condition -
+  `verify-disk-assets.sh` passing is not one gate for all three, because that
+  script's missing-utility branch is severity-split by image (only an image over
+  8 MB carrying a `55 AA` MBR reaches `bad()`), so a PASS is compatible with the
+  games disk still having neither utility, and following a single-condition
+  comment would have deleted the one sentence of the three that was still true.
+- **`docs/CONFIGURATION.md` loses "a mistyped Reset reboots the machine without
+  asking"**, in both places it said it, and gains a section on the configuration
+  report. `Config.h` carried the identical claim as the stated justification for
+  `ctrlRToCpm` being the one keyboard default that goes the other way, and is
+  corrected too. The default itself stays true: the confirmation limits the
+  damage of a keystroke the user did not mean, while reserving Ctrl+R would take
+  a working CP/M key away every time they did.
+- **`CODE_SIGNING.md` and `STORE_SUBMISSION.md` carry the two-stage packaging
+  recipe** - rehearse unsigned, then sign only on a version that has not
+  shipped, checking `Version.h` against the published releases first, because
+  nothing in the script does.
 
 ### Verified
 - **The tree builds against the v1.36 core.** Both configurations, against
@@ -764,6 +1281,78 @@ were still carrying the old text in their own paragraphs were swept on
   behind-origin clone as **"current"**, which is the bug. `--fetch` was
   exercised against those scratch clones only. Against the real siblings the
   script now exits 0.
+- **The tree builds with MSVC, and the three never-compiled changes are
+  settled.** `emu_host_file_get_read_name()` in `emu_io_windows.cpp` links,
+  `ansiToCGAColor()` in `TerminalView.cpp` compiles, and both packaging scripts
+  parse - 1362 tokens for `build-msix.ps1` and 729 for `build-nsis.ps1` through
+  `[Parser]::ParseFile`, which is the check that could not be run anywhere else.
+  The app was booted five times to the ROM's `Boot [H=Help]:` prompt.
+- **1020 checks in six suites, all passing** from `tests\run_tests.bat`:
+  terminal conformance 516, help renderer and assets 244, rendering conformance
+  50, host file transfer 66, HBIOS host file extension 36, configuration
+  diagnostics 108. It was three suites and 370 checks that morning.
+- **The manual check comes off `MANUAL_CHECKS.md`.** The item that "wants a
+  person looking at a real screen and agreeing that `ESC[31m` is red" is
+  machine-checked now: `tests/test_render.cpp` renders a real window, asks the
+  DWM for it with `PrintWindow` and samples the pixels. It found the SGR 90-97
+  hole on its first run, which is the argument for it.
+- **Mutation-tested, with the counts.** Seventeen mutations of the help cache,
+  seventeen killed. Ten of the help renderer, ten killed - removing the fence
+  branch fails 7, letting a fence's content through the markdown branches 4,
+  un-doing the bullet fix 3, the table fix 2, the header fix 2, reverting
+  `toWide` 3, and the four rules of `isSafeAssetName` 21, 4, 3 and 1. Eight of
+  the paint path, 23 checks killed, plus 52 consecutive clean runs and 10 more
+  at 200% DPI, which is what caught a check that assumed a 1200px update region
+  on a window only 874 wide. And against a patched `Config.cpp`, removing the
+  save suppression fails 4, reverting the type check 10, and reverting the
+  unknown-name report and the non-clobbering backup 16. One mutation of the
+  eight is deliberately *not* caught, and the comment says so rather than
+  implying the choice is pinned: taking the character metrics from the bold face
+  instead of the normal one moves nothing today, because `tmAveCharWidth` is
+  identical for all four Consolas faces at every integer height from 8 to 96.
+  `tmMaxCharWidth` is not - 15 regular against 16 bold at height 16 - so the
+  agreement is a property of this font rather than a rule, which is why the
+  index is pinned at 0 anyway.
+- **The unsigned beta rehearsal was run, and it is what `todo.txt` should have
+  asked for.** `build-msix.ps1 -Beta -SkipBuild -SkipSign` exits 0, writes
+  `dist\z80cpmw-1.0.22-beta-unsigned.msix` and its `.pdb` (hash-equal to
+  `bin\Release\z80cpmw.pdb`), produces a package that reads `NotSigned`, and
+  leaves the published `dist\z80cpmw-1.0.22-beta.msix` on hash `1549C223`
+  before and after. Both `-unsigned` files were deleted afterwards; they are
+  build output. **No signed `-Beta` run was made deliberately, and none may be
+  made while `Version.h` says 1.0.22** - the one that did happen today happened
+  because `-WhatIf` was swallowed, and is recorded under **Changed**. **1.0.22's
+  symbols are not recovered**: `dist\` holds no `z80cpmw-1.0.22-beta.pdb` and
+  cannot come to hold one.
+- **What is not covered, said plainly.** `MainWindow.cpp` and
+  `SettingsDialogWx.cpp` are in no suite, and the paint path's only coverage is
+  the rendering suite, so the Reset confirmation, the notice lifetime and its
+  retractions, the profile-failure report, the Settings pages and the Keyboard
+  page were checked by building the app into a private directory and driving it
+  by hand with `WM_COMMAND` and `PrintWindow`: `ID_EMU_SETTINGS` opens the
+  dialog, each tab clicked at its centre reports `TCM_GETCURSEL` 0, 1 and 2,
+  captures show every page with the status line and OK/Cancel on all of them,
+  every control member is constructed exactly once, and the real `z80cpmw.json`
+  was restored byte-identical afterwards. That is one person watching one
+  machine, not a check that will notice a regression next month. Inside the help
+  window, the offline arm needs WinHTTP to fail machine-wide, and the message
+  ordering and the three other widening sites need a message loop, so those are
+  argued against the source rather than measured - the truncation *rule* is
+  tested, against a throwaway localhost server, while the wiring inside
+  `downloadToString` was checked by probe. The Dazzler group in Settings and
+  `settings.debugMode` were both re-confirmed broken and deliberately not
+  touched; `todo.txt` has them.
+- **A note for the next person driving this app from a script**, since that is
+  how half of the above was checked and it cost two crashes and two dumps: a
+  common-control message that carries a **pointer** - `TCM_GETITEMRECT`,
+  `LVM_GETITEMTEXTW`, `LVM_SETITEMSTATE` - is not marshalled across a process
+  boundary, so sending one from a driver process makes the app dereference the
+  driver's address and die inside `comctl32`. Use `VirtualAllocEx` /
+  `WriteProcessMemory` in the target, or stay with pointer-free messages. Call
+  `SetProcessDPIAware()` in the driver first, or DPI virtualisation halves every
+  rectangle and the 900x819 dialog reads as 450x410, as though `SetSize` were
+  being ignored. And wx's notebook tab class is `_wx_SysTabCtl32`, not
+  `SysTabControl32`.
 
 ## [1.0.22] - 2026-08-23
 

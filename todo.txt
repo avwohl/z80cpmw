@@ -4,7 +4,8 @@ DELETED; it does not get a paragraph explaining that it closed.
 
   MANUAL_CHECKS.md   checks that need a person at a keyboard or a device
   KNOWN_PROBLEMS.md  standing facts that will never be "done"
-  WIP.md             longer-form handoff notes
+  WIP.md             longer-form handoff notes, including what a script that
+                     drives this app has to know before it tries
 
 Cite a function name, a symbol or a greppable string - never a file:line; five
 of the eight line cites this file once carried went stale within twelve hours.
@@ -15,94 +16,105 @@ glance what that machine can take.
 Needs a Windows machine
 ------------------------
 
-- [WINDOWS] THREE CHANGES IN THIS TREE HAVE NEVER BEEN COMPILED WITH MSVC.  (a)
-emu_host_file_get_read_name() in emu_io_windows.cpp, written 2026-08-27 because
-romwbw_emu made it a required backend function and hbios_dispatch.cc - which
-this project compiles straight out of the sibling checkout - calls it
-unconditionally, so the tree does not link without it.  The added statements
-were type-checked in a clang shim, which is not a build.  (b) the 24
--ErrorAction Continue additions in build-msix.ps1 and build-nsis.ps1, which
-nothing on this machine can even parse.  (c) ansiToCGAColor() in
-TerminalView.cpp, and the expectations it moved in test_vt52.cpp.  (c) carries
-more evidence than (a) does: the real TerminalView.cpp was compiled on a Mac
-against a stubbed windows.h - the parser touches no Win32 - and the conformance
-suite was run against it, 268 checks passing, and run again with the mapping
-backed out, 36 failing with exactly the old expectations.  What it still wants
-is a person looking at a real screen and agreeing that ESC[31m is red.  The
-first Windows build settles (a) and (c) both: they either compile or they do
-not, and run_tests.bat says the rest.
+- [WINDOWS] the Dazzler group in Settings is inert.  SettingsDialogWx's
+loadSettings() and saveSettings() read and write m_settings.dazzlerEnabled,
+dazzlerPort and dazzlerScale, but MainWindow::onEmulatorSettings seeds none of
+them and reads none of them back, so the checkbox opens unchecked however the
+machine is actually configured and anything set in it is discarded at OK.  The
+real state lives in cfg.dazzlers[0], which only onViewDazzler touches.  Seeding
+and writing back are two lines each; the question the fix has to answer first is
+which of the two is authoritative when they disagree at startup.
 
-- [WINDOWS] there is no per-cell attribute beyond the packed CGA byte.  struct
-TerminalCell carries a character, a foreground and a background and nothing
-else, and the paint path selects a single m_font outside the row/column loop, so
-bold / underline / blink / reverse have nowhere to live and nothing to render
-them.  The gap is a flags byte plus a multi-HFONT paint path - roughly a day,
-splitting cleanly into a parser commit and a rendering commit.  The conformance
-suite is in the repository, so a regression in the rest would be caught.
+- [WINDOWS] settings.debugMode is assigned false with a "TODO: get from
+emulator" comment before the dialog opens and handed straight to
+m_emulator->setDebug() after it, so the box always opens unticked and an OK from
+someone who never touched it turns debug off.  Same function as the item above,
+and the same shape of fault - a control with no seed - so take them together.
 
-- [WINDOWS] the seven remote help topics have no bundled copy and no on-disk
-cache, so an offline user - or a release whose assets were not attached - gets
-none of them.  HelpWindow.cpp ships two of its own and isLocalTopic() names only
-those two; the fetched ones are cached in memory for fifteen minutes and are
-gone at restart.  ioscpm gained the fallback in its build 51 (4deea96) by
-referencing release_assets/ in place rather than copying it, which is the trick
-worth taking.  The order to mirror is download, then cache, then the copy
-shipped in the binary.
+- [WINDOWS] nothing calls help_assets::setCacheRoot(), so the help cache picks
+its own directory.  HelpAssets.h says what the call should be -
+EmulatorEngine::getUserDataDirectory() plus a help subdirectory - and until
+MainWindow makes it, cacheDir builds the path out of %LOCALAPPDATA% from the
+environment rather than through SHGetKnownFolderPath, which is what the other
+three copies of that snippet do (getUserDataDirectory, DiskCatalog's
+constructor, and getDataFolder in emu_io_windows.cpp).  One line, before the
+first help window can open.
 
-- [WINDOWS] a mistyped config key is silently absorbed, and then silently
-deleted at the next save.  Config.cpp's from_json reads every field as
-j.value(name, default) and to_json writes only known names, so an unrecognised
-member is read by nobody and gone at the next save; Keymap.h's KeyMap::build
-discards any name keyIdForName rejects and says nothing.  Detection is a dozen
-lines - subtract the names from_json consumed from the members the json actually
-carries.  The work is that there is nowhere to put the answer: Config.cpp has no
-window, no status bar and no terminal, and emu_error() reaches a log nobody
-reads.  applyConfig() already prints to the terminal, so the design is to
-collect during load and hand the text to MainWindow, on the same channel the ROM
-notice uses - a channel that does not survive startEmulator() today.  These next
-two items are the same job seen from its other two ends; take all three at once.
+- [WINDOWS] help_topics::configurationMarkdown() carries an in-app copy of the
+settings table that has drifted from the file it documents: there is no
+display.bell row, and nothing tells the reader that keys can be bound from
+Emulator > Settings > Keyboard rather than by hand.  It is a raw string literal
+in HelpWindow.cpp and so needs a build to see, which is exactly how the File
+Transfer topic outlived the same correction in README.md.
 
-- [WINDOWS] MainWindow::startEmulator() clears the terminal, which erases the
-two notices applyConfig() prints when the saved ROM is unusable but
-loadDefaultROM() has already put a good one in the banks.  hasROM() is true for
-both, so the no-ROM guard above the clear does not fire.  Whoever writes this
-owns the notice's lifetime: onSelectROM() succeeding has to clear it, and so
-does anything else that makes the notice untrue.
+- [WINDOWS] a wrongly-typed section in z80cpmw.json is still lost to a later
+save.  ConfigManager::load() suppresses the save it would have made itself,
+which is a complete answer for a file that could not be read at all - the
+quarantine has renamed it out from under every other save - but not for one that
+parses with a section skipped by from_json's is_array()/is_object() guards.
+Nothing quarantines that file, so the next explicit save writes our defaults
+over text nobody read: MainWindow::saveWindowPlacement() at WM_CLOSE, the
+first-run welcome flag, an NVRAM change.  Measured with "keyboard.keys" written
+as an array - the user's binding was gone within twelve seconds of boot.  The
+comment above partlyUnread in Config.cpp states both the gap and the fix: carry
+the text we could not read through to the next to_json, which is a change to the
+shape of the format rather than to its loader.
 
-- [WINDOWS] the four scrollback combinations (Shift+PageUp/PageDown,
-Ctrl+Home/End) are intercepted at the top of TerminalView::handleKeyDown, before
-the m_keymap.find() lookup below it, so a config that binds them is silently
-ignored rather than refused.  docs/CONFIGURATION.md now says which four they
-are; making KeyMap::build refuse them wants the reporting channel above.
+- [WINDOWS] ConfigManager::loadProfile() clears m_diagnostics before it can
+fail, so loading a profile that will not parse takes down the report about
+z80cpmw.json - settings which are still in force, since a failed profile load
+changes nothing.  The clear was deliberately moved off the top of that function
+so that asking for a profile which does not exist keeps the report; the same
+reasoning applies one step further in.
 
-- [WINDOWS] Reset reboots the machine with no confirmation -
-MainWindow::onEmulatorReset() clears the terminal and calls reset() with no
-guard - and with "ctrlRToCpm": false a single Ctrl+R does it.  Both mobile ports
-ask first.  Note the choice, which nothing here can test either way: they ask
-unconditionally, while asking only when isRunning() would spare the user a
-dialog on a machine that is already stopped.
-
-- [WINDOWS] the terminal bell is unconditional: TerminalView.cpp's 0x07 case
-calls MessageBeep(MB_OK) with nothing to consult.  cpmdroid made it a setting.
-Worth doing with the Settings item below rather than on its own - the dialog
-needs a terminal section as much as a keyboard one, and a checkbox is the
-discoverable half.
-
-- [WINDOWS] rebinding a key means closing the app and hand-editing JSON.  There
-is no keyboard section in Settings - SettingsDialogWx has ROM, disks, debug, the
-manifest warning, scrollback, Dazzler and the catalog, and nothing else.  Worth
-more now that the key map understands modifiers and so has more to say.
-
-- [WINDOWS] build-msix.ps1's -Beta branch copies bin\<Configuration>\z80cpmw.pdb
-out to dist\z80cpmw-<ver>-beta.pdb after signing and errors out if it is not
-there, so a future beta cannot ship symbol-less in silence the way 1.0.22 did.
-NEVER RUN - not once, not even -WhatIf.  Run build-msix.ps1 -Beta and confirm
-the .pdb lands in dist\ beside the .msix.
+- [WINDOWS] tests/test_render.cpp's "SGR 40-47 paint the whole cell" section
+cannot fail for i == 0: ESC[40m sets a black background over a background that
+is already black, so that one iteration asserts nothing.  The other seven carry
+the section, so this is a hole in the evidence rather than a wrong result -
+either give index 0 a non-black background to come back from, or skip it and say
+why in the source.
 
 - [WINDOWS] cpmemu has Windows work of its own - the rewritten console input
 path, its test harness, and the cases its suite skips for want of the platform.
 This project compiles none of that code.  See cpmemu/todo.txt, which owns it and
 has the measurements.
+
+
+Packaging and signing
+----------------------
+
+- [WINDOWS] [RELEASE] build-msix.ps1 -Beta: REHEARSE IT UNSIGNED, AND DO NOT
+SIGN IT WHILE Version.h SAYS 1.0.22.  The rehearsal is what to run, and it runs:
+build-msix.ps1 -Beta -SkipBuild -SkipSign exits 0, writes
+dist\z80cpmw-1.0.22-beta-unsigned.msix and its .pdb, and leaves the published
+dist\z80cpmw-1.0.22-beta.msix on hash 1549C223 before and after.  A SIGNED -Beta
+run is forbidden until Version.h moves off 1.0.22, because v1.0.22-beta is
+published and the script names its output from Version.h: such a run re-mints
+the published artifact under its own name, and nothing in the script objects.
+Assert-ExeVersion compares the exe against Version.h and says nothing about a
+package being replaced, and the signing-kit guard does not fire because the kit
+really is where it is expected to be.
+
+  -WhatIf IS NOT A WAY TO FIND OUT, AND THAT IS WHY THIS ITEM IS WORDED SO HARD.
+  Before dacdce5 the script had no [CmdletBinding()], so PowerShell collected
+  -WhatIf into $args and the run proceeded for real.  That happened on
+  2026-08-28, while checking that very premise: the run made a live Azure
+  Trusted Signing call and re-minted the published 1.0.22 beta package from a
+  different binary.  The GitHub release was never touched and the local copy was
+  restored from it - its published digest 1549c223... matches dist\ again - but
+  the signing call is spent.  -WhatIf is a hard binding error there now, and
+  deliberately not SupportsShouldProcess.
+
+  What is still owed: dist\ has no z80cpmw-1.0.22-beta.pdb and 1.0.22's symbols
+  stay unrecoverable.  The -Beta branch copies bin\<Configuration>\z80cpmw.pdb
+  out beside the .msix and errors out if it is not there, so a beta cannot ship
+  symbol-less in silence again; the first signed -Beta run on a version that has
+  not shipped is what proves that end to end, and 1.0.23 is where it happens.
+
+- [WINDOWS] packaging/scripts/build-nsis.ps1 still has no [CmdletBinding()], so
+a stray -WhatIf there is collected into $args and the run proceeds, exactly as
+build-msix.ps1 did until dacdce5.  It is one line and its own commit;
+STORE_SUBMISSION.md already names the gap.
 
 
 The disk images are behind the core
@@ -132,22 +144,33 @@ repinning DiskCatalog.cpp's RELEASE_TAG - still v1.4.5 - at a release built from
 the current disks.  Then run verify-disk-assets.sh over the staged disks;
 STORE_SUBMISSION.md step 3 is where it sits in the flow.
 
-- [WINDOWS] HelpWindow.cpp's "File Transfer (R8 / W8)" topic lists R8 and W8
-together and then says "Give a full path (recommended)", so it reads as
-endorsing both, and W8 takes no host path from the bundled images.  It is a
-string in a .cpp, so it needs a build to see.  README.md carried the same claim
-and no longer does.
-
 - [RELEASE] several documents go the other way when the images are refreshed,
 and not before.  docs/FILE_TRANSFER.md's "does not take one yet" paragraphs and
 the step 0/1 caveats in its checklist come out; README.md's "W8 does not take a
-host path yet" paragraph and the two cautions under it come out with them; and
-MANUAL_CHECKS.md's struck-out W8 check is re-instated.  Do not do any of this
-before verify-disk-assets.sh passes on the staged images.
+host path yet" paragraph and the two cautions under it come out with them;
+HelpWindow.cpp's "File Transfer (R8 / W8)" topic now carries the same three
+blocks, each with its own deletion condition in a comment above the literal -
+read those rather than deleting all three at once, because the games-disk
+sentence is not gated by verify-disk-assets.sh and that gate will never supply
+it; and MANUAL_CHECKS.md's struck-out W8 check is re-instated.  Do not do any of
+this before verify-disk-assets.sh passes on the staged images.
 
 
 Needs the owner
 ----------------
+
+- [DECISION] the bundled copy of the remote help topics is blocked on wording,
+not on work.  The on-disk cache landed: help_assets::resolveTopic is the one
+place the order lives - download, then cache, then the copy in the binary - and
+its third step is written and reached, with the bundled string empty for every
+topic that gets there, so the bundling commit is one argument at one call site.
+What stops it is that three of the seven published topics are written for iOS
+("tap the gear icon", "Cmd+C copies the screen text", an "iOS / iPadOS"
+heading), and the published help_index.json calls Quick Start "Getting started
+with iOSCPM".  Compiling that into a Windows binary makes the wrong wording
+durable AND offline, which is the opposite of what the item wants.  Someone has
+to choose: fork the text here, or fix it upstream in avwohl/ioscpm.  cpmdroid
+met this and forked (78e6ec6), which is a precedent rather than the answer.
 
 - [DECISION] the v1.0.22-beta GitHub release is flagged Latest rather than
 prerelease, unlike 1.0.16 / 1.0.17 / 1.0.21.  If the -beta channel should stay a
@@ -158,6 +181,18 @@ default (Store) branch.  When both channels come off one build, as 1.0.22 did,
 the kept beta .pdb matches the Store binary too; when they do not, the Store
 package has no symbols kept anywhere.  A call for whoever cuts the next Store
 release.
+
+
+Needs a Mac
+------------
+
+- [MAC] ioscpm's applySGR has the same SGR 90-97 hole this repository fixed in
+978b623.  EmulatorViewModel.swift handles 30-37 and 40-47 and nothing else, so
+the bright half falls through and leaves the attribute alone - here that meant
+ESC[91m from a fresh reset drawing in CGA 7, measured rather than inferred.
+cpmdroid's TerminalView.kt has had the branch since its own ANSI fix, and this
+repository's is now pinned by tests/test_render.cpp reading real pixels.
+Nothing on this machine can build or test the Swift.
 
 
 Needs a person, not a machine

@@ -11,13 +11,19 @@ Delete an entry only when it stops being true.
 
 ## 1.0.22 cannot have a crash report resolved
 
-There is no `.pdb` for the shipped 1.0.22 build on any channel, and there never
-will be. The symbols are gone, and a rebuild — against wxWidgets 3.3.3, or
-against whatever vcpkg has moved on to — is a different binary with different
-symbols. A stack from 1.0.22 will not symbolicate.
+There is no `.pdb` for the shipped 1.0.22 build on **either** channel — Store
+**1.0.22** and sideload **1.0.22-beta** came from one build and neither kept its
+symbols — and there never will be. A rebuild, against wxWidgets 3.3.3 or against
+whatever vcpkg has moved on to, is a different binary with different symbols. A
+stack from 1.0.22 will not symbolicate. What `dist\` holds is
+`z80cpmw-1.0.21-beta.pdb` and nothing at all for 1.0.22; that is the whole of
+the evidence and the whole of what is left.
 
-`build-msix.ps1 -Beta` now keeps the `.pdb` so that a future beta cannot repeat
-it. That is in `todo.txt`, because it has never been run.
+`build-msix.ps1 -Beta` keeps the `.pdb` now, and that half is no longer
+untested: the unsigned rehearsal `-Beta -SkipBuild -SkipSign` was run on
+2026-08-28, exits 0, and writes the package and its `.pdb` together, the `.pdb`
+hashing equal to `bin\Release\z80cpmw.pdb`. So this cannot happen silently again
+from 1.0.23 on. It cannot be undone for 1.0.22.
 
 ## `emu_host_path_basename()` is a link error waiting to be triggered
 
@@ -62,3 +68,26 @@ A `./diskdefs` in the current directory also shadows the system file completely
 rather than adding to it, so a partial local copy makes every other format
 "unknown". The script sidesteps that by copying `romwbw_emu/disks/diskdefs`
 whole into its work directory.
+
+## Nothing transfers from the games disk, and the gate will never say so
+
+`hd1k_games.img` carries **neither `R8.COM` nor `W8.COM`**, so a user who
+follows the in-app help to the Games disk and then tries to move a save file has
+no utility to run — on either side. Measured on the image this build ships,
+`bin\Release\disks\hd1k_games.img`: the 8.3 directory pattern `R8      COM`
+occurs **zero** times in it and `W8      COM` zero times, against one of each in
+`hd1k_combo.img` — so the search finds them where they exist, and the answer for
+the games disk is really nothing rather than a bad search.
+
+The half that will not change is the gate.
+`packaging/scripts/verify-disk-assets.sh` is severity-split by image: only an
+image larger than 8 MB carrying a `55 AA` MBR signature reaches `bad()` for a
+missing utility, while a plain 8 MB image gets an `info` line and never touches
+the failure count — on that script's own stated reasoning that a secondary data
+disk carrying neither utility is a choice and not a fault. `hd1k_games.img` is
+exactly 8,388,608 bytes, so it takes the info branch every time. **A PASS from
+that script is compatible with the games disk having no R8 and no W8**, and is
+meant to be. Anyone refreshing the images who wants this closed has to check
+that image by hand and put the utilities on it deliberately; nothing will go red
+if they forget, and the sentence about it in the in-app File Transfer topic is
+the only place a user is told.

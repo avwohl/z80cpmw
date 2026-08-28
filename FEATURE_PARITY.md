@@ -14,7 +14,15 @@ reached users as the signed sideload beta **1.0.21-beta** and then, from a
 single build, as Store **1.0.22** and sideload **1.0.22-beta** (both
 2026-08-23). All three front ends now cover VT52, DECSTBM, deferred autowrap
 and the answerbacks; what still differs is the per-port detail listed in item
-13, which is why this repo's row 13 is marked ◐ rather than ✅.
+13.
+
+**The last of this repo's own residue in that row closed on 2026-08-28.** The
+one thing item 13 still named — no per-cell attribute beyond the packed CGA
+byte — landed in two commits, `480edcb` for the parser's flags byte and
+`29d3438` for the multi-`HFONT` paint path, so row 13 is **✅** here now.
+**It is not in a shipped build.** Store **1.0.22** and sideload
+**1.0.22-beta** are the 1.0.20 parser; the attribute work, and the bright half
+of the palette that landed beside it, are unreleased.
 
 **The Android (`cpmdroid`) column was rewritten from source on 2026-08-25**, at
 `origin/master` — every row, because the branch the previous review described
@@ -161,11 +169,22 @@ written as termcap-style escape strings.
   Emulator menu.
   **The full, copy-pasteable spec is `docs/CONFIGURATION.md`** (and the in-app
   Configuration help).
-- **Where:** `z80cpmw/Keymap.h`, `TerminalView.cpp` (`setKeyBindings`,
+- **Where:** `z80cpmw/Keymap.h` (`keyIdForName`, `nameForKeyId`,
+  `validateSequence`, `reservedKeys`), `TerminalView.cpp` (`setKeyBindings`,
   `handleKeyDown`), `Config.h` (`KeyboardConfig`: `f1ToCpm`,`f5ToCpm`,
   `ctrlRToCpm`,`keys`), `MainWindow.cpp` (`rebuildAccelerators`,
-  `updateMenuAccelHints`).
-- **Config:** `keyboard` block in the JSON config.
+  `updateMenuAccelHints`), `SettingsDialogWx.cpp` (`buildKeyboardPage`).
+- **Config:** the `keyboard` block in the JSON config — **or Settings →
+  Keyboard**, which reads and writes that same block (2026-08-28; not in a
+  shipped build yet). Every bindable key with what it sends and a status, a box
+  to edit the sequence, Default and Unbind, and the three app-shortcut switches.
+  Two details a port copying this should copy too. The list is keyed by
+  **resolved id**, so `"Control+Left"` and `"Ctrl+Left"` are one row rather than
+  two, and names it cannot resolve are carried through untouched — a
+  read-modify-write of a hand-edited file must not delete a line somebody typed.
+  And the sequence box is validated on **every keystroke** but committed only
+  when the selection leaves the row, because every prefix of a half-typed
+  sequence raises its own event and some prefixes are legal on their own.
 - **Platform mapping:** the *byte sequences sent to CP/M* are the parity target.
   Mobile maps soft-key/hardware-key events; the CLI maps host-terminal keys. Adopt
   the same config schema (named keys → termcap strings) so configs are portable.
@@ -502,8 +521,16 @@ In-app help fetched from GitHub, with offline bundled topics.
 - **Behaviour/spec:** `help_index.json` + markdown topics downloaded and cached;
   bundled "Getting Started" and "Configuration" topics always available offline; a
   small markdown→text renderer (headers, tables, lists, inline code).
-- **Where:** `z80cpmw/HelpWindow.{h,cpp}`. (ioscpm and cpmdroid already have help —
-  align the topic set and the local fallback.)
+- **Where:** `z80cpmw/HelpWindow.{h,cpp}` and `HelpAssets.{h,cpp}` — the
+  state-free half (index parsing, the markdown→text renderer, and the cache)
+  was split out on 2026-08-28 so it could be put under test, and is 244 checks.
+  (ioscpm and cpmdroid already have help — align the topic set and the local
+  fallback.) **The on-disk cache is here now**, and `help_assets::resolveTopic`
+  is the one place the order lives: download, then cache, then the copy in the
+  binary — the same order as `ioscpm`'s below. The third step is written and
+  reaches nothing: this repo still bundles only its own two topics. Bundling the
+  seven published ones is blocked on a decision rather than on work, since three
+  of them are worded for iOS; `todo.txt` carries it.
 - **Why the fallback is not optional — a trap every port shares.** cpmdroid
   fetched its index from `releases/latest/download/help_index.json` with **no**
   bundled copy. GitHub serves that URL from whatever the newest release is, and
@@ -707,7 +734,22 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     VT and xterm behaviour and what a program that sets a colour and clears is
     asking for. Nothing changes here; the erase family in
     `EmulatorViewModel.swift` moves, including the `@ P X S T` finals, and it
-    needs an `ioscpm` release. It is the only difference left in this row.
+    needs an `ioscpm` release. **That move has landed upstream since**, in
+    `0165dac`, so it is no longer a difference — read on 2026-08-28 at
+    `0dbab43`, two commits past the `15f48e9` this column was carried forward
+    to. Treat this as a reading of `applySGR` and the erase family, not of the
+    column: the rest of the cells below still stand at build 52.
+    That reading turns up a different difference, and it is the one this repo
+    spent 2026-08-28 closing in itself: **`applySGR` there has no bright half.**
+    The whole switch is `0`, `1`, `22`, `7`, `27`, `30...37`, `40...47` and
+    `default: break`, so `ESC[91m` leaves the attribute byte alone and the text
+    draws in whatever was current — exactly what this repo did until `978b623`.
+    `cpmdroid`'s `TerminalView.kt` has carried `p in 90..97` since its own ANSI
+    fix, which makes `ioscpm` the one port without it. That switch also has no
+    per-cell face: `1` sets the CGA intensity bit and nothing records bold,
+    underline or blink, so this repo's `TCELL_*` flags and four-face paint path
+    have no counterpart there. `todo.txt` records both for whoever is next at a
+    Mac.
     Parser input **is** bounded, since build 49: `maxCSIParams` 16 and
     `maxCSIParamDigits` 6, matching cpmdroid, with leading zeros dropped so
     zero-padding cannot spend the digit budget. Build 49 also made SGR 7 a
@@ -757,17 +799,38 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     LF implies CR, matching both mobile ports, so an LF-only text file no longer
     stair-steps.
 
-    Covered by a headless conformance suite of **73 checks** (see CHANGELOG
-    [1.0.20]), which is **not committed to this repository** — the only test
-    harness here is `test_emu.cpp` / `compile_test.cmd`. The suite drives the
-    terminal through the public interface only — cursor state is read back
-    with `ESC [ 6 n`, which puts the answerback under test rather than assuming
-    it, and screen content through `cellAt()`.
+    Covered by a headless conformance suite which **is** committed here, as
+    `tests/test_vt52.cpp`, and which is at **516 checks** — it was the 73 that
+    CHANGELOG [1.0.20] describes when that was written, and 268 when it first
+    landed in `tests/`. It drives the terminal through the public interface
+    only: cursor state is read back with `ESC [ 6 n`, which puts the answerback
+    under test rather than assuming it, and screen content through `cellAt()`.
+    `tests\run_tests.bat` runs it first of **six suites, 1020 checks**, and the
+    one beside it is not a model check at all — `tests/test_render.cpp` opens a
+    real window, drives it with real bytes, asks the DWM for it with
+    `PrintWindow(PW_RENDERFULLCONTENT)` and reads the pixels, 50 checks over the
+    colours and the faces below. Parser input is bounded here —
+    `MAX_CSI_PARAMS` 16 and `MAX_CSI_PARAM_DIGITS` 6 in `TerminalView.cpp`,
+    with intermediates consumed rather than accumulated.
 
-    **Still missing here:** there is no per-cell attribute beyond the packed
-    CGA byte. `TerminalCell` carries unpacked `foreground` and `background`
-    already, so what is absent is a flags byte for bold / underline / blink /
-    reverse and the multi-`HFONT` paint path to render it.
+    **Per-cell attributes closed 2026-08-28, and the entry that stood here was
+    wrong twice over.** It named reverse video as missing alongside bold,
+    underline and blink; reverse was already implemented when that was written,
+    and about nine checks pinned it — `m_reverse`, `m_savedReverse` and
+    `swapAttrNibbles()`. It stays deliberately **out** of the flags byte,
+    because it is resolved into the colour nibbles at the write, which is what
+    makes SGR 7 and 27 exact inverses. What was really absent was the other
+    three, and both halves have landed: `TerminalCell::flags` carrying
+    `TCELL_BOLD` / `TCELL_UNDERLINE` / `TCELL_BLINK` off SGR 1/4/5/6/22/24/25
+    (`480edcb`), and a paint path that draws them (`29d3438`) — `m_fonts[4]`
+    indexed by bold and underline, because GDI cannot turn weight or underline
+    on for a single `TextOut`, with `SelectObject` called only where a cell asks
+    for a different face, and blink sharing the cursor's existing 500 ms timer
+    rather than opening a second phase free to drift against it. An erase zeroes
+    the flags while keeping the colours: underline and blink are visible on a
+    space, so carrying them would mean `ESC[4m ESC[2J` underlines all 2000
+    cells. There is no italic face because nothing can ask for one — the flags
+    byte has three bits and SGR 3 is not among them.
 
     **Fixed since:** `clear()` no longer resets the attribute and escape state
     on `ESC [ 2 J`. Erasing and resetting are separate functions now —
@@ -778,10 +841,15 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     deliberately still preserves the scrolling region: `ioscpm`'s
     `clearTerminal()` resets it, and that is `ioscpm`'s bug, not a gap here.
 
-    The suite described above is committed now, in `tests/`, at **268 checks**.
-    Parser input is bounded here —
-    `MAX_CSI_PARAMS` 16 and `MAX_CSI_PARAM_DIGITS` 6 in `TerminalView.cpp`,
-    with intermediates consumed rather than accumulated.
+    **Also fixed 2026-08-28:** SGR **90–97** and **100–107** were not handled at
+    all — they fell through `applySGR()`'s default and left the attribute byte
+    alone, so `ESC[91m` from a fresh reset drew in CGA 7. Measured by
+    `tests/test_render.cpp` on its first run, not inferred. The bright half is
+    the same ANSI index with the intensity bit set, which is the bit SGR 1
+    already sets, so `22` dims a bright colour and a `3x` after a `9x`
+    deliberately does not; `100–107` fold onto the plain background, because the
+    background nibble is three bits and the fourth is blink on real hardware,
+    and a wrong shade beats a cell that starts strobing.
   - **romwbw_emu** *(re-verified 2026-08-24)* — the CLI delegates to the host
     terminal, but not transparently: `emu_console_write_char` in
     `emu_io_cli.cc` does `ch &= 0x7F` and then drops every CR, not
@@ -806,8 +874,10 @@ extending it; that port's parser turned out to be the thinnest of the four.)
   without the screen breaking up. **That port is done** — `TerminalView.kt` /
   `EmulatorViewModel.swift` were pulled back into `TerminalView.cpp` in 1.0.20,
   which is the code in the current Store **1.0.22** and sideload
-  **1.0.22-beta** packages. What keeps this repo's row at ◐ is now a single
-  item: no per-cell attribute beyond the packed CGA byte. The other half of the
+  **1.0.22-beta** packages. **Nothing keeps this repo's row at ◐ any more.**
+  The single item that did — no per-cell attribute beyond the packed CGA byte —
+  closed on 2026-08-28 in `480edcb` and `29d3438`; the row is ✅ in the tree,
+  and in no shipped package. The other half of the
   residue — `clear()` resetting the attribute and escape state — is fixed, along
   with three SGR bugs the audit for it turned up: reverse video swapped the
   attribute nibbles in place and so could not round-trip, setting a colour
@@ -815,7 +885,9 @@ extending it; that port's parser turned out to be the thinnest of the four.)
   found in a later pass and larger than those three, is also fixed: SGR colour
   parameters carry ANSI colour numbers and were stored straight into a
   CGA-ordered attribute byte, so four of the eight colours drew as a different
-  colour entirely.
+  colour entirely. A fifth is the bright half, `90–97` and `100–107`, which was
+  not implemented at all; it took a suite that reads pixels to find it, since
+  the model was self-consistent without it.
 
 ---
 
@@ -873,6 +945,11 @@ thing:
 - **`ioscpm` `15f48e9`** - a delta check, not a re-read. Build 52's full reading
   (`49851aa`, 2026-08-26) still stands underneath it; `6b1b731` changes no
   source at all, and `15f48e9` changes two things in row 4, both recorded there.
+  Two commits past it, `0165dac` and `0dbab43`, were read on 2026-08-28 for
+  **row 13 alone** - the erase family and `applySGR`, nothing else - and both
+  are recorded in that row. The tip above deliberately stays at `15f48e9` so the
+  drift script keeps reporting that column as moved: reading one function is not
+  reading a column, and this line is what certifies one.
 - **`cpmdroid` `c6756af`** - the 2026-08-25 full reading (`9b68ab1`) plus a
   re-verification: every *absence* claim in the Android column was re-checked
   against the tree at `c6756af` and every one stands. `c6756af` is documentation
@@ -899,8 +976,13 @@ thing:
 | 12. Manifest write warning | ✅ (suppressible) | ✅ (suppressible, once per session) | ➖ CLI · ✅ web (*Don't warn* kept across a reload since `108856c`) |
 | 13. Terminal emulation (VT100 + VT52) | ✅ | ⬜ (CSI `H f A B C D J K m` only; no VT52, no DECSTBM, fg-only SGR) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ✅ web (output filter fixed in `2dbf6f2`) |
 
-**z80cpmw's own row 13 is ◐** — see item 13 for what is missing here. Every other
-row in this document is ✅ for z80cpmw by construction; that one is not.
+**z80cpmw's own row 13 became ✅ on 2026-08-28**, which makes every row in this
+document ✅ for z80cpmw — the other twelve by construction, this one on the
+evidence in item 13. It was ◐ for one stated reason, no per-cell attribute
+beyond the packed CGA byte, and that closed in `480edcb` and `29d3438`. Read the
+✅ as "in the tree": the shipped **1.0.22** and **1.0.22-beta** packages are the
+1.0.20 parser, without the attribute work and without the bright half of the
+palette.
 
 **One caveat spans the whole web column.** `xterm.js`, its CSS and the fit addon
 are three jsdelivr `<script>`/`<link>` tags in `web/romwbw.html-template` (grep
