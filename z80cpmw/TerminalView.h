@@ -92,10 +92,13 @@ public:
     // todo.txt asked for the same here, because this one was unconditional: the
     // 0x07 case called MessageBeep() with nothing to consult.
     //
-    // Nothing calls setBellEnabled() yet. The config side already exists and
-    // round-trips - "display.bell" / AppConfig::bellEnabled, checked by
-    // tests/test_config.cpp - and the MainWindow call that joins the two is a
-    // separate change; this is the terminal half of it.
+    // The preference travels as "display.bell" / AppConfig::bellEnabled, which
+    // tests/test_config.cpp round-trips. Two places deliver it, and they are the
+    // whole list: MainWindow::applyConfig on the startup and profile-load paths,
+    // and MainWindow::onEmulatorSettings when the Terminal page's checkbox is
+    // used. Anything that adds a third is a second source of truth whose
+    // precedence would be settled by call order, so change one of those two
+    // rather than adding one here.
     //
     // The state is a user preference and NOT part of the terminal's power-on
     // state, so clear() and ESC c leave it alone.
@@ -138,6 +141,14 @@ private:
 
     void createFont();
     void paint(HDC hdc);
+    // Which of the four faces in m_fonts a cell's TCELL_* bits ask for.
+    // Written out as two tests rather than as (flags & 3) so that renumbering
+    // the enum cannot silently re-map the table.
+    static int fontIndexFor(uint8_t flags);
+    // Invalidate the rows of the VISIBLE grid that contain a TCELL_BLINK cell,
+    // and nothing else. Called once per blink tick; a screen with no blinking
+    // cell calls InvalidateRect zero times and so does not repaint.
+    void invalidateBlinkingRows();
     static unsigned currentKeyMods();   // Ctrl/Shift/Alt held now, as keymap bits
     void handleKeyDown(WPARAM wParam);
     void handleChar(WPARAM wParam);
@@ -201,7 +212,25 @@ private:
 
     HWND m_hwnd = nullptr;
     HWND m_parent = nullptr;
-    HFONT m_font = nullptr;
+
+    // The four faces a cell can be drawn in, indexed by fontIndexFor(): bit 0
+    // is TCELL_BOLD, bit 1 is TCELL_UNDERLINE. One CreateFontW shape built four
+    // times - see createFont() - because GDI has no way to turn weight or
+    // underline on for a single TextOut call; the face has to carry it.
+    //
+    // Underline is the font's own underline rather than a line drawn by hand,
+    // and that is what makes the blink "off" phase work with no extra code.
+    // GDI draws the underline in the TEXT colour - measured: the rule under an
+    // ESC[4m cell reads as the cell's foreground, CGA 15, in the rendering
+    // suite - so collapsing the foreground onto the background takes the rule
+    // with the glyph. A hand-drawn rule would have needed its own suppression,
+    // and the suite pins that it does not need one: see "takes its rule with
+    // it" in tests/test_render.cpp.
+    //
+    // There is no italic face. Nothing in the parser sets an italic flag -
+    // TCELL_* has three bits and SGR 3 is not among them - so a fifth and sixth
+    // face would have no way to be asked for.
+    HFONT m_fonts[4] = { nullptr, nullptr, nullptr, nullptr };
 
     TerminalCell m_cells[ROWS][COLS];
 
@@ -294,6 +323,23 @@ private:
 
     bool m_cursorVisible = true;
     UINT_PTR m_cursorTimer = 0;
+
+    // The phase TCELL_BLINK cells are drawn in, flipped by the same 500 ms
+    // WM_TIMER as the cursor. Sharing the tick is deliberate: a second timer
+    // would give a screen carrying both a cursor and blinking text two
+    // independent phases that drift against each other, and 500 ms is already
+    // the rate this terminal blinks at.
+    //
+    // It is a SEPARATE bool from m_cursorVisible, which cannot stand in for it.
+    // m_cursorVisible is forced true by WM_SETFOCUS and false by WM_KILLFOCUS
+    // and is frozen while the view is scrolled back, so text blinking off it
+    // would stop, or stick on, every time the window changed focus.
+    //
+    // true at construction so a terminal whose SetTimer failed - or one built
+    // without a window at all, which is how tests/test_vt52.cpp uses this class,
+    // never calling create() - shows its blinking text rather than hiding it
+    // forever.
+    bool m_textBlinkOn = true;
 
     // --- Mouse selection / clipboard ---
     bool m_selecting = false;       // left button held, drag in progress

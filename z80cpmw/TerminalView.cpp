@@ -107,9 +107,11 @@ void TerminalView::destroy() {
         KillTimer(m_hwnd, m_cursorTimer);
         m_cursorTimer = 0;
     }
-    if (m_font) {
-        DeleteObject(m_font);
-        m_font = nullptr;
+    for (HFONT& f : m_fonts) {
+        if (f) {
+            DeleteObject(f);
+            f = nullptr;
+        }
     }
     if (m_hwnd) {
         DestroyWindow(m_hwnd);
@@ -117,25 +119,21 @@ void TerminalView::destroy() {
     }
 }
 
-void TerminalView::createFont() {
-    if (m_font) {
-        DeleteObject(m_font);
-    }
-
-    // Scale font height by current monitor DPI. The app is per-monitor DPI v2
-    // aware, so CreateFontW's height parameter is in raw device pixels — without
-    // this multiplier, "size 20" is only 20 physical pixels on a 4K @ 200% screen.
-    UINT dpi = m_hwnd ? GetDpiForWindow(m_hwnd) : 96;
-    int scaledHeight = MulDiv(m_fontSize, dpi, 96);
-
-    m_font = CreateFontW(
-        scaledHeight,            // Height
+// One CreateFontW shape, parameterised by the two things a rendition can change
+// about the face. Everything else - the charset, the precisions, the quality,
+// the family and the name - is identical across the four, which is the point of
+// the helper: four copies of this call would be four places for the family or
+// the quality to drift apart, and two faces that disagree about hinting do not
+// sit on the same baseline.
+static HFONT makeTerminalFont(int height, bool bold, bool underline) {
+    return CreateFontW(
+        height,                  // Height
         0,                       // Width (0 = auto)
         0,                       // Escapement
         0,                       // Orientation
-        FW_NORMAL,               // Weight
+        bold ? FW_BOLD : FW_NORMAL,  // Weight
         FALSE,                   // Italic
-        FALSE,                   // Underline
+        underline ? TRUE : FALSE,    // Underline
         FALSE,                   // Strikeout
         DEFAULT_CHARSET,         // Charset
         OUT_TT_PRECIS,           // Output precision
@@ -144,11 +142,45 @@ void TerminalView::createFont() {
         FIXED_PITCH | FF_MODERN, // Pitch and family
         L"Consolas"              // Font name
     );
+}
 
-    // Get character dimensions
-    if (m_hwnd && m_font) {
+int TerminalView::fontIndexFor(uint8_t flags) {
+    return ((flags & TCELL_BOLD) ? 1 : 0) | ((flags & TCELL_UNDERLINE) ? 2 : 0);
+}
+
+void TerminalView::createFont() {
+    for (HFONT& f : m_fonts) {
+        if (f) {
+            DeleteObject(f);
+            f = nullptr;
+        }
+    }
+
+    // Scale font height by current monitor DPI. The app is per-monitor DPI v2
+    // aware, so CreateFontW's height parameter is in raw device pixels — without
+    // this multiplier, "size 20" is only 20 physical pixels on a 4K @ 200% screen.
+    UINT dpi = m_hwnd ? GetDpiForWindow(m_hwnd) : 96;
+    int scaledHeight = MulDiv(m_fontSize, dpi, 96);
+
+    for (int i = 0; i < 4; i++) {
+        m_fonts[i] = makeTerminalFont(scaledHeight, (i & 1) != 0, (i & 2) != 0);
+    }
+
+    // The grid is measured from the NORMAL face only, and deliberately so: the
+    // cell size decides where all 2000 cells are drawn, and it must not depend
+    // on which faces a particular screen happens to contain.
+    //
+    // Measured rather than assumed, over Consolas at every integer height from
+    // 8 to 96 in this DC: tmAveCharWidth is the SAME for all four faces at
+    // every one of those heights, so today this choice moves nothing. What does
+    // differ is tmMaxCharWidth - 15 regular against 16 bold at height 16 - so
+    // the bold face is not simply the regular one at another weight, and the
+    // agreement in tmAveCharWidth is a property of this font rather than a rule.
+    // Taking the metrics from index 0 is what keeps that a fact about the font
+    // instead of a dependency of the layout.
+    if (m_hwnd && m_fonts[0]) {
         HDC hdc = GetDC(m_hwnd);
-        HFONT oldFont = (HFONT)SelectObject(hdc, m_font);
+        HFONT oldFont = (HFONT)SelectObject(hdc, m_fonts[0]);
 
         TEXTMETRICW tm;
         GetTextMetricsW(hdc, &tm);
@@ -157,6 +189,45 @@ void TerminalView::createFont() {
 
         SelectObject(hdc, oldFont);
         ReleaseDC(m_hwnd, hdc);
+    }
+}
+
+// The rows of the visible grid that have a blinking cell in them, invalidated
+// one row at a time.
+//
+// Whole-window invalidation was the alternative and is rejected because of what
+// it costs when nothing blinks at all: this runs twice a second for as long as
+// the window exists, and the ordinary screen - a CP/M prompt - has no
+// TCELL_BLINK cell anywhere on it. The loop below then calls InvalidateRect
+// zero times, so such a screen produces no WM_PAINT on the blink's account and
+// repaints exactly as often as it did before blinking existed.
+//
+// That is the guarantee, and it is measured rather than asserted: the section
+// "the blink tick invalidates blinking rows and nothing else" in
+// tests/test_render.cpp reads the update region a tick leaves behind and fails
+// if a screen with nothing blinking on it gets anything larger than the cursor
+// cell. Counting repaints cannot see this - the cursor's own invalidation
+// below already produces one WM_PAINT per tick either way - which is why the
+// check reads the region and not the message.
+//
+// What an idle screen does cost is the scan: 2000 cells, the same ones paint()
+// reads on every repaint, twice a second, breaking out of each row at the first
+// blinking cell. A counter maintained by the parser would avoid it, but the
+// parser is not this commit's to touch.
+void TerminalView::invalidateBlinkingRows() {
+    if (!m_hwnd) return;
+    for (int row = 0; row < ROWS; row++) {
+        for (int col = 0; col < COLS; col++) {
+            if (visibleCell(row, col).flags & TCELL_BLINK) {
+                RECT r;
+                r.left = 0;
+                r.top = row * m_charHeight;
+                r.right = COLS * m_charWidth;
+                r.bottom = r.top + m_charHeight;
+                InvalidateRect(m_hwnd, &r, FALSE);
+                break;
+            }
+        }
     }
 }
 
@@ -499,6 +570,22 @@ LRESULT TerminalView::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
     case WM_TIMER:
         if (wParam == 1) {
+            // One tick drives two blinks. Timer 1 already existed for the
+            // cursor at exactly the rate text blink wants, and a second timer
+            // would have given a screen showing both a cursor and blinking text
+            // two phases free to drift apart.
+            //
+            // The text phase is advanced ABOVE the scrolled-back early return
+            // below, not under it. That return exists because the cursor is not
+            // drawn at all while the view is scrolled back - paint() tests
+            // m_scrollOffset == 0 before drawing it - so toggling its phase
+            // would be invisible work. Text is different: a blinking cell that
+            // has scrolled into history is still on the screen and still
+            // carries TCELL_BLINK, and freezing it would mean text that stops
+            // blinking because the user reached for the scroll wheel.
+            m_textBlinkOn = !m_textBlinkOn;
+            invalidateBlinkingRows();
+
             if (m_scrollOffset != 0) return 0;  // cursor hidden/frozen while viewing history
             m_cursorVisible = !m_cursorVisible;
             // Only redraw cursor area
@@ -595,8 +682,18 @@ void TerminalView::paint(HDC hdc) {
     FillRect(memDC, &clientRect, bgBrush);
     DeleteObject(bgBrush);
 
-    // Select font
-    HFONT oldFont = (HFONT)SelectObject(memDC, m_font);
+    // Select the plain face to start with, and track what is selected across
+    // the whole grid. TextOutA is called once per cell - 2000 times a repaint,
+    // one character at a time, so there are no runs to coalesce - and the face
+    // is changed only where a cell asks for a different one. Selecting per cell
+    // instead would have added 2000 SelectObject calls to a repaint to change
+    // the face perhaps twice.
+    //
+    // selectedStyle starts at 0 to match the SelectObject on the line above, so
+    // an ordinary screen - no bold, no underline - makes exactly one
+    // SelectObject, which is what this code did before the four faces existed.
+    HFONT oldFont = (HFONT)SelectObject(memDC, m_fonts[0]);
+    int selectedStyle = 0;
     SetBkMode(memDC, OPAQUE);
 
     // Draw characters
@@ -607,6 +704,18 @@ void TerminalView::paint(HDC hdc) {
             int x = col * m_charWidth;
             int y = row * m_charHeight;
 
+            // The face this cell's rendition asks for. The fallback to index 0
+            // is for a CreateFontW that returned null: SelectObject(nullptr) is
+            // a no-op that leaves the PREVIOUS cell's face selected, so without
+            // it a missing bold face would show as bold leaking rightwards
+            // along the row rather than as bold missing.
+            int style = fontIndexFor(cell.flags);
+            if (!m_fonts[style]) style = 0;
+            if (style != selectedStyle) {
+                SelectObject(memDC, m_fonts[style]);
+                selectedStyle = style;
+            }
+
             // Set colors; selected cells are drawn with fg/bg swapped (inverted),
             // which fully paints the highlight because SetBkMode is OPAQUE.
             COLORREF fg = cgaToRGB(cell.foreground);
@@ -614,6 +723,34 @@ void TerminalView::paint(HDC hdc) {
             if (isCellSelected(row, col)) {
                 std::swap(fg, bg);
             }
+
+            // THE ORDER MATTERS, and this is the way round it has to be: the
+            // selection swap first, then blink collapses the foreground onto
+            // whatever background survived it.
+            //
+            // Blinking off is drawn as foreground = background: the cell is
+            // still painted, in its own background, so the glyph and the font's
+            // underline both vanish while the background colour - which is not
+            // part of what blinks - stays exactly as it was. Skipping the
+            // TextOutA instead would NOT leave the cell alone: this is a
+            // repaint into a fresh bitmap that was filled with black a few
+            // lines above, so an unpainted cell shows black rather than its own
+            // background, and a blinking cell on a coloured background would
+            // strobe the background too.
+            //
+            // The other order is wrong, and it was tried rather than argued: in
+            // a scratch copy with the collapse moved above the swap, collapsing
+            // first makes fg == bg == the cell's background and the swap leaves
+            // them equal, so a SELECTED blinking cell spends half its life
+            // painted in the text background instead of the highlight - the
+            // selection blinks rather than the text. The section "a selected
+            // blinking cell keeps its highlight while the character goes" in
+            // tests/test_render.cpp exists for exactly that mutation and is the
+            // only check in the suite that fails on it.
+            if ((cell.flags & TCELL_BLINK) && !m_textBlinkOn) {
+                fg = bg;
+            }
+
             SetTextColor(memDC, fg);
             SetBkColor(memDC, bg);
 
