@@ -45,6 +45,15 @@ them. Writing blind into a tree with no compiler here produced a defect on the
 first attempt, and patching it blind would only have stacked a second
 unverifiable edit on the first. All three are open items in `todo.txt` again.
 
+A further pass on 2026-08-27, again with no MSVC and no Windows, wrote **one**
+change into the Windows sources: `emu_host_file_get_read_name()`, below. It is
+there because without it this project does not link at all, so the choice was
+not "write blind or wait" but "write blind or ship a tree that cannot be built".
+It is marked **NOT COMPILED**, it is the smallest change that discharges the
+requirement, and it is modelled line for line on the write-side function
+directly above it. Everything else that pass produced is a shell script or a
+document, and the scripts were run here.
+
 ### Added
 - **`emu_host_path_caps()`, and with it the sync to the `romwbw_emu` v1.36
   core.** The core declares this function and deliberately does not define it,
@@ -111,9 +120,65 @@ unverifiable edit on the first. All three are open items in `todo.txt` again.
   not an object in the tree it names — the `c26aeb7` failure caught
   mechanically instead of by argument. **This one was run**, against the real
   checkouts and against doctored input for each of its four outcomes; it needs
-  only `sh` and `git`. Its verdict today: `romwbw_emu`'s column has no recorded
-  commit at all and its drift cannot be measured, and both mobile columns are
-  one commit behind.
+  only `sh` and `git`. Its verdict when it was written — `romwbw_emu`'s column
+  with no recorded commit at all, both mobile columns one behind — is history:
+  all three readings were brought forward in the same round and it exits 0
+  today. See the origin-tip fix under **Fixed**, which is what made that
+  reading trustworthy.
+- **`emu_host_file_get_read_name()`, or this project stops linking.** **NOT
+  COMPILED** — there is no MSVC, no mingw and no Windows on the machine this was
+  written on. `romwbw_emu` `322ca8e` added the function to `emu_io.h` as a
+  REQUIRED backend function and made `hbios_dispatch.cc` call it
+  unconditionally for `HBF_HOST_GETRNAME` (`0xE9`'s read twin, `0xEA`); this
+  project compiles `hbios_dispatch.cc` straight out of the sibling checkout
+  (`z80cpmw.vcxproj`), and the symbol was defined nowhere in this repository —
+  `grep -rn get_read_name .` returned only `CHANGELOG.md`. So the next build on
+  a Windows machine would have failed at link, exactly as the
+  `emu_host_path_caps()` sync did, and for the same reason: there is no version
+  gate, the core simply arrives. `tests/run_tests.bat`'s HBIOS suite links the
+  same pair and would have failed with it. `ioscpm` hit this first and its build
+  was dead until `15f48e9`.
+  It answers with **the path `R8` is really reading**, not `""`. That is the
+  same treatment the write side already had: `emu_host_file_open_read()`
+  resolves the guest's name through `resolveHostPath()` — a bare name is a file
+  in the data folder, an absolute path is used verbatim — and the resolved path
+  is now recorded in `g_hostReadDisplayPath` and reported. Where the write side
+  must resolve the parent directory and re-join the leaf, because the file it
+  names does not exist yet, the read side can resolve the *file*
+  (`resolveRealPathExisting()`), which follows the same MSIX `LocalCache`
+  redirection and additionally reports the leaf in the case the directory really
+  holds rather than the case the CCP shouted. `ioscpm` answers `""` here and is
+  right to: on that port the effective source is known only in Swift. On this
+  one it is known, so `""` would have been a worse answer than the truth. The
+  string is cleared at `emu_host_file_close_read()` and on every failure path,
+  and `emu_host_file_provide_data()` clears it too — bytes arrive there with no
+  path, and a stale one would name the previous transfer's file.
+  What was actually done in place of a build: the added statements were lifted
+  into a translation unit `clang++ -std=c++17 -Wall -Wextra` could parse, with
+  the surrounding declarations given their real types, and they compile clean
+  and behave as intended (the path while `READING`, `nullptr` after the close).
+  That is a typo and type check, not a build of `emu_io_windows.cpp`, which
+  needs `windows.h`. `todo.txt` keeps the item open until the tree compiles on
+  Windows.
+- **`packaging/scripts/verify-disk-assets.sh` — nothing checked what was inside
+  the shipped disk images.** `build-msix.ps1` and `z80cpmw.nsi` copy
+  `bin\Release\disks\*.img` into the package as they find them, no build target
+  puts `r8.com` or `w8.com` on an image, and the images are not tracked here, so
+  a stale utility ships silently and `git status` cannot notice. The script is
+  pointed at a directory of release candidates and, per image, picks the diskdef
+  from the image's own geometry (`wbw_hd1k_0` for a combo image, which must
+  carry the `55 AA` MBR signature; `wbw_hd1k` for a plain 8 MB image, which must
+  not), checks the directory it listed actually reads as a CP/M directory —
+  cpmtools with the wrong diskdef prints an empty or blank one and exits 0,
+  which reads as "the file is not there" — extracts `r8.com` and `w8.com` and
+  compares them byte for byte against what `romwbw_emu/src/{r8,w8}.asm`
+  assembles to, and asserts the `HBF_HOST_CAPS` probe bytes `06 e9 cf` are
+  present in `w8.com`. That last check is the one a person cannot do by eye: a
+  `W8` that takes a host path and never asks the emulator whether the path is
+  safe prints the *same* usage line as one that asks, so the usage string does
+  not discriminate armed from interlocked. It is the downstream half of
+  `romwbw_emu/disks/verify_disk_utils.sh`, which checks that repository's own
+  two images in place. **It was run**, both ways — see **Verified**.
 - **The About box names the RomWBW release the core emulates.** A user who
   meets the "HBIOS/CBIOS Version Mismatch" banner is being told their disk
   images were built by a different release than this HBIOS emulates, and the
@@ -315,6 +380,23 @@ unverifiable edit on the first. All three are open items in `todo.txt` again.
   symbols, which matters only when the two channels do not come off one build
   the way 1.0.22 did.
 
+- **`tools/check-sibling-drift.sh` measures against `origin`, not against the
+  local checkout.** Comparing a recorded reading with a sibling's local `HEAD`
+  lets a stale checkout certify a column as current, and it did: on 2026-08-27
+  the `ioscpm` line read "current" while the checkout on this machine was two
+  commits behind `origin/main`, so the column was being blessed against a tree
+  nobody else had. The tip compared against is now `refs/remotes/origin/HEAD`,
+  falling back to `origin/main` and then `origin/master`; a local `HEAD` behind
+  that tip is reported in its own right, because a reading taken in that
+  checkout was taken against the wrong source; and a checkout with no origin ref
+  at all now fails loudly rather than being quietly measured against itself — a
+  gate that cannot verify must not say yes.
+  It still does not fetch. A remote-tracking ref is only as fresh as the last
+  `git fetch` in that tree, so every line prints when that was rather than
+  leaving the age to be assumed, and `--fetch` updates them first — the only
+  thing the script does that writes to a sibling, which is why it is off by
+  default.
+
 ### Documentation
 The cross-port sweep that produced `FEATURE_PARITY.md` was committed the same
 afternoon as several of the upstream commits it describes, so parts of it were
@@ -481,6 +563,119 @@ were still carrying the old text in their own paragraphs were swept on
   paragraph itself, which record which cites rotted rather than ask anyone to
   follow one.
 
+- **`FEATURE_PARITY.md`'s three sibling readings are all recorded and all
+  current**, and `romwbw_emu` has one for the first time. `ioscpm` moves to
+  `15f48e9`: row 4 gains the two facts that commit adds — `emu_io_ios.mm` now
+  defines `emu_host_file_get_read_name()` and returns `""`, and the zero-byte
+  `W8` export bug is fixed there in both halves (`close_write` no longer needs a
+  non-empty buffer, and the Swift guard no longer gates on the write-data
+  pointer, which by the shared contract is `nullptr` for an empty buffer and so
+  could never answer the question). Nothing in that column was falsified.
+  `cpmdroid` moves to `c6756af`: `c06fa58` closed the identical zero-byte export
+  divergence in three places, and every absence claim in the Android column was
+  re-checked at `c6756af` and every one stands.
+- **Row 5's `romwbw_emu` cell was understated, and is rewritten from the
+  source.** It said "hardcoded list, unpinned; 4 of 5 images ship nowhere". Read
+  at `a95db9f`: `web/romwbw.html-template`'s two disk `<select>`s are five
+  hardcoded names fetched by bare relative URL beside the page; `web/makefile`'s
+  two deploy targets copy the page, the wasm and `vendor/` and **no image at
+  all**; `.github/workflows/release.yml`'s staging step copies the page, the
+  wasm, `vendor/`, `roms/*.rom` and `roms/emu_avw.rom` beside the page, and **no
+  image at all**; and `web/` itself carries none. So it is five of five, in every
+  vehicle — deb, rpm, either deploy, and `make serve` out of the tree — and both
+  selects come up preselected, so it is what a first-time visitor gets rather
+  than something they must go looking for. The cell moves from ◐ to ⬜: there is
+  no catalog to be partial about, and "unpinned" is beside the point when there
+  is no remote to pin to. The rest of that column was re-read row by row and
+  twelve of thirteen cells stood.
+- **`packaging/STORE_SUBMISSION.md`'s update flow gained a disk-image step**,
+  between the Release rebuild and the package build, naming
+  `verify-disk-assets.sh` and carrying today's measurement: the images shipped
+  in 1.0.22 fail it.
+
+- **`todo.txt` cut from 377 lines to 162, and almost none of what went was open
+  work.** The file had stopped being a list of things to do and become a record
+  of things considered: closing an item produced a paragraph explaining that it
+  closed, which was reliably longer than the item had been.
+  Nine items carried a paragraph opening "Re-checked 2026-08-26", "Left alone on
+  2026-08-26" or "deliberately not written blind", and those paragraphs alone
+  were 108 lines. Every claim in the file was re-verified against source before
+  anything was deleted. What went:
+  - **Six closed items, deleted rather than narrated.** Three of them were
+    `cpmemu`'s two Windows console bugs and its missing harness coverage, all
+    fixed in `cpmemu` `6daca11` the same afternoon this file was last edited —
+    `read_one_key()` reads `INPUT_RECORD`s now and `_getch()`/`_kbhit()` survive
+    only in comments explaining why they went, `SetConsoleCtrlHandler` sits
+    beside the `atexit(disable_raw_mode)`, and `inject_spec()` has both a
+    `U+XXXX` form and a `GenerateConsoleCtrlEvent` case.
+  - **The 0-byte disk-image item, which was false when it was written and false
+    again when it was re-checked.** `HBIOSDispatch::loadDisk` has refused
+    anything under `EMU_MIN_DISK_SIZE` (512) since `romwbw_emu` `6e1f134`, which
+    is an ancestor of the very commit the 2026-08-26 re-check measured against.
+    The re-check inspected `emu_file_load`, which was never what decided the
+    outcome, and then wrote fourteen lines arguing that the fix could not be made
+    in this repository — a fix that had already been made upstream a day
+    earlier. This port reaches the guard: `EmulatorEngine::loadDisk` returns
+    false and `MainWindow` puts up "Failed to load disk image".
+  - **The 29-line "CITE A SYMBOL, NOT A LINE NUMBER" preamble**, and the four
+    self-referential cite lines it existed to explain. The rule survives as one
+    line in the file header. The argument for it had already won; what was left
+    was the transcript of winning it.
+  - **The `cpmemu` items filed in this repository at all.** Five of the first six
+    were `cpmemu`'s work, one a verbatim duplicate of `cpmemu/todo.txt`'s own
+    first bullet, and one carrying a test count (`59 passed / 4 skipped`) that
+    `cpmemu` had already superseded with `76 passed / 4 skipped`. Two files
+    holding the same item is a guarantee they will drift, and they had. One
+    pointer line replaces all five.
+  - **The erase-fill cross-port question**, settled 2026-08-27 in this port's
+    favour: an erase blanks with the current SGR background. Nothing changes
+    here, so nothing is open here; the work is `ioscpm`'s and the decision is
+    recorded in `FEATURE_PARITY.md` row 13 in place of the open question.
+  Every surviving item now carries a tag — `[WINDOWS]`, `[RELEASE]`,
+  `[DECISION]` — so a session on a machine that is not this one can see at a
+  glance what that machine can take.
+- **`MANUAL_CHECKS.md` (new).** The checks that need a person: file transfer
+  under an **installed** MSIX, which is the only thing that reproduces
+  file-system redirection, and the hands-on pass over keystroke delivery, mouse
+  copy/paste rendering and the first-run Help window. Written as a checklist —
+  what to do, in what order, what right looks like — with the standing rule that
+  a check is *deleted* once someone runs it and its result goes under
+  **Verified** here. `WIP.md`'s "Not verified on hardware" section moved into it
+  whole rather than being copied, so there is one list and not two, and it gained
+  a step for the new `emu_host_file_get_read_name()`: `R8` should report the
+  resolved `LocalCache` path, not the name the user typed.
+- **`KNOWN_PROBLEMS.md` (new).** Standing facts that will never be "done", which
+  is why they were making `todo.txt` longer every round without ever leaving it:
+  that 1.0.22 has no symbols and never will; that `emu_host_path_basename()` is
+  declared in `emu_io.h` but defined only in `emu_io_common.cc`, the one core
+  file this project deliberately does not compile, so the first call added here
+  links against nothing; and that cpmtools with the wrong diskdef exits 0 in two
+  different disguises, measured today: `cpmls -f wbw_hd1k hd1k_combo.img` prints
+  1024 blank lines and not one filename, while `cpmls -f wbw_hd1k_0
+  hd1k_infocom.img` prints 312 garbage names, 233 of which are not printable
+  ASCII. Neither looks like an error, and the first is indistinguishable from
+  "that utility is not on the image".
+- **`README.md` stopped promising `W8` a host path.** Its "File Transfer
+  (R8 / W8)" section said "give a **full path** and the file goes exactly there
+  (even on the Store build)" over a `W8 C:\Users\me\Desktop\out.com` example.
+  `W8` took no host path until `romwbw_emu` `98eb6a1`, and the `W8.COM` on the
+  bundled images predates that: it reads only the parsed FCB and never the
+  command tail, so every export lands in the data folder whatever it is handed.
+  The example is now the `R8` one, which is true today, and the section names
+  the two live hazards of the utilities that actually ship — the old `R8` hands
+  an unfiltered host basename to `F_DELETE`, so importing a host file whose name
+  contains `?` or `*` erases every matching CP/M file silently, and the old `W8`
+  truncates a binary export at the first `1Ah`. Both come out when the images are
+  refreshed, and `todo.txt` says so. The same claim survives in
+  `HelpWindow.cpp`'s help topic, which is a string in a `.cpp` and stays open.
+- **`WIP.md` corrected.** It claimed a clean build against `romwbw_emu`
+  `2dbf6f2`, fourteen commits back and older than both the v1.36 sync and the
+  link break above; it said `emu_io_windows.cpp` carries "the eleven functions"
+  of `emu_io_common.cc` when `emu_rename` made it twelve; and it closed with a
+  dormant `rename()` bug it said was upstream's to fix, which upstream has fixed
+  — `emu_io_common.cc` grew its own `emu_rename()` using `MoveFileExA` with
+  `MOVEFILE_REPLACE_EXISTING`.
+
 ### Verified
 - **The tree builds against the v1.36 core.** Both configurations, against
   `romwbw_emu` `17cd380` (`v1.36-1`) and `cpmemu` `9fee3c2`. The link error the
@@ -503,6 +698,29 @@ were still carrying the old text in their own paragraphs were swept on
 - The two `hbios_dispatch.cc` fixes the sweep flagged - `bf03758`'s `HBF_VDAKST`
   and `HBF_VDAKRD` - arrive by reference and compile, as expected: this project
   builds that file straight out of `romwbw_emu`.
+- **The disk-image verifier was run both ways, 2026-08-27.** Against
+  `romwbw_emu/disks/` it exits 0: four binaries match the source and both
+  `w8.com`s carry the probe. Against **the images this project actually ships**
+  it exits 1. Those images are not in this repository, so they were taken from
+  the published `z80cpmw-1.0.22-beta.msix` — an MSIX is a zip, and it carries
+  `disks/hd1k_combo.img` and `disks/hd1k_games.img` — and unpacked into a scratch
+  directory. `hd1k_combo.img` holds a 1079-byte `r8.com` where the source now
+  builds 1792, and a `w8.com` with no probe in it whose only usage string is
+  `Usage: W8 <cpmname>`, with no `[hostpath]`: the `W8` from before `romwbw_emu`
+  `98eb6a1`. `hd1k_games.img` carries **neither utility**, so no host file
+  transfer works from that disk at all — which nothing had recorded. The three
+  diskdef and geometry guards were exercised too, against a truncated combo
+  image, a 4 MB file and an 8 MB blank: each is refused with its own reason
+  rather than read as an empty directory. `todo.txt` keeps the rebuild open.
+- **The drift script's four outcomes were each tested against doctored input**
+  in a scratch directory — seven throwaway clones with a real `origin`, covering
+  current, drifted, an unrecorded commit, a recorded commit that is not an
+  object, a checkout behind its origin, a clone with no `origin/HEAD` (the
+  fallback path), and one with no origin at all. The committed version of the
+  script was run against the same input for comparison and reports the
+  behind-origin clone as **"current"**, which is the bug. `--fetch` was
+  exercised against those scratch clones only. Against the real siblings the
+  script now exits 0.
 
 ## [1.0.22] - 2026-08-23
 

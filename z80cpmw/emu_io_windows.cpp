@@ -746,6 +746,11 @@ int emu_dsky_get_key() {
 static emu_host_file_state g_hostFileState = HOST_FILE_IDLE;
 static std::vector<uint8_t> g_hostReadBuffer;
 static size_t g_hostReadPos = 0;
+// Which file the buffered bytes were really read out of, as text for the CP/M
+// user (HBF_HOST_GETRNAME). The read twin of g_hostWriteDisplayPath below, and
+// kept the same way: computed once at open time, cleared at close so the next
+// transfer cannot be told the previous one's source.
+static std::string g_hostReadDisplayPath;
 static std::vector<uint8_t> g_hostWriteBuffer;
 static std::string g_hostWriteFilename;
 // Where the buffered bytes will really land, as text for the CP/M user
@@ -880,6 +885,7 @@ bool emu_host_file_open_read(const char* filename) {
     // Close any existing read operation
     g_hostReadBuffer.clear();
     g_hostReadPos = 0;
+    g_hostReadDisplayPath.clear();
 
     if (!filename || !*filename) {
         g_hostFileState = HOST_FILE_IDLE;
@@ -919,6 +925,13 @@ bool emu_host_file_open_read(const char* filename) {
             g_hostFileState = HOST_FILE_IDLE;
             return false;
         }
+        // The path R8 is really reading, for HBF_HOST_GETRNAME. The write side
+        // has to resolve the parent and re-join the leaf (resolveRealPathForDisplay)
+        // because the file it names does not exist yet; here the open has just
+        // succeeded, so the file itself can be resolved - which follows the same
+        // MSIX LocalCache redirection and additionally reports the leaf in the
+        // case the directory really holds, rather than the case the guest shouted.
+        g_hostReadDisplayPath = resolveRealPathExisting(fullPath);
         g_hostFileState = HOST_FILE_READING;
         return true;
     }
@@ -967,6 +980,7 @@ bool emu_host_file_write_byte(uint8_t byte) {
 void emu_host_file_close_read() {
     g_hostReadBuffer.clear();
     g_hostReadPos = 0;
+    g_hostReadDisplayPath.clear();
     g_hostFileState = HOST_FILE_IDLE;
 }
 
@@ -1003,6 +1017,9 @@ void emu_host_file_provide_data(const uint8_t* data, size_t size) {
     // For providing data after file picker callback
     g_hostReadBuffer.assign(data, data + size);
     g_hostReadPos = 0;
+    // Bytes arrive here with no path at all, so there is no source to report;
+    // clearing it stops HBF_HOST_GETRNAME naming whatever was read before.
+    g_hostReadDisplayPath.clear();
     if (size > 0) {
         g_hostFileState = HOST_FILE_READING;
     }
@@ -1034,6 +1051,27 @@ const char* emu_host_file_get_write_name() {
     // If the resolution failed (no data folder) there is nothing honest to
     // report; the empty string tells the core to leave W8's own path in place.
     return g_hostWriteDisplayPath.c_str();
+}
+
+// The read twin, and a REQUIRED backend function since romwbw_emu 322ca8e:
+// hbios_dispatch.cc calls it unconditionally for HBF_HOST_GETRNAME and this
+// project compiles that file straight out of the sibling checkout, so without a
+// definition here the link fails. See the contract above the declaration in
+// emu_io.h.
+//
+// This backend can answer properly rather than with "": emu_host_file_open_read()
+// resolved the guest's name to a real path and opened it, and that resolution is
+// exactly what R8 cannot compute for itself - a bare name is a file in the data
+// folder, and in an installed MSIX build that folder is really under
+// ...\Packages\...\LocalCache\Local.
+const char* emu_host_file_get_read_name() {
+    if (g_hostFileState != HOST_FILE_READING) {
+        return nullptr;
+    }
+    // Empty when the bytes came from emu_host_file_provide_data(), which has no
+    // path to report; the core then treats it as "no answer" and R8 prints what
+    // was asked for.
+    return g_hostReadDisplayPath.c_str();
 }
 
 // This backend creates or replaces exactly the file the guest path names and

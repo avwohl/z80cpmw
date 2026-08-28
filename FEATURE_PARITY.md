@@ -356,6 +356,29 @@ to find them on every platform.
     while the old `w8.com` is what ships. Second, containment belongs in the
     layer the capability bit is about — `emu_host_path_caps()`, not the UI above
     it.
+    **Two changes since, at `15f48e9`** (2026-08-27), neither of which
+    contradicts anything above. `emu_io_ios.mm` now defines
+    `emu_host_file_get_read_name()` and returns `""`, which that port had to do
+    or stop linking — `hbios_dispatch.cc` calls it unconditionally for
+    `HBF_HOST_GETRNAME` and is symlinked into `iOSCPM/Core/`, so the core moved
+    under that repo without a file there being touched, exactly as
+    `emu_host_path_caps()` did before it. `""` is a legal answer that `emu_io.h`
+    names as one, and it is the honest one there: the effective source is known
+    only in Swift, where the delegate resolves a leaf against `Imports`
+    case-insensitively and then calls `emu_host_file_load()`, which carries
+    bytes and no name. **This repo had the same missing symbol and answers
+    differently** — `emu_io_windows.cpp` records the path
+    `emu_host_file_open_read()` actually resolved and opened — because on this
+    backend that path is known. And the **zero-byte `W8` export bug is fixed**
+    on iOS: `emu_host_file_close_write()` no longer requires a non-empty buffer
+    to reach `WRITE_READY`, and `checkHostFileState()` no longer guards on the
+    write-data pointer, which by the shared contract is `nullptr` for an empty
+    buffer and so could never answer the question. Both halves were needed;
+    either alone still swallowed the export. That is the same divergence
+    `cpmdroid` closed in `c06fa58` and the browser backend closed in v1.36, so
+    all four ports now create the empty file that this one and the CLI always
+    created. Neither change has been compiled — that repo records it as NOT
+    COMPILED, for want of Xcode.
   - **cpmdroid (Android)** *(2026-08-25, from `origin/master`; this supersedes
     the 2026-08-07 reading, which described a Files button, an Import File…
     picker and a Share action that **do not exist** — no `res/xml` directory, no
@@ -380,6 +403,22 @@ to find them on every platform.
     One real bug was fixed on the way: `R8` used to fall back to **the first
     file in `Imports/`** when the requested name was missing, and hand it to
     CP/M under the requested name while printing its usual success line.
+    **A second one at `c06fa58`** (2026-08-26): a zero-byte `W8` export produced
+    no file at all while telling the guest it had succeeded. Three places each
+    read "no bytes" as "no export" and any one of them would have swallowed it
+    — `emu_host_file_close_write()` reached `WRITE_READY` only with a non-empty
+    buffer, the JNI `nativeGetHostFileWriteData()` returned `null` on a zero
+    byte count, and `handleHostFileWrite()` bailed on `data.isEmpty()`. The
+    state, not the write-data pointer, now says whether an export is waiting,
+    which is the only thing that can: `emu_host_file_get_write_data()` returns
+    `nullptr` for an empty buffer by the shared contract. The JNI tests
+    `WRITE_READY` alone and deliberately not `WRITING`, so a call made while the
+    guest is still handing bytes down can no longer serve a partial export as a
+    finished one. An empty CP/M file is a real file — this port and the CLI
+    always created it — so this closes a divergence rather than choosing a
+    behaviour; `ioscpm` closed the same one at `15f48e9`. Not compiled there
+    either: no SDK, NDK or Gradle on the machine it was written on, and the C++
+    was built for the host against a stub `jni.h`.
 - **Parity targets:** (a) let users reach **arbitrary** host locations within each
   platform's file model — a document picker / `ACTION_CREATE_DOCUMENT`; and (b) at
   minimum, **make exports findable**. Both are still open on both mobile ports.
@@ -424,6 +463,39 @@ copyrighted content.
     slices from another release print an HBIOS/CBIOS mismatch). Like cpmdroid,
     help deliberately stays on `releases/latest` — but unlike cpmdroid, without
     a bundled fallback, so see item 6.
+  - **romwbw_emu (web)** *(2026-08-27, at `a95db9f`)* — **there is no catalog
+    here at all**, and the cell in the table above used to read "hardcoded list,
+    unpinned; 4 of 5 images ship nowhere", which understated it in the one
+    direction that matters. Nothing fetches `disks.xml`, nothing names a release
+    tag, and there is no downloaded-state or delete UI: `disk0Select` and
+    `disk1Select` in `web/romwbw.html-template` are two hardcoded `<select>`s
+    listing the same five names — `hd1k_combo.img`, `z80cpm_tools.img`,
+    `hd1k_games.img`, `hd1k_cpm22.img`, `hd1k_zsdos.img` — and the page fetches
+    the chosen one by **bare relative URL** (`fetchWithProgress(disk0Selection)`),
+    so it resolves next to the page and nowhere else. "Unpinned" is true but
+    beside the point: there is no remote to pin to.
+    **Nothing puts an image next to the page.** `web/makefile`'s two deploy
+    targets (`deploy-romwbw-PRODUCTION-ASK-HUMAN-FIRST` and `deploy-dev`) copy
+    the rendered `index.html`, `romwbw.js`, `romwbw.wasm` and `vendor/` — no
+    `.img`, and no `.rom` either. `.github/workflows/release.yml`'s staging step
+    copies the page, the wasm, `vendor/`, `roms/*.rom` into `roms/` and
+    `roms/emu_avw.rom` next to the page — and no `.img`. `web/` itself carries
+    none. So it is not four of five that ship nowhere, it is **five of five**,
+    in every vehicle: the deb, the rpm, either deploy, and `make serve` out of
+    the source tree. Both selects come up preselected — disk 0 on
+    `hd1k_combo.img`, disk 1 on `hd1k_games.img` — so the failure is what a
+    first-time visitor gets, not something they have to go looking for. It is at
+    least *reported*: the loader collects `diskFailures` and puts the HTTP
+    status on screen rather than starting a machine with no disk in silence.
+    Two smaller facts from the same read. The repository has exactly two images,
+    `disks/hd1k_combo.img` and `disks/hd1k_infocom.img`; of the five names the
+    page offers, four exist nowhere in the tree, and the one image it does have
+    besides the combo is not offered. And the ROM select has the same shape but
+    was already fixed on the packaged path only: it offers one ROM,
+    `emu_avw.rom`, fetched the same bare relative way, and the release workflow
+    stages it beside the page with a comment recording exactly that lesson —
+    while the two makefile deploy targets, which nothing checks, still do not
+    copy it. `web/emu_romwbw.rom` is tracked and referenced by nothing.
 
 ### 6. Remote help system + bundled fallback
 In-app help fetched from GitHub, with offline bundled topics.
@@ -627,12 +699,15 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     followed: lines pushed out of a status-line window were never history.
     One difference remains and it is deliberate on that side: the new finals
     blank with a *default* cell rather than the current SGR background, matching
-    the rest of that port's erase family, where this repo now paints the current
+    the rest of that port's erase family, where this repo paints the current
     background everywhere. That port files changing it as a decision for the
     whole family at once, on the grounds that doing it to half would be worse
-    than being consistently wrong. It is the live disagreement in this row and
-    the only one left; `todo.txt` here carries it as a decision nobody should
-    take alone.
+    than being consistently wrong. **Settled 2026-08-27, in this port's
+    favour:** an erase blanks with the current SGR background, which is strict
+    VT and xterm behaviour and what a program that sets a colour and clears is
+    asking for. Nothing changes here; the erase family in
+    `EmulatorViewModel.swift` moves, including the `@ P X S T` finals, and it
+    needs an `ioscpm` release. It is the only difference left in this row.
     Parser input **is** bounded, since build 49: `maxCSIParams` 16 and
     `maxCSIParamDigits` 6, matching cpmdroid, with leading zeros dropped so
     zero-padding cannot spend the digit budget. Build 49 also made SGR 7 a
@@ -746,11 +821,19 @@ extending it; that port's parser turned out to be the thinnest of the four.)
 
 Android `cpmdroid` is as of **`origin/master`, 2026-08-25, read from source** —
 the whole column, after the `c26aeb7` citations turned out to describe code that
-was never pushed. See the note at the head of this file.
+was never pushed — and every absence claim in it was **re-verified against
+`c6756af`** on 2026-08-27, with none falsified. See the note at the head of this
+file.
 The **iOS/macOS column was re-read from `ioscpm` source on 2026-08-26**, at
 **build 52** (`49851aa`), from a checkout on this machine — every row, not only
-the ones that changed. Builds 51 and 52 both landed after the 2026-08-24 reading
-this replaces; see the note at the head of this file.
+the ones that changed — and carried forward to **`15f48e9`** on 2026-08-27,
+which adds two facts to row 4 and falsifies nothing. Builds 51 and 52 both
+landed after the 2026-08-24 reading this replaces; see the note at the head of
+this file.
+The **Linux/Web `romwbw_emu` column was re-read row by row at `a95db9f`** on
+2026-08-27, its first recorded reading; the 2026-08-24 sweep it replaces wrote
+down no commit. Twelve of its thirteen cells stood as written and row 5 did not
+— see item 5.
 
 **Which commit each column was read at, and what reports the drift.** A column
 is only as current as the last person who read that tree, and three of the four
@@ -760,25 +843,41 @@ the checkouts beside this one, lists what has landed since, and exits non-zero
 if anything has - including a recorded commit that is not an object in the tree
 it names, which is the `c26aeb7` failure caught mechanically instead of by
 argument. Re-read what it reports, correct the column, then update this block.
-The `romwbw_emu` line says `unknown` because the commit that sweep read was
-never written down and cannot be recovered now; guessing at it is exactly the
-habit this document is trying to break, so it stays `unknown` until someone
-re-reads that column and records what they read.
+
+It compares against **`origin`**, not against the local checkout. It used to
+compare against local `HEAD`, and that let a stale checkout certify a column as
+current: on 2026-08-27 the `ioscpm` line read "current" while the checkout on
+this machine was two commits behind `origin/main`, so the column was being
+blessed against a tree nobody else had. The tip is now
+`refs/remotes/origin/HEAD` (falling back to `origin/main`, then
+`origin/master`), a local `HEAD` behind that tip is reported in its own right,
+and a checkout with no origin ref at all fails rather than being quietly
+measured against itself. It still does not fetch by default - a remote-tracking
+ref is only as fresh as the last `git fetch` in that tree, so each line prints
+when that was; `--fetch` updates them first and is the only thing the script
+does that writes to a sibling.
 
 ```sibling-readings
-ioscpm     49851aa  2026-08-26
-cpmdroid   9b68ab1  2026-08-25
-romwbw_emu unknown  2026-08-24
+ioscpm     15f48e9  2026-08-27
+cpmdroid   c6756af  2026-08-27
+romwbw_emu a95db9f  2026-08-27
 ```
 
-Checked on 2026-08-26 after both mobile trees moved again, without re-reading
-either column in full: `ioscpm` `6b1b731` changes no source at all (it is
-`CHANGELOG.md`, `KNOWN_PROBLEMS.md`, `docs/DISK_DISTRIBUTION.md`,
-`docs/notes_to_windos.md` and `todo.txt`), so build 52's reading still stands;
-`cpmdroid` `c06fa58` touches `emu_io_android.cpp` and `MainActivity.kt` to make
-a zero-byte `W8` export produce a file rather than silently nothing, which adds
-to row 4's Android paragraph and contradicts none of it. Neither is a re-read,
-so neither moves the recorded commits above.
+What each of those three readings is, because they are not the same kind of
+thing:
+
+- **`ioscpm` `15f48e9`** - a delta check, not a re-read. Build 52's full reading
+  (`49851aa`, 2026-08-26) still stands underneath it; `6b1b731` changes no
+  source at all, and `15f48e9` changes two things in row 4, both recorded there.
+- **`cpmdroid` `c6756af`** - the 2026-08-25 full reading (`9b68ab1`) plus a
+  re-verification: every *absence* claim in the Android column was re-checked
+  against the tree at `c6756af` and every one stands. `c6756af` is documentation
+  only; `c06fa58` is the source change, and it is in row 4.
+- **`romwbw_emu` `a95db9f`** - a row-by-row re-read of the whole column, which
+  it had not had since 2026-08-24, fifteen commits earlier. That sweep never
+  wrote down what it read, so this line said `unknown` until now. Twelve of the
+  thirteen cells still stood as written; row 5 did not, and was rewritten from
+  the page, the makefile and the release workflow rather than adjusted.
 
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
@@ -786,7 +885,7 @@ so neither moves the recorded commits above.
 | 2. Scrollback | ✅ | ✅ (Settings slider incl. Off since 2026-08-25; drag instead of wheel) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
 | 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip; Copy takes the scrollback since 2026-08-25, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
 | 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52) | ⬜ (both folders fixed, no picker, no share, no path UI) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
-| 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ◐ web (hardcoded list, unpinned; 4 of 5 images ship nowhere) |
+| 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
 | 6. Help system + offline fallback | ✅ / ✅ bundled since build 51 (download, cache, then the shipped copy) | ✅ / ⬜ (fetches `releases/latest`, nothing bundled, no cache) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
 | 7. NVRAM autoboot / bootString | ✅ | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
 | 8. Window state / DPI | ⬜ (Mac Catalyst) | ➖ | ➖ |

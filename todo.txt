@@ -1,377 +1,162 @@
 Todo list.  Open items only - finished work is written up in CHANGELOG.md and in
-the commit messages that made the changes, not kept here.  WIP.md holds the
-longer-form handoff notes; this file is the list.
+the commit messages that made the changes, not kept here.  A closed item is
+DELETED; it does not get a paragraph explaining that it closed.
+
+  MANUAL_CHECKS.md   checks that need a person at a keyboard or a device
+  KNOWN_PROBLEMS.md  standing facts that will never be "done"
+  WIP.md             longer-form handoff notes
+
+Cite a function name, a symbol or a greppable string - never a file:line; five
+of the eight line cites this file once carried went stale within twelve hours.
+Tag every item with what it needs, so a session on another machine can see at a
+glance what that machine can take.
 
 
-Still needs a Windows machine
-------------------------------
+Needs a Windows machine
+------------------------
 
-- ONE CHANGE IN THIS TREE HAS NEVER BEEN COMPILED: the 24 -ErrorAction Continue
-additions in the two packaging scripts, which nothing on the machine that wrote
-them could even parse.  Labelled NOT EXECUTED in CHANGELOG.md too.
-  Three other blind changes were written on 2026-08-26 and have been REVERTED
-rather than committed: a "display.bell" setting, the Reset confirmation, and
-keeping applyConfig()'s ROM notice across startEmulator()'s terminal clear.
-Review found the third defective - m_configNotice was cleared only at the top of
-applyConfig(), whose only callers are loadSettings() and the profile load, so
-onSelectROM() succeeding left it stale and a user who fixed their ROM got the
-old error reprinted at them.  One defect in three changes, on a machine that
-cannot compile any of them, is the argument against writing the other two blind
-as well.  All three are open items again below, where they were.
+- [WINDOWS] TWO CHANGES IN THIS TREE HAVE NEVER BEEN COMPILED.  (a)
+emu_host_file_get_read_name() in emu_io_windows.cpp, written 2026-08-27 because
+romwbw_emu made it a required backend function and hbios_dispatch.cc - which
+this project compiles straight out of the sibling checkout - calls it
+unconditionally, so the tree does not link without it.  The added statements
+were type-checked in a clang shim, which is not a build.  (b) the 24
+-ErrorAction Continue additions in build-msix.ps1 and build-nsis.ps1, which
+nothing on this machine can even parse.  The first Windows build settles (a): it
+either links or it does not.
 
-- two Windows console bugs in cpmemu/src/os/windows/platform.cc.  Not this
-repo's code - z80cpmw compiles none of it - but whoever has the machine can take
-them at the same time; cpmemu/todo.txt has the measurements.  (a) read_one_key()
-takes a 0x00/0xE0 byte from _getch() as a special-key prefix and uses _kbhit()
-as the tie-breaker, which code page 437 loses intermittently and code page 65001
-loses always; the fix is to read INPUT_RECORDs with ReadConsoleInputW, which
-removes the guess rather than narrowing it, and it forces five secondary changes
-(key-down filter, repeat-count expansion, UTF-16-to-bytes conversion, re-keying
-extended_keys[] from CRT scan codes to VK plus a ctrl flag, and widening the
-two-slot queue).  (b) ctrl+break leaves the console in raw mode, because the
-default handler ends the process without running atexit; one
-SetConsoleCtrlHandler beside the existing atexit(disable_raw_mode) fixes it,
-mirroring os/linux/platform.cc's install loop.
+- [WINDOWS] there is no per-cell attribute beyond the packed CGA byte.  struct
+TerminalCell carries a character, a foreground and a background and nothing
+else, and the paint path selects a single m_font outside the row/column loop, so
+bold / underline / blink / reverse have nowhere to live and nothing to render
+them.  The gap is a flags byte plus a multi-HFONT paint path - roughly a day,
+splitting cleanly into a parser commit and a rendering commit.  The conformance
+suite is in the repository, so a regression in the rest would be caught.
 
-- cpmemu's tests/win_console.cc cannot inject a non-ASCII character -
-inject_spec()'s single-character branch goes through VkKeyScanA and casts one
-byte to WCHAR - and it never calls GenerateConsoleCtrlEvent, so neither bug
-above has a regression test.  Both are small additions to the harness.
+- [WINDOWS] the seven remote help topics have no bundled copy and no on-disk
+cache, so an offline user - or a release whose assets were not attached - gets
+none of them.  HelpWindow.cpp ships two of its own and isLocalTopic() names only
+those two; the fetched ones are cached in memory for fifteen minutes and are
+gone at restart.  ioscpm gained the fallback in its build 51 (4deea96) by
+referencing release_assets/ in place rather than copying it, which is the trick
+worth taking.  The order to mirror is download, then cache, then the copy
+shipped in the binary.
 
-- cpmemu's tests/run_tests.sh skips two cases for want of this platform -
-"windows cross-compile" and "windows console".  Running it here turns 59
-passed / 4 skipped into a real result.
+- [WINDOWS] a mistyped config key is silently absorbed, and then silently
+deleted at the next save.  Config.cpp's from_json reads every field as
+j.value(name, default) and to_json writes only known names, so an unrecognised
+member is read by nobody and gone at the next save; Keymap.h's KeyMap::build
+discards any name keyIdForName rejects and says nothing.  Detection is a dozen
+lines - subtract the names from_json consumed from the members the json actually
+carries.  The work is that there is nowhere to put the answer: Config.cpp has no
+window, no status bar and no terminal, and emu_error() reaches a log nobody
+reads.  applyConfig() already prints to the terminal, so the design is to
+collect during load and hand the text to MainWindow, on the same channel the ROM
+notice uses - a channel that does not survive startEmulator() today.  These next
+two items are the same job seen from its other two ends; take all three at once.
 
-- nobody has pressed the keys.  cpmemu's win_console.cc writes INPUT_RECORDs
-straight into the console input buffer, so it is faithful from the console
-inward and steps past the terminal program itself: if Windows Terminal binds
-ctrl+left for its own use the test still passes and the user still loses the
-key.  The harness has a --manual mode - one pass in Windows Terminal, one in a
-legacy conhost window.  Its POSIX twin wants the same in Terminal.app and
-iTerm2, which is also not done.
+- [WINDOWS] MainWindow::startEmulator() clears the terminal, which erases the
+two notices applyConfig() prints when the saved ROM is unusable but
+loadDefaultROM() has already put a good one in the banks.  hasROM() is true for
+both, so the no-ROM guard above the clear does not fire.  Whoever writes this
+owns the notice's lifetime: onSelectROM() succeeding has to clear it, and so
+does anything else that makes the notice untrue.
 
+- [WINDOWS] the four scrollback combinations (Shift+PageUp/PageDown,
+Ctrl+Home/End) are intercepted at the top of TerminalView::handleKeyDown, before
+the m_keymap.find() lookup below it, so a config that binds them is silently
+ignored rather than refused.  docs/CONFIGURATION.md now says which four they
+are; making KeyMap::build refuse them wants the reporting channel above.
 
-Needs an installed package, which a local build cannot reproduce
------------------------------------------------------------------
+- [WINDOWS] Reset reboots the machine with no confirmation -
+MainWindow::onEmulatorReset() clears the terminal and calls reset() with no
+guard - and with "ctrlRToCpm": false a single Ctrl+R does it.  Both mobile ports
+ask first.  Note the choice, which nothing here can test either way: they ask
+unconditionally, while asking only when isRunning() would spare the user a
+dialog on a machine that is already stopped.
 
-- the Store-build test plan in WIP.md ("Not verified on hardware") has never
-been run; all four boxes are unticked.  The W8-under-MSIX behaviour is confirmed
-in source, but only an INSTALLED MSIX build reproduces file-system redirection.
-Sideloading dist\z80cpmw-1.0.22-beta.msix is enough - it is the same binary and
-also MSIX.  Its first checkbox is struck out and stays struck until the images
-carry the new w8.com; see the disk-image section below.
+- [WINDOWS] the terminal bell is unconditional: TerminalView.cpp's 0x07 case
+calls MessageBeep(MB_OK) with nothing to consult.  cpmdroid made it a setting.
+Worth doing with the Settings item below rather than on its own - the dialog
+needs a terminal section as much as a keyboard one, and a checkbox is the
+discoverable half.
 
-- keystroke delivery to CP/M, mouse copy/paste rendering and the first-run Help
-auto-open visuals have never been watched by a person.  Nothing here can
-automate them.  The terminal parser is covered - tests\run_tests.bat, 252
-checks in the terminal suite and 354 across all three - but that stops at the
-byte stream; it says nothing about whether a keypress becomes a byte or a cell
-becomes a pixel.  (Said 205 until 2026-08-26; that was the [1.0.20] number.  252
-is not taken on the CHANGELOG's word: counting CHECK_INT( / CHECK_STR( /
-CHECK_TRUE( in tests\test_vt52.cpp gives 255, less the three that are the macro
-definitions themselves, and that agrees exactly with the 252 the suite reported
-when it was run on Windows.  The 354 is only the recorded run total - the
-host-file suites run some of their check() calls from inside loops and helpers,
-so counting call sites gives 55 and 33, not the 66 and 36 that were reported.
-Those two numbers cannot be re-derived from this machine.)
+- [WINDOWS] rebinding a key means closing the app and hand-editing JSON.  There
+is no keyboard section in Settings - SettingsDialogWx has ROM, disks, debug, the
+manifest warning, scrollback, Dazzler and the catalog, and nothing else.  Worth
+more now that the key map understands modifiers and so has more to say.
+
+- [WINDOWS] build-msix.ps1's -Beta branch copies bin\<Configuration>\z80cpmw.pdb
+out to dist\z80cpmw-<ver>-beta.pdb after signing and errors out if it is not
+there, so a future beta cannot ship symbol-less in silence the way 1.0.22 did.
+NEVER RUN - not once, not even -WhatIf.  Run build-msix.ps1 -Beta and confirm
+the .pdb lands in dist\ beside the .msix.
+
+- [WINDOWS] cpmemu has Windows work of its own - the rewritten console input
+path, its test harness, and the cases its suite skips for want of the platform.
+This project compiles none of that code.  See cpmemu/todo.txt, which owns it and
+has the measurements.
 
 
 The disk images are behind the core
 ------------------------------------
 
 READ romwbw_emu/docs/RELEASE_ORDER_2026-08-25.md BEFORE PUBLISHING ANYTHING
-HERE.  Refreshing the images is what arms a data-destruction bug in ioscpm, so
-the port fixes go first and the images second, and the two rules that document
-states plainly are (a) never attach refreshed images to the existing v1.4.5 tag,
-because every port pins that tag in its binary and overwriting it reaches
-installed apps with no update, and (b) never publish an image whose w8.com lacks
-the 0xE9 capability probe.  z80cpmw is step 3 of that plan and is not a safety
-blocker - the code side of it is done as of this round.
+HERE.  It owns the sequence and the two safety rules.  z80cpmw is step 3 of that
+plan and is not a safety blocker.
 
-- the bundled hd1k images still carry the pre-98eb6a1 w8.com, so W8 cannot take
-a host path however capable the Windows backend is, and cannot ask where its
-export really went either.  Measured: bin\Release\disks\hd1k_combo.img holds
-"Usage: W8 <cpmname>" where romwbw_emu/disks/hd1k_combo.img now holds
-"Usage: W8 <cpmname> [hostpath]" - and the two are different lineages, not just
-different vintages, because the local copy came down from the ioscpm release.
-Fixing it means either refreshing the images from romwbw_emu/disks and cutting a
-new ioscpm release for the catalog to point at, or repinning DiskCatalog.cpp's
-RELEASE_TAG - still v1.4.5 - at a release built from the current disks.  Three
-documentation items below unwind when this lands, and so does the first checkbox
-of the Store-build test plan.
+- [RELEASE] the bundled images are stale, and the new
+packaging/scripts/verify-disk-assets.sh now says so.  Measured 2026-08-27 on the
+images unpacked from the published z80cpmw-1.0.22-beta.msix, which is how they
+can be got at from a machine with no Windows build: hd1k_combo.img holds a
+1079-byte r8.com where romwbw_emu/src/r8.asm now builds 1792, and a w8.com
+carrying neither [hostpath] in its usage line nor the capability probe;
+hd1k_games.img holds NEITHER UTILITY AT ALL, so no host file transfer works from
+the games disk.  The stale R8 is the
+half with teeth - an unfiltered host basename makes an ambiguous FCB and
+F_DELETE then erases every matching CP/M file - so that destructive bug is live
+in what ships today, not only in an old lineage.  Refreshing from
+romwbw_emu/disks also brings the v1.36 rebuild: W8 no longer truncates a binary
+export at the first 1Ah, both utilities accept a host path containing a space,
+their byte counts are 32-bit rather than the low 16 bits, and both lost a bogus
+org 0100h that had been padding w8.com with 256 leading zero bytes.  Landing it
+means either cutting a new ioscpm release for the catalog to point at, or
+repinning DiskCatalog.cpp's RELEASE_TAG - still v1.4.5 - at a release built from
+the current disks.  Then run verify-disk-assets.sh over the staged disks;
+STORE_SUBMISSION.md step 3 is where it sits in the flow.
 
-- the core moved again while the images stood still.  v1.36 rebuilt both
-utilities a second time (romwbw_emu docs/DOWNSTREAM_2026-08-25.md sections 4
-and 5), so refreshing now brings more than the host path: W8 no longer truncates
-a binary export at the first 1Ah byte - exporting w8.com itself produced 368
-bytes of 1408 - both utilities accept a host path containing a space, their byte
-counts are 32-bit rather than the low 16 bits, and both sources lost a bogus
-`org 0100h` that had been padding w8.com with 256 leading zero bytes.  The old
-R8 also has a destructive bug of its own that only the refresh fixes: an
-unfiltered host basename makes an ambiguous FCB, and F_DELETE then erases every
-matching CP/M file before creating the new one.
+- [WINDOWS] HelpWindow.cpp's "File Transfer (R8 / W8)" topic lists R8 and W8
+together and then says "Give a full path (recommended)", so it reads as
+endorsing both, and W8 takes no host path from the bundled images.  It is a
+string in a .cpp, so it needs a build to see.  README.md carried the same claim
+and no longer does.
 
-- upstream added romwbw_emu/disks/verify_disk_utils.sh (75ef2e8) for exactly
-this drift - it checks that the R8/W8 inside the shipped images match their
-source, and as of v1.36 it runs inside `make -C src test` and covers both
-utilities rather than only w8.com.  Nothing under packaging/ runs it, or
-anything like it, before a release.  Mind the diskdef if checking by hand:
-hd1k_combo.img is wbw_hd1k_0 because of its 1 MB MBR prefix, a plain 8 MB image
-is wbw_hd1k, and the wrong one lists garbage rather than failing.
+- [RELEASE] several documents go the other way when the images are refreshed,
+and not before.  docs/FILE_TRANSFER.md's "does not take one yet" paragraphs and
+the step 0/1 caveats in its checklist come out; README.md's "W8 does not take a
+host path yet" paragraph and the two cautions under it come out with them; and
+MANUAL_CHECKS.md's struck-out W8 check is re-instated.  Do not do any of this
+before verify-disk-assets.sh passes on the staged images.
 
 
-Terminal residue - the other half of row 13
---------------------------------------------
+Needs the owner
+----------------
 
-- there is no per-cell attribute beyond the packed CGA byte.  struct
-TerminalCell in TerminalView.h carries the character, an unpacked foreground
-and an unpacked background and nothing else, and the paint path selects a
-single m_font, so the gap is a flags byte for bold / underline / blink /
-reverse plus the multi-HFONT paint path to render them.  Roughly a day, and it
-splits cleanly into a parser commit and a rendering commit.  The conformance
-suite is in the repository now, so a regression in any of it would be caught.
+- [DECISION] the v1.0.22-beta GitHub release is flagged Latest rather than
+prerelease, unlike 1.0.16 / 1.0.17 / 1.0.21.  If the -beta channel should stay a
+prerelease: gh release edit v1.0.22-beta --prerelease.
 
-
-Features the sibling ports have and this one does not
-------------------------------------------------------
-
-- the seven remote help topics have no bundled copy and no on-disk cache, so an
-offline user - or a release whose assets were not attached - gets none of them.
-HelpWindow.cpp ships two topics of its own (Getting Started, Configuration) and
-caches the fetched ones in memory only, fifteen minutes, gone at restart.
-ioscpm gained the offline fallback in its build 51 (4deea96), referencing
-release_assets/ in place rather than copying it, which is the trick worth taking
-too.  The order to mirror is download, then cache, then the copy shipped in the
-binary.
-
-- a mistyped config key is silently absorbed, and then silently deleted on the
-next save.  cpmemu fixed the same class of thing in bb03afa; the two places here
-are Config.cpp's from_json - every field is j.value(name, default) and to_json
-writes only known names, so an unrecognised member is dropped at the next save -
-and Keymap.h's KeyMap::build, which discards any name keyIdForName rejects with
-`if (id >= 0)` and says nothing.  Note the "F1x" fix in CHANGELOG [Unreleased]
-is a different thing: it made vkForName reject the typo instead of binding F1,
-it did not make anything report it.
-  Looked at on 2026-08-26 and deliberately not written blind.  The edit is not
-the detection - collecting the member names json actually carries and
-subtracting the ones from_json consumed is a dozen lines in one function - it is
-that there is nowhere to put the answer.  Config.cpp has no window, no status
-bar and no terminal; emu_error() reaches the log nobody reads.  The terminal is
-the right place, and applyConfig() already prints there, so what this wants is
-the same channel the ROM notice uses: collect during load, hand the text to
-MainWindow and print it beside the ROM notice.  Note that channel does not
-survive startEmulator() today - see the terminal-clear item below, which the
-same design should fix at the same time.  That is a small design rather than a
-one-line edit, and it wants a compiler.  The rejected-scrollback-binding item below is the same missing
-channel seen from the other end - take the two at once.
-
-- Reset reboots the machine with no confirmation - MainWindow::onEmulatorReset()
-calls reset() straight away - and with "ctrlRToCpm": false a single Ctrl+R does
-it.  Both mobile ports ask first.  A MessageBoxW version was written on
-2026-08-26 and reverted unbuilt; if it is written again, note the choice it has
-to make and that nothing here can test either way - both mobile ports ask
-unconditionally, while asking only when isRunning() would spare the user a
-dialog on a machine that is already stopped.
-
-- the terminal bell is unconditional: TerminalView.cpp's 0x07 case calls
-MessageBeep(MB_OK) with nothing to consult.  cpmdroid made it a setting.  A
-config-file-only version of this was written on 2026-08-26 and reverted unbuilt
-along with the other two blind changes; it was six one-line edits across four
-source files plus two documentation tables, which is small but is still four
-files nothing here can compile.  Worth doing with the Settings work below rather
-than on its own - the dialog needs a terminal section as much as a keyboard one,
-and a checkbox is the discoverable half.
-
-- rebinding a key means closing the app and hand-editing JSON.  There is no
-keyboard section in Settings - SettingsDialogWx.cpp has ROM, disks, debug,
-manifest warning, scrollback, Dazzler and the catalog, and nothing else.  Worth
-more now that the key map understands modifiers and so has more to say.
+- [DECISION] build-nsis.ps1 keeps no .pdb, and neither does build-msix.ps1's
+default (Store) branch.  When both channels come off one build, as 1.0.22 did,
+the kept beta .pdb matches the Store binary too; when they do not, the Store
+package has no symbols kept anywhere.  A call for whoever cuts the next Store
+release.
 
 
-Documentation the cross-port sweep got wrong
----------------------------------------------
+Needs a person, not a machine
+------------------------------
 
-The sweep and the upstream commits it describes landed the same afternoon, so
-several rows went stale within hours of being written.  The stale row paragraphs
-are corrected now (2026-08-26); what is left here is what corrections cannot
-reach.
-
-CITE A SYMBOL, NOT A LINE NUMBER.  This section carried eight distinct file:line
-cites.  Six of them pointed into FEATURE_PARITY.md - not at a sibling repo, at a
-file in this one - and five of those six were invalidated before anyone acted on
-them, by this repo's own next two commits, inside the same day.  They were
-written in db5392b at 03:59 on 2026-08-25; 2f10d4c broke :439, :579 and :606 at
-14:33, and 944cf9f broke :32 and :53 thirty-five minutes after that.  At HEAD
-they read :32 to :37, :53 to :58, :439 to :449, :579 to :604, :606 to :633.
-  The other three had not drifted at all: FEATURE_PARITY.md:261 still lands on
-the paragraph it named, and README.md:98-102 and HelpWindow.cpp:57 on the W8
-claim and the "Give a full path (recommended)" line.  Nor had the three cites
-outside this section pointing at this repo's own source - TerminalView.h:20,
-TerminalView.cpp:602-607 and :616 - which were rewritten for consistency, not
-because they had rotted.  That split is the argument rather than an exception to
-it: five of eight went stale inside twelve hours of being written, and nothing on
-the page said which five, so a line number looks like evidence while carrying
-none.
-  FEATURE_PARITY.md and this file now cite a function name, a symbol or a
-greppable string instead - eleven cite lines rewritten there, four rewritten here
-and one retired with the paragraph it sat in.  grep -nE
-'\.(md|cpp|h|kt|swift|cc|txt|html-template):[0-9]+' returned 11 lines in
-FEATURE_PARITY.md and 5 here at 944cf9f; it returns nothing in FEATURE_PARITY.md
-now, and in this file only the four lines just above, which are the record of
-which cites rotted rather than a cite anyone should follow.  Anything added here
-should do the same.
-
-- the drift is reported now, which was the open half of this.  FEATURE_PARITY.md
-carries a sibling-readings block naming the commit each port column was actually
-read at, and tools/check-sibling-drift.sh compares those with the checkouts
-beside this one, lists the commits that have landed since, and exits non-zero if
-any has - or if a recorded commit is not an object in the tree it names, which
-is the c26aeb7 failure caught by a script rather than by argument.  Written and
-RUN here on 2026-08-26, against the real checkouts and against doctored input
-for all four outcomes; it is the one thing in this repository that could be
-executed on the machine it was written on.
-  What it reports today is the work left.  romwbw_emu has NO recorded commit -
-the 2026-08-24 column sweep never wrote down what it read and it cannot be
-recovered now, so guessing at it would be the exact habit this file is trying to
-break - and its drift therefore cannot be measured at all; that column has to be
-re-read and the commit recorded.  ioscpm is one commit past the build 52 reading
-(6b1b731) and cpmdroid one past 9b68ab1 (c06fa58).  Neither of those two was
-re-read in full here, only checked: 6b1b731 changes no source whatever, and
-c06fa58 touches emu_io_android.cpp and MainActivity.kt so that a zero-byte W8
-export produces a file, which adds to row 4's Android paragraph and contradicts
-none of it.  So the two mobile columns need confirming and their recorded
-commits moving forward; the Linux/Web column needs an actual re-read.
-
-- a live cross-port disagreement that is a decision, not a bug, and nobody
-should settle it alone.  This port now paints the CURRENT SGR background on
-every erase - ED, EL, ECH, IL, DL, ICH, DCH and the scroll paths - which is
-what a strict VT does and what a program setting a colour and clearing expects.
-ioscpm blanks with a DEFAULT cell everywhere, including the @ P X S T finals
-build 51 added, and files changing it as a decision for the whole family at
-once, on the grounds that doing it to half would be worse than being
-consistently wrong.  cpmdroid has none of those finals to disagree with.  So
-the two ports now render the same guest byte stream differently, and one of
-them has to move.  FEATURE_PARITY.md item 13 names it as the only difference
-left in that row.
-  Stated as the decision it is, because that is all anyone here should do with
-it.  THE QUESTION: when a program has set a background colour and then erases,
-does the erased region come back in that colour or in the default?  OPTION A,
-what this port does: the current one.  Strict VT behaviour, what a program that
-sets a colour and clears is asking for, and it is what z80cpmw ships today - so
-choosing it means changing ioscpm, in every one of its erase paths including the
-@ P X S T finals build 51 added, and it means an ioscpm release.  OPTION B, what
-ioscpm does: the default cell.  Choosing it means reverting this port's
-blankCell() to a fixed white-on-black and reverting the CHANGELOG entry that
-calls the current behaviour a fix - the sequences would then mean something
-different here from what the same bytes mean in xterm.  Re-verified 2026-08-26:
-z80cpmw's TerminalView.cpp fills every erase through blankCell(), which is
-m_currentAttr with the reverse flag applied, and ioscpm's EmulatorViewModel.swift
-fills every one of its erase and scroll paths with a bare TerminalCell().  What
-is NOT decidable from here is which of A and B the family wants; it is one
-answer for three ports and it needs the person who owns all three.
-
-- the W8-takes-a-host-path claim survives in two more places.  README.md's
-"File Transfer (R8 / W8)" section, which still carries the claim and the
-W8 C:\Users\me\Desktop\out.com example verbatim, and is the most prominent of
-them.  And HelpWindow.cpp's "File Transfer (R8 / W8)" topic, which lists R8 and
-W8 together and then says "Give a full path (recommended)", so it reads as
-endorsing both at runtime.  Both come right when the images are refreshed - and
-FILE_TRANSFER.md's W8 section (the "does not take one yet" paragraphs and the
-step 0/1 caveats in the checklist) has to be reverted then, along with the
-sentence in the checklist that says W8 prints the name you gave.  The third
-place, FILE_TRANSFER.md's own checklist, is corrected: it now says which W8 you
-have to have before a full path means anything, and it gained a step 0 for
-reading what W8 printed, since the refreshed W8 reports the real destination.
-  The fourth place - the one those three were copied from - is corrected as of
-2026-08-26.  CHANGELOG.md's shipped [1.0.14] entry claimed "R8 / W8 host
-transfers now honor absolute paths"; W8 took no host path until romwbw_emu
-98eb6a1 on 2026-08-24, two and a half months later.  89a4f28 changed the
-backend (isAbsolutePath / resolveHostPath), which only R8 ever reached.  The
-entry carries a dated correction in place rather than being edited, and the
-correction also records that the same line's second half - "the resolved data
-folder is shown in About, Settings, and the boot banner" - was true of Settings
-alone at 1.0.14; About showed the un-redirected path and the banner printed a
-literal %LOCALAPPDATA%\Packages\<package>\... template until 1f44e20 shipped in
-1.0.15.
-
-
-Small things a review of the sync round raised and did not take
----------------------------------------------------------------
-
-None of these is a regression; each was measured and left deliberately.
-
-- a 0-byte disk image is accepted and mounts as an empty disk rather than being
-refused with an error: emu_io_windows.cpp's emu_file_load returns true for
-size 0, EmulatorEngine::loadDisk passes it on, and HBIOSDispatch::loadDisk
-range-checks the unit and nothing else.  NOT FIXABLE IN THIS REPO ALONE, which
-is why it is still here: the shared emu_io_common.cc's emu_file_load does the
-identical thing - measure_stream succeeds, resize(0) leaves an empty vector, the
-fread is skipped for size 0 and it returns true - so a guard added here and
-nowhere else makes this the one port that refuses a file the other three mount,
-and divergence in the twelve hand-synced functions is the thing this port can
-least afford.  Re-checked 2026-08-26 against romwbw_emu 657d61a: still true of
-both.  It has to be taken in emu_io_common.cc first, with the ports following,
-and the same change decides whether 0 bytes is refused in the backend or in
-loadDisk - the backend is where the two trees have to agree.
-
-- MainWindow::startEmulator() clears the terminal, which erases the two notices
-applyConfig() prints when the saved ROM is unusable but loadDefaultROM() has
-already put a good one in the banks - "NOTE: the saved ROM (...)" and "ERROR:
-the saved ROM (X) was not found".  hasROM() is true for both, so the no-ROM
-guard above the clear does not fire.  Pre-existing, and only visible when a ROM
-has already failed to load.
-  A fix was written on 2026-08-26 - keep the text in a member and reprint it
-after the clear - and reverted, because review found it defective: the member
-was cleared only at the top of applyConfig(), whose only callers are
-loadSettings() and the profile load, so a user who read the notice, followed it
-and picked a working ROM through onSelectROM() got the stale error reprinted at
-them.  Whoever writes it again owns that lifetime: onSelectROM() succeeding has
-to clear it, and so does anything else that makes the notice untrue.
-
-- the four scrollback combinations (Shift+PageUp/PageDown, Ctrl+Home/End) are
-intercepted at the top of TerminalView::handleKeyDown, before the
-m_keymap.find() lookup a few lines below, so a config that binds them is
-silently ignored rather than refused.  docs/CONFIGURATION.md now says which
-four they are; making KeyMap::build reject them would be better still.  Left
-alone on 2026-08-26 rather than written blind: dropping the binding is already
-what happens, so "reject" is only worth writing once something can say so, and
-that is the reporting channel the mistyped-config-key item above needs.  One
-job, two ends.  KeyMap::build is header-only and rebuilds every binding the app
-has, so it is not a function to edit without a compiler.
-
-
-Loose ends
------------
-
-- there is still no .pdb for the shipped 1.0.22 build, on any channel, and
-there never will be: the symbols are gone, and a rebuild - against wxWidgets
-3.3.3, or against anything else vcpkg has moved on to - is a different binary
-with different symbols.  A crash report from 1.0.22 cannot be resolved.  Nothing
-can be done about that half.
-  The other half is done and UNVERIFIED.  build-msix.ps1's -Beta branch now
-copies bin\<Configuration>\z80cpmw.pdb out to dist\z80cpmw-<ver>-beta.pdb after
-the package is signed, and errors out if it is not there, so a future beta
-cannot ship symbol-less in silence the way 1.0.22 did.  It was written on a
-machine with no PowerShell, no MSVC and no Windows, so it HAS NOT BEEN RUN -
-not once, not even -WhatIf.  First person on a Windows machine: run
-build-msix.ps1 -Beta and confirm the .pdb lands in dist\ next to the .msix.
-Until then treat the item as open.  (Its Write-Error is one of the 24 that
-gained -ErrorAction Continue on 2026-08-26, so the exit 1 under it now runs -
-which changes the exit code the script leaves behind, not what it prints.  Also
-never executed.)
-  Not addressed: build-nsis.ps1 mentions no .pdb either, and the default
-(Store) branch of build-msix.ps1 still keeps none.  Note what that does and
-does not cover.  -Beta rewrites only the staged manifest, so the exe it
-packages is whatever is in bin\<Configuration> - the same exe the Store branch
-packages from the same build.  When both channels come off one build, as 1.0.22
-did, the kept .pdb matches the Store binary too.  When they do not, the Store
-package has no symbols kept anywhere.  Whether that is good enough is a call
-for whoever cuts the next Store release.
-
-- the v1.0.22-beta GitHub release is flagged Latest rather than prerelease,
-unlike 1.0.16 / 1.0.17 / 1.0.21.  A judgement call, not a defect: if the -beta
-channel should stay a prerelease, `gh release edit v1.0.22-beta --prerelease`.
-NEEDS THE OWNER.  It is an edit to a published release - what the repository's
-front page offers a visitor - and it is the one item here that changes something
-outward-facing without changing a line of code.  Left untouched deliberately on
-2026-08-26.
+- see MANUAL_CHECKS.md.  Two checks are open there: the installed-MSIX file
+transfer pass, which only a real MSIX install can reproduce, and the hands-on
+pass over keystroke delivery, mouse copy/paste rendering and the first-run Help
+auto-open.

@@ -95,12 +95,24 @@ Drag to select text in the terminal, then right-click for **Copy** and
 
 ### File Transfer (R8 / W8)
 
-`W8 name` exports a file from CP/M to the host; `R8 name` imports one. On Windows,
-give a **full path** and the file goes exactly there (even on the Store build):
+`W8 name` exports a file from CP/M to the host; `R8 name` imports one. On
+Windows, `R8` takes a **full path** and reads exactly that file (even on the
+Store build):
 
 ```
-W8 C:\Users\me\Desktop\out.com
+R8 C:\Users\me\Desktop\getkey2.com
 ```
+
+**`W8` does not take a host path yet**, whatever it is given: the `W8.COM` on
+the bundled disk images reads only the parsed FCB and never the command tail, so
+every export goes to the app's data folder. A host path for `W8` is upstream and
+arrives when the images are refreshed.
+
+**Two cautions until then**, both properties of the utilities on the bundled
+images rather than of the app: the `R8` on those images hands an unfiltered host
+basename to `F_DELETE`, so importing a host file whose name contains `?` or `*`
+erases **every matching CP/M file** on the disk without saying so; and that `W8`
+truncates a binary export at the first `1Ah` byte.
 
 A bare name (`W8 out.com`) goes to the app's data folder — whose real location the
 app shows in *Emulator → Settings* (with an **Open Folder** button), *Help → About*,

@@ -237,15 +237,40 @@ The Store carried 1.0.14, then 1.0.19, and now **1.0.22**, published 2026-08-23.
    - `build-msix.ps1` refuses to package a `bin\Release\z80cpmw.exe` whose
      version does not match `Version.h`.
 
-3. **Build the package**
+3. **Verify the disk images**
+   - `packaging/scripts/verify-disk-assets.sh bin/Release/disks` (a POSIX shell;
+     Git Bash or WSL on a Windows build machine). It must exit 0.
+   - Nothing else in the build checks what is *inside* the images.
+     `build-msix.ps1` and `z80cpmw.nsi` copy `bin\Release\disks\*.img` in as
+     they find them, and no build target puts `r8.com` or `w8.com` on an image,
+     so a stale utility ships silently and forever — the images are not tracked
+     in this repository either, so `git status` cannot notice.
+   - It checks three things per image: that the CP/M directory reads as a CP/M
+     directory with the diskdef chosen for that geometry, that `r8.com` and
+     `w8.com` are byte-for-byte what `romwbw_emu/src/{r8,w8}.asm` assembles to,
+     and that `w8.com` contains the `HBF_HOST_CAPS` probe (`06 e9 cf`). The
+     probe is the one that cannot be eyeballed: a `W8` that takes a host path
+     and never asks the emulator whether the path is safe prints the *same*
+     usage line as one that asks, so the usage string does not discriminate
+     armed from unarmed.
+   - **The images shipped in 1.0.22 fail this check.** Measured 2026-08-27 on
+     the images unpacked from the published `z80cpmw-1.0.22-beta.msix`:
+     `hd1k_combo.img` carries a 1079-byte `r8.com` where the source now builds
+     1792, and a `w8.com` whose usage is `Usage: W8 <cpmname>` with no
+     `[hostpath]` and no probe — i.e. the W8 from before romwbw_emu `98eb6a1`.
+     `hd1k_games.img` carries neither utility at all, so file transfer does not
+     work from that disk. Rebuild with `romwbw_emu/disks/rebuild_disk_utils.sh`
+     and restage before the next submission.
+
+4. **Build the package**
    - `cd packaging\scripts` then `.\build-msix.ps1 -Configuration Release`,
      which writes `dist\z80cpmw.msix`.
 
-4. **Upload Package**
+5. **Upload Package**
    - Partner Center > Z80CPM > New submission, and upload `dist\z80cpmw.msix`
      **unsigned** — Microsoft validates and re-signs it.
 
-5. **Submit for Certification**
+6. **Submit for Certification**
    - Update the release notes, then submit.
    - Microsoft reviews within 1-3 business days
    - Address any certification failures
@@ -312,7 +337,8 @@ packaging/
 │   ├── generate-icons.ps1   # Placeholder icons (do not run over the final assets)
 │   ├── create-ico.ps1       # Placeholder .ico (superseded by convert-icons.ps1)
 │   ├── build-msix.ps1       # Build MSIX package
-│   └── build-nsis.ps1       # Build NSIS installer
+│   ├── build-nsis.ps1       # Build NSIS installer
+│   └── verify-disk-assets.sh # Check bin/Release/disks before packaging (sh)
 └── STORE_SUBMISSION.md      # This file
 ```
 

@@ -34,9 +34,14 @@ From a bare machine that is:
     build.bat                                               # Debug
     build_release.bat                                       # Release
 
-Both configurations build clean against `romwbw_emu` `2dbf6f2` and `cpmemu`
-`9fee3c2`. The sibling checkouts have to be present beside this one — the
-project compiles the core straight out of them.
+The last recorded clean build of both configurations was against `romwbw_emu`
+`17cd380` (`v1.36-1`) and `cpmemu` `9fee3c2`. The sibling checkouts have to be
+present beside this one — the project compiles the core straight out of them,
+with no version gate, so a core that grows a required backend function breaks
+the link here on the next build and not before. `romwbw_emu` has moved four
+commits past that reading and `cpmemu` three; `emu_host_file_get_read_name()` in
+`emu_io_windows.cpp` answers the newest of those requirements and has never been
+compiled. `tools/check-sibling-drift.sh` reports where the siblings stand.
 
 **The terminal conformance suite needs none of that.** `TerminalView.cpp`
 includes only `pch.h`, which is Win32 and the standard library, so
@@ -45,28 +50,13 @@ not the app itself can be built.
 
 ## Not verified on hardware
 
-The behaviour is confirmed in source and documented; what has never happened is
-a run against the **installed Store build**, which is the only thing that can
-reproduce MSIX file-system redirection — a local unpackaged build cannot.
-
-- [ ] ~~`W8 C:\Users\<you>\Desktop\test.txt` → the file appears on the
-      Desktop.~~ **This checkbox tests the wrong thing.** The `W8.COM` in the
-      bundled images reads only the parsed FCB and never the command tail, so it
-      cannot take a host path whatever the Windows backend does — the failure
-      would be guest-side, not MSIX redirection. `W8 <cpmname> [hostpath]` is
-      upstream in `romwbw_emu` `98eb6a1` and arrives when the images are
-      refreshed; re-instate this then. `R8` with a full path is unaffected and
-      is checked below.
-- [ ] `W8 getkey2.com` (bare name) → lands under
-      `…\Packages\AaronWohl.Z80CPM_*\LocalCache\Local\z80cpmw\data\`.
-- [ ] That path agrees with what About, Settings → Open Folder, and the boot
-      banner display.
-- [ ] `R8 C:\Users\<you>\Desktop\getkey2.com` → reading an arbitrary user path
-      works.
-
-Also unverified, and not automatable from here: keystroke delivery to CP/M,
-mouse copy/paste rendering, and the first-run Help auto-open visuals. Each
-needs a hands-on pass.
+Moved to [`MANUAL_CHECKS.md`](MANUAL_CHECKS.md), which is the checklist form:
+what to do, in what order, and what right looks like. Two checks are open there
+— file transfer under an **installed** MSIX, which is the only thing that
+reproduces file-system redirection, and the hands-on pass over keystroke
+delivery, mouse copy/paste rendering and the first-run Help window. A check is
+deleted from that file once someone runs it, and the result goes to
+`CHANGELOG.md` under **Verified**.
 
 ## The core is shared by reference; `emu_io_common.cc` is not
 
@@ -75,8 +65,8 @@ needs a hands-on pass.
 hbios_cpu,hbios_dispatch}.cc` — so upstream fixes to those arrive on the next
 build with nothing to do. **`emu_io_common.cc` is the exception: the project
 references it nowhere**, and `emu_io_windows.cpp` carries its own copies of the
-eleven functions it holds — `emu_disk_{open,close,read,write,flush,flush_all,
-size}`, `emu_file_{load,load_to_mem,save}`, `emu_get_time`.
+twelve functions it holds — `emu_disk_{open,close,read,write,flush,flush_all,
+size}`, `emu_file_{load,load_to_mem,save}`, `emu_get_time` and `emu_rename`.
 
 That is a deliberate split (the Windows versions use Win32 handles, not
 `FILE*`), but it means a fix landing in `emu_io_common.cc` never reaches here
@@ -84,16 +74,19 @@ and nothing reports the drift.
 
 Both halves of what this section used to ask for are now done. The file says so
 itself: `emu_io_windows.cpp`'s header names `emu_io_common.cc` as the shared
-original and lists the eleven, so the next person looks. And the eleven have
+original and lists the twelve, so the next person looks. And they have
 been diffed against upstream. The result was mostly reassuring — `ce9268f`'s
 hardening was imported *from* this port in the first place (`79ddfc4`, cited in
-its own commit message), so nine of the eleven already carried it, and `573c7cc`
+its own commit message), so nine of them already carried it, and `573c7cc`
 does not apply at all because these versions never used `fseeko`/`ftello`. Three
 real differences came out of it and are fixed in `[Unreleased]`: the 128 MB load
 cap, the missing rewind, and the header comment.
 
-One difference runs the other way and is upstream's to fix: `emu_io_common.cc`'s
-`emu_file_save()` uses `rename()` to replace the target, which ISO C leaves
-undefined when the target exists and which both the MSVC CRT and mingw's msvcrt
-refuse outright. This port uses `MoveFileEx` and is fine; the shared copy has a
-dormant bug on Windows. It is in `todo.txt`.
+One difference ran the other way and upstream has taken it: `emu_io_common.cc`
+grew its own `emu_rename()`, which is `MoveFileExA(..., MOVEFILE_REPLACE_EXISTING)`
+on Windows and plain `rename()` elsewhere, and `emu_file_save()` now goes
+through it. The twelfth hand-synced function here is that same shim.
+
+One trap is left, and it is in [`KNOWN_PROBLEMS.md`](KNOWN_PROBLEMS.md):
+`emu_host_path_basename()` is declared in `emu_io.h` but defined only in
+`emu_io_common.cc`, so the first call added to this port links against nothing.
