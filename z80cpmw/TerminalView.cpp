@@ -625,15 +625,48 @@ unsigned TerminalView::currentKeyMods() {
 }
 
 void TerminalView::handleKeyDown(WPARAM wParam) {
-    // Scrollback navigation is handled locally and never sent to CP/M. It uses
-    // Shift+PageUp/PageDown (plain PageUp/Down still reach CP/M via the keymap)
-    // and Ctrl+Home/End to jump to the oldest history / live screen.
-    bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
-    bool ctrl  = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
-    if (shift && wParam == VK_PRIOR) { scrollByLines(ROWS - 1); return; }
-    if (shift && wParam == VK_NEXT)  { scrollByLines(-(ROWS - 1)); return; }
-    if (ctrl  && wParam == VK_HOME)  { scrollByLines((int)m_scrollback.size()); return; }
-    if (ctrl  && wParam == VK_END)   { scrollToBottom(); return; }
+    // Read the modifiers once and use the same value for both decisions below.
+    // This function used to take its own pair of GetKeyState readings for the
+    // scrollback test and then call currentKeyMods() again for the map lookup.
+    //
+    // That was not a race, and this is not a race fix. GetKeyState - unlike
+    // GetAsyncKeyState - reports the calling thread's virtual key state as of
+    // the last message the thread pulled from its queue, not the live hardware,
+    // and nothing between the two old readings pumped a message, so they were
+    // always identical. The failure that would have needed them to differ was
+    // structurally impossible in any case: each of the four scrollback tests
+    // this replaced ended in its own return, so a press the app took never
+    // reached the m_keymap.find() below to be looked up a second time.
+    //
+    // What reading once buys is one source of truth for two decisions that have
+    // to agree about what is held. The old code spelled "Ctrl is held" twice
+    // and differently - raw GetKeyState bit tests here, currentKeyMods()' mask
+    // at the lookup - so the two could be given different answers by an edit to
+    // either. There is now one place to change if the modifier source ever
+    // becomes GetAsyncKeyState, or a value carried down from the WM_KEYDOWN
+    // that started this instead of read back from the keyboard state at all.
+    const unsigned mods = currentKeyMods();
+
+    // Scrollback navigation is handled locally and never sent to CP/M. Which
+    // combinations those are, and the words describing each, live in
+    // keymap::reservedFor() so that a Settings dialog refuses to bind them for
+    // the same reason and in the same terms. This test runs before the
+    // m_keymap.find() below, so a config that binds one of them is ignored -
+    // that is what makes them worth naming somewhere a dialog can read.
+    //
+    // reservedFor() matches on "at least these modifiers" rather than an exact
+    // set, which reproduces the four independent shift/ctrl tests that used to
+    // stand here: Ctrl+Shift+PageUp scrolls back, as it always has. Preserved
+    // rather than tightened - see the comment on reservedFor().
+    if (keymap::reservedFor(static_cast<int>(wParam), mods)) {
+        switch (wParam) {
+        case VK_PRIOR: scrollByLines(ROWS - 1); break;
+        case VK_NEXT:  scrollByLines(-(ROWS - 1)); break;
+        case VK_HOME:  scrollByLines((int)m_scrollback.size()); break;
+        case VK_END:   scrollToBottom(); break;
+        }
+        return;
+    }
 
     // Special keys (arrows, Home/End, Insert/Delete, PageUp/Down, F1-F12) are
     // resolved through the configurable keymap and sent to CP/M as a byte
@@ -642,7 +675,7 @@ void TerminalView::handleKeyDown(WPARAM wParam) {
     // The modifiers are part of the lookup, so Ctrl+Left can carry a different
     // sequence from Left. Anything with no binding of its own falls back to the
     // unmodified one, which is what every modified press used to get.
-    const std::string* seq = m_keymap.find(static_cast<UINT>(wParam), currentKeyMods());
+    const std::string* seq = m_keymap.find(static_cast<UINT>(wParam), mods);
     if (seq && m_keyCallback) {
         scrollToBottom();   // a key sent to CP/M returns to the live screen
         for (char c : *seq) {

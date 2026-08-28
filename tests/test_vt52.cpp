@@ -1080,6 +1080,126 @@ static void test_keymap() {
         CHECK_TRUE(altLeft != nullptr, "an explicit Alt binding is found exactly");
         CHECK_STR(*altLeft, "\033[1;3D", "and carries its own sequence");
     }
+
+    // The combinations the application answers itself. handleKeyDown consults
+    // keymap::reservedFor() before the map, so a binding on one of these can
+    // never send a byte; the table is checked here rather than the view's
+    // behaviour because the view needs a window and this suite has none.
+    //
+    // The rows are walked out of keymap::reservedKeys() itself. This block used
+    // to iterate a hard-coded copy of the same four rows, which made it a test
+    // that agreed with itself: a row added to, removed from or edited in
+    // reservedKeys() broke no assertion here, because the suite never read the
+    // table it was meant to be checking. kExpected is now the assertion rather
+    // than the iteration source, and it is spelled out a second time on purpose
+    // - changing reservedKeys() is supposed to fail this suite until someone
+    // states here that the change was intended.
+    {
+        static const struct { const char* name; int vk; unsigned mods; } kExpected[] = {
+            { "Shift+PageUp",   VK_PRIOR, keymap::KM_MOD_SHIFT },
+            { "Shift+PageDown", VK_NEXT,  keymap::KM_MOD_SHIFT },
+            { "Ctrl+Home",      VK_HOME,  keymap::KM_MOD_CTRL  },
+            { "Ctrl+End",       VK_END,   keymap::KM_MOD_CTRL  },
+        };
+        const size_t expectedCount = sizeof kExpected / sizeof kExpected[0];
+
+        size_t count = 0;
+        const keymap::ReservedKey* table = keymap::reservedKeys(&count);
+        CHECK_TRUE(table != nullptr, "reservedKeys() hands back a table");
+        CHECK_INT((long)count, (long)expectedCount,
+                  "reservedKeys() holds exactly the rows this suite expects");
+
+        for (size_t i = 0; i < count && i < expectedCount; ++i) {
+            const std::string name = kExpected[i].name;
+            CHECK_INT(table[i].vk, kExpected[i].vk,
+                      (name + " is the reserved key at this position").c_str());
+            CHECK_INT((long)table[i].mods, (long)kExpected[i].mods,
+                      (name + " reserves the modifiers it is meant to").c_str());
+
+            // Asked again through the public predicates, because those - not the
+            // struct fields - are what handleKeyDown and classifyName() call.
+            const unsigned id = keymap::keyId(table[i].vk, table[i].mods);
+            CHECK_TRUE(keymap::isReservedForApp(id),
+                       (name + " is reserved by the app").c_str());
+            // A Settings dialog shows this string, so an empty one is a bug
+            // even though the combination is correctly refused.
+            const char* purpose = table[i].purpose ? table[i].purpose : "";
+            CHECK_TRUE(*purpose != '\0',
+                       (name + " says what it is reserved for").c_str());
+            const char* why = keymap::reservedPurpose(id);
+            CHECK_STR(std::string(why ? why : ""), purpose,
+                      (name + " reports that same text through reservedPurpose").c_str());
+            CHECK_INT(keymap::keyIdForName(kExpected[i].name), (long)id,
+                      (name + " is spelled the way the config file spells it").c_str());
+        }
+    }
+
+    // The modifier test is a mask, not an equality. handleKeyDown read "shift
+    // held" and "ctrl held" independently before the table existed, so a press
+    // carrying an extra modifier was swallowed too; that is preserved.
+    CHECK_TRUE(keymap::reservedFor(VK_PRIOR, keymap::KM_MOD_SHIFT) != nullptr,
+               "Shift+PageUp is reserved");
+    CHECK_TRUE(keymap::reservedFor(VK_PRIOR,
+                                   keymap::KM_MOD_CTRL | keymap::KM_MOD_SHIFT) != nullptr,
+               "and so is Ctrl+Shift+PageUp - the match is a mask, not an exact set");
+    CHECK_TRUE(keymap::reservedFor(VK_PRIOR, keymap::KM_MOD_NONE) == nullptr,
+               "plain PageUp is the guest's and still reaches CP/M");
+    CHECK_TRUE(keymap::reservedFor(VK_HOME, keymap::KM_MOD_SHIFT) == nullptr,
+               "Shift+Home is not the reserved Ctrl+Home");
+    CHECK_TRUE(keymap::reservedFor(VK_LEFT, keymap::KM_MOD_CTRL) == nullptr,
+               "a modifier that is reserved on one key is not reserved on every key");
+    CHECK_TRUE(keymap::reservedPurpose(keymap::keyId(VK_NEXT, keymap::KM_MOD_NONE)) == nullptr,
+               "reservedPurpose reports nothing for an unreserved id");
+
+    // No default binding may sit on a reserved combination: it would be a
+    // sequence the app guarantees never to send, and a row a Settings dialog
+    // would have to grey out on the strength of its own defaults.
+    for (const auto& kv : keymap::defaultBindings()) {
+        long id = keymap::keyIdForName(kv.first);
+        CHECK_TRUE(id >= 0 && !keymap::isReservedForApp((unsigned)id),
+                   (kv.first + " is a bindable default and is not reserved").c_str());
+    }
+
+    // Being reserved is a fact about the user interface, not about the map.
+    // build() keeps whatever the file said, because a Settings dialog reads the
+    // whole map back out and writes it whole - dropping the entry at load would
+    // silently delete a line the user typed by hand. The stored sequence simply
+    // never fires, and classifyName() is how a caller refuses it out loud.
+    {
+        keymap::KeyMap km;
+        km.build({ {"Shift+PageUp", "X"} });
+        const std::string* s = km.find(VK_PRIOR, keymap::KM_MOD_SHIFT);
+        CHECK_TRUE(s != nullptr, "build() still stores a binding on a reserved combination");
+        CHECK_STR(*s, "X", "with exactly the sequence the config gave it");
+    }
+
+    // classifyName is what a config walker uses to tell a typo apart from a
+    // combination that resolves but is not the user's to have.
+    {
+        unsigned id = 0;
+        const char* why = "not cleared";
+        CHECK_TRUE(keymap::classifyName("Ctrl+Left", &id, &why) == keymap::NameStatus::Ok,
+                   "a bindable name classifies as Ok");
+        CHECK_INT((long)id, (long)keymap::keyId(VK_LEFT, keymap::KM_MOD_CTRL),
+                  "and reports the id it resolved to");
+        CHECK_TRUE(why == nullptr, "with no reason attached");
+
+        id = 0; why = "not cleared";
+        CHECK_TRUE(keymap::classifyName("Nonsense+Q", &id, &why) == keymap::NameStatus::Unknown,
+                   "a name that does not resolve classifies as Unknown");
+        CHECK_INT((long)id, 0L, "and leaves the id untouched");
+        CHECK_TRUE(why == nullptr, "and has no reason either");
+
+        id = 0; why = nullptr;
+        CHECK_TRUE(keymap::classifyName("Shift+PageUp", &id, &why) == keymap::NameStatus::Reserved,
+                   "a reserved combination classifies as Reserved, not Unknown");
+        CHECK_INT((long)id, (long)keymap::keyId(VK_PRIOR, keymap::KM_MOD_SHIFT),
+                  "still reporting its id, so a dialog can point at the row");
+        CHECK_TRUE(why != nullptr && *why != '\0', "and carrying the text that explains why");
+
+        CHECK_TRUE(keymap::classifyName("pgup") == keymap::NameStatus::Ok,
+                   "plain PageUp is bindable, under any spelling, with no out-parameters");
+    }
 }
 
 //=============================================================================

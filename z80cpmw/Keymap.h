@@ -137,6 +137,102 @@ inline long keyIdForName(const std::string& name) {
     return static_cast<long>(keyId(vk, mods));
 }
 
+// One combination the application keeps for itself, and the words a Settings
+// dialog should put beside it when it explains why the row cannot be bound.
+struct ReservedKey {
+    int vk;
+    unsigned mods;          // modifiers that must ALL be held for this to bite
+    const char* purpose;    // user-facing, e.g. "scroll back one page"
+};
+
+// The four scrollback combinations. TerminalView::handleKeyDown answers these
+// before it consults the map, so no config file can put bytes on them. Every
+// piece of code that needs to know WHICH combinations those are reads them from
+// here rather than keeping a list of its own: reservedFor(), reservedPurpose(),
+// isReservedForApp() and classifyName() below, and through classifyName() the
+// config-file diagnostics in Config.cpp, which used to carry a second copy of
+// this table and the purpose strings.
+//
+// The match is "at least these modifiers", not "exactly these" - see
+// reservedFor().
+//
+// Adding a fifth row reserves the combination for all of those callers at once,
+// but it is not sufficient on its own. Three things outside this file still
+// have to be changed by hand, and none of them is generated from this table:
+//
+//   - TerminalView::handleKeyDown needs a case in the switch inside its
+//     reservedFor() branch saying what the new combination DOES. Without one
+//     the press is correctly withheld from the guest and then nothing happens -
+//     the worst of both answers.
+//   - tests/test_vt52.cpp walks this table and asserts it against a list of the
+//     rows the suite expects, so a new row fails the suite until it is declared
+//     there. That is deliberate: it is what stops this table drifting silently.
+//   - docs/CONFIGURATION.md carries a hand-maintained sentence naming the same
+//     four combinations. Nothing checks it against this table, so it is the one
+//     copy that can go stale without anything complaining.
+inline const ReservedKey* reservedKeys(size_t* count) {
+    static const ReservedKey table[] = {
+        { VK_PRIOR, KM_MOD_SHIFT, "scroll back one page" },
+        { VK_NEXT,  KM_MOD_SHIFT, "scroll forward one page" },
+        { VK_HOME,  KM_MOD_CTRL,  "jump to the oldest scrollback line" },
+        { VK_END,   KM_MOD_CTRL,  "return to the live screen" },
+    };
+    if (count) *count = sizeof table / sizeof table[0];
+    return table;
+}
+
+// What the app does with this key press, or nullptr if it is the guest's.
+//
+// The modifier test is a mask, not an equality: a press is reserved when it
+// carries at least the listed modifiers. That is exactly what the hand-written
+// if-statements in handleKeyDown did before this table existed - they read
+// "shift held" and "ctrl held" independently - so Ctrl+Shift+PageUp has always
+// scrolled back as well. It is preserved rather than tightened, because
+// narrowing it to an exact match would be a behaviour change smuggled in under
+// a refactor, and the wider mask is the friendlier of the two: a user who is
+// still holding Ctrl from Ctrl+Home gets the scroll they asked for.
+inline const char* reservedFor(int vk, unsigned mods) {
+    size_t n = 0;
+    const ReservedKey* table = reservedKeys(&n);
+    for (size_t i = 0; i < n; ++i) {
+        if (table[i].vk == vk && (mods & table[i].mods) == table[i].mods) {
+            return table[i].purpose;
+        }
+    }
+    return nullptr;
+}
+
+// The same question asked of a packed key id, for callers walking a map.
+inline const char* reservedPurpose(unsigned id) {
+    return reservedFor(static_cast<int>(id & 0xFFFFu), id >> 16);
+}
+
+inline bool isReservedForApp(unsigned id) {
+    return reservedPurpose(id) != nullptr;
+}
+
+// How a config walker or a Settings dialog should treat one name from the
+// "keys" object: Ok to bind, Unknown (a typo - vkForName rejected it), or
+// Reserved (it resolves, but the app answers it first, so the bytes would
+// never be sent). *id receives the packed id whenever the name resolves,
+// Reserved included, so a dialog can point at the row it clashes with; *why
+// receives the reservedPurpose text for Reserved and nullptr otherwise.
+enum class NameStatus { Ok, Unknown, Reserved };
+
+inline NameStatus classifyName(const std::string& name, unsigned* id = nullptr,
+                               const char** why = nullptr) {
+    if (why) *why = nullptr;
+    long resolved = keyIdForName(name);
+    if (resolved < 0) return NameStatus::Unknown;
+    unsigned packed = static_cast<unsigned>(resolved);
+    if (id) *id = packed;
+    if (const char* purpose = reservedPurpose(packed)) {
+        if (why) *why = purpose;
+        return NameStatus::Reserved;
+    }
+    return NameStatus::Ok;
+}
+
 // The built-in default bindings (name -> termcap-style sequence). These follow
 // the VT220/xterm convention and match the arrow-key sequences the terminal
 // already produced before this module existed (Up=ESC[A, Home=ESC[H, etc.).
@@ -176,6 +272,14 @@ public:
     // Rebuild from a set of name->termcap-string overrides, layered on top of the
     // built-in defaults so a partial (or empty) config still yields working keys.
     // An override with an empty value unbinds that key.
+    //
+    // Reserved combinations are NOT filtered out here, deliberately. Being
+    // reserved is a fact about the user interface, not about the map: the app
+    // wins the press in handleKeyDown, and the stored sequence simply never
+    // fires. Dropping such entries at load would make a Settings dialog lossy,
+    // because it does a read-modify-write of the whole map and would silently
+    // delete a line the user typed by hand. classifyName() is how a caller
+    // refuses one out loud instead.
     void build(const std::map<std::string, std::string>& overrides) {
         m_seqs.clear();
         // Resolve names to key ids BEFORE merging. Two spellings of the same
