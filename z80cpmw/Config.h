@@ -105,8 +105,8 @@ struct AppConfig {
     // beeps too much is a setting the user can find. It is worth having a
     // setting at all: CP/M software rings the bell freely - WordStar on every
     // rejected keystroke - and MessageBeep is the system sound, not a soft
-    // click. The Settings checkbox and the TerminalView side of this belong to
-    // another change; the format carries it first so neither has to invent it.
+    // click. Settings > Terminal carries the checkbox and TerminalView holds the
+    // live state; this field is only where it is written down between runs.
     bool bellEnabled = true;
 
     // Keyboard / key bindings

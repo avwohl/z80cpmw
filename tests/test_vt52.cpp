@@ -1453,7 +1453,247 @@ static void test_keymap() {
 }
 
 //=============================================================================
-// 15. cellAt() bounds
+// 15. Key names in reverse, and sequence validation
+//
+// The Settings dialog's Keyboard page needs two things Keymap.h did not have:
+// a packed id turned back into the name the config file uses, so a row can be
+// written back into "keyboard.keys" under a spelling that parses; and a way to
+// refuse a sequence BEFORE it is stored, because decode() has no failure path
+// at all and turns a mistake into bytes rather than into a complaint.
+//
+// Both are checked here rather than in the dialog because the dialog needs a
+// window and this suite has none - which is the same reason the reserved-key
+// table is checked through keymap:: above rather than through handleKeyDown.
+//=============================================================================
+
+static void test_keymap_names() {
+    section("key names in reverse");
+
+    // baseNameForVk and vkForName are two hand-written tables of the same
+    // mapping, so walk every code and require them to agree. This is the check
+    // that stops the pair drifting: a key added to one and not the other either
+    // fails the round trip or changes the count.
+    {
+        int named = 0;
+        std::string firstBad;
+        for (int vk = 0; vk < 256; ++vk) {
+            const char* n = keymap::baseNameForVk(vk);
+            if (!n) continue;
+            ++named;
+            if (keymap::vkForName(n) != vk && firstBad.empty()) {
+                firstBad = std::string(n) + " (vk " + std::to_string(vk) + ")";
+            }
+        }
+        CHECK_STR(firstBad, "", "every name baseNameForVk gives resolves back to its own vk");
+        // Ten navigation keys and twelve function keys. Spelled out so that
+        // adding a bindable key is a deliberate edit here as well.
+        CHECK_INT(named, 22, "baseNameForVk names exactly the bindable codes");
+    }
+
+    CHECK_STR(std::string(keymap::baseNameForVk(VK_F1)), "F1", "F1 is spelled F1");
+    CHECK_STR(std::string(keymap::baseNameForVk(VK_F12)), "F12", "F12 is spelled F12");
+    CHECK_STR(std::string(keymap::baseNameForVk(VK_PRIOR)), "PageUp",
+              "PageUp gets the long spelling the file is written with, not \"prior\"");
+    CHECK_TRUE(keymap::baseNameForVk(VK_F13) == nullptr, "F13 is not bindable and has no name");
+    CHECK_TRUE(keymap::baseNameForVk(VK_SPACE) == nullptr, "an ordinary key has no name here");
+
+    // An id nothing could spell yields an empty string rather than a name that
+    // would parse back to a DIFFERENT id.
+    CHECK_STR(keymap::nameForKeyId(keymap::keyId(VK_F13, keymap::KM_MOD_NONE)), "",
+              "an unbindable vk has no name");
+    CHECK_STR(keymap::nameForKeyId(keymap::keyId(VK_LEFT, 8)), "",
+              "a modifier bit with no prefix to spell it has no name either");
+
+    // The fixed prefix order, and why it had to be fixed: keyIdForName accepts
+    // the prefixes in any order, so one binding has several spellings and only
+    // one of them may ever be written back.
+    CHECK_STR(keymap::nameForKeyId(keymap::keyId(VK_F3,
+                  keymap::KM_MOD_CTRL | keymap::KM_MOD_SHIFT)), "Ctrl+Shift+F3",
+              "the prefixes come out in Ctrl, Shift, Alt order");
+    CHECK_STR(keymap::nameForKeyId(keymap::keyId(VK_F3,
+                  keymap::KM_MOD_CTRL | keymap::KM_MOD_SHIFT | keymap::KM_MOD_ALT)),
+              "Ctrl+Shift+Alt+F3", "all three, in that same order");
+    CHECK_STR(keymap::nameForKeyId(keymap::keyId(VK_LEFT, keymap::KM_MOD_ALT)), "Alt+Left",
+              "a lone Alt still gets its prefix");
+    CHECK_INT(keymap::keyIdForName("Shift+Ctrl+F3"), keymap::keyIdForName("Ctrl+Shift+F3"),
+              "both orders parse to one id, which is why one spelling has to be chosen");
+
+    // Round-trip every built-in binding. The name has to come back IDENTICAL,
+    // not merely equivalent: a dialog doing a read-modify-write of the whole
+    // "keys" object writes these strings, and a second spelling of a key the
+    // file already holds is a duplicate entry with no defined winner.
+    for (const auto& kv : keymap::defaultBindings()) {
+        long id = keymap::keyIdForName(kv.first);
+        CHECK_STR(keymap::nameForKeyId((unsigned)id), kv.first,
+                  (kv.first + " comes back spelled exactly as defaultBindings writes it").c_str());
+    }
+    {
+        std::string firstBad;
+        for (const auto& kv : keymap::defaultBindings()) {
+            long id = keymap::keyIdForName(kv.first);
+            if (keymap::keyIdForName(keymap::nameForKeyId((unsigned)id)) != id &&
+                firstBad.empty()) {
+                firstBad = kv.first;
+            }
+        }
+        CHECK_STR(firstBad, "", "and every one of them re-resolves to the id it came from");
+    }
+
+    // The four reserved combinations are rows in that dialog too - greyed, but
+    // present - so they need names as much as the bindable ones do.
+    {
+        size_t count = 0;
+        const keymap::ReservedKey* table = keymap::reservedKeys(&count);
+        for (size_t i = 0; i < count; ++i) {
+            const unsigned id = keymap::keyId(table[i].vk, table[i].mods);
+            const std::string name = keymap::nameForKeyId(id);
+            CHECK_INT(keymap::keyIdForName(name), (long)id,
+                      ("reserved row " + std::to_string(i) +
+                       " (" + name + ") has a name that parses back to it").c_str());
+        }
+    }
+}
+
+static void test_sequence_validation() {
+    section("sequence validation");
+
+    // The fact the validator exists for. decode() reads up to three octal
+    // digits into an int and stores `val & 0xFF`, so an escape that says 256
+    // sends nothing of the sort.
+    {
+        std::string got = keymap::decode("\\400");
+        CHECK_INT((int)got.size(), 1, "\\400 decodes to a single byte");
+        CHECK_INT((int)(unsigned char)got[0], 0, "and that byte is NUL, not 0400");
+        CHECK_TRUE(keymap::validateSequence("\\400") != nullptr, "so \\400 is refused");
+        CHECK_TRUE(keymap::validateSequence("\\777") != nullptr,
+                   "and so is the largest three-digit escape");
+        CHECK_TRUE(keymap::validateSequence("\\377") == nullptr,
+                   "while \\377, the largest that fits in a byte, is accepted");
+    }
+
+    // Accepted: everything the escape syntax in docs/CONFIGURATION.md lists.
+    CHECK_TRUE(keymap::validateSequence("") == nullptr,
+               "an empty sequence is accepted - it is how a key is unbound");
+    CHECK_TRUE(keymap::validateSequence("\\E[A") == nullptr, "\\E is accepted");
+    CHECK_TRUE(keymap::validateSequence("\\e[A") == nullptr, "lower-case \\e too");
+    CHECK_TRUE(keymap::validateSequence("\\n\\r\\t\\b\\f\\s") == nullptr,
+               "the named control escapes are accepted");
+    CHECK_TRUE(keymap::validateSequence("\\\\") == nullptr, "an escaped backslash is accepted");
+    CHECK_TRUE(keymap::validateSequence("\\^") == nullptr, "and an escaped caret");
+    CHECK_TRUE(keymap::validateSequence("\\101") == nullptr, "an octal escape is accepted");
+    CHECK_TRUE(keymap::validateSequence("^A") == nullptr, "^A is accepted");
+    CHECK_TRUE(keymap::validateSequence("^a") == nullptr, "and the lower-case spelling of it");
+    CHECK_TRUE(keymap::validateSequence("^?") == nullptr, "^? is accepted");
+    CHECK_TRUE(keymap::validateSequence("^@") == nullptr, "^@ is accepted");
+    CHECK_TRUE(keymap::validateSequence("^[") == nullptr, "and ^[ , which is Escape");
+    CHECK_TRUE(keymap::validateSequence("^_") == nullptr, "and ^_ , the top of the range");
+    CHECK_TRUE(keymap::validateSequence("plain text") == nullptr,
+               "ordinary characters stand for themselves and are accepted");
+
+    // Refused, one per arm of decode().
+    CHECK_TRUE(keymap::validateSequence("\\") != nullptr,
+               "a lone trailing backslash is refused - decode sends it literally");
+    CHECK_TRUE(keymap::validateSequence("\\E[A\\") != nullptr,
+               "a trailing backslash after a good sequence is refused too");
+    CHECK_TRUE(keymap::validateSequence("\\x1b") != nullptr,
+               "the C-style \\x1b is refused - decode would send x, 1, b");
+    CHECK_TRUE(keymap::validateSequence("\\d") != nullptr,
+               "any unknown escape letter is refused");
+    CHECK_TRUE(keymap::validateSequence("^") != nullptr,
+               "a lone trailing caret is refused - a literal caret is \\^");
+    CHECK_TRUE(keymap::validateSequence("^1") != nullptr,
+               "^1 is refused - decode would send 0x11, which is ^Q");
+    CHECK_TRUE(keymap::validateSequence("^ ") != nullptr, "^ followed by a space is refused");
+    CHECK_TRUE(keymap::validateSequence("^`") != nullptr,
+               "and the character just past the caret range");
+
+    // A refusal has to say something, because the dialog puts it on screen.
+    {
+        const char* why = keymap::validateSequence("\\400");
+        CHECK_TRUE(why != nullptr && *why != '\0', "a refusal carries a reason to show the user");
+    }
+
+    // Every built-in default must pass. A validator that refused one of them
+    // would be a dialog that will not let a user restore the app's own default.
+    for (const auto& kv : keymap::defaultBindings()) {
+        CHECK_TRUE(keymap::validateSequence(kv.second) == nullptr,
+                   (kv.first + "'s built-in sequence is accepted").c_str());
+    }
+
+    // THE THREE CROSS-CHECKS. validateSequence walks the same arms as decode()
+    // in a second copy of them, so these decide what it OUGHT to say by running
+    // decode() and looking at the bytes, not by restating the predicate.
+    //
+    // The escape arm: decode's `default:` drops the backslash and echoes the
+    // letter, so "accepted" must mean exactly "decode did something other than
+    // echo it". \\ and \^ are excluded because they legitimately decode to the
+    // very character that follows them.
+    {
+        std::string firstBad;
+        for (int x = 0; x < 256; ++x) {
+            if (x == '\\' || x == '^') continue;
+            std::string s;
+            s += '\\';
+            s += (char)x;
+            const bool accepted = keymap::validateSequence(s) == nullptr;
+            const bool echoed = keymap::decode(s) == std::string(1, (char)x);
+            if (accepted == echoed && firstBad.empty()) {
+                firstBad = escape(s) + (accepted ? " accepted but echoed" : " refused but decoded");
+            }
+        }
+        CHECK_STR(firstBad, "",
+                  "over all 256 successors, a backslash escape is accepted iff decode() "
+                  "does not merely echo the letter");
+    }
+
+    // The caret arm: caret notation is invertible - 0x40 plus the byte names
+    // the character back - and a combination for which that fails is one decode
+    // turned into some other control byte.
+    {
+        std::string firstBad;
+        for (int x = 0; x < 256; ++x) {
+            if (x == '?') continue;                    // ^? is DEL by a rule of its own
+            std::string s;
+            s += '^';
+            s += (char)x;
+            const bool accepted = keymap::validateSequence(s) == nullptr;
+            const std::string got = keymap::decode(s);
+            const bool names = got.size() == 1 &&
+                               (0x40 + (int)(unsigned char)got[0]) ==
+                                   std::toupper((unsigned char)x);
+            if (accepted != names && firstBad.empty()) {
+                firstBad = escape(s) + (accepted ? " accepted but does not name back"
+                                                 : " refused but names back");
+            }
+        }
+        CHECK_STR(firstBad, "",
+                  "over all 256 successors, a caret is accepted iff the byte decode() "
+                  "produces names the character back");
+    }
+
+    // The octal arm: accepted must mean the byte sent is the number written.
+    {
+        std::string firstBad;
+        for (int v = 0; v < 512; ++v) {
+            char buf[8];
+            snprintf(buf, sizeof buf, "\\%03o", v);
+            const std::string s = buf;
+            const bool accepted = keymap::validateSequence(s) == nullptr;
+            const std::string got = keymap::decode(s);
+            const bool exact = got.size() == 1 && (int)(unsigned char)got[0] == v;
+            if (accepted != exact && firstBad.empty()) {
+                firstBad = s + (accepted ? " accepted but does not send that byte"
+                                         : " refused but does");
+            }
+        }
+        CHECK_STR(firstBad, "",
+                  "over \\000 to \\777, an octal escape is accepted iff decode() sends "
+                  "the byte it names");
+    }
+}
+
+//=============================================================================
+// 16. cellAt() bounds
 //=============================================================================
 
 static void test_cell_at() {
@@ -1492,6 +1732,8 @@ int main() {
     test_ris();
     test_clear_is_a_full_reset();
     test_keymap();
+    test_keymap_names();
+    test_sequence_validation();
     test_cell_at();
 
     printf("\n==============================\n");

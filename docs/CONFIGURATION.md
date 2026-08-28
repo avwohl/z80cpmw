@@ -21,6 +21,12 @@ Close z80cpmw before editing the file, then restart for changes to take effect.
 (The same settings, including the keyboard map, are also viewable in-app from
 *Help → Help Topics → Configuration File*.)
 
+**You do not have to edit the file to change a key.** *Emulator → Settings →
+Keyboard* lists every bindable key with what it sends, and edits the same
+`keyboard.keys` object described below. Changes there take effect when you press
+OK — no restart — and anything in the file the page does not recognise is left
+exactly as you wrote it.
+
 ## Keyboard map
 
 CP/M is pure ASCII and has no built-in function or navigation keys. Each CP/M
@@ -59,7 +65,15 @@ termcap/terminfo entries). The bindings live under `keyboard` in `z80cpmw.json`:
 | `^X`            | Control-X, e.g. `^C` = `0x03` |
 | `^?`            | Delete, `0x7F` |
 
-Any other character stands for itself. An **empty value unbinds** that key.
+Any other character stands for itself. An **empty value unbinds** that key —
+which is what the **Unbind** button on the Keyboard page writes.
+
+The Keyboard page checks what you type against this table before it stores it,
+because nothing else does: an escape the decoder does not recognise is not
+reported anywhere, it is simply sent as different bytes. `\x1b` sends `x`, `1`,
+`b`; `\400` overflows a byte and sends `NUL`; `^1` sends `0x11`. A file edited by
+hand gets no such check, so those are the mistakes to look for if a key sends
+something unexpected.
 
 ### Bindable key names
 
@@ -86,6 +100,11 @@ in the same words used here:
 - `Shift+PageDown` — scroll forward one page
 - `Ctrl+Home` — jump to the oldest scrollback line
 - `Ctrl+End` — return to the live screen
+
+The Keyboard page in *Settings* lists these four as greyed rows marked
+**Reserved**, each beside the key it belongs to, and says which of the four
+things above it does when you select one. They are shown rather than left out on
+purpose: a key that is simply missing from the list looks like an oversight.
 
 The test is whether that modifier is **held**, not that it is the only one held,
 so `Ctrl+Shift+PageUp` scrolls back as well — a modifier you add on top of a
@@ -152,6 +171,11 @@ receives* the keystroke, not what it sends.
 | `"f1ToCpm"` | `false` | `true` sends `F1` to CP/M (Help stays on the Help menu) |
 | `"f5ToCpm"` | `false` | `true` sends `F5` and `Shift+F5` to CP/M |
 | `"ctrlRToCpm"` | `true` | `false` makes `Ctrl+R` the Reset shortcut again |
+
+The Keyboard page carries these three as checkboxes, worded the other way round
+— ticked means the **app** keeps the key. Changing one there rebuilds the
+accelerator table and relabels the menu straight away, so the shortcut starts or
+stops working when you press OK rather than at the next launch.
 
 `F1` and `F5` default to the app because CP/M has no function keys, so reserving
 them costs nothing. **`Ctrl+R` defaults the other way**, because `^R` (`0x12`) is
@@ -228,6 +252,7 @@ running.
 | --- | --- |
 | `display.fontSize` | Terminal font size, in points |
 | `display.scrollbackLines` | Lines of terminal history kept for scrollback (0 = off) |
+| `display.bell` | Whether `BEL` (character 7) makes a sound (default `true`) |
 | `core.rom`         | ROM image to load at startup |
 | `core.bootString`  | Text typed automatically at the boot menu |
 | `disks`            | Disk images assigned to units 0–3 |

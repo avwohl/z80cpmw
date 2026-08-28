@@ -13,10 +13,48 @@
 #include <wx/notebook.h>
 #include <string>
 #include <vector>
+#include <map>
 #include <functional>
+#include <algorithm>
 
 class DiskCatalog;
 struct DiskEntry;
+
+// Where a dialog should sit, and how small the user may make it, on a display
+// with a given work area.
+struct WxDialogPlacement {
+    int width, height;        // what to open at
+    int minWidth, minHeight;  // the floor to allow it to be dragged down to
+    int x, y;                 // top-left corner
+};
+
+// Pure arithmetic, and deliberately taking the work area as an argument instead
+// of asking wxDisplay for it: the case this exists for is a display nobody here
+// owns. It is what the Settings dialog's fitted size is put through - see the
+// sizing block in SettingsDialogWx's constructor for what each argument is
+// measured from, and for what handing the fitted height straight to SetMinSize
+// used to cost.
+//
+// Two properties, and they are the whole point:
+//  - nothing it returns is taller or wider than the work area, INCLUDING the
+//    floor. A floor a screen cannot satisfy is the same bug with a smaller
+//    number in it;
+//  - the position centres the window inside the WORK area, so that a window as
+//    tall as the work area - which the clamp can now produce - keeps its caption
+//    on screen where it can be dragged, and keeps its bottom edge off the
+//    taskbar.
+inline WxDialogPlacement placeDialogInWorkArea(int preferredWidth, int preferredMinWidth,
+                                               int fittedHeight, int furniture,
+                                               int minPage, const wxRect& work) {
+    WxDialogPlacement p;
+    p.width = std::min(preferredWidth, work.GetWidth());
+    p.height = std::min(fittedHeight, work.GetHeight());
+    p.minWidth = std::min(preferredMinWidth, work.GetWidth());
+    p.minHeight = std::min(furniture + minPage, work.GetHeight());
+    p.x = work.x + (work.GetWidth() - p.width) / 2;
+    p.y = work.y + (work.GetHeight() - p.height) / 2;
+    return p;
+}
 
 // Settings structure
 struct WxEmulatorSettings {
@@ -26,6 +64,26 @@ struct WxEmulatorSettings {
     bool warnManifestWrites = true;         // Warn when writing to downloaded catalog disks
     bool clearBootConfigRequested = false;  // Set when user clicks "Clear Boot Config"
     int scrollbackLines = 1000;             // Terminal scrollback history capacity (lines)
+    bool bellEnabled = true;                // Whether BEL (0x07) sounds
+
+    // The whole "keyboard.keys" object, carried in and back out. The dialog
+    // does a read-modify-write of it, so what comes back includes every entry
+    // that went in, including names the dialog could not read - see
+    // SettingsDialogWx::rebuildKeyRows().
+    //
+    // keyBindingsDirty is the gate on writing it back at all. Without it, every
+    // OK would overwrite "keyboard.keys" whether or not the user opened the
+    // Keyboard page, which turns any defect in the round trip into a lost
+    // config rather than a wrong dialog.
+    std::map<std::string, std::string> keyBindings;
+    bool keyBindingsDirty = false;
+
+    // KeyboardConfig's three app-shortcut switches, stored in the config's own
+    // sense: true means the key is released to CP/M. The checkboxes on screen
+    // read the other way round - see loadSettings().
+    bool f1ToCpm = false;
+    bool f5ToCpm = false;
+    bool ctrlRToCpm = true;
 
     // Dazzler settings
     bool dazzlerEnabled = false;
@@ -51,12 +109,45 @@ private:
     // separating the two just means naming the same panel twice.
     void buildMachinePage();
     void buildTerminalPage();
+    void buildKeyboardPage();
     void buildDiskImagesPage();
     void populateROMList();
     void populateDiskLists();
     void populateCatalog();
     void loadSettings();
+    // The disk dropdown selections alone. Split out of loadSettings() because
+    // onCatalogLoaded has to reapply them after populateDiskLists() has emptied
+    // and refilled the dropdowns, and it used to do that by calling
+    // loadSettings() whole - which also reset every other control on the dialog
+    // from m_settings. The catalog is fetched on a worker thread that posts
+    // ID_CATALOG_LOADED back, so onCatalogLoaded runs seconds after the dialog
+    // opened and anything the user had ticked in the meantime was silently put
+    // back. Argued from the code rather than measured on screen: the fetch goes
+    // over the network and this machine's catalog is already cached, so the
+    // race is hard to stage on purpose.
+    void loadDiskSelections();
     void saveSettings();
+
+    // Keyboard page. m_keyRows is the model; the wxListCtrl is a view of it,
+    // one row per entry in the same order.
+    void rebuildKeyRows();
+    void populateKeyList();
+    void refreshKeyRow(long row);
+    void updateKeyEditor();
+    void applyKeySequenceToRow(const std::string& sequence);
+    void commitPendingKeySequence();
+    // The one writer of m_keySeqValid, because BECOMING VALID IS WHAT RETRACTS
+    // onOK()'s refusal from the shared status line, and the two must not be able
+    // to come apart. Four paths make the box valid again - a corrected sequence,
+    // Default, Unbind, and every selection change, which goes through
+    // updateKeyEditor() - and rebuildKeyRows() resets it with the model. When
+    // the retraction lived in the first of those alone, clicking Default or
+    // picking another row left the status line insisting the sequence could not
+    // be used after the box holding it had been emptied.
+    void setKeySeqValid(bool valid);
+    struct KeyRow;
+    static wxString keyRowStatus(const KeyRow& row,
+                                 const std::map<unsigned, std::string>& defaults);
 
     // Event handlers
     void onBrowseDisk(wxCommandEvent& event);
@@ -70,6 +161,10 @@ private:
     void onCatalogLoaded(wxCommandEvent& event);
     void onDownloadProgress(wxCommandEvent& event);
     void onDownloadComplete(wxCommandEvent& event);
+    void onKeySelected(wxListEvent& event);
+    void onKeySequenceChanged(wxCommandEvent& event);
+    void onKeyRestoreDefault(wxCommandEvent& event);
+    void onKeyUnbind(wxCommandEvent& event);
     void onOK(wxCommandEvent& event);
     void onCancel(wxCommandEvent& event);
 
@@ -81,6 +176,7 @@ private:
     wxNotebook* m_notebook;
     wxPanel* m_machinePage;
     wxPanel* m_terminalPage;
+    wxPanel* m_keyboardPage;
     wxPanel* m_diskImagesPage;
 
     // Controls
@@ -92,6 +188,52 @@ private:
     wxCheckBox* m_debugCheck;
     wxCheckBox* m_warnManifestCheck;
     wxSpinCtrl* m_scrollbackSpin;
+    wxCheckBox* m_bellCheck;
+
+    // Keyboard page controls.
+    wxListCtrl* m_keyList;
+    wxTextCtrl* m_keySeqText;
+    wxStaticText* m_keyHintText;
+    wxButton* m_keyDefaultBtn;
+    wxButton* m_keyUnbindBtn;
+    // Worded as what the APP gets, which is the opposite sense from the config
+    // members they load from and save to.
+    wxCheckBox* m_f1HelpCheck;
+    wxCheckBox* m_f5StartStopCheck;
+    wxCheckBox* m_ctrlRResetCheck;
+
+    // One line of the Keyboard page's list, keyed by RESOLVED ID rather than by
+    // name, because "Ctrl+Left", "ctrl+left" and "Control+Left" are three
+    // spellings of one binding - the same rule ConfigManager::load()'s fill
+    // loop matches by.
+    struct KeyRow {
+        unsigned id = 0;
+        std::string name;        // the spelling this row is written back under
+        std::string sequence;    // termcap-style, exactly as it appears in the file
+        bool hasEntry = false;   // "keys" carried an entry for this id
+        bool edited = false;     // the user changed it while the dialog was open
+        const char* purpose = nullptr;  // reservedKeys() words, or null if bindable
+    };
+    std::vector<KeyRow> m_keyRows;
+
+    // Entries of "keys" that no row owns, kept verbatim so that a
+    // read-modify-write cannot delete them: names this build cannot resolve
+    // (a typo, or a key a later version binds), and the losing spelling where
+    // the file holds two names for one binding.
+    std::map<std::string, std::string> m_keyCarry;
+
+    // Built-in default sequence per resolved id, from keymap::defaultBindings().
+    std::map<unsigned, std::string> m_keyDefaults;
+
+    long m_keySelectedRow = -1;
+    bool m_keysDirty = false;   // gates the write-back; see WxEmulatorSettings
+    // False while the text field holds something validateSequence() refuses.
+    // onOK() consults it, because a sequence that is never stored still has to
+    // stop the dialog closing as though it had been accepted.
+    //
+    // Written only by setKeySeqValid(), never assigned directly: the status line
+    // has to be retracted wherever this goes back to true.
+    bool m_keySeqValid = true;
 
     // Dazzler controls
     wxCheckBox* m_dazzlerEnabledCheck;
@@ -105,8 +247,7 @@ private:
     wxButton* m_deleteBtn;
     wxGauge* m_progressBar;
     // Deliberately parented to the dialog, below the notebook, and NOT to any
-    // page: six handlers write it and they do not all live on one page - see
-    // createControls().
+    // page: its writers do not all live on one page - see createControls().
     wxStaticText* m_statusText;
     wxStaticText* m_diskDirLabel;
     wxTextCtrl* m_diskDirText;
@@ -131,7 +272,11 @@ private:
         ID_CATALOG_LOADED,
         ID_DOWNLOAD_PROGRESS,
         ID_DOWNLOAD_COMPLETE,
-        ID_OPEN_DATA_FOLDER
+        ID_OPEN_DATA_FOLDER,
+        ID_KEY_LIST,
+        ID_KEY_SEQUENCE,
+        ID_KEY_DEFAULT,
+        ID_KEY_UNBIND
     };
 
     wxDECLARE_EVENT_TABLE();

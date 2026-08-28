@@ -70,6 +70,104 @@ inline std::string decode(const std::string& s) {
     return out;
 }
 
+// Refuse a termcap-style string that decode() would silently turn into
+// something other than what it says. Returns nullptr when the string is fine,
+// and a one-line user-facing reason when it is not - the same nullptr-means-
+// nothing-to-say shape as reservedFor() below.
+//
+// This exists because DECODE() CANNOT FAIL. It has no error return and every
+// arm of its switch pushes a byte, so a mistake in a sequence is not diagnosed,
+// it is sent: the bytes the guest receives are simply not the ones the author
+// meant. In a config file read at startup that is survivable, because the
+// configuration report names the line afterwards. Under a text field somebody
+// is typing into it is not, which is what this is for.
+//
+// decode() itself is deliberately left alone. Every string already sitting in a
+// user's z80cpmw.json goes on decoding exactly as it did, and a validator that
+// only guards the new entry point cannot break an old file.
+//
+// The refusals are read out of decode()'s arms rather than invented:
+//
+//   - A TRAILING BACKSLASH. decode's `i + 1 < s.size()` guard fails, control
+//     falls through to the final else, and the introducer is emitted as a
+//     literal backslash - the one character it is least likely to have meant.
+//   - AN UNKNOWN ESCAPE LETTER. decode's `default:` arm pushes the letter and
+//     drops the backslash, so the C-style "\x1b" someone reaches for out of
+//     habit sends the three bytes x, 1, b.
+//   - AN OCTAL ESCAPE OVER \377. decode reads up to three octal digits into an
+//     int and then stores `val & 0xFF`, so \400 - which reads as 256 - is sent
+//     as NUL. That specific case is the one this function was written for.
+//   - A TRAILING CARET, for the same reason as the trailing backslash: the
+//     final else emits a literal '^'. A literal caret is spelled \^.
+//   - A CARET ON SOMETHING THAT IS NOT A CONTROL CHARACTER'S NAME. decode does
+//     `toupper(n) & 0x1F` unconditionally, so ^1 is not refused, it is 0x11 -
+//     a control byte, just not the one caret notation names. The accepted set
+//     is exactly the characters whose upper-case form lies in 0x40..0x5F (so
+//     @ A-Z [ \ ] ^ _ and, folded, a-z), plus ^? for DEL. Those are the ones
+//     for which 0x40 + the decoded byte names the character back again;
+//     tests/test_vt52.cpp states the rule in that form, over decode's own
+//     output, so it is not merely this predicate agreeing with itself.
+//
+// An EMPTY string is accepted. It is not an omission: KeyMap::build reads ""
+// as "unbind this key" and find() answers nullptr for it, so it is a spelling
+// with a meaning, and it is what a Settings dialog's Unbind button writes.
+//
+// The loop below walks the same arms in the same order as decode(), and nothing
+// in the language makes the two move together - one is a scanner, the other a
+// producer, and sharing a pass between them would mean rewriting the function
+// whose output a hundred-odd checks already pin. What catches a drift is the
+// suite. For all three arms that can refuse, it decides what this function OUGHT
+// to say by running DECODE and looking at the bytes - over all 256 successors of
+// a backslash, all 256 of a caret, and every octal value from \000 to \777 - so
+// an escape added to decode() and forgotten here fails a check rather than
+// quietly becoming unusable from the dialog.
+//
+// The messages are terser than they could be on purpose. The Settings dialog
+// shows them on a single-line label, which was measured to hold about 78
+// characters at the dialog's 900px width and to clip the rest without a mark,
+// so every string below is written to fit inside that.
+inline const char* validateSequence(const std::string& s) {
+    for (size_t i = 0; i < s.size(); ++i) {
+        char c = s[i];
+        if (c == '\\') {
+            if (i + 1 >= s.size()) {
+                return "A backslash needs an escape letter or octal digits after it.";
+            }
+            char n = s[++i];
+            switch (n) {
+            case 'E': case 'e': case 'n': case 'r': case 't':
+            case 'b': case 'f': case 's': case '\\': case '^':
+                break;
+            case '0': case '1': case '2': case '3':
+            case '4': case '5': case '6': case '7': {
+                int val = n - '0';
+                for (int k = 0; k < 2 && i + 1 < s.size() &&
+                                s[i + 1] >= '0' && s[i + 1] <= '7'; ++k) {
+                    val = val * 8 + (s[++i] - '0');
+                }
+                if (val > 0xFF) {
+                    return "An octal escape stops at \\377; \\400 and up wrap round to NUL.";
+                }
+                break;
+            }
+            default:
+                return "Unknown escape. Use \\E \\n \\r \\t \\b \\f \\s \\\\ \\^ or octal digits.";
+            }
+        } else if (c == '^') {
+            if (i + 1 >= s.size()) {
+                return "A caret needs a letter after it, or ^? for Delete. \\^ is literal.";
+            }
+            char n = s[++i];
+            if (n == '?') continue;                       // ^? = DEL
+            int up = std::toupper((unsigned char)n);
+            if (up < 0x40 || up > 0x5F) {
+                return "A caret takes a letter, or one of @ [ \\ ] ^ _ ? and nothing else.";
+            }
+        }
+    }
+    return nullptr;
+}
+
 // Modifier bits. A binding is identified by a virtual-key code plus whatever
 // modifiers were held with it, so Ctrl+Left is a different binding from Left
 // rather than the same one. Without this the two were indistinguishable: every
@@ -112,6 +210,80 @@ inline int vkForName(std::string name) {
         if (n >= 1 && n <= 12) return VK_F1 + (n - 1);  // VK_F1..VK_F12 are contiguous
     }
     return -1;
+}
+
+// The other direction: the spelling the config file uses for a plain,
+// unmodified key, or nullptr for a virtual-key code that is not bindable.
+//
+// vkForName() accepts several spellings per key - "ins", "Insert", "PgUp",
+// "prior" - so there is no such thing as THE name of a key; there is only the
+// one this returns. The one chosen is defaultBindings()'s, because that is what
+// the app writes into a fresh z80cpmw.json and therefore what a user reading
+// their own file sees. tests/test_vt52.cpp walks every code 0..255 and requires
+// vkForName(baseNameForVk(vk)) == vk, so this table cannot drift away from
+// vkForName's without failing the suite.
+inline const char* baseNameForVk(int vk) {
+    switch (vk) {
+    case VK_UP:     return "Up";
+    case VK_DOWN:   return "Down";
+    case VK_LEFT:   return "Left";
+    case VK_RIGHT:  return "Right";
+    case VK_HOME:   return "Home";
+    case VK_END:    return "End";
+    case VK_INSERT: return "Insert";
+    case VK_DELETE: return "Delete";
+    case VK_PRIOR:  return "PageUp";
+    case VK_NEXT:   return "PageDown";
+    default: break;
+    }
+    // VK_F1..VK_F12 are contiguous, which is the same fact vkForName() uses to
+    // turn a parsed number back into a code.
+    if (vk >= VK_F1 && vk <= VK_F12) {
+        static const char* const kFunctionKeys[] = {
+            "F1", "F2", "F3", "F4",  "F5",  "F6",
+            "F7", "F8", "F9", "F10", "F11", "F12",
+        };
+        return kFunctionKeys[vk - VK_F1];
+    }
+    return nullptr;
+}
+
+// Turn a packed key id back into the config file's own spelling, or an empty
+// string if nothing in the file could spell it.
+//
+// THE PREFIX ORDER HAD TO BE FIXED, and Ctrl, Shift, Alt is the order. It is
+// not a formatting preference: keyIdForName() accepts the prefixes in ANY
+// order, so "Ctrl+Shift+F3" and "Shift+Ctrl+F3" are two spellings of one
+// binding, and a caller that writes names back into "keyboard.keys" has to
+// choose one spelling and then always choose the same one. If it did not, a
+// read-modify-write of a file already containing "Shift+Ctrl+F3" would add
+// "Ctrl+Shift+F3" beside it and leave two entries for one key - with the answer
+// to which of them the app honours decided by KeyMap::build()'s merge order
+// rather than by anything the user could see. ConfigManager::load()'s fill loop
+// already refuses to create that situation, matching by resolved id rather than
+// by name for exactly this reason; this is the same rule stated for the
+// opposite direction.
+//
+// Ctrl, Shift, Alt is chosen over any other fixed order because three separate
+// things already spell it that way: the KM_MOD_ bits are declared in that order
+// (1, 2, 4), defaultBindings() writes "Ctrl+Up" and friends, and
+// docs/CONFIGURATION.md lists them "Ctrl+, Shift+ and Alt+".
+//
+// An id carrying a modifier bit outside those three has no spelling at all -
+// nothing would parse back to it - so it returns empty rather than a name that
+// resolves to a DIFFERENT id. An unbindable virtual-key code does the same.
+inline std::string nameForKeyId(unsigned id) {
+    const char* base = baseNameForVk(static_cast<int>(id & 0xFFFFu));
+    if (!base) return std::string();
+    const unsigned mods = id >> 16;
+    if (mods & ~(KM_MOD_CTRL | KM_MOD_SHIFT | KM_MOD_ALT)) return std::string();
+
+    std::string out;
+    if (mods & KM_MOD_CTRL)  out += "Ctrl+";
+    if (mods & KM_MOD_SHIFT) out += "Shift+";
+    if (mods & KM_MOD_ALT)   out += "Alt+";
+    out += base;
+    return out;
 }
 
 // Map a full config key name to a packed lookup key, accepting any number of

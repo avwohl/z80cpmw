@@ -1105,6 +1105,16 @@ void MainWindow::onEmulatorSettings() {
     const auto& cfg = config::ConfigManager::instance().get();
     settings.warnManifestWrites = cfg.warnManifestWrites;
     settings.scrollbackLines = cfg.scrollbackLines;
+    settings.bellEnabled = cfg.bellEnabled;
+
+    // The whole "keyboard.keys" object, not a filtered view of it. The dialog
+    // does a read-modify-write and hands back everything it was given,
+    // including names it could not resolve, so what is passed in is what
+    // decides whether an entry survives.
+    settings.keyBindings = cfg.keyboard.keys;
+    settings.f1ToCpm = cfg.keyboard.f1ToCpm;
+    settings.f5ToCpm = cfg.keyboard.f5ToCpm;
+    settings.ctrlRToCpm = cfg.keyboard.ctrlRToCpm;
 
     // Seed the ROM the emulator is actually running. Left empty, the dialog
     // falls back to its first entry and OK then "changes" the ROM to
@@ -1211,6 +1221,40 @@ void MainWindow::onEmulatorSettings() {
         if (m_terminal) {
             m_terminal->setScrollbackLines(settings.scrollbackLines);
         }
+
+        // The bell. TerminalView holds this itself and clear() deliberately
+        // does not reset it, so setting it once here is enough - a guest's
+        // ESC c will not put it back.
+        cfgMut.bellEnabled = settings.bellEnabled;
+        if (m_terminal) {
+            m_terminal->setBellEnabled(settings.bellEnabled);
+        }
+
+        // The key bindings, gated on the dialog saying a row actually changed.
+        // The terminal is rebuilt from cfgMut.keyboard.keys and not from
+        // settings.keyBindings, because only the config is guaranteed current:
+        // the dialog assigns settings.keyBindings only when it sets the dirty
+        // flag, so when nothing was edited that member still holds the copy
+        // seeded above. Reading the config means this line cannot depend on
+        // which of the two it is.
+        if (settings.keyBindingsDirty) {
+            cfgMut.keyboard.keys = settings.keyBindings;
+        }
+        if (m_terminal) {
+            m_terminal->setKeyBindings(cfgMut.keyboard.keys);
+        }
+
+        // The three shortcut switches, and the two things that have to be
+        // redone for them to take effect without a restart. Both are called
+        // unconditionally: they are the same pair applyConfig() runs after a
+        // profile load, they read the config rather than a delta, and neither
+        // is expensive enough to be worth a comparison that could get the
+        // condition wrong.
+        cfgMut.keyboard.f1ToCpm = settings.f1ToCpm;
+        cfgMut.keyboard.f5ToCpm = settings.f5ToCpm;
+        cfgMut.keyboard.ctrlRToCpm = settings.ctrlRToCpm;
+        rebuildAccelerators();
+        updateMenuAccelHints();
 
         // Save settings to disk
         saveSettings();
@@ -1785,6 +1829,15 @@ void MainWindow::applyConfig() {
     // Apply scrollback buffer size
     if (m_terminal) {
         m_terminal->setScrollbackLines(cfg.scrollbackLines);
+    }
+
+    // Apply the bell. This is the startup path and the profile-load path, and
+    // the only other caller of setBellEnabled() is onEmulatorSettings - so
+    // without this line a saved "bell": false would be ignored until the user
+    // happened to open Settings and press OK, TerminalView having constructed
+    // with the bell on.
+    if (m_terminal) {
+        m_terminal->setBellEnabled(cfg.bellEnabled);
     }
 
     // Apply keyboard bindings (function/navigation keys -> CP/M sequences)
