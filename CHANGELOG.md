@@ -45,14 +45,20 @@ them. Writing blind into a tree with no compiler here produced a defect on the
 first attempt, and patching it blind would only have stacked a second
 unverifiable edit on the first. All three are open items in `todo.txt` again.
 
-A further pass on 2026-08-27, again with no MSVC and no Windows, wrote **one**
-change into the Windows sources: `emu_host_file_get_read_name()`, below. It is
-there because without it this project does not link at all, so the choice was
-not "write blind or wait" but "write blind or ship a tree that cannot be built".
-It is marked **NOT COMPILED**, it is the smallest change that discharges the
-requirement, and it is modelled line for line on the write-side function
-directly above it. Everything else that pass produced is a shell script or a
-document, and the scripts were run here.
+A further pass on 2026-08-27, again with no MSVC and no Windows, wrote **two**
+changes into the Windows sources. The first is
+`emu_host_file_get_read_name()`, below. It is there because without it this
+project does not link at all, so the choice was not "write blind or wait" but
+"write blind or ship a tree that cannot be built". It is marked **NOT
+COMPILED**, it is the smallest change that discharges the requirement, and it is
+modelled line for line on the write-side function directly above it. The second
+is the ANSI-to-CGA colour mapping, also below, and it is the one place on that
+pass where being off a Windows machine cost nothing much: the parser needs no
+window, so the real `TerminalView.cpp` was compiled here against a stubbed
+`windows.h` and the conformance suite was actually run against it, in both the
+fixed and the deliberately-unfixed direction. It is still not an MSVC build, and
+it is marked accordingly. Everything else that pass produced is a shell script
+or a document, and the scripts were run here.
 
 ### Added
 - **`emu_host_path_caps()`, and with it the sync to the `romwbw_emu` v1.36
@@ -227,6 +233,41 @@ document, and the scripts were run here.
   `SGR 27` could not undo it: `ESC[1;31m ESC[7m ESC[27m` came back dim, and
   `ESC[7m ESC[1m ESC[27m` came back as a colour nobody asked for. Reverse is now
   a flag resolved at the cell write, and the stored rendition is never swapped.
+- **A program asking for red got blue.** An `SGR` colour parameter carries an
+  *ANSI* colour index - 1 is red, 4 is blue - and the parameter was stored
+  straight into an attribute byte whose palette is *CGA*-ordered, where 1 is
+  blue and 4 is red. The two orderings agree on black, green, magenta and white
+  and disagree on the other four, because red and blue trade places: `ESC[31m`
+  drew blue, `ESC[44m` filled red, `ESC[33m` drew cyan and `ESC[36m` drew
+  brown. Any CP/M program that colours its screen - a menu, a status line, a
+  Turbo Pascal `TextColor` - came out with half its palette wrong, and wrong
+  consistently enough to look like a choice rather than a bug.
+  The translation is now a named `ansiToCGAColor()` at the top of
+  `TerminalView.cpp`, applied at the `SGR` parse site and *nowhere else*. The
+  attribute byte stays CGA-ordered on purpose and that is not an accident of
+  this code: a guest can hand the emulator a raw CGA attribute byte through the
+  HBIOS VDA "set attribute" call (`HBF_VDASAT` -> `emu_video_set_attr()` ->
+  `TerminalView::setAttr()`), and `cgaToRGB()` is a CGA palette. So no palette
+  is reordered, the renderer is untouched, and the guest-attribute and
+  blank-cell paths are untouched. The default `0x07` does not move either - 7
+  maps to 7 and black maps to black, so a reset lands where it always did - and
+  the intensity bit `0x08` is not a colour index and never goes through the
+  mapping. This brings the port in line with `romwbw_emu`'s web frontend, which
+  renders through xterm.js and has always read `SGR` colours as ANSI; `ioscpm`
+  is being fixed the same way, and takes this port's `0xF8` mask with it.
+  **NOT COMPILED with MSVC, and the app has not been built or run.** What *was*
+  done, on a Mac with clang: (a) the mapping is a pure function, so it was
+  copied verbatim into a standalone program and all eight indices proved against
+  the table - `0->0 1->4 2->2 3->6 4->1 5->5 6->3 7->7`, its own inverse, never
+  a result outside 0-7; (b) the real, unmodified `TerminalView.cpp` was compiled
+  against a stub `windows.h` - every Win32 entry point a no-op, since the parser
+  and the screen buffer touch none of them - and the whole conformance suite was
+  *run*: **268 checks, 0 failed**; (c) the same suite was run against a copy of
+  `TerminalView.cpp` with the mapping backed out, and **36 failed**, each one
+  reporting exactly the expectation this change replaced. That last run is the
+  part worth trusting: it is what says the new expectations are the *post-fix*
+  ones and not a set of numbers written to agree with themselves. Nothing here
+  has been seen on a screen.
 - **`ESC[1;37m` was dim while `ESC[37;1m` was bright.** Setting a foreground
   colour masked out the intensity bit that `SGR 1` had just set, so bold
   survived only if it arrived last.
@@ -682,11 +723,13 @@ were still carrying the old text in their own paragraphs were swept on
   sync was supposed to produce did produce - `unresolved external symbol
   emu_host_path_caps`, from `hbios_dispatch.obj` - and defining the function is
   what cleared it.
-- **All three headless suites pass**, 354 checks: 252 terminal, 66 host-file
-  backend, 36 HBIOS. Both new suites were checked against a deliberately broken
-  build before being believed - reverting `emu_host_file_get_write_name()` to
-  the old echo fails 9 of them, and resolving the redirection through the file
-  instead of its parent fails 9 more, including the exports that then fail for
+- **All three headless suites pass**, 354 checks at that pass: 252 terminal, 66
+  host-file backend, 36 HBIOS. (The terminal suite is 268 now - the ANSI/CGA
+  colour entry above adds 16 - so the current total is 370.) Both new suites
+  were checked against a deliberately broken build before being believed -
+  reverting `emu_host_file_get_write_name()` to the old echo fails 9 of them,
+  and resolving the redirection through the file instead of its parent fails
+  9 more, including the exports that then fail for
   real because a directory now sits where the file should go.
 - **The tree builds.** Both configurations, against `romwbw_emu` `2dbf6f2` and
   `cpmemu` `9fee3c2`. This closes `todo.txt`'s "VERIFY FIRST - already pushed,

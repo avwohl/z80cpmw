@@ -43,8 +43,8 @@ the same binary and also MSIX.
 ## 2. Keystroke delivery, mouse copy/paste, and the first-run Help window
 
 Never watched by a person, and nothing here can automate them. The terminal
-parser is covered — `tests\run_tests.bat`, 252 checks in the terminal suite and
-354 across all three — but that stops at the byte stream. It says nothing about
+parser is covered — `tests\run_tests.bat`, 268 checks in the terminal suite and
+370 across all three — but that stops at the byte stream. It says nothing about
 whether a keypress becomes a byte or a cell becomes a pixel.
 
 1. **Keystrokes reach CP/M.** At the CP/M prompt, type printable text, then

@@ -15,15 +15,22 @@ glance what that machine can take.
 Needs a Windows machine
 ------------------------
 
-- [WINDOWS] TWO CHANGES IN THIS TREE HAVE NEVER BEEN COMPILED.  (a)
+- [WINDOWS] THREE CHANGES IN THIS TREE HAVE NEVER BEEN COMPILED WITH MSVC.  (a)
 emu_host_file_get_read_name() in emu_io_windows.cpp, written 2026-08-27 because
 romwbw_emu made it a required backend function and hbios_dispatch.cc - which
 this project compiles straight out of the sibling checkout - calls it
 unconditionally, so the tree does not link without it.  The added statements
 were type-checked in a clang shim, which is not a build.  (b) the 24
 -ErrorAction Continue additions in build-msix.ps1 and build-nsis.ps1, which
-nothing on this machine can even parse.  The first Windows build settles (a): it
-either links or it does not.
+nothing on this machine can even parse.  (c) ansiToCGAColor() in
+TerminalView.cpp, and the expectations it moved in test_vt52.cpp.  (c) carries
+more evidence than (a) does: the real TerminalView.cpp was compiled on a Mac
+against a stubbed windows.h - the parser touches no Win32 - and the conformance
+suite was run against it, 268 checks passing, and run again with the mapping
+backed out, 36 failing with exactly the old expectations.  What it still wants
+is a person looking at a real screen and agreeing that ESC[31m is red.  The
+first Windows build settles (a) and (c) both: they either compile or they do
+not, and run_tests.bat says the rest.
 
 - [WINDOWS] there is no per-cell attribute beyond the packed CGA byte.  struct
 TerminalCell carries a character, a foreground and a background and nothing

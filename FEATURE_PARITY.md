@@ -778,7 +778,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     deliberately still preserves the scrolling region: `ioscpm`'s
     `clearTerminal()` resets it, and that is `ioscpm`'s bug, not a gap here.
 
-    The suite described above is committed now, in `tests/`, at **252 checks**.
+    The suite described above is committed now, in `tests/`, at **268 checks**.
     Parser input is bounded here —
     `MAX_CSI_PARAMS` 16 and `MAX_CSI_PARAM_DIGITS` 6 in `TerminalView.cpp`,
     with intermediates consumed rather than accumulated.
@@ -811,7 +811,11 @@ extending it; that port's parser turned out to be the thinnest of the four.)
   residue — `clear()` resetting the attribute and escape state — is fixed, along
   with three SGR bugs the audit for it turned up: reverse video swapped the
   attribute nibbles in place and so could not round-trip, setting a colour
-  masked out the bold bit, and `ESC [ m` left the reverse flag set.
+  masked out the bold bit, and `ESC [ m` left the reverse flag set. A fourth,
+  found in a later pass and larger than those three, is also fixed: SGR colour
+  parameters carry ANSI colour numbers and were stored straight into a
+  CGA-ordered attribute byte, so four of the eight colours drew as a different
+  colour entirely.
 
 ---
 

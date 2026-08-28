@@ -431,10 +431,55 @@ static void test_sgr() {
     section("SGR");
 
     { Term t; t.send("\033[31mA");
-      CHECK_INT(t.fg(0, 0), 1, "SGR 31 sets the foreground"); }
+      CHECK_INT(t.fg(0, 0), 4, "SGR 31 sets the foreground"); }
 
     { Term t; t.send("\033[44mA");
-      CHECK_INT(t.bg(0, 0), 4, "SGR 44 sets the background"); }
+      CHECK_INT(t.bg(0, 0), 1, "SGR 44 sets the background"); }
+
+    // The whole colour table, one index at a time. An SGR parameter is an ANSI
+    // colour index and the attribute byte is CGA-ordered; the two orderings
+    // agree on black, green, magenta and white and disagree on the other four,
+    // because red and blue trade places (bit 0 and bit 2 swap):
+    //
+    //   ANSI 0 black 1 RED  2 green 3 YELLOW 4 BLUE 5 magenta 6 CYAN 7 white
+    //   CGA  0 black 1 BLUE 2 green 3 CYAN   4 RED  5 magenta 6 brown 7 lt grey
+    //
+    // Storing the parameter raw - which is what this did - drew red as blue,
+    // yellow as cyan, blue as red and cyan as brown. These sixteen checks are
+    // the whole mapping, so it cannot come back quietly.
+    { Term t; t.send("\033[30mA");
+      CHECK_INT(t.fg(0, 0), 0, "SGR 30 (ANSI black) is CGA 0 (black)"); }
+    { Term t; t.send("\033[31mA");
+      CHECK_INT(t.fg(0, 0), 4, "SGR 31 (ANSI red) is CGA 4 (red)"); }
+    { Term t; t.send("\033[32mA");
+      CHECK_INT(t.fg(0, 0), 2, "SGR 32 (ANSI green) is CGA 2 (green)"); }
+    { Term t; t.send("\033[33mA");
+      CHECK_INT(t.fg(0, 0), 6, "SGR 33 (ANSI yellow) is CGA 6 (brown)"); }
+    { Term t; t.send("\033[34mA");
+      CHECK_INT(t.fg(0, 0), 1, "SGR 34 (ANSI blue) is CGA 1 (blue)"); }
+    { Term t; t.send("\033[35mA");
+      CHECK_INT(t.fg(0, 0), 5, "SGR 35 (ANSI magenta) is CGA 5 (magenta)"); }
+    { Term t; t.send("\033[36mA");
+      CHECK_INT(t.fg(0, 0), 3, "SGR 36 (ANSI cyan) is CGA 3 (cyan)"); }
+    { Term t; t.send("\033[37mA");
+      CHECK_INT(t.fg(0, 0), 7, "SGR 37 (ANSI white) is CGA 7 (light grey)"); }
+
+    { Term t; t.send("\033[40mA");
+      CHECK_INT(t.bg(0, 0), 0, "SGR 40 (ANSI black) is CGA 0 (black)"); }
+    { Term t; t.send("\033[41mA");
+      CHECK_INT(t.bg(0, 0), 4, "SGR 41 (ANSI red) is CGA 4 (red)"); }
+    { Term t; t.send("\033[42mA");
+      CHECK_INT(t.bg(0, 0), 2, "SGR 42 (ANSI green) is CGA 2 (green)"); }
+    { Term t; t.send("\033[43mA");
+      CHECK_INT(t.bg(0, 0), 6, "SGR 43 (ANSI yellow) is CGA 6 (brown)"); }
+    { Term t; t.send("\033[44mA");
+      CHECK_INT(t.bg(0, 0), 1, "SGR 44 (ANSI blue) is CGA 1 (blue)"); }
+    { Term t; t.send("\033[45mA");
+      CHECK_INT(t.bg(0, 0), 5, "SGR 45 (ANSI magenta) is CGA 5 (magenta)"); }
+    { Term t; t.send("\033[46mA");
+      CHECK_INT(t.bg(0, 0), 3, "SGR 46 (ANSI cyan) is CGA 3 (cyan)"); }
+    { Term t; t.send("\033[47mA");
+      CHECK_INT(t.bg(0, 0), 7, "SGR 47 (ANSI white) is CGA 7 (light grey)"); }
 
     { Term t; t.send("\033[1mA");
       CHECK_INT(t.fg(0, 0), 0x0F, "SGR 1 sets the bold (intensity) bit"); }
@@ -447,20 +492,20 @@ static void test_sgr() {
       CHECK_INT(t.bg(0, 0), 0, "SGR 0 restores the default background"); }
 
     { Term t; t.send("\033[31;44mA");
-      CHECK_INT(t.fg(0, 0), 1, "a multi-parameter SGR applies the foreground");
-      CHECK_INT(t.bg(0, 0), 4, "a multi-parameter SGR applies the background"); }
+      CHECK_INT(t.fg(0, 0), 4, "a multi-parameter SGR applies the foreground");
+      CHECK_INT(t.bg(0, 0), 1, "a multi-parameter SGR applies the background"); }
 
     { Term t; t.send("\033[31;44m\033[7mA");
-      CHECK_INT(t.fg(0, 0), 4, "SGR 7 swaps the background into the foreground");
-      CHECK_INT(t.bg(0, 0), 1, "SGR 7 swaps the foreground into the background"); }
+      CHECK_INT(t.fg(0, 0), 1, "SGR 7 swaps the background into the foreground");
+      CHECK_INT(t.bg(0, 0), 4, "SGR 7 swaps the foreground into the background"); }
 
     { Term t; t.send("\033[31;44m\033[7m\033[7mA");
-      CHECK_INT(t.fg(0, 0), 4, "a second SGR 7 does not swap back"); }
+      CHECK_INT(t.fg(0, 0), 1, "a second SGR 7 does not swap back"); }
 
     // The [1.0.20] fix: ESC[27m used to reset the whole attribute byte.
     { Term t; t.send("\033[31;44m\033[7m\033[27mA");
-      CHECK_INT(t.fg(0, 0), 1, "SGR 27 restores the foreground, not the default");
-      CHECK_INT(t.bg(0, 0), 4, "SGR 27 restores the background, not the default"); }
+      CHECK_INT(t.fg(0, 0), 4, "SGR 27 restores the foreground, not the default");
+      CHECK_INT(t.bg(0, 0), 1, "SGR 27 restores the background, not the default"); }
 
     { Term t; t.send("\033[7m\033[32mA");
       CHECK_INT(t.bg(0, 0), 2, "a colour set while reversed lands in the swapped nibble"); }
@@ -475,7 +520,7 @@ static void test_sgr() {
     // Swapping the nibbles in place cannot round-trip: the foreground is four
     // bits and the background three, so the intensity bit falls off the end.
     { Term t; t.send("\033[1;31m\033[7m\033[27mA");
-      CHECK_INT(t.fg(0, 0), 9, "SGR 7 then 27 preserves a bold foreground");
+      CHECK_INT(t.fg(0, 0), 12, "SGR 7 then 27 preserves a bold foreground");
       CHECK_INT(t.bg(0, 0), 0, "SGR 7 then 27 preserves the background"); }
 
     { Term t; t.send("\033[7m\033[1m\033[27mA");
@@ -495,7 +540,7 @@ static void test_sgr() {
       CHECK_INT(t.fg(0, 0), 0x0F, "ESC[37;1m is bright white too"); }
 
     { Term t; t.send("\033[1m\033[31mA");
-      CHECK_INT(t.fg(0, 0), 9, "a colour after bold keeps the intensity bit"); }
+      CHECK_INT(t.fg(0, 0), 12, "a colour after bold keeps the intensity bit"); }
 
     { Term t; t.send("\033[7mA");
       CHECK_INT(t.fg(0, 0), 0, "a cell written while reversed shows the background as its foreground");
@@ -504,11 +549,11 @@ static void test_sgr() {
     // The private forms are not renditions. ESC[>4;2m and ESC[>m are xterm's
     // modifyOtherKeys; the bare one used to be read as ESC[m and reset the lot.
     { Term t; t.send("\033[31;44m\033[>m"); t.send("A");
-      CHECK_INT(t.fg(0, 0), 1, "ESC[>m does not reset the foreground");
-      CHECK_INT(t.bg(0, 0), 4, "ESC[>m does not reset the background"); }
+      CHECK_INT(t.fg(0, 0), 4, "ESC[>m does not reset the foreground");
+      CHECK_INT(t.bg(0, 0), 1, "ESC[>m does not reset the background"); }
 
     { Term t; t.send("\033[31m\033[>4;2m"); t.send("A");
-      CHECK_INT(t.fg(0, 0), 1, "ESC[>4;2m does not touch the rendition"); }
+      CHECK_INT(t.fg(0, 0), 4, "ESC[>4;2m does not touch the rendition"); }
 
     // Extended-colour subparameters must be stepped over, not read as colours.
     // This terminal is CGA and has nothing to apply them to.
@@ -520,12 +565,12 @@ static void test_sgr() {
       CHECK_INT(t.fg(0, 0), 7, "ESC[38;2;r;g;b m is consumed whole"); }
 
     { Term t; t.send("\033[31;38;5;44;1m"); t.send("A");
-      CHECK_INT(t.fg(0, 0), 9, "parameters around an extended colour still apply"); }
+      CHECK_INT(t.fg(0, 0), 12, "parameters around an extended colour still apply"); }
 
     // DECSC/DECRC save the rendition with the position; CSI s / CSI u do not.
     { Term t; t.send("\033[31;44m\0337\033[32;46m\0338"); t.send("A");
-      CHECK_INT(t.fg(0, 0), 1, "ESC 8 restores the saved foreground");
-      CHECK_INT(t.bg(0, 0), 4, "ESC 8 restores the saved background"); }
+      CHECK_INT(t.fg(0, 0), 4, "ESC 8 restores the saved foreground");
+      CHECK_INT(t.bg(0, 0), 1, "ESC 8 restores the saved background"); }
 
     { Term t; t.send("\033[7m\0337\033[27m\0338"); t.send("A");
       CHECK_INT(t.fg(0, 0), 0, "ESC 8 restores the saved reverse-video flag"); }
@@ -726,11 +771,11 @@ static void test_erase_preserves_state() {
     section("erase does not reset terminal state");
 
     { Term t; t.send("\033[31;44m"); t.send("\033[2J"); t.send("A");
-      CHECK_INT(t.fg(0, 0), 1, "ED 2 preserves the foreground attribute");
-      CHECK_INT(t.bg(0, 0), 4, "ED 2 preserves the background attribute"); }
+      CHECK_INT(t.fg(0, 0), 4, "ED 2 preserves the foreground attribute");
+      CHECK_INT(t.bg(0, 0), 1, "ED 2 preserves the background attribute"); }
 
     { Term t; t.send("\033[31;44m\033[7m"); t.send("\033[2J"); t.send("\033[27mA");
-      CHECK_INT(t.fg(0, 0), 1, "ED 2 preserves the reverse-video flag"); }
+      CHECK_INT(t.fg(0, 0), 4, "ED 2 preserves the reverse-video flag"); }
 
     { Term t; t.send("\033[2;4r"); t.send("\033[2J");
       t.home(2, 1); t.send("A"); t.home(3, 1); t.send("B"); t.home(4, 1); t.send("C");
@@ -744,30 +789,30 @@ static void test_erase_preserves_state() {
       CHECK_INT(t.row(), 1, "ED 2 preserves the DECAWM setting"); }
 
     { Term t; t.send("\033[31m"); t.send("\033[0J"); t.send("A");
-      CHECK_INT(t.fg(0, 0), 1, "ED 0 preserves the attribute"); }
+      CHECK_INT(t.fg(0, 0), 4, "ED 0 preserves the attribute"); }
 
     { Term t; t.send("\033[31m"); t.send("\033[2K"); t.send("A");
-      CHECK_INT(t.fg(0, 0), 1, "EL 2 preserves the attribute"); }
+      CHECK_INT(t.fg(0, 0), 4, "EL 2 preserves the attribute"); }
 
     { Term t; t.send("\033A\033[31m\033E"); t.send("A");
-      CHECK_INT(t.fg(0, 0), 1, "VT52 ESC E preserves the attribute"); }
+      CHECK_INT(t.fg(0, 0), 4, "VT52 ESC E preserves the attribute"); }
 
     // An erase paints the current background. Once ED stopped resetting the
     // rendition, filling with a hardcoded fg 7 / bg 0 meant the cleared area and
     // the text written into it afterwards no longer agreed.
     { Term t; t.send("\033[44m\033[2J");
-      CHECK_INT(t.bg(0, 0), 4, "ED 2 fills with the current background");
-      CHECK_INT(t.bg(24, 79), 4, "ED 2 fills the whole screen with it"); }
+      CHECK_INT(t.bg(0, 0), 1, "ED 2 fills with the current background");
+      CHECK_INT(t.bg(24, 79), 1, "ED 2 fills the whole screen with it"); }
 
     { Term t; t.send("abcdef"); t.send("\033[41m"); t.home(1, 4); t.send("\033[0K");
-      CHECK_INT(t.bg(0, 4), 1, "EL 0 fills with the current background");
+      CHECK_INT(t.bg(0, 4), 4, "EL 0 fills with the current background");
       CHECK_INT(t.bg(0, 0), 0, "and leaves the cells it did not erase alone"); }
 
     { Term t; t.send("\033[42m"); t.home(1, 2); t.send("\033[3X");
       CHECK_INT(t.bg(0, 2), 2, "ECH fills with the current background"); }
 
     { Term t; t.send("\033[43m"); t.send("\033[L");
-      CHECK_INT(t.bg(0, 0), 3, "IL opens a line in the current background"); }
+      CHECK_INT(t.bg(0, 0), 6, "IL opens a line in the current background"); }
 
     { Term t; t.send("\033[45m\033[7m\033[2J");
       CHECK_INT(t.fg(0, 0), 5, "an erase while reversed paints the swapped pair");
@@ -833,7 +878,7 @@ static void test_clear_is_a_full_reset() {
       CHECK_INT(t.bg(0, 0), 0, "clear() restores the default background"); }
 
     { Term t; t.send("\033[7m"); t.tv.clear(); t.send("\033[31mA");
-      CHECK_INT(t.fg(0, 0), 1, "clear() drops the reverse-video flag"); }
+      CHECK_INT(t.fg(0, 0), 4, "clear() drops the reverse-video flag"); }
 
     { Term t; t.send("\033A"); t.tv.clear(); t.replies.clear(); t.send("\033Z");
       CHECK_STR(t.replies, "\033[?1;0c", "clear() returns the terminal to ANSI"); }

@@ -20,6 +20,35 @@ static inline uint8_t swapAttrNibbles(uint8_t attr) {
     return (uint8_t)((fg << 4) | bg);
 }
 
+// Translate an SGR colour parameter into the CGA colour index the attribute
+// byte holds. The two orderings disagree on four of the eight colours:
+//
+//   ANSI (SGR 30-37 / 40-47):  0 black 1 RED    2 green 3 YELLOW
+//                              4 BLUE  5 magenta 6 CYAN  7 white
+//   CGA  (attribute nibbles):  0 black 1 BLUE   2 green 3 CYAN
+//                              4 RED   5 magenta 6 brown 7 light grey
+//
+//   ANSI -> CGA:  0->0  1->4  2->2  3->6  4->1  5->5  6->3  7->7
+//
+// which is a swap of the red and blue bits, bit 0 and bit 2. Storing the ANSI
+// index raw made ESC[31m draw blue, ESC[44m fill red, ESC[33m draw cyan and
+// ESC[36m draw brown.
+//
+// The attribute byte stays CGA-ordered on purpose, so this belongs at the SGR
+// parse site and nowhere else: a guest can hand over a raw CGA attribute byte
+// through the HBIOS VDA "set attribute" call (setAttr() below), and cgaToRGB()
+// is a CGA palette. Translating in the renderer or in the guest path would
+// break both.
+//
+// Only a colour index goes through here. The intensity bit (0x08) that SGR 1
+// sets is not a colour and must never be passed in. The mapping happens to be
+// its own inverse, which is a property of the bit swap rather than something
+// any caller relies on.
+static inline uint8_t ansiToCGAColor(uint8_t ansi) {
+    ansi &= 0x07;
+    return (uint8_t)(((ansi & 0x01) << 2) | (ansi & 0x02) | ((ansi >> 2) & 0x01));
+}
+
 TerminalView::TerminalView() {
     clear();
 }
@@ -1563,10 +1592,16 @@ void TerminalView::applySGR(int param) {
         // bit SGR 1 sets. Masking with 0xF0 instead - which is what this did -
         // cleared bold every time a colour arrived, so ESC[1;37m came out dim
         // while ESC[37;1m came out bright.
+        //
+        // The parameter is an ANSI colour index and the attribute byte is
+        // CGA-ordered; see ansiToCGAColor() at the top of this file. Stored
+        // raw, a program asking for red got blue.
         if (param >= 30 && param <= 37) {
-            m_currentAttr = (uint8_t)((m_currentAttr & 0xF8) | (param - 30));
+            m_currentAttr = (uint8_t)((m_currentAttr & 0xF8)
+                                      | ansiToCGAColor((uint8_t)(param - 30)));
         } else if (param >= 40 && param <= 47) {
-            m_currentAttr = (uint8_t)((m_currentAttr & 0x0F) | ((param - 40) << 4));
+            m_currentAttr = (uint8_t)((m_currentAttr & 0x0F)
+                                      | (ansiToCGAColor((uint8_t)(param - 40)) << 4));
         }
         break;
     }
