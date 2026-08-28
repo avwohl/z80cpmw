@@ -81,6 +81,25 @@ int main() {
     feed("\x1B[2J\x1B[H");
     for (int i = 0; i < 8; i++) { char b[32]; snprintf(b, sizeof b, "\x1B[3%dmM", i); feed(b); }
     feed("\x1B[0m\r\n");
+    // Prime the background white before row 1's first cell. This one escape is
+    // the whole reason index 0 of "SGR 40-47 paint the whole cell" asserts
+    // anything: ESC[40m arriving at the default background paints black over
+    // black, so that cell reads CGA 0 whether the parser honoured it or not,
+    // and the check could not fail. With the prime it reads CGA 0 only because
+    // ESC[40m came back from CGA 7 - measured against a scratch copy of
+    // TerminalView.cpp with applySGR()'s background arm narrowed to 41-47,
+    // where index 0 is the one and only check that fails.
+    //
+    // The premise is not assumed either. That ESC[47m really does set CGA 7 is
+    // index 7 of that same loop, so a parser that ignored the whole 40-47 range
+    // fails there instead of quietly making this prime a no-op.
+    //
+    // It paints no cell of its own - no character is emitted between it and the
+    // ESC[40m that follows - so the screen every section here samples is exactly
+    // the screen it sampled before, eight background swatches on row 1 included,
+    // and the capture predicate that waits for the terminal area to stop being
+    // one flat colour is looking at the same bitmap.
+    feed("\x1B[47m");
     for (int i = 0; i < 8; i++) { char b[32]; snprintf(b, sizeof b, "\x1B[4%dm ", i); feed(b); }
     feed("\x1B[0m\r\n");
     // Bright foreground (SGR 90-97) on row 2.
@@ -266,9 +285,12 @@ int main() {
     }
 
     section("SGR 40-47 paint the whole cell");
-    // i == 0 is in the loop for symmetry but cannot fail: the default
-    // background is already black, so the cell is black whether ESC[40m took
-    // effect or not. The other seven carry the section.
+    // All eight indices carry this section now. i == 0 used to be in the loop
+    // for symmetry and could not fail - the default background is already
+    // black, so its cell was black whether ESC[40m took effect or not - which
+    // left seven checks doing the work of eight. The row is written with the
+    // background primed to CGA 7 (see the ESC[47m above the row 1 loop), so
+    // black here is a colour the cell had to be brought back to.
     for (int i = 0; i < 8; i++) {
         char what[160];
         int n = countIn(1, i, cga(ANSI_TO_CGA[i]));

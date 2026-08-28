@@ -1,6 +1,34 @@
 # NSIS Installer Build Script for z80cpmw
 # Requires NSIS (Nullsoft Scriptable Install System)
 
+# [CmdletBinding()] is here for what it REFUSES, not for the common parameters it
+# adds.  A param() block without it makes a simple script, and PowerShell quietly
+# collects unmatched arguments into $args instead of failing - so -WhatIf, which
+# nothing in this file implements, used to be swallowed and the run proceeded for
+# real.  That is not a hypothetical: the identical omission in build-msix.ps1 was
+# measured expensively, and the note above that script's own [CmdletBinding()]
+# records it - a -WhatIf that fell into $args spent a live Azure Trusted Signing
+# call and re-minted an already-published package.
+#
+# What a swallowed -WhatIf costs HERE is smaller and still not nothing.  Step 1
+# runs MSBuild with /t:Rebuild, which cleans and relinks bin\$Configuration, and
+# "it would only rebuild the same bytes" is not true here.  Measured in this tree:
+# bin\Release\z80cpmw.exe is 607,744 bytes and the z80cpmw.exe inside the
+# published dist\z80cpmw-1.0.22-beta.msix is 605,184, while both report file
+# version 1.0.22.0 - two builds wearing one number, which is exactly what
+# Assert-ExeVersion below cannot see.  Step 5 then does Move-Item -Force onto
+# dist\z80cpmw-<ver>-setup.exe, overwriting whatever sits under that name.  The
+# size of the damage is not the argument anyway: a safety switch that is silently
+# ignored is worse than one that does not exist, because it is the one the caller
+# believes is protecting them.
+#
+# Deliberately NOT SupportsShouldProcess, which is build-msix.ps1's choice and for
+# its reason: with plain [CmdletBinding()] -WhatIf is an unknown parameter and
+# fails outright, which is the honest answer, whereas a token -WhatIf that skipped
+# only the steps someone remembered to guard would be a worse lie than none.  This
+# script has no dry run to offer in its place - -SkipBuild skips step 1 alone, and
+# there is nothing here shaped like build-msix.ps1's -SkipSign.
+[CmdletBinding()]
 param(
     [string]$Configuration = "Release",
     [switch]$SkipBuild

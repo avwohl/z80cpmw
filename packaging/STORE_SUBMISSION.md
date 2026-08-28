@@ -199,8 +199,9 @@ releases: the version guard only proves `bin\Release\z80cpmw.exe` matches
 `Version.h`, so re-running on a shipped version replaces that artifact with a
 different binary carrying the same number and reports nothing wrong. `-SkipSign` is
 the dry run; `build-msix.ps1` rejects `-WhatIf` outright rather than pretending to
-honour it. (`build-nsis.ps1` has no such guard yet — a stray `-WhatIf` there is
-still swallowed into `$args` and the run proceeds for real.) Full recipe in
+honour it. (`build-nsis.ps1` carries the same `[CmdletBinding()]` for the same
+reason and rejects `-WhatIf` too, though it has no `-SkipSign`-shaped dry run to
+offer in its place.) Full recipe in
 [docs/CODE_SIGNING.md](../docs/CODE_SIGNING.md).
 
 ### NSIS Installer (for direct distribution)
