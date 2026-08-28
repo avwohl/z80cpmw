@@ -8,14 +8,34 @@
 #     Signing cert (subject "CN=Aaron Wohl, ..."). Because signtool requires the
 #     package Publisher to equal the cert subject, -Beta rewrites the manifest
 #     Publisher accordingly and emits dist\z80cpmw-<ver>-beta.msix.
+#   * Beta rehearsal (-Beta -SkipSign): every step of the beta vehicle except the
+#     Trusted Signing call, writing dist\z80cpmw-<ver>-beta-unsigned.msix. This is
+#     how you check the beta path without spending a signing call or touching a
+#     name that has already shipped. See docs/CODE_SIGNING.md.
 
+# [CmdletBinding()] is here for what it REFUSES, not for the common parameters it
+# adds. A param() block without it is a simple script, and PowerShell quietly
+# collects unmatched arguments into $args instead of failing: "-Beta -SkipBuild
+# -SkipSign -WhatIf" was run against the old script expecting -WhatIf to be
+# rejected, and instead -WhatIf fell into $args, the run proceeded for real, and it
+# re-minted and re-signed the already-published dist\z80cpmw-1.0.22-beta.msix. This
+# script's whole job is irreversible side effects - a network signing call and
+# writes into dist\ - so a mistyped or imagined safety switch must be a binding
+# error. Note that this deliberately does NOT declare SupportsShouldProcess: with
+# plain [CmdletBinding()], -WhatIf is an unknown parameter and now fails outright,
+# which is the honest answer, whereas a token -WhatIf that skipped only some steps
+# would be a worse lie than none.
+[CmdletBinding()]
 param(
     [string]$Configuration = "Release",
     [string]$CertificatePath = "",
     [string]$CertificatePassword = "",
     [switch]$SkipBuild,
+    # Suppresses every signing route, -Beta's included. It used to be honoured only
+    # on the Store arm, which is the one arm that never signs anyway.
     [switch]$SkipSign,
     # Build a signed beta/sideload package instead of an (unsigned) Store package.
+    # Combine with -SkipSign for the unsigned rehearsal described in the header.
     [switch]$Beta,
     # Folder holding the Azure Trusted Signing kit (sign.ps1 + dlib + credentials).
     [string]$SigningKit = $(if ($env:Z80CPMW_SIGNING_KIT) { $env:Z80CPMW_SIGNING_KIT } else { "C:\temp\in\z80cpmw-signing-kit" }),
@@ -56,6 +76,15 @@ if ($verNums[0] -lt 1) {
     Write-Error "VERSION_MAJOR must be at least 1; the Store rejects a zero first field." -ErrorAction Continue; exit 1
 }
 Write-Host "Version $pkgVersion (from z80cpmw\Version.h)" -ForegroundColor Green
+
+# One stem for the whole beta run, so the .msix and the .pdb beside it cannot be
+# named by two independent expressions and drift apart. The "-unsigned" marker is
+# in the file name rather than only in the console output because the file outlives
+# the console: a beta package is identified by its name when it is attached to a
+# release, and an unsigned rehearsal that is named like a shippable one can be
+# uploaded by mistake or can overwrite the artifact already published under that
+# name. Only read when -Beta; the Store package name is fixed.
+$betaStem = if ($SkipSign) { "z80cpmw-$verShort-beta-unsigned" } else { "z80cpmw-$verShort-beta" }
 
 # Guard against packaging a stale binary: -SkipBuild over an old bin\Release
 # would otherwise label the package with a version the exe does not carry.
@@ -184,10 +213,12 @@ if (!$sdkPath) {
 $makeAppxPath = $sdkPath.FullName
 $signToolPath = Join-Path $sdkPath.Directory "signtool.exe"
 
-$msixName = if ($Beta) { "z80cpmw-$verShort-beta.msix" } else { "z80cpmw.msix" }
+$msixName = if ($Beta) { "$betaStem.msix" } else { "z80cpmw.msix" }
 $msixPath = Join-Path $OutputDir $msixName
 
-# Remove existing package
+# Remove existing package. This is the destructive step that -Beta -SkipSign has to
+# be kept away from a shipped name: under the rehearsal $betaStem carries
+# "-unsigned", so the only file this can delete is a previous rehearsal's output.
 if (Test-Path $msixPath) {
     Remove-Item $msixPath
 }
@@ -202,8 +233,14 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "MSIX package created: $msixPath" -ForegroundColor Green
 
-# Step 5: Sign the package
-if ($Beta) {
+# Step 5: Sign the package.
+# The test used to be "if ($Beta)" ahead of any look at $SkipSign, so -Beta ignored
+# -SkipSign completely: the one switch whose entire purpose is to keep a run off the
+# network was overridden by the one branch that goes to the network. That left the
+# beta vehicle with no rehearsal at all - the only way to exercise the .pdb rule in
+# step 6 was to spend a real Trusted Signing call and overwrite whatever dist\ held
+# under the shipped name. -SkipSign is now checked first on every arm.
+if ($Beta -and !$SkipSign) {
     Write-Host "Step 5: Signing beta package with Azure Trusted Signing..." -ForegroundColor Yellow
 
     $signPs1 = Join-Path $SigningKit "sign.ps1"
@@ -223,6 +260,16 @@ if ($Beta) {
     Write-Host "Verifying signature..." -ForegroundColor Yellow
     & $signPs1 -Verify $msixPath
     Write-Host "Beta package signed and verified." -ForegroundColor Green
+}
+elseif ($Beta) {
+    # The rehearsal arm. It reaches neither sign.ps1 nor the network, which is the
+    # property the whole restructure exists to provide, so nothing here may consult
+    # $SigningKit even to report on it - a run that touches the kit is a run someone
+    # will eventually let sign. Step 6 below still runs, because the symbol copy is
+    # the thing this rehearsal is for.
+    Write-Host "Step 5: Skipping signing (-SkipSign)." -ForegroundColor Yellow
+    Write-Host "  This is the unsigned beta rehearsal. The package cannot be sideloaded" -ForegroundColor Gray
+    Write-Host "  and must not be published; re-run without -SkipSign to sign for real." -ForegroundColor Gray
 }
 elseif (!$SkipSign -and $CertificatePath) {
     Write-Host "Step 5: Signing package..." -ForegroundColor Yellow
@@ -259,15 +306,19 @@ Remove-Item -Recurse -Force $stagingDir
 # a rebuild - against a different vcpkg wxWidgets, say - is a different binary
 # with a different debug GUID, so its symbols will not load against the one
 # that shipped. 1.0.22 shipped with no .pdb on either channel for
-# exactly that reason. Named to match the package so the pair stays obvious.
+# exactly that reason. Named from $betaStem so the pair stays obvious.
+#
+# This runs on BOTH beta arms, signed and rehearsal alike, which is the point of
+# having a rehearsal: the copy and its Write-Error are what a dry run is checking,
+# and an arm that skipped them would prove nothing about the run that ships.
 if ($Beta) {
     $pdbSource = Join-Path $BinDir "z80cpmw.pdb"
-    $pdbPath = Join-Path $OutputDir "z80cpmw-$verShort-beta.pdb"
+    $pdbPath = Join-Path $OutputDir "$betaStem.pdb"
     if (Test-Path $pdbSource) {
         Copy-Item $pdbSource $pdbPath -Force
         Write-Host "Symbols kept: $pdbPath" -ForegroundColor Green
     } else {
-        Write-Error "No symbols at $pdbSource. The signed package at $msixPath is good, but its .pdb cannot be produced by rebuilding later. Rebuild this configuration and re-run." -ErrorAction Continue
+        Write-Error "No symbols at $pdbSource. The package at $msixPath is good, but its .pdb cannot be produced by rebuilding later. Rebuild this configuration and re-run." -ErrorAction Continue
         exit 1
     }
 }
@@ -276,7 +327,16 @@ Write-Host ""
 Write-Host "Package build complete!" -ForegroundColor Cyan
 Write-Host "Output: $msixPath" -ForegroundColor Green
 Write-Host ""
-if ($Beta) {
+if ($Beta -and $SkipSign) {
+    # Do not print sideload instructions for a package that cannot be sideloaded:
+    # an unsigned MSIX is refused by Add-AppxPackage on a normal machine, and the
+    # closing lines of a build log are what someone copies.
+    Write-Host "Unsigned beta rehearsal - not installable and not publishable." -ForegroundColor Yellow
+    Write-Host "It confirms the beta path end to end, symbol copy included. Delete both" -ForegroundColor Gray
+    Write-Host "-unsigned files when you are done; they are build output." -ForegroundColor Gray
+    Write-Host "For a real beta, re-run without -SkipSign - and only on a version that has" -ForegroundColor Gray
+    Write-Host "not already shipped, since that run writes dist\z80cpmw-$verShort-beta.msix." -ForegroundColor Gray
+} elseif ($Beta) {
     Write-Host "Beta sideload package. Testers install via:" -ForegroundColor Yellow
     Write-Host "  double-click the .msix (App Installer), or  Add-AppxPackage `"$msixPath`"" -ForegroundColor Gray
     Write-Host "The Trusted Signing cert chains to a Microsoft public root, so no dev cert import is needed." -ForegroundColor Gray

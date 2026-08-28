@@ -40,6 +40,10 @@ The **MSIX** package (`packaging/msix/`) follows a two-vehicle policy:
 - **Beta builds** are distributed for **sideloading**, so they're signed here with
   our Azure Artifact Signing cert. Run `build-msix.ps1 -Beta`: it emits
   `dist\z80cpmw-<ver>-beta.msix`, signs it (`signtool` + dlib, below) and verifies.
+- **Beta rehearsals** (`build-msix.ps1 -Beta -SkipSign`) run the beta vehicle with
+  the signing call removed and emit `dist\z80cpmw-<ver>-beta-unsigned.msix` plus its
+  `.pdb`. Nothing about this output is publishable — it is how you check the beta
+  path without spending a signing call. See the two-stage recipe below.
 
 > **MSIX publisher gotcha.** `signtool` requires the package's `<Identity Publisher>`
 > to **exactly equal the signing cert subject** (`CN=Aaron Wohl, O=Aaron Wohl,
@@ -52,6 +56,44 @@ The **MSIX** package (`packaging/msix/`) follows a two-vehicle policy:
 > build — Store **1.0.22** and `dist\z80cpmw-1.0.22-beta.msix` hold a
 > byte-identical `z80cpmw.exe` — because it is the Publisher, not the number, that
 > separates the identities. Where the builds differ, the numbers must differ too.
+
+### Build a beta in two stages: rehearse, then sign
+
+A signed beta run has two effects that cannot be taken back. It spends a real
+Azure Trusted Signing call, and it writes `dist\z80cpmw-<ver>-beta.msix` — the
+exact name under which a beta gets published. Run it unsigned first.
+
+**Stage 1 — the rehearsal.** Safe to run at any time, on any version:
+
+```powershell
+.\build-msix.ps1 -Beta -SkipBuild -SkipSign
+```
+
+It does everything the signed run does except sign: version check, Publisher
+rewrite, `makeappx pack`, and the symbol copy. Both outputs carry `-unsigned` in
+the name, so the rehearsal cannot overwrite or be mistaken for a shipped package.
+Confirm `dist\z80cpmw-<ver>-beta-unsigned.msix` **and**
+`dist\z80cpmw-<ver>-beta-unsigned.pdb` both appear, then delete both — they are
+build output, and a stray unsigned package in `dist\` is exactly the thing that
+gets attached to a release by accident. Drop `-SkipBuild` if `bin\Release` is not
+already the build you mean to package.
+
+**Stage 2 — the real thing.** Only once stage 1 is clean, **and only for a version
+that has not already shipped**:
+
+```powershell
+.\build-msix.ps1 -Beta
+```
+
+Check `z80cpmw\Version.h` against the published releases before running this. A
+beta whose version is already on GitHub will be silently re-minted from whatever
+is in `bin\Release` — the version guard compares `bin\Release\z80cpmw.exe` to
+`Version.h` and says nothing about the artifact being replaced, so two different
+binaries can carry one version number and pass. Bump the version instead.
+
+Do not reach for `-WhatIf`: the script does not implement it and rejects it, on
+purpose. A `-WhatIf` that skipped only the steps someone remembered to guard
+would be more dangerous than none. `-SkipSign` is the real dry run.
 
 ---
 
@@ -209,8 +251,10 @@ Where to hook it into the existing scripts:
   rewrites the manifest Publisher to the cert subject, packs, then calls the signing
   kit's `sign.ps1` (signtool + dlib) and verifies. The kit folder defaults to
   `$env:Z80CPMW_SIGNING_KIT` (else `C:\temp\in\z80cpmw-signing-kit`); override with
-  `-SigningKit <dir>`. The legacy `-CertificatePath` (`.pfx`) path is retained only
-  for local self-signed testing.
+  `-SigningKit <dir>`. Adding `-SkipSign` takes the rehearsal arm, which never
+  computes a path into the kit at all, so the rehearsal is safe on a machine where
+  the kit is present and the credentials work. The legacy `-CertificatePath`
+  (`.pfx`) path is retained only for local self-signed testing.
 
 ### Option 2 — `dotnet sign` (Windows convenience wrapper)
 

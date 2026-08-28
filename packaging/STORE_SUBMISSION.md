@@ -183,6 +183,26 @@ unsigned). Upload it as-is; Microsoft signs it. For the signed **beta** package
 the same binary as Store 1.0.22 signed under our own publisher) — do **not**
 upload that one to the Store (see [Signing](#signing-who-signs-what)).
 
+The beta build is done in two stages, because the signed one is irreversible: it
+spends an Azure Trusted Signing call and writes the published `-beta.msix` name.
+
+```powershell
+.\build-msix.ps1 -Beta -SkipBuild -SkipSign   # stage 1: rehearsal, always safe
+.\build-msix.ps1 -Beta                        # stage 2: only on an unshipped version
+```
+
+Stage 1 does everything stage 2 does except sign, and names its outputs
+`dist\z80cpmw-<version>-beta-unsigned.msix` and `…-beta-unsigned.pdb` so a dry run
+can never overwrite or be mistaken for a shipped package. Delete both when the run
+is checked. Before stage 2, compare `z80cpmw\Version.h` against the published
+releases: the version guard only proves `bin\Release\z80cpmw.exe` matches
+`Version.h`, so re-running on a shipped version replaces that artifact with a
+different binary carrying the same number and reports nothing wrong. `-SkipSign` is
+the dry run; `build-msix.ps1` rejects `-WhatIf` outright rather than pretending to
+honour it. (`build-nsis.ps1` has no such guard yet — a stray `-WhatIf` there is
+still swallowed into `$args` and the run proceeds for real.) Full recipe in
+[docs/CODE_SIGNING.md](../docs/CODE_SIGNING.md).
+
 ### NSIS Installer (for direct distribution)
 
 ```powershell
