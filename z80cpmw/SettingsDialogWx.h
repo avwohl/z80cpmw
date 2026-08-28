@@ -10,6 +10,7 @@
 #include <wx/spinctrl.h>
 #include <wx/listctrl.h>
 #include <wx/gauge.h>
+#include <wx/notebook.h>
 #include <string>
 #include <vector>
 #include <functional>
@@ -43,6 +44,14 @@ public:
 private:
     void createControls();
     void layoutControls();
+    // One builder per notebook page: each creates the controls it owns, parents
+    // them to its own panel and gives that panel its sizer. Creation and layout
+    // are not split across two passes here the way createControls() and
+    // layoutControls() split them, because a control's page IS its parent -
+    // separating the two just means naming the same panel twice.
+    void buildMachinePage();
+    void buildTerminalPage();
+    void buildDiskImagesPage();
     void populateROMList();
     void populateDiskLists();
     void populateCatalog();
@@ -67,6 +76,13 @@ private:
     DiskCatalog* m_catalog;
     WxEmulatorSettings m_settings;
 
+    // Notebook and its pages. Every control below except m_statusText and the
+    // OK/Cancel buttons is parented to one of these panels, not to the dialog.
+    wxNotebook* m_notebook;
+    wxPanel* m_machinePage;
+    wxPanel* m_terminalPage;
+    wxPanel* m_diskImagesPage;
+
     // Controls
     wxChoice* m_romChoice;
     wxChoice* m_diskChoices[4];
@@ -88,6 +104,9 @@ private:
     wxButton* m_downloadBtn;
     wxButton* m_deleteBtn;
     wxGauge* m_progressBar;
+    // Deliberately parented to the dialog, below the notebook, and NOT to any
+    // page: six handlers write it and they do not all live on one page - see
+    // createControls().
     wxStaticText* m_statusText;
     wxStaticText* m_diskDirLabel;
     wxTextCtrl* m_diskDirText;
