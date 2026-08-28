@@ -31,6 +31,22 @@ m_emulator->setDebug() after it, so the box always opens unticked and an OK from
 someone who never touched it turns debug off.  Same function as the item above,
 and the same shape of fault - a control with no seed - so take them together.
 
+- [WINDOWS] the seven remote help topics can be bundled now, and the reason not
+to has gone.  help_assets::resolveTopic already holds the order - download, then
+cache, then the copy in the binary - and its third step is reached with an empty
+bundled string, so this is one argument at one call site plus whatever carries
+the bytes (RCDATA in z80cpmw.rc referencing ..\ioscpm\release_assets in place is
+the shape that was scoped; verify rc.exe /i resolves a data file through an
+include directory before writing eight lines of it, and note that it makes
+..\ioscpm a THIRD required sibling checkout, which README.md's Requirements and
+tests\run_tests.bat's guards would both have to say).  What blocked it was that
+the topics were written for iOS, and that is fixed upstream rather than forked:
+avwohl/ioscpm branch help-platform-neutral, "The shared help assets stop being
+written for iOS only".  Bundling reads release_assets/ out of the sibling
+checkout, so it gets the corrected text as soon as that branch is merged - a
+NETWORKED reader still gets the old wording until those files are attached to a
+GitHub release, which is ioscpm's own [RELEASE] item and not this port's to do.
+
 - [WINDOWS] nothing calls help_assets::setCacheRoot(), so the help cache picks
 its own directory.  HelpAssets.h says what the call should be -
 EmulatorEngine::getUserDataDirectory() plus a help subdirectory - and until
@@ -158,19 +174,6 @@ this before verify-disk-assets.sh passes on the staged images.
 
 Needs the owner
 ----------------
-
-- [DECISION] the bundled copy of the remote help topics is blocked on wording,
-not on work.  The on-disk cache landed: help_assets::resolveTopic is the one
-place the order lives - download, then cache, then the copy in the binary - and
-its third step is written and reached, with the bundled string empty for every
-topic that gets there, so the bundling commit is one argument at one call site.
-What stops it is that three of the seven published topics are written for iOS
-("tap the gear icon", "Cmd+C copies the screen text", an "iOS / iPadOS"
-heading), and the published help_index.json calls Quick Start "Getting started
-with iOSCPM".  Compiling that into a Windows binary makes the wrong wording
-durable AND offline, which is the opposite of what the item wants.  Someone has
-to choose: fork the text here, or fix it upstream in avwohl/ioscpm.  cpmdroid
-met this and forked (78e6ec6), which is a precedent rather than the answer.
 
 - [DECISION] the v1.0.22-beta GitHub release is flagged Latest rather than
 prerelease, unlike 1.0.16 / 1.0.17 / 1.0.21.  If the -beta channel should stay a
