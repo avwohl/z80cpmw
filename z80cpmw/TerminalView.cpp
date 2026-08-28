@@ -1602,6 +1602,28 @@ void TerminalView::applySGR(int param) {
         } else if (param >= 40 && param <= 47) {
             m_currentAttr = (uint8_t)((m_currentAttr & 0x0F)
                                       | (ansiToCGAColor((uint8_t)(param - 40)) << 4));
+        } else if (param >= 90 && param <= 97) {
+            // The bright half. These were dropped entirely until now, so
+            // ESC[91m came out in whatever colour was already set - measured
+            // as CGA 7 from a fresh reset, which is to say indistinguishable
+            // from no colour at all. cpmdroid's TerminalView.kt has had the
+            // branch since its ANSI fix; this is the same rule.
+            //
+            // 0xF0 and not 0xF8: the bright bit IS bit 3, so a bright colour
+            // sets the intensity SGR 1 would have set, exactly as SGR 1
+            // followed by SGR 3x does. Preserving bit 3 here would make
+            // ESC[22m unable to dim a colour that was asked for bright.
+            m_currentAttr = (uint8_t)((m_currentAttr & 0xF0)
+                                      | ansiToCGAColor((uint8_t)(param - 90)) | 0x08);
+        } else if (param >= 100 && param <= 107) {
+            // The background nibble is three bits wide - bit 7 is blink on
+            // real CGA hardware, and cgaToRGB() masks with 0x0F, so a bright
+            // background can only be stored by borrowing it. It is not, and
+            // these are folded onto the normal background instead: a wrong
+            // shade beats a cell that starts blinking. ECMA-48 leaves both
+            // legal; the packed byte is what decides.
+            m_currentAttr = (uint8_t)((m_currentAttr & 0x0F)
+                                      | (ansiToCGAColor((uint8_t)(param - 100)) << 4));
         }
         break;
     }

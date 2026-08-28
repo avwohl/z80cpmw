@@ -51,6 +51,36 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM The rendering suite is the only one here that needs a window station: it
+REM creates a real window, asks the DWM to render it with PrintWindow, and
+REM samples the pixels.  That is what settles a question like "is ESC[31m red",
+REM which the model-level suite above cannot ask - cellAt() returns the index
+REM that was stored, not the colour that reached the glass.  On a machine with
+REM no interactive desktop it prints SKIP and exits 0 rather than failing.
+if not exist "obj\tests\render" mkdir "obj\tests\render"
+
+echo.
+echo === Building the rendering conformance suite ===
+cl /nologo /EHsc /W3 /O2 /std:c++17 ^
+    /D _CRT_SECURE_NO_WARNINGS ^
+    /I z80cpmw ^
+    tests\test_render.cpp ^
+    z80cpmw\TerminalView.cpp ^
+    /Fo:obj\tests\render\ ^
+    /Fe:obj\tests\render\test_render.exe ^
+    /link /SUBSYSTEM:CONSOLE user32.lib gdi32.lib
+if errorlevel 1 (
+    echo Build failed.
+    exit /b 1
+)
+
+echo.
+obj\tests\render\test_render.exe
+if errorlevel 1 (
+    echo.
+    echo RENDERING CONFORMANCE SUITE FAILED
+    exit /b 1
+)
 if not exist "..\romwbw_emu\src\emu_io.h" (
     echo.
     echo Missing ..\romwbw_emu - clone it beside this repository to run the

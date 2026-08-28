@@ -484,6 +484,57 @@ static void test_sgr() {
     { Term t; t.send("\033[1mA");
       CHECK_INT(t.fg(0, 0), 0x0F, "SGR 1 sets the bold (intensity) bit"); }
 
+    // The bright half, SGR 90-97 and 100-107. These were not handled at all
+    // until now: they fell through applySGR()'s default and left the byte
+    // alone, so ESC[91m from a fresh reset drew in CGA 7 - measured on the
+    // painted pixels by tests/test_render.cpp, not inferred. Bright is the
+    // same ANSI index with the intensity bit set, which is why each
+    // expectation here is its 3x counterpart above plus 8.
+    { Term t; t.send("\033[90mA");
+      CHECK_INT(t.fg(0, 0), 8, "SGR 90 (bright black) is CGA 8 (dark grey)"); }
+    { Term t; t.send("\033[91mA");
+      CHECK_INT(t.fg(0, 0), 12, "SGR 91 (bright red) is CGA 12 (light red)"); }
+    { Term t; t.send("\033[92mA");
+      CHECK_INT(t.fg(0, 0), 10, "SGR 92 (bright green) is CGA 10 (light green)"); }
+    { Term t; t.send("\033[93mA");
+      CHECK_INT(t.fg(0, 0), 14, "SGR 93 (bright yellow) is CGA 14 (yellow)"); }
+    { Term t; t.send("\033[94mA");
+      CHECK_INT(t.fg(0, 0), 9, "SGR 94 (bright blue) is CGA 9 (light blue)"); }
+    { Term t; t.send("\033[95mA");
+      CHECK_INT(t.fg(0, 0), 13, "SGR 95 (bright magenta) is CGA 13 (light magenta)"); }
+    { Term t; t.send("\033[96mA");
+      CHECK_INT(t.fg(0, 0), 11, "SGR 96 (bright cyan) is CGA 11 (light cyan)"); }
+    { Term t; t.send("\033[97mA");
+      CHECK_INT(t.fg(0, 0), 15, "SGR 97 (bright white) is CGA 15 (white)"); }
+
+    // A bright colour sets the same bit SGR 1 does, so SGR 22 must be able to
+    // dim it. Preserving bit 3 across a 9x - which is what the 3x branch does,
+    // and the easy way to write this - would make ESC[91m ESC[22m a no-op.
+    { Term t; t.send("\033[91m\033[22mA");
+      CHECK_INT(t.fg(0, 0), 4, "SGR 22 dims a bright colour to its plain twin"); }
+
+    // ...and a plain colour after a bright one is NOT plain. The 3x branch
+    // masks with 0xF8 on purpose, so that ESC[1;37m stays bright; the
+    // intensity bit that 9x sets is the same bit, so 3x preserves that too.
+    // The way back to plain red is ESC[22m or ESC[0m, not ESC[31m. Recorded
+    // because it is a consequence of the earlier fix rather than a choice
+    // made here, and the next person to touch either branch should see it.
+    { Term t; t.send("\033[91m\033[31mA");
+      CHECK_INT(t.fg(0, 0), 12, "a plain colour after a bright one keeps the intensity bit"); }
+
+    { Term t; t.send("\033[91m\033[0m\033[31mA");
+      CHECK_INT(t.fg(0, 0), 4, "and a reset between them gets plain red back"); }
+
+    // The background nibble is three bits: bit 7 is blink on CGA hardware and
+    // cgaToRGB() masks it off, so 100-107 fold onto the plain background
+    // rather than borrowing it.
+    { Term t; t.send("\033[101mA");
+      CHECK_INT(t.bg(0, 0), 4, "SGR 101 (bright red bg) folds onto CGA 4 (red)"); }
+
+    { Term t; t.send("\033[91;101mA");
+      CHECK_INT(t.fg(0, 0), 12, "a bright foreground and background do not collide");
+      CHECK_INT(t.bg(0, 0), 4, "and the background keeps its own nibble"); }
+
     { Term t; t.send("\033[1m\033[22mA");
       CHECK_INT(t.fg(0, 0), 0x07, "SGR 22 clears the bold bit"); }
 
