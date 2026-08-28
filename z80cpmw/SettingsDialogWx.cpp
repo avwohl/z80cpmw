@@ -277,8 +277,34 @@ void SettingsDialogWx::buildMachinePage() {
 
     m_dazzlerEnabledCheck = new wxCheckBox(page, ID_DAZZLER_ENABLED, "Enable Dazzler Graphics Card");
     m_dazzlerPortLabel = new wxStaticText(page, wxID_ANY, "Port (hex):");
-    m_dazzlerPortSpin = new wxSpinCtrl(page, wxID_ANY, "14", wxDefaultPosition,
+    // Empty text, not "14" and not "0E": the string argument is parsed in the
+    // base in force at construction, which is 10 until SetBase() below, so any
+    // hex spelling of the default would be read wrong here. Empty makes
+    // wxSpinCtrl use the numeric `initial` instead, and 0x0E is unambiguous.
+    m_dazzlerPortSpin = new wxSpinCtrl(page, wxID_ANY, "", wxDefaultPosition,
                                         wxSize(70, -1), wxSP_ARROW_KEYS, 0, 255, 0x0E);
+
+    // Base 16, so the control matches the label it has carried all along. It was
+    // built with the default base 10 and an initial text of "14" - 0x0E written
+    // in decimal - which was harmless only while MainWindow neither seeded this
+    // field nor read it back. It is now the port the Dazzler is CONSTRUCTED with
+    // and the number written to hardware.dazzler[0].port, so a user who read
+    // "Port (hex):", typed 0E and pressed OK got a card at port 14, and one who
+    // typed 20 got 0x14.
+    //
+    // Hex rather than relabelling this "(decimal)", because every other
+    // statement of the port in the program is hex - DazzlerConfig::port's
+    // default is written 0x0E, MainWindow's status line prints "port 0x0E",
+    // Dazzler.h documents the card's base port the same way - and so is the
+    // Cromemco literature the number is copied out of. A decimal control would
+    // have been the only decimal port in the application.
+    //
+    // Checked rather than assumed: SetBase returns false on a port that cannot
+    // do base 16, and there the label is corrected instead, so the two cannot
+    // disagree whichever way it goes.
+    if (!m_dazzlerPortSpin->SetBase(16)) {
+        m_dazzlerPortLabel->SetLabel("Port (decimal):");
+    }
     m_dazzlerScaleLabel = new wxStaticText(page, wxID_ANY, "Scale:");
     m_dazzlerScaleSpin = new wxSpinCtrl(page, wxID_ANY, "4", wxDefaultPosition,
                                          wxSize(60, -1), wxSP_ARROW_KEYS, 1, 8, 4);

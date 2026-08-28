@@ -11,6 +11,10 @@
 #include "Dazzler.h"
 #include "SettingsDialogWx.h"
 #include "HelpWindow.h"
+// help_assets::setCacheRoot() only, called once from onCreate(). HelpAssets.h
+// asks for exactly that one call from here and nothing else on the help side is
+// this file's business.
+#include "HelpAssets.h"
 // config::renderBlock() for the configuration report. Already reachable through
 // MainWindow.h -> Config.h; named here because this file calls it.
 #include "ConfigReport.h"
@@ -416,6 +420,25 @@ void MainWindow::onCreate() {
 
     // Set main window handle for R8/W8 file dialogs
     emu_io_set_main_window(m_hwnd);
+
+    // Point the help cache at the same root everything else user-writable uses.
+    // HelpAssets.h asks for this exact call and had no caller, so cacheDir()
+    // was falling back to %LOCALAPPDATA% read from the environment - a fourth
+    // way of naming the directory that getUserDataDirectory(), DiskCatalog's
+    // constructor and emu_io_windows.cpp's getDataFolder all reach through
+    // SHGetKnownFolderPath instead.
+    //
+    // Here, and not somewhere later, because setCacheRoot has to run before any
+    // help window can exist: cacheDir() is read on the thread fetchTopic()
+    // detaches and there is no lock, so a later call would be a data race and
+    // not a reconfiguration. Both routes to ShowHelpWindow are dispatched from
+    // run()'s message loop - ID_HELP_TOPICS arrives as WM_COMMAND, whether from
+    // the menu or from the F1 accelerator TranslateAccelerator turns into one,
+    // and the first-run welcome is the WM_APP_SHOW_WELCOME this function posts
+    // to itself at the bottom - while onCreate runs inside the CreateWindowExW
+    // in MainWindow::create(), which wWinMain calls before run(). Every help
+    // window is therefore opened after this line, including the posted one.
+    help_assets::setCacheRoot(EmulatorEngine::getUserDataDirectory() + "\\help");
 
     // Create status bar
     m_statusBar = CreateWindowExW(
@@ -1099,10 +1122,53 @@ void MainWindow::onEmulatorSettings() {
 
     // Use wxWidgets-based settings dialog for proper layout
     WxEmulatorSettings settings;
-    settings.debugMode = false;  // TODO: get from emulator
 
     // Pass currently loaded disk filenames to settings dialog from config
     const auto& cfg = config::ConfigManager::instance().get();
+
+    // Debug mode from the config, which is the only durable record of it:
+    // EmulatorEngine keeps m_debug private and declares no getter, and the only
+    // two callers of setDebug() are applyConfig() - which feeds it cfg.debug at
+    // startup and after a profile load - and the OK path below, which now
+    // writes cfg.debug as well so this seed keeps reading the truth. Seeded
+    // false with a "TODO: get from emulator", the box opened unticked however
+    // the machine was actually running, and the unconditional setDebug() below
+    // then turned debug OFF for anyone who pressed OK without touching it.
+    settings.debugMode = cfg.debug;
+
+    // The Dazzler group, which had neither a seed nor a write-back: the
+    // checkbox opened unchecked on a machine running a Dazzler, and anything
+    // set in it was discarded at OK.
+    //
+    // WHICH OF THE TWO IS AUTHORITATIVE. At startup the config is, because it
+    // is the only side that exists: m_dazzlerEnabled starts false and
+    // EmulatorEngine::getDazzler() starts null, and applyConfig() manufactures
+    // both from cfg.dazzlers[0] - there is no path that writes the other way
+    // before the user acts, so at startup they cannot disagree. Afterwards the
+    // live card is authoritative, because updateConfigFromState() - which every
+    // saveSettings() runs, including the one at the bottom of this function -
+    // rewrites cfg.dazzlers[0].enabled from m_dazzlerEnabled and, whenever that
+    // is true, the port and scale from the live Dazzler's
+    // getBasePort()/getScale(). The one way the
+    // two can drift is a profile load: applyConfig() sets m_dazzlerEnabled true
+    // for an enabled profile but never sets it false for a disabled one, and
+    // the next save then writes the live side back over the profile.
+    //
+    // So the seed follows exactly the rule updateConfigFromState() writes back
+    // by - the live card where there is one, cfg.dazzlers[0] as the record of
+    // the last chosen port and scale where there is not. With neither (a config
+    // that has never had a Dazzler), WxEmulatorSettings' own defaults stand,
+    // and they are the same 0x0E/4 onViewDazzler falls back to.
+    if (const Dazzler* liveDazzler = m_emulator->getDazzler()) {
+        settings.dazzlerEnabled = m_dazzlerEnabled;
+        settings.dazzlerPort = liveDazzler->getBasePort();
+        settings.dazzlerScale = liveDazzler->getScale();
+    } else if (!cfg.dazzlers.empty()) {
+        settings.dazzlerEnabled = false;
+        settings.dazzlerPort = cfg.dazzlers[0].port;
+        settings.dazzlerScale = cfg.dazzlers[0].scale;
+    }
+
     settings.warnManifestWrites = cfg.warnManifestWrites;
     settings.scrollbackLines = cfg.scrollbackLines;
     settings.bellEnabled = cfg.bellEnabled;
@@ -1134,13 +1200,23 @@ void MainWindow::onEmulatorSettings() {
     }
 
     if (ShowWxSettingsDialog(m_hwnd, m_diskCatalog.get(), settings)) {
+        // Hoisted from the disk loop below, which is where this reference used
+        // to be declared, because the debug and Dazzler write-backs added here
+        // need it too and one alias for the singleton is enough.
+        auto& cfgMut = config::ConfigManager::instance().get();
+
         // Handle clear boot config request
         if (settings.clearBootConfigRequested) {
             m_emulator->clearNvramSetting();
-            config::ConfigManager::instance().get().bootString.clear();
+            cfgMut.bootString.clear();
         }
 
-        // Apply debug mode
+        // Apply debug mode - to the config as well as to the emulator. cfg.debug
+        // is what the seed above reads and what survives a restart, and nothing
+        // else writes it: leaving it alone here would end a debug session at the
+        // next applyConfig(), which feeds the stale value straight back to
+        // setDebug(), and would show the same stale value in the box.
+        cfgMut.debug = settings.debugMode;
         m_emulator->setDebug(settings.debugMode);
 
         // Load the ROM only if it actually changed, and record the change
@@ -1175,7 +1251,6 @@ void MainWindow::onEmulatorSettings() {
         }
 
         // Load disks and update config
-        auto& cfgMut = config::ConfigManager::instance().get();
         for (int i = 0; i < 4; i++) {
             if (!settings.diskFiles[i].empty()) {
                 std::string diskPath;
@@ -1256,6 +1331,36 @@ void MainWindow::onEmulatorSettings() {
         rebuildAccelerators();
         updateMenuAccelHints();
 
+        // The Dazzler, applied to the machine and not merely to the config. A
+        // config-only write-back would be discarded a second time: saveSettings()
+        // below runs updateConfigFromState(), which rewrites cfg.dazzlers[0]
+        // from the live card, so the live card has to be changed first or the
+        // group stays as inert as it was.
+        //
+        // The config write above it is still needed, for the one case
+        // updateConfigFromState() cannot express: with the box unticked it sets
+        // enabled=false and leaves port and scale at whatever they already
+        // were, so a port chosen and then switched off would not survive to
+        // seed the next open.
+        //
+        // Written unconditionally rather than only when there is something to
+        // remember, and the cost is one inert entry - enabled false, the
+        // default port and scale - in the config of someone who pressed OK
+        // having never touched the Dazzler. Neither of the two places that act
+        // on the array can tell it from the empty one it replaces:
+        // applyConfig() does nothing unless daz.enabled, and onViewDazzler
+        // reads 0x0E and 4 out of it, which is exactly what it falls back to
+        // when the array is empty.
+        if (cfgMut.dazzlers.empty()) {
+            cfgMut.dazzlers.push_back(config::DazzlerConfig{});
+        }
+        cfgMut.dazzlers[0].enabled = settings.dazzlerEnabled;
+        cfgMut.dazzlers[0].port = (uint8_t)settings.dazzlerPort;
+        cfgMut.dazzlers[0].scale = settings.dazzlerScale;
+        applyDazzlerState(settings.dazzlerEnabled,
+                          (uint8_t)settings.dazzlerPort,
+                          settings.dazzlerScale);
+
         // Save settings to disk
         saveSettings();
 
@@ -1280,43 +1385,127 @@ void MainWindow::onViewFontSize(int size) {
     }
 }
 
-void MainWindow::onViewDazzler() {
-    m_dazzlerEnabled = !m_dazzlerEnabled;
+void MainWindow::applyDazzlerState(bool enabled, uint8_t port, int scale) {
+    // Whether the card was ALREADY on decides whether the window is put back on
+    // screen below; see the show() at the end of the enable arm.
+    const bool wasEnabled = m_dazzlerEnabled;
+    m_dazzlerEnabled = enabled;
 
     // Update menu checkmark
-    CheckMenuItem(m_menu, ID_VIEW_DAZZLER, m_dazzlerEnabled ? MF_CHECKED : MF_UNCHECKED);
+    CheckMenuItem(m_menu, ID_VIEW_DAZZLER, enabled ? MF_CHECKED : MF_UNCHECKED);
 
-    // Get Dazzler config (use first one or create default)
-    auto& cfg = config::ConfigManager::instance().get();
-    uint8_t port = 0x0E;
-    int scale = 4;
-    if (!cfg.dazzlers.empty()) {
-        port = cfg.dazzlers[0].port;
-        scale = cfg.dazzlers[0].scale;
-    }
-
-    if (m_dazzlerEnabled) {
-        // Enable Dazzler in emulator
+    if (enabled) {
+        // A port change on a card that is already running needs the card torn
+        // down first: EmulatorEngine::enableDazzler returns immediately when
+        // m_dazzler is non-null, and Dazzler exposes getBasePort() but no
+        // setBasePort() - the port is a constructor argument. Scale is the other
+        // way round: Dazzler::setScale() exists, so a scale change is applied to
+        // the live card just below instead of costing it its life. Dropping the
+        // window's pointer first matters: disableDazzler() destroys the object
+        // it points at.
+        Dazzler* live = m_emulator->getDazzler();
+        if (live && live->getBasePort() != port) {
+            if (m_dazzlerWindow) {
+                m_dazzlerWindow->setDazzler(nullptr);
+            }
+            m_emulator->disableDazzler();
+        }
         m_emulator->enableDazzler(port, scale);
+
+        // The scale onto the card, by hand, because nothing else does it any
+        // more. enableDazzler() sets it on the card it CONSTRUCTS and returns at
+        // once ("Already enabled") for one that exists, and the only other
+        // writer was DazzlerWindow::setScale, which this function has stopped
+        // calling for the reason given below. Dazzler::m_scale is read nowhere
+        // in Dazzler.cpp - it is purely the record of the choice - but
+        // updateConfigFromState() reads cfg.dazzlers[0].scale back out of
+        // getScale(), so leaving it stale writes the OLD scale to z80cpmw.json
+        // one statement after the user changed it in the dialog.
+        if (Dazzler* card = m_emulator->getDazzler()) {
+            card->setScale(scale);
+        }
+
+        // WHERE A NEW WINDOW GOES AND WHETHER IT ENDS UP ON SCREEN. Both are
+        // settled before anything is destroyed below.
+        //
+        // Not an unconditional show(true), which is what onEmulatorSettings' OK
+        // path turned into a bug the moment it began calling this on EVERY OK
+        // rather than only when the Dazzler group changed. DazzlerWindow answers
+        // WM_CLOSE with show(false) - "Hide instead of destroy - let main window
+        // manage lifetime" - so a window the user closed is a HIDDEN window and
+        // the card behind it is still enabled; an OK for the bell or a disk then
+        // reopened it. So it is shown when this call is what ENABLES the card
+        // (View > Dazzler toggling it on, or the Settings checkbox being
+        // ticked), or when there is no window yet, and otherwise the user's own
+        // last word about it stands.
+        //
+        // Reopening a closed window is View > Dazzler off and then on, two
+        // clicks, because WM_CLOSE does not clear m_dazzlerEnabled and the menu
+        // stays ticked. Fixing that means WM_CLOSE telling MainWindow, which is
+        // DazzlerWindow's business rather than this function's.
+        const bool hadWindow = (m_dazzlerWindow != nullptr);
+        const bool wasOnScreen = hadWindow && m_dazzlerWindow->isVisible();
+        const bool wantVisible = !hadWindow || !wasEnabled || wasOnScreen;
+
+        RECT mainRect = {};
+        GetWindowRect(m_hwnd, &mainRect);
+        int wndX = mainRect.right + 10;   // position next to the main window
+        int wndY = mainRect.top;
+
+        // A scale change REBUILDS the window rather than calling
+        // DazzlerWindow::setScale(), of which this line was the only caller in
+        // the whole tree and which does not do what is wanted here. Its
+        // updateSize() sizes the client to m_dazzler->getWidth() * scale - the
+        // card's CURRENT video mode, which is 32x32 until a guest program
+        // selects otherwise, since Dazzler::getWidth() reads m_x4Mode and
+        // m_use2K and both are false from the constructor.
+        // DazzlerWindow::create() deliberately uses a fixed 128 * scale instead
+        // ("Fixed size for maximum resolution (128x128 in X4 2K mode). Smaller
+        // modes will be scaled to fill this space"), and DazzlerWindow::paint()
+        // StretchBlt's whatever the mode is over the whole client rect. So the
+        // fixed size is the contract. Measured, on a card no guest had touched:
+        // a scale 4 -> 2 change through create() gives the 256x256 client the
+        // contract asks for, where setScale would have sized it from
+        // getWidth() * 2 and produced 64x64.
+        //
+        // The alternative, and the better shape: have DazzlerWindow::setScale
+        // size from Dazzler::MAX_WIDTH the way create() does, and this block
+        // collapses to one setScale() call. That is a change to DazzlerWindow,
+        // which this call site does not own.
+        if (m_dazzlerWindow && m_dazzlerWindow->getScale() != scale) {
+            RECT r = {};
+            if (m_dazzlerWindow->getHwnd() &&
+                GetWindowRect(m_dazzlerWindow->getHwnd(), &r)) {
+                wndX = r.left;   // keep where the user dragged it
+                wndY = r.top;
+            }
+            m_dazzlerWindow->setDazzler(nullptr);
+            m_dazzlerWindow.reset();   // ~DazzlerWindow() destroys the HWND
+        }
 
         // Create Dazzler window
         if (!m_dazzlerWindow) {
             m_dazzlerWindow = std::make_unique<DazzlerWindow>();
-
-            // Position next to main window
-            RECT mainRect;
-            GetWindowRect(m_hwnd, &mainRect);
-            m_dazzlerWindow->create(m_hwnd, mainRect.right + 10, mainRect.top, scale);
+            m_dazzlerWindow->create(m_hwnd, wndX, wndY, scale);
         }
 
         // Connect to emulator's Dazzler
         if (m_dazzlerWindow && m_emulator->getDazzler()) {
             m_dazzlerWindow->setDazzler(m_emulator->getDazzler());
-            m_dazzlerWindow->show(true);
+            // show(false) matters as much as show(true): create() carries
+            // WS_VISIBLE, so a window rebuilt for a scale change comes back on
+            // screen even when the one it replaced had been closed.
+            m_dazzlerWindow->show(wantVisible);
         }
 
-        m_statusText = "Dazzler enabled (port 0x" +
-            std::to_string(port) + ")";
+        // "0x" and then the port in hex, which it was not: std::to_string on a
+        // uint8_t promotes to int and printed the default port 0x0E as "0x14".
+        // Settings > Dazzler reads and writes base 16 behind its "Port (hex):"
+        // label and DazzlerConfig::port's default is written 0x0E, so this line
+        // now agrees with both.
+        char portText[8];
+        snprintf(portText, sizeof(portText), "0x%02X", (unsigned)port);
+        m_statusText = std::string("Dazzler enabled (port ") + portText + ")";
     } else {
         // Hide and disconnect Dazzler window
         if (m_dazzlerWindow) {
@@ -1329,6 +1518,24 @@ void MainWindow::onViewDazzler() {
 
         m_statusText = "Dazzler disabled";
     }
+}
+
+void MainWindow::onViewDazzler() {
+    // Get Dazzler config (use first one or create default)
+    const auto& cfg = config::ConfigManager::instance().get();
+    uint8_t port = 0x0E;
+    int scale = 4;
+    if (!cfg.dazzlers.empty()) {
+        port = cfg.dazzlers[0].port;
+        scale = cfg.dazzlers[0].scale;
+    }
+
+    // The config is still the source of the port and scale here, as it always
+    // was: this path only toggles, and when it is toggling ON there is no live
+    // card to read them from. Every call to enableDazzler() - this one through
+    // applyDazzlerState, and applyConfig()'s - sets m_dazzlerEnabled true in
+    // the same breath, so a false m_dazzlerEnabled means no card exists.
+    applyDazzlerState(!m_dazzlerEnabled, port, scale);
 
     // Save Dazzler state to config
     saveSettings();
@@ -1490,8 +1697,8 @@ void MainWindow::reportConfigDiagnostics() {
 
     // One notice per config::Problem kind rather than one for the whole report,
     // because the kinds do not stop being true at the same moment: saveSettings()
-    // retracts two of the five outright, a third only in one sub-case, and
-    // leaves the other two standing. Each notice
+    // retracts one of the five outright, a second only in one sub-case, and
+    // leaves the other three standing. Each notice
     // is renderBlock() called on the diagnostics of that one kind. renderBlock
     // picks its closing sentence from the kinds it is handed, so a subset of one
     // kind gets exactly the one sentence that applies to it, and nothing here
@@ -1543,19 +1750,43 @@ void MainWindow::reportConfigDiagnostics() {
             if (d.problem == k.problem) ofKind.push_back(d);
         }
         if (ofKind.empty()) {
-            // Every kind is visited, absent ones included. diagnostics() is
-            // cleared at the start of each load() and loadProfile() and so
-            // describes the configuration NOW in force, which means a profile
-            // that loads cleanly has to take the previous file's complaints
-            // down rather than leave them standing over settings nobody is
-            // using any more.
+            // Every kind is visited, absent ones included, because
+            // diagnostics() describes the configuration NOW in force and a kind
+            // that has dropped out of it has stopped being true of it. load()
+            // clears the list before it reads, and a loadProfile() that succeeds
+            // REPLACES it with the profile's, so a profile that loads cleanly
+            // has to take the previous file's complaints down rather than leave
+            // them standing over settings nobody is using any more.
+            //
+            // A loadProfile() that FAILS is the one path that neither clears nor
+            // replaces - it puts the in-force report back and appends this
+            // attempt's UnreadableFile behind it - so nothing is retracted
+            // there, which is right: those settings are still the ones running.
             clearNotice(k.notice);
             continue;
         }
         // The trailing blank line separates this block from the next notice and
         // from the boot output; renderBlock ends its last sentence, not the
         // screen.
-        setNotice(k.notice, config::renderBlock(ofKind) + "\r\n");
+        const std::string block = config::renderBlock(ofKind) + "\r\n";
+
+        // Print only what CHANGED. The path this is for is onLoadProfile()'s
+        // FAILURE branch, now that loadProfile() keeps the report about the file
+        // still in force: every kind but UnreadableFile comes back word for word
+        // as it was, so an unconditional setNotice() answered "that profile
+        // would not read" by reprinting the whole startup report underneath it.
+        // (The success branch reaches here too, with the profile's diagnostics
+        // in place of the previous file's, and the same rule is right there for
+        // the same reason.) A notice already
+        // holding this exact text has been printed once and printNotices() puts
+        // it back after every clear(), so re-emitting it adds nothing the
+        // terminal does not already say. Every kind is still visited, because a
+        // block that GREW - the profile's UnreadableFile joining the config's -
+        // is not equal and is printed. Done here rather than in setNotice(),
+        // whose "raise and print" contract the ROM notices rely on.
+        auto held = m_notices.find(k.notice);
+        if (held != m_notices.end() && held->second == block) continue;
+        setNotice(k.notice, block);
     }
 }
 
@@ -1692,24 +1923,45 @@ void MainWindow::saveSettings() {
         return;
     }
 
-    // Two of the five configuration notices stop being true at this save, one
-    // does only in a sub-case, and two do not. What decides it is what this
-    // save can reach:
+    // ONE of the five configuration notices stops being true at this save, a
+    // second does only in a sub-case, and three do not. What decides it is what
+    // this save can reach:
     //
     //   UnknownMember  - renderBlock says "saving settings will drop them", and
     //                    this is that save: to_json writes only the names it
-    //                    knows, so the member is now gone from the file and the
-    //                    sentence has become a prediction about the past.
-    //   TypeMismatch   - renders "nothing has been written over what you
-    //                    typed", and this save is precisely what falsifies it.
-    //                    The document PARSED, so nothing was renamed and
-    //                    z80cpmw.json still holds the section from_json's
-    //                    is_array()/is_object() guards skipped; to_json writes
-    //                    our defaults over it. ConfigManager::load() suppresses
-    //                    its own save for this kind and says in as many words
-    //                    that "a save later in the session still writes our
-    //                    defaults over the section that was skipped". This is
-    //                    that later save.
+    //                    knows, and nothing carries this kind past it either -
+    //                    inspectDocument fills AppConfig::unreadSections from
+    //                    its TypeMismatch findings alone. The member is now gone
+    //                    from the file and the sentence has become a prediction
+    //                    about the past.
+    //   TypeMismatch   - KEPT, and this is the retraction that had to go. Its
+    //                    justification was "to_json writes our defaults over"
+    //                    the skipped section, which is the opposite of what
+    //                    to_json now does: inspectDocument keeps the section's
+    //                    own text in AppConfig::unreadSections and to_json
+    //                    SPLICES IT BACK at the JSON pointer it came from, so a
+    //                    save writes that section back rather than over it.
+    //                    renderBlock says two things about the kind and only the
+    //                    first is about this save - "Saving settings writes such
+    //                    a section back rather than over it, so what you typed is
+    //                    safe; until it is corrected, nothing the application
+    //                    changes in that section is saved either." The second
+    //                    half is a standing condition that no save ends and every
+    //                    save re-enters - it is the price of the carry, and it
+    //                    is the half the user has to be told, because it is why
+    //                    a setting they change in that section will not stick.
+    //                    Measured with "keyboard": { "keys": ["Up", "\E[A"] } on
+    //                    disk and an OK in Settings: the file still held the
+    //                    array exactly as typed afterwards, and with the
+    //                    retraction gone the block was still on screen after the
+    //                    clear Emulator > Reset does. It is not a warning the
+    //                    user can dismiss by saving, and the save that used to
+    //                    dismiss it need not even be theirs: onTimer()'s
+    //                    hasNvramChange() branch calls saveSettings() on its own.
+    //                    What ends this notice is the user correcting the
+    //                    section and the next load finding it readable, which
+    //                    reportConfigDiagnostics() picks up by clearing every
+    //                    kind the fresh diagnostics do not name.
     //   UnreadableFile - conditional, and this is the one that used to be
     //                    wrong. Config.cpp draws the OPPOSITE conclusion here
     //                    from the one it draws for TypeMismatch: suppressing
@@ -1749,7 +2001,6 @@ void MainWindow::saveSettings() {
     // not even rewrite the ROM name it is complaining about. They are retracted
     // where a ROM is successfully loaded instead; see loadDefaultROM().
     clearNotice(Notice::ConfigUnknownMember);
-    clearNotice(Notice::ConfigTypeMismatch);
     if (m_unreadableConfigStillInPlace) {
         clearNotice(Notice::ConfigUnreadableFile);
     }
@@ -1925,8 +2176,12 @@ void MainWindow::updateConfigFromState() {
         break;
     }
 
-    // Capture debug mode
-    // cfg.debug = m_emulator->isDebug(); // If we had a getter
+    // Debug mode is deliberately NOT captured here: EmulatorEngine keeps
+    // m_debug private and declares no getter, so there is nothing to read it
+    // back from. cfg.debug is written where it CHANGES instead - the only two
+    // callers of setDebug() are applyConfig(), which reads cfg.debug rather
+    // than writing it, and onEmulatorSettings' OK path, which now writes both -
+    // so the value this function's save carries is already the current one.
 
     // Note: bootString is saved automatically when NVRAM changes (in onTimer)
 
@@ -2006,8 +2261,10 @@ void MainWindow::onLoadProfile() {
             // After the stop, so the report does not land in the middle of the
             // guest's own output, and before applyConfig() so the file is
             // described before it is applied - the same order loadSettings()
-            // uses. loadProfile() cleared the diagnostics, so a profile that
-            // loads cleanly takes the previous file's notices down here.
+            // uses. A loadProfile() that succeeds REPLACES the diagnostics with
+            // the profile's own (it holds the previous ones only long enough to
+            // decide, and drops them here), so a profile that loads cleanly
+            // takes the previous file's notices down with it in this call.
             reportConfigDiagnostics();
             applyConfig();
             if (wasRunning) {
@@ -2026,23 +2283,25 @@ void MainWindow::onLoadProfile() {
             // whole of what the user was told.
             //
             // Only when the diagnostics are about THIS profile. loadProfile()
-            // returns false for two different things: a file that would not
-            // read (m_diagnostics cleared and refilled with the profile's) and
-            // a name with no file at all, which returns before the clear and
-            // leaves the diagnostics of the configuration actually in force -
-            // reporting those again would reprint the startup report word for
-            // word for a profile that was merely missing. Diagnostic::path
-            // carries a FILE path only for UnreadableFile; every other kind
-            // carries a member path like "display.fontsize", so matching it
-            // against getProfilePath() separates the two exactly.
+            // returns false for two different things, and both now leave the
+            // report about the configuration actually in force standing: a file
+            // that would not read (its UnreadableFile is APPENDED behind that
+            // report, carrying the parser's line and column and the name the
+            // file was quarantined to), and a name with no file at all, which
+            // returns before loadFromFile is reached and adds nothing. Only the
+            // first has anything new to say. Diagnostic::path carries a FILE
+            // path only for UnreadableFile; every other kind carries a member
+            // path like "display.fontsize", so matching it against
+            // getProfilePath() separates the two exactly.
             //
-            // Known limit, and it is in ConfigManager rather than here:
-            // loadProfile() clears m_diagnostics before it fails, so any notice
-            // about z80cpmw.json goes down with this call even though the
-            // settings in force are still the ones from that file - loadFromFile
-            // leaves m_config untouched when it fails. Keeping both would mean
-            // diagnostics that accumulate across files, which is a change to
-            // ConfigManager's contract, not to this call site.
+            // The limit this used to record - loadProfile() clearing
+            // m_diagnostics before it failed, so a notice about z80cpmw.json
+            // went down with a profile load that changed no setting - is fixed
+            // in ConfigManager, which is where it was. What is left of it here
+            // is that reportConfigDiagnostics() now sees the in-force report as
+            // well as the profile's; it prints only the kinds whose text
+            // changed, which on this path is the UnreadableFile block and
+            // nothing else.
             //
             // No stop() first, unlike the success path above: nothing is being
             // applied, so there is no reason to interrupt a running machine.

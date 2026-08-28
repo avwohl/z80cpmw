@@ -67,6 +67,21 @@ private:
     void downloadAndStartWithDefaults();
     void onViewFontSize(int size);
     void onViewDazzler();
+
+    // Bring the machine, the Dazzler window and the View menu's check mark into
+    // line with one requested Dazzler state. Shared by onViewDazzler(), which
+    // toggles it, and by onEmulatorSettings()' OK path, which can also change
+    // the port or the scale of a card that is already running - the reason the
+    // port and scale are parameters rather than read from the config here.
+    //
+    // It does NOT save: both callers do that themselves, and
+    // updateConfigFromState() reads back the state this leaves behind.
+    //
+    // It does not force the window onto the screen either. onEmulatorSettings()
+    // reaches it on EVERY OK, and DazzlerWindow answers WM_CLOSE by hiding
+    // rather than destroying, so a window the user closed is put back only when
+    // this call is what enables the card - see the show() in the enable arm.
+    void applyDazzlerState(bool enabled, uint8_t port, int scale);
     void onHelpTopics();
     void onHelpAbout();
 
