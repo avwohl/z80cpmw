@@ -131,9 +131,62 @@ void to_json(json& j, const AppConfig& c) {
         }
     }
     j["disks"] = disksArray;
+
+    // Last, and after j["disks"], so that a section the loader could not read
+    // replaces whatever the lines above just wrote for it. This is the whole of
+    // the fix for "a wrongly-typed section is still lost to a later save": the
+    // type guards in from_json below skip such a section without reading one
+    // thing out of it, so whatever the lines above wrote for it is something the
+    // application supplied and nothing the file did - the built-in default at
+    // load, or whatever has been put there since. Of the two directions, the
+    // user's text over ours is the one that cannot destroy anything the file
+    // ever held.
+    //
+    // Unconditional HERE, and gated one level up. This function is handed an
+    // AppConfig and no destination, so it cannot tell z80cpmw.json from a
+    // profile; ConfigManager::saveToFile is the one place that knows both, and
+    // it clears the carry before serialising when the file being written is not
+    // the file AppConfig::unreadSectionsFrom names. Doing it there rather than
+    // by passing a path into to_json keeps nlohmann's ADL signature intact -
+    // json(config) has to stay a legal thing to write, and referenceDocument()
+    // and tests/test_config.cpp both write it.
+    //
+    // WHOLE SECTIONS, NEVER A MERGE. A carried section is text the application
+    // never understood, so there is no way to put a value it computed into that
+    // section without guessing what the text around it meant, and it does not
+    // guess. The cost is the other half of the
+    // same rule and renderBlock() says it out loud: while a section is carried,
+    // nothing the application does to it reaches the file either - mount a disk
+    // while "disks" is an object and the mount is gone at the next save. The
+    // alternative was a per-section "the app has written this since" flag that
+    // releases the carry; rejected because every writer of an AppConfig would
+    // have to set it, and the one writer that forgot would restore the silent
+    // overwrite this exists to end, in one section, with nothing able to see it.
+    for (const auto& kv : c.unreadSections) {
+        // The throwing parse, not json::parse(text, nullptr, false): a discarded
+        // value dumps as "<discarded>", which is not JSON, and saveToFile would
+        // write it into z80cpmw.json as though it were. Throwing instead makes
+        // saveToFile return false and leaves the file alone. It should not be
+        // reachable - the text is nlohmann's own dump() of a node its parser
+        // accepted, and the parser rejects the malformed UTF-8 that is the one
+        // thing dump() refuses - but the failure if it ever were is silent
+        // corruption of the file this whole exercise is protecting.
+        j[json::json_pointer(kv.first)] = json::parse(kv.second);
+    }
 }
 
 void from_json(const json& j, AppConfig& c) {
+    // A document never contains a carry, so reading one must never leave a
+    // carry standing. get<AppConfig>() hands this function a fresh object and
+    // would be safe on its own, but j.get_to(existing) hands it a LIVE one, and
+    // the value that would survive there is the previous file's unreadable text
+    // still pointed at the previous file. Two lines here make
+    // "a carry cannot outlive the load that produced it" a property of the
+    // conversion rather than of every caller remembering to clear it;
+    // ConfigManager::loadFromFile refills both immediately afterwards.
+    c.unreadSections.clear();
+    c.unreadSectionsFrom.clear();
+
     c.version = j.value("version", CURRENT_VERSION);
 
     // Core settings
@@ -168,6 +221,18 @@ void from_json(const json& j, AppConfig& c) {
     }
 
     // Disks
+    //
+    // The "i < 4" half of the bound is a guard in its own right, and it is the
+    // only one in this function that passes over part of a document WITHOUT
+    // leaving a carry behind: AppConfig::disks is four units, so a fifth entry
+    // is stepped over here and to_json writes four entries back, and the fifth
+    // is gone at the next save. It is not silent - collectExcessDiskProblems()
+    // reports every element from index 4 on as an UnknownMember, which is
+    // exactly the promise ("ignored now, dropped at the next save") that the
+    // behaviour keeps. Carrying "/disks/4" instead was rejected: a splice at
+    // that pointer appends to the four-element array to_json writes, so the
+    // entry would come back in every saved file forever while remaining a unit
+    // the application can never mount, and the report could only say so once.
     if (j.contains("disks") && j["disks"].is_array()) {
         const auto& disks = j["disks"];
         for (size_t i = 0; i < 4 && i < disks.size(); i++) {
@@ -258,6 +323,28 @@ static std::string joinPath(const std::string& prefix, const std::string& name) 
     return prefix.empty() ? name : prefix + "." + name;
 }
 
+// Where the walk below has got to, in the two notations the answer needs.
+//
+// `path` is the dotted-and-subscripted notation a person reads back into their
+// editor, and is what Diagnostic::path carries. `pointer` is the RFC 6901 JSON
+// pointer to_json splices a carried section back in at. They are stepped
+// together in one struct because two prefixes advanced in two places is the
+// first thing that would drift, and a carried section spliced at the wrong
+// pointer would write the user's text over a setting the app really did read.
+//
+// Nothing is escaped into `pointer`, and nothing needs to be. A pointer only
+// reaches AppConfig::unreadSections after the walk has descended, and the walk
+// descends only into an array element or into a member the REFERENCE has - a
+// member it does not know is reported and stepped over - so every component of
+// a pointer that is ever USED is an index or one of to_json's own names, and no
+// name to_json writes contains the '/' or '~' a pointer would have to escape.
+// One is built for an unknown member too, a line before that member turns out
+// to be unknown; it is thrown away unused.
+struct WalkPos {
+    std::string path;
+    std::string pointer;
+};
+
 // The single guess worth making about a member name.
 //
 // A case-only difference is the typo this catches in practice - "fontsize" for
@@ -319,28 +406,54 @@ static std::string nearestName(const json& reference, const std::string& name) {
 //     non-negative literal the unsigned type. Comparing those would report a
 //     type mismatch on an ordinary saved window position.
 static void collectMemberProblems(const json& actual, const json& reference,
-                                  const std::string& prefix, Diagnostics& out) {
+                                  const WalkPos& at, Diagnostics& out,
+                                  UnreadSections* unread) {
     if ((actual.is_structured() || reference.is_structured()) &&
         actual.type() != reference.type()) {
         Diagnostic d;
         d.problem = Problem::TypeMismatch;
-        d.path = prefix;
+        d.path = at.path;
         d.detail = std::string("expected ") + reference.type_name() +
                    ", found " + actual.type_name();
+        // Set from the same condition the carry below is taken on, so the two
+        // are one decision written once. inspectDocument() clears it again for
+        // the whole list if the document turns out to be unreadable, which is
+        // the other half of the answer and is not knowable here.
+        d.carried = !at.pointer.empty();
         out.push_back(d);
+
+        // The text of the section, for AppConfig::unreadSections. Taken here
+        // because this is the one place that has the node and its pointer at the
+        // same time, and taken for every TypeMismatch rather than for a list of
+        // paths written out a second time.
+        //
+        // The ROOT is not a section. An empty pointer addresses the whole
+        // document, so carrying it would have to_json replace everything the
+        // application knows with whatever the user's file happened to be. It
+        // cannot arise in a document that gets as far as being kept - a root of
+        // the wrong type cannot be turned into an AppConfig either, and
+        // loadFromFile discards the carry along with the rest of an unreadable
+        // file - but the cost of being wrong about that is the entire
+        // configuration, so it is refused here rather than reasoned about there.
+        //
+        // The return below is also what keeps two carried sections from ever
+        // overlapping: a mismatch stops the walk at that node, so nothing
+        // underneath it is reported, and nothing underneath it is carried.
+        if (unread && !at.pointer.empty()) (*unread)[at.pointer] = actual.dump();
         return;
     }
 
-    if (freeFormPaths().count(prefix)) return;
+    if (freeFormPaths().count(at.path)) return;
 
     if (actual.is_object()) {
         for (auto it = actual.begin(); it != actual.end(); ++it) {
-            std::string path = joinPath(prefix, it.key());
+            WalkPos next{ joinPath(at.path, it.key()),
+                          at.pointer + "/" + it.key() };
             auto known = reference.find(it.key());
             if (known == reference.end()) {
                 Diagnostic d;
                 d.problem = Problem::UnknownMember;
-                d.path = path;
+                d.path = next.path;
                 // Not "near": windows.h still defines that as an empty macro
                 // for the 16-bit memory models, so the declaration vanishes.
                 std::string nearest = nearestName(reference, it.key());
@@ -348,7 +461,7 @@ static void collectMemberProblems(const json& actual, const json& reference,
                 out.push_back(d);
                 continue;
             }
-            collectMemberProblems(it.value(), *known, path, out);
+            collectMemberProblems(it.value(), *known, next, out, unread);
         }
         return;
     }
@@ -370,8 +483,9 @@ static void collectMemberProblems(const json& actual, const json& reference,
             // from_json throws on a null and the trial conversion in
             // inspectDocument turns that into an UnreadableFile.
             if (actual[i].is_null()) continue;
-            collectMemberProblems(actual[i], reference[0],
-                                  prefix + "[" + std::to_string(i) + "]", out);
+            WalkPos next{ at.path + "[" + std::to_string(i) + "]",
+                          at.pointer + "/" + std::to_string(i) };
+            collectMemberProblems(actual[i], reference[0], next, out, unread);
         }
     }
 }
@@ -427,7 +541,54 @@ static void collectKeyNameProblems(const json& doc, Diagnostics& out) {
     }
 }
 
+// Disk entries past the last unit the loader reads.
+//
+// collectMemberProblems() cannot see this one. It checks every element of an
+// array against the reference's FIRST element, which is right for the shape of
+// an entry and says nothing about how many entries there may be; a fifth disk
+// is a perfectly well-formed DiskConfig, so the walk finds nothing wrong with
+// it and from_json's "i < 4" bound then steps over it in silence. That is the
+// same failure the rest of this file exists to end - absorbed without a word,
+// deleted at the next save, because to_json always writes exactly four - so it
+// is reported here rather than left to be discovered by comparing the file
+// before and after a save.
+//
+// UnknownMember rather than a sixth Problem enumerator. The kind is defined by
+// what happens next, not by which line of the loader did it, and "ignored now,
+// and the next save will not write it back" is already exactly this. A new
+// enumerator would also have to be handled in MainWindow's
+// reportConfigDiagnostics(), which maps every kind to its own on-screen notice,
+// for a case that shares its outcome with one already there.
+//
+// A null element is skipped, on the same convention collectMemberProblems()
+// uses: to_json writes null for an empty unit, so "disks": [null x 5] loses
+// nothing when the fifth is dropped and there is nothing to warn about.
+static void collectExcessDiskProblems(const json& doc, Diagnostics& out) {
+    // A "disks" that is not an array has no elements to count and is already
+    // reported as a TypeMismatch by collectMemberProblems().
+    if (!doc.contains("disks") || !doc["disks"].is_array()) return;
+
+    const auto& disks = doc["disks"];
+    for (size_t i = 4; i < disks.size(); i++) {
+        if (disks[i].is_null()) continue;
+        Diagnostic d;
+        d.problem = Problem::UnknownMember;
+        d.path = "disks[" + std::to_string(i) + "]";
+        d.detail = "there are only four disk units (0-3), so this entry is "
+                   "never read and the next save drops it";
+        out.push_back(d);
+    }
+}
+
 // Everything wrong with one document, whether or not it came from a file.
+//
+// `unread`, when it is supplied, comes back holding the text of every section
+// reported as a TypeMismatch, keyed by the pointer to_json has to splice it back
+// in at. It is CLEARED first, so what comes back is about THIS document and not
+// about the last one the map was handed to. ConfigManager::loadFromFile, the
+// only caller in the program that supplies it, passes a fresh local map and
+// would not notice either way; the clear is what lets the signature mean what it
+// says, and tests/test_config.cpp asks the question the manager never does.
 //
 // The trial get<AppConfig>() is what turns a member from_json REQUIRES rather
 // than defaults into a diagnostic. There is exactly one such member in the
@@ -437,11 +598,14 @@ static void collectKeyNameProblems(const json& doc, Diagnostics& out) {
 // defaults. loadFromFile then parses a second time; the cost is one pass over a
 // file of a few hundred bytes, and the alternative is that this function cannot
 // be asked about a document with no file behind it, which is how the tests ask.
-Diagnostics inspectDocument(const json& doc) {
+Diagnostics inspectDocument(const json& doc, UnreadSections* unread = nullptr) {
     Diagnostics out;
-    collectMemberProblems(doc, referenceDocument(), std::string(), out);
+    if (unread) unread->clear();
+    collectMemberProblems(doc, referenceDocument(), WalkPos{}, out, unread);
     collectKeyNameProblems(doc, out);
+    collectExcessDiskProblems(doc, out);
 
+    bool readable = true;
     try {
         (void)doc.get<AppConfig>();
     } catch (const std::exception& e) {
@@ -449,6 +613,29 @@ Diagnostics inspectDocument(const json& doc) {
         d.problem = Problem::UnreadableFile;
         d.detail = e.what();   // names the member and the reason; do not discard it
         out.push_back(d);
+        readable = false;
+    }
+
+    // Whether each skipped section is actually being carried, decided here
+    // because this is where both halves of the answer are known at once, and
+    // decided by the SAME test ConfigManager::loadFromFile makes - it keeps the
+    // carry only when nothing in this list is an UnreadableFile. Working it out
+    // in two places is how they would come to disagree, and the disagreement
+    // this fixes was exactly that: renderBlock() promised the carry for every
+    // TypeMismatch while the loader granted it only to the readable ones, so a
+    // document that was both wrongly typed and unreadable was quarantined with
+    // its carry discarded and the user was told their text was safe.
+    //
+    // collectMemberProblems() has already set carried on the entries that took
+    // a carry: a mismatch at the ROOT takes none (an empty pointer addresses
+    // the whole document), and clearing it here as well would not distinguish
+    // that case. `unread` being null changes nothing - a caller that does not
+    // want the text still gets the truth about what a loader would do with it,
+    // which is what renderBlock() is asked in the tests.
+    if (!readable) {
+        for (auto& d : out) {
+            if (d.problem == Problem::TypeMismatch) d.carried = false;
+        }
     }
     return out;
 }
@@ -603,31 +790,46 @@ bool ConfigManager::load() {
     //
     // Stated over the diagnostics rather than over `ok`, because loadFromFile
     // returns true for a document it only PARTLY read. A TypeMismatch means one
-    // of from_json's is_array()/is_object() guards skipped a whole section, and
-    // saving would write our defaults over text nothing ever looked at:
-    // "keyboard": { "keys": [ ... ] } is the case that matters, where the save
-    // replaces every hand-written binding with the built-in ones in the same
-    // launch that failed to read them. Dropping an UnknownMember at the next
-    // save is deliberately NOT in this list and stays as it was - nothing was
-    // read out of that member because there is nothing in it to read, and
+    // of from_json's is_array()/is_object() guards skipped a whole section:
+    // "keyboard": { "keys": [ ... ] } is the case that matters, where a save
+    // used to replace every hand-written binding with the built-in ones in the
+    // same launch that failed to read them. Dropping an UnknownMember at the
+    // next save is deliberately NOT in this list and stays as it was - nothing
+    // was read out of that member because there is nothing in it to read, and
     // renderBlock() says out loud that it is about to go.
     //
     // Only the save that load() itself performs is suppressed. Every other call
     // to save() still writes - MainWindow's saveSettings(), the window
     // placement recorded when the app closes, the first-run welcome flag. That
-    // is where this rule stops, and for an UnreadableFile that is enough,
-    // because the file has been renamed out from under those saves. For a
-    // TypeMismatch it is NOT a complete answer: the file parses, so it is not
-    // quarantined, and a save later in the session still writes our defaults
-    // over the section that was skipped. Closing that properly means carrying
-    // the text we could not read through to the next to_json, which is a change
-    // to the shape of the format rather than to its loader, and is not
-    // attempted here. What this buys is that a launch which only reads settings
-    // no longer destroys them on its own.
+    // is where this rule stops, and for an UnreadableFile it is enough on its
+    // own, because the file has been renamed out from under those saves.
     //
-    // The cost of suppressing this one save is that the default key bindings
-    // are not materialised into the file on this launch; the next launch that
-    // reads the file cleanly does it.
+    // For a TypeMismatch this rule was never the answer, and it is no longer
+    // asked to be: the file parses, so nothing is quarantined, and those later
+    // saves land on it. What makes them safe is AppConfig::unreadSections, which
+    // carries the skipped section's own text through to the splice at the end of
+    // to_json(json&, const AppConfig&), so a save writes that section BACK
+    // rather than over it. The rule here and the carry answer two different
+    // halves: this one covers the file, the carry covers the section.
+    //
+    // The carry covers those saves because they write the file it came from.
+    // Every one of them is save(), which writes getConfigPath(), and the
+    // document that raised the TypeMismatch here IS getConfigPath(). A save of
+    // some other file - saveAsProfile() - neither writes the section back nor
+    // over it: saveToFile() drops a carry that does not belong to the file it
+    // is writing, and the profile it creates never held that text in the first
+    // place.
+    //
+    // The suppression stays anyway, and the reason is not caution. This is the
+    // one save nobody asked for, and whenever it is suppressed it is the fill
+    // loop above that asked for it: needSave is set in exactly two places, and
+    // the other one is the branch where there was no config file at all, which
+    // raises no diagnostic and leaves `ok` true. So materialising the default
+    // key bindings is the whole of what is given up here. A launch that has just
+    // reported that it could not read part of the file has the weakest claim of
+    // any caller to rewriting the whole of it for that. The cost is that those
+    // bindings are not written out on this launch; the launch after the user
+    // corrects the file does it.
     bool partlyUnread = !ok;
     for (const auto& d : m_diagnostics) {
         if (d.problem == Problem::UnreadableFile ||
@@ -686,13 +888,54 @@ bool ConfigManager::loadFromFile(const std::string& path) {
             // the document readable. inspectDocument runs the same
             // get<AppConfig>() to discover whether it throws, so doing these
             // the other way round would report one failure twice.
-            found = inspectDocument(j);
+            UnreadSections unread;
+            found = inspectDocument(j, &unread);
             bool readable = true;
             for (const auto& d : found) {
                 if (d.problem == Problem::UnreadableFile) { readable = false; break; }
             }
             if (readable) {
                 m_config = j.get<AppConfig>();
+                // AFTER the conversion, and that order is the whole of why a
+                // section the user corrects by hand is picked up on the next
+                // load. The line above replaces the WHOLE AppConfig, this one
+                // included, so a carry from the previous file is gone before
+                // this line refills it from the document just read; put the two
+                // the other way round and the correction would be read into
+                // m_config and then written back out as the old array for the
+                // rest of the session. from_json cannot do it itself - it is
+                // handed the document and knows nothing of the walk that found
+                // the mismatch - which is why it is a second statement at all.
+                //
+                // Every pointer in here is a section from_json SKIPPED rather
+                // than read, for any document that gets this far. from_json
+                // passes over part of a document in FIVE places. Four are type
+                // guards, and they are the four that produce a carry:
+                // j["disks"].is_array(), hw.contains("dazzler") on a "hardware"
+                // that is not an object, hw["dazzler"].is_array(), and
+                // KeyboardConfig's j["keys"].is_object(). The fifth is the
+                // "i < 4 && i < disks.size()" bound on the disks loop, which is
+                // a count and not a type: a fifth disk entry is well-formed, so
+                // no TypeMismatch is raised for it and nothing is carried - it
+                // is reported as an UnknownMember by collectExcessDiskProblems()
+                // and dropped at the next save, which is what that kind
+                // promises. Every OTHER wrongly-typed section reaches a
+                // j.value() or a get<T>() that throws, which is an
+                // UnreadableFile and never reaches this line. Measured across
+                // the whole schema, and asserted rather than assumed:
+                // tests/test_config.cpp's "carried sections are the ones the
+                // loader skipped" is that list and its second half is the
+                // shapes that are quarantined instead, with the fifth guard in
+                // "a fifth disk entry" beside it.
+                m_config.unreadSections = std::move(unread);
+                // The file the carry may be written back to, and the only one.
+                // Kept beside the text rather than in a member of the manager
+                // because it is a property of the carry: whoever holds one has
+                // to be able to say where it came from. Cleared with it, so an
+                // empty map never leaves a stale path behind for a later carry
+                // to inherit.
+                m_config.unreadSectionsFrom =
+                    m_config.unreadSections.empty() ? std::string() : path;
                 m_diagnostics.insert(m_diagnostics.end(), found.begin(), found.end());
                 return true;
             }
@@ -741,13 +984,52 @@ bool ConfigManager::saveToFile(const std::string& path) const {
         fs::path filePath(path);
         fs::create_directories(filePath.parent_path());
 
+        // A CARRIED SECTION GOES BACK TO THE FILE IT CAME FROM AND NOWHERE
+        // ELSE.
+        //
+        // AppConfig::unreadSections is text the application could not parse,
+        // kept so that a save writes that section back rather than over it.
+        // That is only ever true of ONE file. This function is the only place
+        // that knows which file is being written, and m_config moves between
+        // files freely: save() always writes getConfigPath() and saveAsProfile()
+        // always writes a profile path, so with no test here a profile whose
+        // "disks" was an object had that object written into z80cpmw.json by the
+        // next save, and a z80cpmw.json whose "keyboard.keys" was an array had
+        // the array written into every profile saved afterwards. Both
+        // directions measured, not argued: replace the comparison below with
+        // "if (false)" and tests/test_config.cpp's "a carry belongs to one
+        // file" fails five checks, and the two files it writes then carry each
+        // other's unreadable text.
+        //
+        // The carry is DROPPED for any other file rather than carried into it.
+        // A file the text never came out of has nothing of the user's in that
+        // section to protect - saveAsProfile() creates the profile it is asked
+        // for - so the reason for the carry is absent, while the cost of it is
+        // not: the section would be unreadable in the new file too, would be
+        // reported against it on every load, and correcting the original would
+        // never clear the copy. What the new file gets instead is what the
+        // application actually holds for that section, which is the built-in
+        // defaults, and that is a file that loads cleanly. Refusing the save
+        // outright was rejected: it would make "save a profile" fail for a
+        // reason the user cannot act on from the dialog they are in.
+        //
+        // A copy, not a const_cast or a mutable member: this function is const
+        // and saving must not change the configuration in force. The struct is
+        // a handful of strings and one small map, copied once per save, against
+        // a file write.
+        AppConfig forThisFile = m_config;
+        if (forThisFile.unreadSectionsFrom != path) {
+            forThisFile.unreadSections.clear();
+            forThisFile.unreadSectionsFrom.clear();
+        }
+
         // Write to temp file first, then rename (atomic write)
         std::string tempPath = path + ".tmp";
         {
             std::ofstream file(tempPath);
             if (!file.is_open()) return false;
 
-            json j = m_config;
+            json j = forThisFile;
             file << j.dump(2);  // Pretty print with 2-space indent
         }
 
@@ -842,17 +1124,67 @@ bool ConfigManager::loadProfile(const std::string& name) {
         return false;
     }
 
-    // Cleared here rather than at the top, so that asking for a profile that
-    // does not exist leaves the diagnostics from the config actually in force.
-    m_diagnostics.clear();
+    // Held rather than cleared. The clear was already off the top of this
+    // function so that asking for a profile that does not exist leaves the
+    // report about the config actually in force standing; the same reasoning
+    // runs one step further, because a profile that will not READ changes no
+    // setting either - loadFromFile leaves m_config alone when it fails - and
+    // clearing here took down the report about z80cpmw.json, whose settings are
+    // still the ones the machine is running on.
+    //
+    // loadFromFile appends, so it is handed an empty list and its findings come
+    // back on their own, ready to be kept or discarded on its answer.
+    Diagnostics inForce;
+    inForce.swap(m_diagnostics);
 
     if (loadFromFile(path)) {
+        // The profile is the configuration now, complaints and all, and
+        // whatever was wrong with the file it replaced is no longer about
+        // anything in force. m_diagnostics is already exactly the profile's.
         m_currentProfile = name;
         return true;
     }
+
+    // Failed. The report about the configuration still in force goes back, and
+    // this attempt's findings go behind it rather than being dropped: the
+    // profile has just been quarantined by loadFromFile, and that diagnostic
+    // holds the parser's line and column and the name the file was renamed to.
+    // Nothing else in the program knows either. MainWindow's onLoadProfile
+    // tells the two apart the way it always has, by matching Diagnostic::path
+    // against getProfilePath() - only an UnreadableFile carries a file path.
+    //
+    // The entries this attempt replaces are the ones naming the same file.
+    // Retrying is only possible when the quarantine FAILED, since a renamed
+    // profile drops out of listProfiles(); when it is possible, a user who
+    // clicks Load Profile twice because nothing appeared to happen should get
+    // one report of one broken file rather than two identical ones.
+    Diagnostics attempt;
+    attempt.swap(m_diagnostics);
+    for (size_t i = inForce.size(); i-- > 0; ) {
+        if (inForce[i].path == path) inForce.erase(inForce.begin() + i);
+    }
+    m_diagnostics = std::move(inForce);
+    m_diagnostics.insert(m_diagnostics.end(), attempt.begin(), attempt.end());
     return false;
 }
 
+// Writes the settings in force into a profile of this name, creating it.
+//
+// It does NOT write a carried section into a profile the carry did not come out
+// of, and the decision is made in saveToFile() by comparing the path against
+// AppConfig::unreadSectionsFrom - see the note there. Stated again here because
+// this is the caller it is most surprising for: the settings being saved may be
+// the ones from a file that has a section nobody could read, and the NEW profile
+// written from them will not have it. That is deliberate. The profile is a file
+// the user has just asked to be created; there is nothing of theirs in it yet to
+// be written over, so the whole reason for the carry is missing, while its cost
+// - a section that is unreadable, reported on every load of the profile, and not
+// cleared by fixing the original - would follow the copy around. The new profile
+// gets what the application actually holds for that section, and loads cleanly.
+//
+// Saving over the profile the carry DID come out of is the other case and is
+// not this one: that is the file the text belongs to, so it is written back
+// exactly as ConfigManager::save() writes it back to z80cpmw.json.
 bool ConfigManager::saveAsProfile(const std::string& name) {
     // Create profiles directory if needed
     std::string profilesDir = getProfilesDir();

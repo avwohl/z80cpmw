@@ -84,6 +84,17 @@ struct DazzlerConfig {
     int scale = 4;              // Display scale factor
 };
 
+// Sections of a configuration file that none of the from_json functions in
+// Config.cpp could use, kept as the text they arrived as.
+//
+// Keyed by RFC 6901 JSON pointer - "/keyboard/keys", "/disks", "/hardware" -
+// because that is what to_json splices an entry back in at, and a pointer is
+// followed by the library rather than parsed here. The value is the section as
+// nlohmann's own dump() renders it, which is the parsed VALUE and not the
+// user's bytes: their spacing and their order of members inside an object are
+// gone by the time the document reaches us either way.
+using UnreadSections = std::map<std::string, std::string>;
+
 // Complete application configuration
 struct AppConfig {
     int version = CURRENT_VERSION;
@@ -120,6 +131,51 @@ struct AppConfig {
 
     // Hardware peripherals
     std::vector<DazzlerConfig> dazzlers;
+
+    // What the file this configuration was read from said that nothing above
+    // could be made out of it. Filled by ConfigManager::loadFromFile from the
+    // TypeMismatch findings inspectDocument reports.
+    //
+    // It belongs to ONE FILE - the one named in unreadSectionsFrom below - and
+    // it is written back to that file and to no other. Only one member of this
+    // struct is held at all: a load that succeeds replaces the whole of it
+    // before refilling this member from the document it just read, so a section
+    // the user has corrected leaves nothing behind, and a section that is wrong
+    // in two files read in one session is held once, by the file that won. A
+    // file that could not be read replaces nothing - loadFromFile leaves
+    // m_config exactly as it was - so the carry stays with the settings it came
+    // in with, still attached to the file those settings came from.
+    //
+    // It is not a setting and it is not part of the document. Nothing outside
+    // Config.cpp reads it, and to_json writes each entry back at the path it
+    // came from rather than under a name of this member's, so no name of its own
+    // ever appears in z80cpmw.json. That is also why it is invisible to the
+    // drift canary in tests/test_config.cpp, which builds its idea of the schema
+    // by running an AppConfig through to_json: a member to_json does not write
+    // is not in that schema. Adding it there would put a bookkeeping entry in
+    // the user's file for no one to read.
+    UnreadSections unreadSections;
+
+    // The path unreadSections was read out of, exactly as ConfigManager handed
+    // it to loadFromFile. Empty whenever unreadSections is.
+    //
+    // Without it the carry followed the SETTINGS rather than the file, and the
+    // settings move between files: ConfigManager::save() always writes
+    // getConfigPath() and saveAsProfile() always writes a profile path, so a
+    // profile whose "disks" was an object put that object into z80cpmw.json at
+    // the next save, and a main config whose "keyboard.keys" was an array put
+    // the array into every profile saved afterwards. One file's unparseable
+    // text ended up in another file, where the user had never typed it and
+    // where correcting the first file would never clear it.
+    //
+    // Compared with == and nothing cleverer. Both sides are produced by
+    // getConfigPath()/getProfilePath() from one getConfigDir(), so the two
+    // strings are byte-identical when they name the same file; a case-folding
+    // or canonicalising comparison would only matter for a caller that built a
+    // path some other way, and ConfigManager::saveToFile has no such caller.
+    // Getting it wrong in the safe direction costs a carry that is dropped
+    // rather than one that is misfiled.
+    std::string unreadSectionsFrom;
 };
 
 // Singleton configuration manager
@@ -146,9 +202,21 @@ public:
     const AppConfig& get() const { return m_config; }
 
     // What the last load() or loadProfile() found in the file that it could not
-    // use. Empty when the file was understood completely. Cleared at the start
-    // of each load, so this always describes the configuration now in force
-    // rather than accumulating across profile switches.
+    // use. Empty when the file was understood completely.
+    //
+    // It describes the configuration NOW IN FORCE. load(), and a loadProfile()
+    // that succeeds, replace it outright, so a file that loads cleanly takes the
+    // previous one's complaints down with it rather than leaving them standing
+    // over settings nobody is using any more.
+    //
+    // A loadProfile() that FAILS changes no setting - loadFromFile leaves
+    // m_config alone when it cannot read a file - so it keeps the report about
+    // the configuration still in force and puts this attempt's behind it. The
+    // added entry is an UnreadableFile naming the profile, and it is the only
+    // place the parser's line and column, and the name the file was quarantined
+    // to, are ever said. Retrying the same profile replaces that entry rather
+    // than adding a second copy of it; a second DIFFERENT profile that will not
+    // read adds one, which is the only way this list grows within a session.
     const Diagnostics& diagnostics() const { return m_diagnostics; }
 
     // Path utilities
