@@ -11,6 +11,9 @@
 #include "Dazzler.h"
 #include "SettingsDialogWx.h"
 #include "HelpWindow.h"
+// config::renderBlock() for the configuration report. Already reachable through
+// MainWindow.h -> Config.h; named here because this file calls it.
+#include "ConfigReport.h"
 #include "resource.h"
 #include "Version.h"
 #include "CrashHandler.h"
@@ -792,6 +795,11 @@ void MainWindow::onSelectROM(int romId) {
         m_emulator->setROMName(romFile);
         checkROMMenuItem(romId);
         m_currentRomId = romId;
+        // Choosing a ROM is the answer to every ROM notice - the banks now hold
+        // what the user asked for, whatever the file said. Leaving one raised
+        // would reprint a settled complaint at the next Start.
+        clearNotice(Notice::DefaultRom);
+        clearNotice(Notice::SavedRom);
         m_statusText = "Loaded ROM: " + romFile;
         updateStatusBar();
     } else {
@@ -871,6 +879,12 @@ void MainWindow::startEmulator() {
     if (m_terminal) {
         m_terminal->clear();
         m_terminal->resetScrollback();
+        // Put the host-side notices back. The guard above cannot stand in for
+        // this: it fires only when there is NO ROM, and the notices that matter
+        // here are the ones raised when a good ROM is loaded but not the one
+        // the configuration named - hasROM() is true for both, so the clear
+        // above used to erase the only explanation on screen.
+        printNotices();
     }
 
     m_emulator->start();
@@ -1029,9 +1043,48 @@ void MainWindow::onEmulatorStop() {
 }
 
 void MainWindow::onEmulatorReset() {
+    // Reset is a cold boot with nothing between the keystroke and the machine.
+    // EmulatorEngine::reset() stops, zeroes PC/SP/IFF, reselects bank 0, clears
+    // the HBIOS state and the console queue, and starts it again if it was
+    // running, so whatever CP/M held in memory is gone. Nothing asked first,
+    // and both live entry points reach it unguarded: the Emulator > Reset item,
+    // which is enabled at all times (the .rc leaves it enabled and
+    // updateMenuState() grays only Start, Stop and the two ROM items, never
+    // Reset), and the Ctrl+R accelerator, which
+    // rebuildAccelerators() registers whenever "ctrlRToCpm" is false. There is
+    // no toolbar; those two are the whole list.
+    //
+    // Ask only while the machine is running, which is where the two mobile
+    // ports differ: cpmdroid and ioscpm ask unconditionally. Reset on a stopped
+    // machine reads wasRunning == false inside reset() and leaves it stopped,
+    // so there is no session to lose - and onEmulatorStart() cold-boots with no
+    // confirmation at all, so a dialog in front of a Reset that is
+    // indistinguishable from a Start would be asking about the one of the two
+    // that happens not to have the word Reset on it. Nothing in this repository
+    // can settle that: MainWindow.cpp is in no test suite, and which of the two
+    // is right is a judgement about users rather than a fact about the code.
+    //
+    // MB_DEFBUTTON2 so Enter pressed at a dialog the user did not expect - the
+    // mistyped Ctrl+R this exists for - cancels rather than reboots. The modal
+    // loop still dispatches WM_TIMER, so the machine keeps running while the
+    // question is up and No leaves the session exactly as it was.
+    if (m_emulator && m_emulator->isRunning()) {
+        int answer = MessageBoxW(m_hwnd,
+            L"Reset restarts CP/M immediately.\n\n"
+            L"Anything a running program has not yet written to a disk is lost.\n\n"
+            L"Reset now?",
+            L"Reset", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+        if (answer != IDYES) {
+            return;
+        }
+    }
+
     if (m_terminal) {
         m_terminal->clear();
         m_terminal->resetScrollback();
+        // Same reason as startEmulator(): a reset is the other place the screen
+        // is emptied, and the notices are as true after it as before it.
+        printNotices();
     }
     m_emulator->reset();
     updateMenuState();
@@ -1102,6 +1155,12 @@ void MainWindow::onEmulatorSettings() {
                                      ? ID_ROM_EMU_ROMWBW
                                      : ID_ROM_EMU_AVW;
                 checkROMMenuItem(m_currentRomId);
+                // A ROM chosen here retires the ROM notices for the same reason
+                // onSelectROM's does: the banks now hold what the user asked
+                // for. saveSettings() below then writes that choice out, so the
+                // next launch has nothing to complain about either.
+                clearNotice(Notice::DefaultRom);
+                clearNotice(Notice::SavedRom);
             }
         }
 
@@ -1367,6 +1426,95 @@ void MainWindow::terminalPrint(const std::string& text) {
     }
 }
 
+void MainWindow::setNotice(Notice which, const std::string& text) {
+    m_notices[which] = text;
+    terminalPrint(text);
+}
+
+void MainWindow::clearNotice(Notice which) {
+    m_notices.erase(which);
+}
+
+void MainWindow::printNotices() {
+    for (const auto& kv : m_notices) {
+        terminalPrint(kv.second);
+    }
+}
+
+void MainWindow::reportConfigDiagnostics() {
+    const auto& diags = config::ConfigManager::instance().diagnostics();
+
+    // One notice per config::Problem kind rather than one for the whole report,
+    // because the kinds do not stop being true at the same moment: saveSettings()
+    // retracts two of the five outright, a third only in one sub-case, and
+    // leaves the other two standing. Each notice
+    // is renderBlock() called on the diagnostics of that one kind. renderBlock
+    // picks its closing sentence from the kinds it is handed, so a subset of one
+    // kind gets exactly the one sentence that applies to it, and nothing here
+    // rewords what it says about any of them.
+    //
+    // The cost is that a file with problems of several kinds prints
+    // renderBlock's "Configuration report:" header once per kind. That is the
+    // price of being able to take one kind off the screen without taking the
+    // rest with it, and each block stays self-describing when printNotices()
+    // puts it back after a clear.
+    // Remember, for saveSettings(), whether the file behind an UnreadableFile
+    // diagnostic is still at the path the next save writes.
+    //
+    // Config.cpp's quarantineUnreadable() RENAMES z80cpmw.json to
+    // z80cpmw.json.bad and records the new name in Diagnostic::backup, or
+    // leaves backup empty when the rename could not be done at all. Only the
+    // empty case leaves the user's text where ConfigManager::save() will land
+    // on it, and only then does saving make renderBlock's closing "nothing has
+    // been written over what you typed" false.
+    //
+    // The path test is the other half. A profile that could not be read is
+    // quarantined by the same code and produces the same kind of diagnostic,
+    // but saveSettings() writes z80cpmw.json and never touches a file under
+    // profiles\, so a failed profile quarantine is not falsified by any save
+    // here. Both strings come from ConfigManager (getConfigPath() for the main
+    // config, getProfilePath() for a profile) and loadFromFile copies its
+    // argument into Diagnostic::path verbatim, so comparing them is exact
+    // rather than a guess at path normalisation.
+    m_unreadableConfigStillInPlace = false;
+    const std::string configPath = config::ConfigManager::instance().getConfigPath();
+    for (const auto& d : diags) {
+        if (d.problem == config::Problem::UnreadableFile &&
+            d.backup.empty() && d.path == configPath) {
+            m_unreadableConfigStillInPlace = true;
+        }
+    }
+
+    static const struct { config::Problem problem; Notice notice; } kinds[] = {
+        { config::Problem::UnknownMember,  Notice::ConfigUnknownMember  },
+        { config::Problem::TypeMismatch,   Notice::ConfigTypeMismatch   },
+        { config::Problem::ReservedKey,    Notice::ConfigReservedKey    },
+        { config::Problem::UnknownKeyName, Notice::ConfigUnknownKeyName },
+        { config::Problem::UnreadableFile, Notice::ConfigUnreadableFile },
+    };
+
+    for (const auto& k : kinds) {
+        config::Diagnostics ofKind;
+        for (const auto& d : diags) {
+            if (d.problem == k.problem) ofKind.push_back(d);
+        }
+        if (ofKind.empty()) {
+            // Every kind is visited, absent ones included. diagnostics() is
+            // cleared at the start of each load() and loadProfile() and so
+            // describes the configuration NOW in force, which means a profile
+            // that loads cleanly has to take the previous file's complaints
+            // down rather than leave them standing over settings nobody is
+            // using any more.
+            clearNotice(k.notice);
+            continue;
+        }
+        // The trailing blank line separates this block from the next notice and
+        // from the boot output; renderBlock ends its last sentence, not the
+        // screen.
+        setNotice(k.notice, config::renderBlock(ofKind) + "\r\n");
+    }
+}
+
 void MainWindow::loadDefaultROM() {
     std::string romPath = findResourceFile("emu_avw.rom");
 
@@ -1375,18 +1523,28 @@ void MainWindow::loadDefaultROM() {
             m_emulator->setROMName("emu_avw.rom");
             m_currentRomId = ID_ROM_EMU_AVW;
             checkROMMenuItem(m_currentRomId);
+            // One of the four ROM-notice retraction sites; see setNotice's
+            // comment in MainWindow.h. This is the only one of the four that
+            // cannot currently have a notice to retract - onCreate() calls this
+            // before anything raises one - and it is written the same way as
+            // the other three so the rule is "a ROM loaded, the ROM notices are
+            // over" everywhere, with no exception to remember.
+            clearNotice(Notice::DefaultRom);
+            clearNotice(Notice::SavedRom);
         } else {
             // The default ROM existing but being unusable is the case that
             // used to end in a silent dead emulator at startup: nothing was
             // loaded and nothing said so.
-            terminalPrint("ERROR: cannot use the default ROM (emu_avw.rom)\r\n" +
-                          m_emulator->getROMError() + "\r\n"
-                          "Use Emulator > ROM to choose another ROM file.\r\n\r\n");
+            setNotice(Notice::DefaultRom,
+                      "ERROR: cannot use the default ROM (emu_avw.rom)\r\n" +
+                      m_emulator->getROMError() + "\r\n"
+                      "Use Emulator > ROM to choose another ROM file.\r\n\r\n");
         }
     } else {
-        terminalPrint("WARNING: ROM file not found (emu_avw.rom)\r\n"
-                      "Please use Emulator > ROM to load a ROM file,\r\n"
-                      "or place ROM files in the 'roms' subdirectory.\r\n\r\n");
+        setNotice(Notice::DefaultRom,
+                  "WARNING: ROM file not found (emu_avw.rom)\r\n"
+                  "Please use Emulator > ROM to load a ROM file,\r\n"
+                  "or place ROM files in the 'roms' subdirectory.\r\n\r\n");
     }
 }
 
@@ -1470,13 +1628,87 @@ void MainWindow::loadSettings() {
     auto& cfgMgr = config::ConfigManager::instance();
     cfgMgr.load();
 
+    // Say what the file contained that nothing read, before applying what it
+    // did. load() collected the diagnostics and until now nothing displayed
+    // them: a mistyped setting was detected, described, and then thrown away
+    // inside the ConfigManager.
+    reportConfigDiagnostics();
+
     // Apply the loaded configuration
     applyConfig();
 }
 
 void MainWindow::saveSettings() {
     updateConfigFromState();
-    config::ConfigManager::instance().save();
+    if (!config::ConfigManager::instance().save()) {
+        // Nothing reached the disk: saveToFile writes a .tmp and renames, so a
+        // false return leaves z80cpmw.json holding exactly what the user typed
+        // and every notice about it still true. Retracting them here would be
+        // the one lie the report cannot afford.
+        return;
+    }
+
+    // Two of the five configuration notices stop being true at this save, one
+    // does only in a sub-case, and two do not. What decides it is what this
+    // save can reach:
+    //
+    //   UnknownMember  - renderBlock says "saving settings will drop them", and
+    //                    this is that save: to_json writes only the names it
+    //                    knows, so the member is now gone from the file and the
+    //                    sentence has become a prediction about the past.
+    //   TypeMismatch   - renders "nothing has been written over what you
+    //                    typed", and this save is precisely what falsifies it.
+    //                    The document PARSED, so nothing was renamed and
+    //                    z80cpmw.json still holds the section from_json's
+    //                    is_array()/is_object() guards skipped; to_json writes
+    //                    our defaults over it. ConfigManager::load() suppresses
+    //                    its own save for this kind and says in as many words
+    //                    that "a save later in the session still writes our
+    //                    defaults over the section that was skipped". This is
+    //                    that later save.
+    //   UnreadableFile - conditional, and this is the one that used to be
+    //                    wrong. Config.cpp draws the OPPOSITE conclusion here
+    //                    from the one it draws for TypeMismatch: suppressing
+    //                    load()'s own save "for an UnreadableFile is enough,
+    //                    because the file has been renamed out from under those
+    //                    saves". quarantineUnreadable() moved z80cpmw.json to
+    //                    z80cpmw.json.bad, so the save below cannot fail and
+    //                    cannot destroy anything - it writes a path that is now
+    //                    empty. The notice stays TRUE, and it is the only place
+    //                    the UI ever shows the backup's name and the parser's
+    //                    line and column. Retracting it unconditionally dropped
+    //                    both on the first F5: a file that will not parse leaves
+    //                    cfg.disks empty, onEmulatorStart() finds no disk
+    //                    loaded and calls downloadAndStartWithDefaults(), whose
+    //                    both-disks-present branch runs saveSettings() one
+    //                    statement before the startEmulator() whose
+    //                    printNotices() exists to survive its own clear().
+    //                    The retraction is right only in the sub-case where the
+    //                    quarantine FAILED (all .bad names taken, or the rename
+    //                    refused): the original is then still at z80cpmw.json,
+    //                    saveToFile's rename really does replace it, and the
+    //                    closing sentence becomes false. That way round, not the
+    //                    other: the flag says the file is still IN PLACE, which
+    //                    is exactly when the save can overwrite it.
+    //   ReservedKey,
+    //   UnknownKeyName - kept, because the save round-trips them. from_json
+    //                    reads "keyboard.keys" whole into the map (names it
+    //                    cannot resolve included) and to_json writes the map
+    //                    back whole; nothing in the loader ever prunes it. "The
+    //                    line is still in the file to be corrected" is as true
+    //                    after this save as before it.
+    //
+    // The ROM notices are on neither list. They describe what is in the ROM
+    // banks, which no save touches - and updateConfigFromState() above writes
+    // cfg.rom only for the two known ids, so on the machine where the notices
+    // matter most (no ROM loaded at all, m_currentRomId still 0) the save does
+    // not even rewrite the ROM name it is complaining about. They are retracted
+    // where a ROM is successfully loaded instead; see loadDefaultROM().
+    clearNotice(Notice::ConfigUnknownMember);
+    clearNotice(Notice::ConfigTypeMismatch);
+    if (m_unreadableConfigStillInPlace) {
+        clearNotice(Notice::ConfigUnreadableFile);
+    }
 }
 
 void MainWindow::applyConfig() {
@@ -1489,23 +1721,31 @@ void MainWindow::applyConfig() {
     if (cfg.rom == "SBC_simh_std.rom") {
         emu_error("[CONFIG] Ignoring SBC_simh_std.rom: a stock hardware ROM "
                   "this emulator cannot run. Keeping the default ROM.\n");
-        terminalPrint("NOTE: the saved ROM (SBC_simh_std.rom) is a stock ROM for real\r\n"
-                      "hardware and cannot run here. Using the default ROM instead.\r\n\r\n");
+        // This is the notice the whole Notice machinery exists for: the machine
+        // has a good ROM (loadDefaultROM put it there), so hasROM() is true and
+        // startEmulator() clears the screen and boots - and without a notice
+        // that survives the clear, nothing on screen says the ROM running is
+        // not the one the configuration asked for.
+        setNotice(Notice::SavedRom,
+                  "NOTE: the saved ROM (SBC_simh_std.rom) is a stock ROM for real\r\n"
+                  "hardware and cannot run here. Using the default ROM instead.\r\n\r\n");
     } else if (!cfg.rom.empty()) {
         std::string romPath = findResourceFile(cfg.rom);
         if (romPath.empty()) {
             emu_error("[CONFIG] ROM from config not found: %s\n", cfg.rom.c_str());
-            terminalPrint("ERROR: the saved ROM (" + cfg.rom + ") was not found.\r\n"
-                          "Use Emulator > ROM to choose one.\r\n\r\n");
+            setNotice(Notice::SavedRom,
+                      "ERROR: the saved ROM (" + cfg.rom + ") was not found.\r\n"
+                      "Use Emulator > ROM to choose one.\r\n\r\n");
         } else if (!m_emulator->loadROM(romPath)) {
             // A failed load also discards whatever loadDefaultROM() had put in
             // the banks, so this leaves the machine with no ROM at all. Say so
             // where the user will see it; the log alone was the only report.
             emu_error("[CONFIG] Cannot use ROM %s: %s\n", cfg.rom.c_str(),
                       m_emulator->getROMError().c_str());
-            terminalPrint("ERROR: cannot use the saved ROM (" + cfg.rom + ")\r\n" +
-                          m_emulator->getROMError() + "\r\n"
-                          "Use Emulator > ROM to choose another one.\r\n\r\n");
+            setNotice(Notice::SavedRom,
+                      "ERROR: cannot use the saved ROM (" + cfg.rom + ")\r\n" +
+                      m_emulator->getROMError() + "\r\n"
+                      "Use Emulator > ROM to choose another one.\r\n\r\n");
         } else {
             m_emulator->setROMName(cfg.rom);
             // Update menu checkmark based on ROM name
@@ -1515,8 +1755,18 @@ void MainWindow::applyConfig() {
                 m_currentRomId = ID_ROM_EMU_ROMWBW;
             }
             checkROMMenuItem(m_currentRomId);
+            // The configured ROM is now the one running, which retires both ROM
+            // notices: this call replaced whatever loadDefaultROM() had loaded,
+            // so its warning about the default is no longer about the machine
+            // in front of the user either.
+            clearNotice(Notice::DefaultRom);
+            clearNotice(Notice::SavedRom);
         }
     }
+    // An empty cfg.rom takes neither branch, deliberately: there is no saved ROM
+    // to disagree with, and loadDefaultROM()'s notice - which is exactly the one
+    // that matters when the default could not be loaded - has to survive
+    // loadSettings() to reach the screen after the first clear.
 
     // Apply debug mode
     m_emulator->setDebug(cfg.debug);
@@ -1700,6 +1950,12 @@ void MainWindow::onLoadProfile() {
             if (wasRunning) {
                 m_emulator->stop();
             }
+            // After the stop, so the report does not land in the middle of the
+            // guest's own output, and before applyConfig() so the file is
+            // described before it is applied - the same order loadSettings()
+            // uses. loadProfile() cleared the diagnostics, so a profile that
+            // loads cleanly takes the previous file's notices down here.
+            reportConfigDiagnostics();
             applyConfig();
             if (wasRunning) {
                 m_emulator->start();
@@ -1707,7 +1963,59 @@ void MainWindow::onLoadProfile() {
             m_statusText = "Loaded profile: " + std::string(nameA);
             updateStatusBar();
         } else {
-            MessageBoxW(m_hwnd, L"Failed to load profile.", L"Error", MB_OK | MB_ICONERROR);
+            // A profile that could not be READ is the case that needs the
+            // report most, and it was the one case that did not get it.
+            // ConfigManager::loadFromFile applies the same quarantine to a
+            // profile as to z80cpmw.json, so by the time we are here the file
+            // has been RENAMED and has dropped out of the Load Profile list,
+            // and the diagnostic holding its new name and the parser's line and
+            // column was rendered nowhere. "Failed to load profile." was the
+            // whole of what the user was told.
+            //
+            // Only when the diagnostics are about THIS profile. loadProfile()
+            // returns false for two different things: a file that would not
+            // read (m_diagnostics cleared and refilled with the profile's) and
+            // a name with no file at all, which returns before the clear and
+            // leaves the diagnostics of the configuration actually in force -
+            // reporting those again would reprint the startup report word for
+            // word for a profile that was merely missing. Diagnostic::path
+            // carries a FILE path only for UnreadableFile; every other kind
+            // carries a member path like "display.fontsize", so matching it
+            // against getProfilePath() separates the two exactly.
+            //
+            // Known limit, and it is in ConfigManager rather than here:
+            // loadProfile() clears m_diagnostics before it fails, so any notice
+            // about z80cpmw.json goes down with this call even though the
+            // settings in force are still the ones from that file - loadFromFile
+            // leaves m_config untouched when it fails. Keeping both would mean
+            // diagnostics that accumulate across files, which is a change to
+            // ConfigManager's contract, not to this call site.
+            //
+            // No stop() first, unlike the success path above: nothing is being
+            // applied, so there is no reason to interrupt a running machine.
+            // The cost is that the block can land in the middle of the guest's
+            // own output.
+            auto& cfgMgr = config::ConfigManager::instance();
+            const std::string profilePath = cfgMgr.getProfilePath(nameA);
+            bool described = false;
+            for (const auto& d : cfgMgr.diagnostics()) {
+                if (d.path == profilePath) { described = true; break; }
+            }
+            if (described) {
+                reportConfigDiagnostics();
+            }
+            // Printed before the box, so the report is already on the terminal
+            // behind it and is still there when it is dismissed.
+            MessageBoxW(m_hwnd,
+                described
+                    ? L"The profile could not be read.\n\n"
+                      L"The configuration report in the terminal window gives the "
+                      L"reason - including the line and column for a syntax error - "
+                      L"and names the file the profile was renamed to if it could be "
+                      L"moved aside.\n\n"
+                      L"Your current settings are unchanged."
+                    : L"Failed to load profile.",
+                L"Error", MB_OK | MB_ICONERROR);
         }
     }
 }

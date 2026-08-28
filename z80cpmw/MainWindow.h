@@ -8,6 +8,7 @@
 
 #include <windows.h>
 #include <functional>
+#include <map>
 #include <memory>
 #include <string>
 #include "Config.h"
@@ -90,6 +91,51 @@ private:
     // the terminal exists.
     void terminalPrint(const std::string& text);
 
+    // Host-side notices, which are the messages that have to outlive a clear of
+    // the terminal.
+    //
+    // startEmulator() and onEmulatorReset() both call clear() and
+    // resetScrollback(), which erased everything the ROM and configuration
+    // loaders had printed during onCreate(). The worst case was silent: the
+    // saved ROM is unusable, loadDefaultROM() has already put a good one in the
+    // banks, so hasROM() is true, startEmulator()'s no-ROM guard does not fire,
+    // and the two lines explaining which ROM is actually about to boot were
+    // wiped by the clear immediately below that guard.
+    //
+    // A notice is a claim about the state of the app, so it is held rather than
+    // printed once, and it lives exactly as long as the claim is true - every
+    // clearNotice() call site is a place that makes one of them false. The
+    // container is std::map, not unordered_map, because the enumerator order
+    // below IS the print order: what the configuration file said first, then
+    // what the ROM banks ended up holding, which is the notice that belongs
+    // nearest the boot output it explains. The five Config* enumerators are in
+    // config::Problem's own order, which ConfigReport.h documents as the order
+    // the kinds get worse in.
+    enum class Notice {
+        ConfigUnknownMember,
+        ConfigTypeMismatch,
+        ConfigReservedKey,
+        ConfigUnknownKeyName,
+        ConfigUnreadableFile,
+        DefaultRom,   // loadDefaultROM(): no usable emu_avw.rom
+        SavedRom,     // applyConfig(): the ROM named by the config is not the one running
+    };
+
+    // Raise a notice AND print it now. Notices are raised where nothing is
+    // about to clear the screen - during onCreate(), and again when a profile
+    // is loaded - so one that was only remembered would sit unread until the
+    // next Start; printNotices() runs only where the screen has just been
+    // emptied.
+    void setNotice(Notice which, const std::string& text);
+    // Retract a notice. Erasing a notice that was never raised is a no-op, so a
+    // caller does not have to know which of them it is contradicting.
+    void clearNotice(Notice which);
+    void printNotices();
+
+    // Turn ConfigManager::diagnostics() into notices, one per config::Problem
+    // kind. Called after every load of a configuration file.
+    void reportConfigDiagnostics();
+
     // Find and load ROM/disk files
     std::string findResourceFile(const std::string& filename);
     void loadDefaultROM();
@@ -125,6 +171,25 @@ private:
 
     int m_currentRomId = 0;         // For menu checkmark tracking
     std::string m_statusText = "Ready";
+
+    // The notices currently true, keyed and ordered by the enum above.
+    std::map<Notice, std::string> m_notices;
+
+    // Whether saveSettings() is allowed to retract Notice::ConfigUnreadableFile.
+    //
+    // That notice is the only place in the whole UI that names the file the
+    // broken configuration was renamed to and quotes the parser's line and
+    // column, so it may be taken down only where the save really did falsify
+    // it: when the file it describes is STILL sitting at the path this save
+    // writes, because ConfigManager's quarantine rename failed. Where the
+    // rename succeeded there is nothing left at that path to overwrite and the
+    // notice stays true - see saveSettings().
+    //
+    // reportConfigDiagnostics() recomputes it from ConfigManager::diagnostics()
+    // every time it runs, and that function is the only place the notice is
+    // ever raised, so the flag and the notice cannot drift apart: a later clean
+    // load takes down both.
+    bool m_unreadableConfigStillInPlace = false;
 
     // Runtime Dazzler state (config is source of truth for persistence)
     bool m_dazzlerEnabled = false;

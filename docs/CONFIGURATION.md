@@ -77,11 +77,23 @@ A modified key you have not bound falls back to the plain one, which is what
 every modified key did before prefixes existed — so `Shift+Left` sends whatever
 `Left` sends unless you say otherwise.
 
-Four combinations are reserved by the app and never reach CP/M:
-`Shift+PageUp`, `Shift+PageDown`, `Ctrl+Home` and `Ctrl+End` scroll the
-scrollback. `Alt` is the Windows menu key, so an `Alt+` binding is honoured only
-when you have bound that exact combination — the plain-key fallback does not
-apply to it, and with nothing bound to `Alt` the menus behave normally.
+Four combinations are reserved by the app and never reach CP/M. The app answers
+them before the keymap is consulted, so binding one of them in `keys` sends
+nothing — and the configuration report (below) names it at startup if you do,
+in the same words used here:
+
+- `Shift+PageUp` — scroll back one page
+- `Shift+PageDown` — scroll forward one page
+- `Ctrl+Home` — jump to the oldest scrollback line
+- `Ctrl+End` — return to the live screen
+
+The test is whether that modifier is **held**, not that it is the only one held,
+so `Ctrl+Shift+PageUp` scrolls back as well — a modifier you add on top of a
+reserved combination does not hand the key back to CP/M.
+
+`Alt` is the Windows menu key, so an `Alt+` binding is honoured only when you
+have bound that exact combination — the plain-key fallback does not apply to it,
+and with nothing bound to `Alt` the menus behave normally.
 
 Only `Ctrl+Up`, `Ctrl+Down`, `Ctrl+Left` and `Ctrl+Right` are bound by default;
 see the table below.
@@ -145,15 +157,63 @@ receives* the keystroke, not what it sends.
 them costs nothing. **`Ctrl+R` defaults the other way**, because `^R` (`0x12`) is
 ordinary ASCII that CP/M reads: it retypes the current line at the command
 prompt, and WordStar-family editors bind it too. Reserving it would take a
-working key away from the guest, and a mistyped Reset reboots the machine
-without asking. Reset therefore lives on the **Emulator** menu, with no default
-shortcut.
+working key away from the guest. Reset therefore lives on the **Emulator** menu,
+with no default shortcut.
+
+**Reset asks first while the machine is running**, so a `Ctrl+R` you did not
+mean — on a config that has claimed the key — can be answered No, and No is the
+default button. A Reset on a stopped machine goes through without asking: there
+is no CP/M session to lose, and *Start* cold-boots without asking either.
 
 The menu updates its own shortcut hints to match these settings, so an item
 never advertises a key that is no longer bound.
 
 `F10` normally opens the Windows menu bar; z80cpmw delivers it to CP/M when it is
 bound in the keymap.
+
+## When the file says something the app cannot use
+
+A hand-edited setting that z80cpmw does not recognise used to be absorbed in
+silence and then deleted at the next save. It is now reported: at startup — and
+again whenever you load a profile — the terminal shows a **configuration
+report** listing what could not be used, where in the file it is (`display.fontsize`,
+`disks[1].pth`, `keyboard.keys.PgeUp`), and what happens to it next:
+
+- **Unrecognised setting.** Nothing reads it, so it does nothing, and the next
+  time settings are saved it is dropped from the file.
+- **Wrong kind of value** — `"keys"` written as an array, `"disks"` as an
+  object. That whole section is skipped and the built-in defaults are used.
+  **Fix this one before you do anything else in the app.** The file itself
+  parses, so it is *not* renamed out of the way and startup will not save over
+  it — but the next save of any kind writes the built-in defaults over the
+  section that was skipped, and several saves happen without you asking for
+  one: closing the window (it records where the window was), the first-run
+  welcome flag, a setting changed with the ROM's `SYSCONF` while the machine
+  runs, and *Start* on a config with no disks, which loads the defaults and
+  saves them. Simply quitting the app is enough to lose the section, so edit
+  the file — or close the app and edit it — before you carry on.
+- **Unknown key name** (`F13`, `PgeUp`) or a **reserved** one (the four
+  combinations above). The binding is ignored, but the line is **kept** —
+  nothing ever removes an entry from `keyboard.keys`, so it is still in the file
+  to be corrected.
+- **Could not be read at all** — a syntax error, or a file that will not open.
+  The report carries the parser's own message, which for a syntax error names
+  the line and column; the file is renamed to `z80cpmw.json.bad` (`.bad2`,
+  `.bad3`, … if that name is taken) and the defaults are used. Nothing is
+  written over the original, and the report stays on screen — it is the only
+  place the backup's name is shown, so it is not taken down when settings are
+  saved. (If the rename could not be done at all, the report says so and names
+  the reason; that is the one case where a later save does overwrite the file.)
+
+A **profile** that cannot be read is treated exactly the same way: same report,
+same rename to `<name>.json.bad`. Because it has been renamed it also
+disappears from the *Load Profile* list, and the settings you were running stay
+in force.
+
+The report survives *Emulator → Start* and *Emulator → Reset* clearing the
+screen, so it is still readable after the machine boots. So do the notices about
+the ROM: if the ROM named in the file cannot be loaded, the line saying which
+ROM is running instead stays on screen until you choose a ROM.
 
 ## Mouse copy and paste
 

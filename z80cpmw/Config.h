@@ -55,9 +55,20 @@ struct KeyboardConfig {
     // Ctrl+R is the Reset shortcut, but unlike F1/F5 it is also ordinary ASCII:
     // 0x12 is a CP/M console line-editing character and the WordStar family of
     // editors binds it too. Reserving it costs the user a key CP/M really uses,
-    // and a mistyped Reset reboots the machine without asking, so this one
-    // defaults the other way: ^R reaches CP/M and Reset stays on the Emulator
-    // menu. Set false to get the Ctrl+R shortcut back.
+    // so this one defaults the other way: ^R reaches CP/M and Reset stays on
+    // the Emulator menu. Set false to get the Ctrl+R shortcut back.
+    //
+    // Half of that justification is gone; the default is deliberately not.
+    // This note used to end "and a mistyped Reset reboots the machine without
+    // asking", which stopped being true: onEmulatorReset() now puts up a
+    // Yes/No box with MB_DEFBUTTON2 whenever the emulator isRunning(), so a
+    // Ctrl+R nobody meant costs a dialog rather than the session. The default
+    // stays true on the half that remains, which was always the load-bearing
+    // half: the confirmation only limits the damage of a keystroke the user did
+    // NOT intend, while reserving ^R takes a working CP/M key away every time
+    // they do intend it, for the whole session. Reset is rare and has a menu
+    // item; retyping a command line is not. Anyone who wants the accelerator
+    // more than the key sets this false.
     bool ctrlRToCpm = true;
 
     // Key name -> termcap-style escape string (see Keymap.h). Empty on a fresh
