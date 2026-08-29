@@ -19,108 +19,14 @@
 #include <functional>
 #include <algorithm>
 
-class DiskCatalog;
-struct DiskEntry;
+#include "DiskCatalog.h"
 
-// The permission a DiskCatalog worker thread needs before it may touch the
-// Settings dialog, and the thing ~SettingsDialogWx revokes to shut those
-// workers out for good.
-//
-// WHY THIS EXISTS. DiskCatalog::fetchCatalog and DiskCatalog::downloadDisk both
-// run their completion callbacks on a DETACHED std::thread, and the dialog is a
-// stack object - ShowWxSettingsDialogInternal's "SettingsDialogWx dlg(nullptr,
-// catalog)" - destroyed the moment ShowModal() returns. The constructor starts
-// a catalog fetch (see the "Constructor: starting catalog refresh" trace), so
-// closing Settings before the download landed left the worker calling
-// wxPostEvent on a freed dialog. Measured, not deduced: every dump it produced
-// was 0xC0000005 at the same address, z80cpmw.exe+0x5ABF3, reading garbage
-// (0xFFFFFFFFFFFFFFFF, 0x40, 0x14DBC427666D) with the faulting stack running
-// thread trampoline -> fetchCatalog's worker -> the std::function call. Driven
-// with WM_COMMAND 2004 and a WM_CLOSE some milliseconds later, twelve cycles
-// per run, the pre-fix binary crashed at EVERY delay tried - iteration 6 at
-// 150ms, iteration 3 at 400ms, and at 0ms and 800ms as well. The delay only
-// moves the odds, never the bug, because the window is "a fetch is still in
-// flight" and how long that lasts is the network's business: curl pulls
-// disks.xml in about half a second, but the in-app fetch - which follows
-// GitHub's redirect and then stats all twenty entries in
-// updateDownloadedStatus - was measured still running six seconds after the
-// dialog opened. Note also that a crash here need not exit the process:
-// CrashHandler's report thread puts up a modal message box before it
-// terminates, and two of these runs sat on it, so "still running" is not the
-// test - a new .dmp is.
-//
-// WHY A weak_ptr TO THE DIALOG IS NOT ENOUGH, which is the whole reason this is
-// a mutex and not an atomic flag. The obvious fix - hand the worker a
-// weak_ptr, lock it, and post if the lock succeeds - leaves the crash in place
-// with a smaller window: between "lock succeeded" and "wxPostEvent ran", the UI
-// thread can return from ShowModal() and run the destructor. The shared_ptr the
-// worker is holding keeps the CONTROL BLOCK alive, not the wxDialog, and it is
-// the wxDialog that wxPostEvent dereferences. Nothing in that scheme ever makes
-// the destructor and the post exclude each other.
-//
-// WHICH WINDOW THIS CLOSES, AND HOW. postIfOpen() holds m_mutex ACROSS the post
-// and close() takes the same mutex, so the two can never overlap. Once close()
-// has returned, every later postIfOpen() finds m_open false and does nothing;
-// and a post that had already begun completed before close() could acquire the
-// lock, i.e. while the dialog was still whole. There is no third state, so
-// "the destructor has returned" and "a worker may still post" are now mutually
-// exclusive facts rather than a race with better odds. With the gate in, the
-// same driver ran 0/50/150/250/400/600/800ms with repeats - 144 open-close
-// cycles - and wrote no dump at all, while the Settings dialog left open still
-// reaches "Catalog loaded" with the catalog's twenty entries in the list.
-//
-// LIFETIME. The gate outlives the dialog because the callbacks hold shared_ptr
-// copies of it and the dialog holds one more; the last callback to be destroyed
-// frees it.
-//
-// HOW LONG close() CAN BLOCK THE UI THREAD. Only for one wxPostEvent, which
-// wx/event.h defines as dest->AddPendingEvent(event) -> QueueEvent(Clone()):
-// one heap clone appended to the handler's pending list, no I/O, no dialog
-// code, no callback of ours. It does NOT wait for the download: a fetch with
-// minutes left to run delays closing Settings by nothing. That is deliberate,
-// and it is why the fix is not a cancel - see the comment on
-// DiskCatalog::cancelDownload for the rest of that argument.
-//
-// The calls stayed wxPostEvent rather than becoming wxQueueEvent, and that was
-// checked rather than assumed. wx/event.h says wxPostEvent is "not thread-safe,
-// use wxQueueEvent()", and names the reason: Clone() shallow-copies wxString
-// members, so a refcounted string buffer would end up shared between the worker
-// that posts and the main thread that handles - and both of these events carry
-// a wxString. It does not bite this build: wx/string.h typedefs wxStringImpl to
-// wxStdString to std::wstring unconditionally ("All the symbols here only exist
-// for compatibility"), and the MSVC std::wstring copy constructor deep-copies.
-// wxQueueEvent would mean a heap event whose ownership the gate has to hand
-// back and delete on the refused path - a second way to get lifetime wrong in
-// the code whose whole job is to get lifetime right. If wxString ever goes back
-// to copy-on-write under this toolchain, that trade flips.
-//
-// The callable handed to postIfOpen must therefore stay that cheap: it runs
-// under the gate lock while the UI thread may be waiting in close(), so it must
-// not call back into the dialog or block on the UI thread. Lock ordering is
-// one-way for the same reason - a worker takes this mutex and then wx's
-// pending-event locks, while the UI thread holds only this one inside close()
-// and has released it long before ~wxEvtHandler goes near wx's.
-class SettingsDialogPostGate {
-public:
-    // UI thread, from ~SettingsDialogWx and nowhere else.
-    void close() {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        m_open = false;
-    }
-
-    // Worker thread. 'post' runs only while the dialog is provably alive, and
-    // is not called at all once close() has returned.
-    template <typename PostFn>
-    void postIfOpen(PostFn&& post) {
-        std::lock_guard<std::mutex> lock(m_mutex);
-        if (!m_open) return;
-        post();
-    }
-
-private:
-    std::mutex m_mutex;
-    bool m_open = true;
-};
+// The gate the DiskCatalog workers this dialog starts must pass before they
+// may touch it. It used to be defined here, as SettingsDialogPostGate;
+// MainWindow now needs the same thing for the same reason, so it lives beside
+// the callback contract that creates the need - see WorkerPostGate in
+// DiskCatalog.h for what it is holding shut, why a weak_ptr to the dialog
+// would not have, and what it measured.
 
 // Where a dialog should sit, and how small the user may make it, on a display
 // with a given work area.
@@ -276,9 +182,9 @@ private:
     // Handed by value into every DiskCatalog callback this dialog starts, and
     // closed by ~SettingsDialogWx. Never null: it is built in the constructor's
     // member-init list, which runs before the body's catalog refresh. See
-    // SettingsDialogPostGate for what it is holding shut and why a weak_ptr to
-    // the dialog would not have.
-    std::shared_ptr<SettingsDialogPostGate> m_postGate;
+    // WorkerPostGate in DiskCatalog.h for what it is holding shut and why a
+    // weak_ptr to the dialog would not have.
+    std::shared_ptr<WorkerPostGate> m_postGate;
 
     // Notebook and its pages. Every control below except m_statusText and the
     // OK/Cancel buttons is parented to one of these panels, not to the dialog.

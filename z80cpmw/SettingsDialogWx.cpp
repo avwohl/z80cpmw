@@ -51,7 +51,7 @@ SettingsDialogWx::SettingsDialogWx(wxWindow* parent, DiskCatalog* catalog)
     // below hands a copy of it to a worker thread before the constructor has
     // finished. A gate created in the body would be a null shared_ptr at the
     // one moment it is first needed.
-    , m_postGate(std::make_shared<SettingsDialogPostGate>())
+    , m_postGate(std::make_shared<WorkerPostGate>())
 {
     OutputDebugStringA("[Settings] Constructor: creating controls\n");
     createControls();
@@ -200,8 +200,8 @@ SettingsDialogWx::~SettingsDialogWx() {
     // This body used to be empty, which is what the shipping crash was: the
     // constructor starts a catalog fetch, the dialog is destroyed the instant
     // ShowModal() returns, and the detached worker posted into the hole. See
-    // SettingsDialogPostGate for the dumps and for why locking a weak_ptr in
-    // the worker would not have closed it.
+    // WorkerPostGate in DiskCatalog.h for the dumps and for why locking a
+    // weak_ptr in the worker would not have closed it.
     //
     // Nothing here waits for the download itself. An in-flight fetch or disk
     // download keeps running against the DiskCatalog, which MainWindow owns as

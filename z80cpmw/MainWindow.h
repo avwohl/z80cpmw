@@ -16,6 +16,7 @@
 class TerminalView;
 class EmulatorEngine;
 class DiskCatalog;
+class WorkerPostGate;
 class DazzlerWindow;
 class Dazzler;
 
@@ -164,10 +165,6 @@ private:
     // Startup help
     void showStartupInstructions();
 
-    // Run fn on the UI thread. Download callbacks arrive on worker threads;
-    // everything they touch (terminal, emulator, config) is single-threaded.
-    void runOnUiThread(std::function<void()> fn);
-
     // Settings persistence (via ConfigManager)
     void loadSettings();
     void saveSettings();
@@ -186,7 +183,20 @@ private:
 
     std::unique_ptr<TerminalView> m_terminal;
     std::unique_ptr<EmulatorEngine> m_emulator;
-    std::unique_ptr<DiskCatalog> m_diskCatalog;
+
+    // shared_ptr, not unique_ptr, and that is load-bearing rather than a style
+    // choice: DiskCatalog hands each of its detached workers a
+    // shared_from_this(), so a fetch or a download still running when the app
+    // quits keeps the catalog alive until it is done instead of reading its
+    // members out of a freed block. DiskCatalog.h has the measurements. Built
+    // with make_shared in the member-init list, so shared_from_this() is legal
+    // from the first call onwards.
+    std::shared_ptr<DiskCatalog> m_diskCatalog;
+
+    // The permission a download worker needs before it may PostMessage to
+    // m_hwnd. Closed by onDestroy(); see postToUiThread() and WorkerPostGate.
+    std::shared_ptr<WorkerPostGate> m_uiPostGate;
+
     std::unique_ptr<DazzlerWindow> m_dazzlerWindow;
 
     int m_currentRomId = 0;         // For menu checkmark tracking

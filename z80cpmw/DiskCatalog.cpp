@@ -46,7 +46,14 @@ DiskCatalog::DiskCatalog() {
 }
 
 DiskCatalog::~DiskCatalog() {
-    cancelDownload();
+    // Nothing to cancel here, and that is a fact about ownership rather than an
+    // oversight: every worker holds a shared_from_this() for as long as it is
+    // running, so by the time the last reference goes and this runs, no worker
+    // is left to tell. The cancelDownload() that used to be here could only ever
+    // have an effect in the one case where the object was being destroyed with a
+    // worker still going - exactly the case shared ownership removed. The
+    // shutdown cancel that call was accidentally providing is now explicit, in
+    // MainWindow::onDestroy.
 }
 
 void DiskCatalog::setDownloadDirectory(const std::string& dir) {
@@ -57,13 +64,16 @@ void DiskCatalog::setDownloadDirectory(const std::string& dir) {
 }
 
 void DiskCatalog::fetchCatalog(CatalogLoadedCallback callback) {
-    // Detached, so this returns immediately and nobody can join it. 'this' is
-    // safe to capture (MainWindow owns the one DiskCatalog for the process
-    // lifetime) and 'callback' is captured BY VALUE, so the std::function
-    // itself is alive whenever it is invoked. What is NOT this function's to
-    // guarantee is what the callback closes over - see the contract on
-    // fetchCatalog in DiskCatalog.h.
-    std::thread([this, callback]() {
+    // Detached, so this returns immediately and nobody can join it. The 'self'
+    // capture is what makes 'this' safe to use below: it is a reference to this
+    // object that outlives the whole lambda body, so the members the worker
+    // reads cannot be freed underneath it however early the app is quit. 'this'
+    // is captured alongside it only so the member names still resolve.
+    // 'callback' is captured BY VALUE, so the std::function itself is alive
+    // whenever it is invoked. What is NOT this function's to guarantee is what
+    // the callback closes over - see the contract on fetchCatalog in
+    // DiskCatalog.h.
+    std::thread([this, self = shared_from_this(), callback]() {
         std::string xml;
         std::string error;
 
@@ -107,8 +117,12 @@ void DiskCatalog::downloadDisk(const std::string& filename,
     m_downloadState = DownloadState::Downloading;
     m_cancelRequested = false;
 
-    // Run in background thread
-    std::thread([this, filename, progressCb, completeCb]() {
+    // Run in background thread. 'self' for the same reason as in fetchCatalog,
+    // and it matters more here: the read loop in downloadToFile touches
+    // m_cancelRequested once per 64KB block for the whole of a 49MB transfer,
+    // so this worker is reading members continuously for tens of seconds rather
+    // than for the few milliseconds a fetch spends outside WinHTTP.
+    std::thread([this, self = shared_from_this(), filename, progressCb, completeCb]() {
         // Create download directory if needed
         CreateDirectoryA(m_downloadDir.c_str(), nullptr);
 
@@ -149,7 +163,9 @@ void DiskCatalog::downloadDisk(const std::string& filename,
 
 void DiskCatalog::cancelDownload() {
     // A request, not a barrier: the worker still reaches its completeCb after
-    // seeing this. DiskCatalog.h says what that rules the function out of.
+    // seeing this, and may not read it at all before the process dies.
+    // DiskCatalog.h says what that rules the function out of, and names its one
+    // caller.
     m_cancelRequested = true;
 }
 

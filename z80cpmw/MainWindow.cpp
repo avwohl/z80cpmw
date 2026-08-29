@@ -42,7 +42,7 @@ static bool g_mainClassRegistered = false;
 // the main window is shown and the message loop is running.
 static const UINT WM_APP_SHOW_WELCOME = WM_APP + 1;
 
-// Posted by runOnUiThread(): lParam owns a heap-allocated std::function to run.
+// Posted by postToUiThread(): lParam owns a heap-allocated std::function to run.
 static const UINT WM_APP_RUN_ON_UI = WM_APP + 2;
 
 // WM_APP + 3 is spoken for too: DazzlerWindow.h declares WM_APP_DAZZLER_CLOSED,
@@ -51,7 +51,8 @@ static const UINT WM_APP_RUN_ON_UI = WM_APP + 2;
 MainWindow::MainWindow()
     : m_terminal(std::make_unique<TerminalView>())
     , m_emulator(std::make_unique<EmulatorEngine>())
-    , m_diskCatalog(std::make_unique<DiskCatalog>())
+    , m_diskCatalog(std::make_shared<DiskCatalog>())
+    , m_uiPostGate(std::make_shared<WorkerPostGate>())
 {
 }
 
@@ -544,6 +545,25 @@ void MainWindow::onCreate() {
 }
 
 void MainWindow::onDestroy() {
+    // Settle with the download workers here rather than in ~MainWindow, because
+    // this is where m_hwnd stops being a window, and because it buys them the
+    // whole message-loop drain - measured at about 40ms between this and the
+    // process exiting - to act on the cancel instead of the microseconds a
+    // destructor would leave.
+    //
+    // The gate first: after close() returns, no worker can PostMessage to the
+    // handle this window used to be, so nothing can be delivered to whatever
+    // window that handle is recycled into. Nothing else has to close it - the
+    // only path that destroys a MainWindow without getting here is create()
+    // failing, and no download exists then.
+    //
+    // Then the cancel, which is about the disk rather than about lifetime: the
+    // transfer cannot finish, so the read loop noticing is what closes the file
+    // and removes the partial .img before ExitProcess kills the worker
+    // mid-fwrite. See DiskCatalog::cancelDownload.
+    m_uiPostGate->close();
+    m_diskCatalog->cancelDownload();
+
     if (m_emulatorTimer) {
         KillTimer(m_hwnd, m_emulatorTimer);
         m_emulatorTimer = 0;
@@ -896,10 +916,39 @@ static bool diskFileLooksComplete(const std::string& path) {
     return size >= (1ull << 20);
 }
 
-void MainWindow::runOnUiThread(std::function<void()> fn) {
+// Hop a piece of work onto the UI thread from a DiskCatalog worker.
+//
+// A free function taking the window and the gate BY VALUE, not a MainWindow
+// method, and that is the fix rather than an arrangement of it: a method would
+// have to read this->m_hwnd on the worker thread, and by the time a download
+// callback runs, MainWindow - a stack object in wWinMain - may already be gone.
+// Traced on the shipping code with the shutdown widened: the worker reached
+// MainWindow::runOnUiThread - the method this replaced - while the UI thread
+// was inside ~MainWindow, printing this=000000B1EDB4F450
+// m_hwnd=00000000010400E6 isWindow=0. It got
+// away with it there only because the destructor had not yet returned; a few
+// tens of milliseconds later that read is of dead stack.
+//
+// The gate closes the rest of it. PostMessage on a destroyed window merely
+// fails, but window handles are recycled - IsWindow's documentation says so -
+// so a stale handle can name somebody else's window, which would then be
+// handed a WM_APP_RUN_ON_UI whose lParam is a pointer into our heap. After
+// onDestroy()'s close() no post happens at all.
+//
+// The captured 'this' inside fn is a different question and is safe: fn can
+// only run from a WM_APP_RUN_ON_UI dispatch, only the message loop dispatches,
+// and run() returns before ~MainWindow. A post that misses the loop is dropped
+// with the window's queue and fn is never called.
+static void postToUiThread(HWND hwnd, const std::shared_ptr<WorkerPostGate>& gate,
+                           std::function<void()> fn) {
     auto* heapFn = new std::function<void()>(std::move(fn));
-    if (!PostMessage(m_hwnd, WM_APP_RUN_ON_UI, 0, reinterpret_cast<LPARAM>(heapFn))) {
-        delete heapFn;  // window is gone; drop the work
+    bool posted = false;
+    gate->postIfOpen([&] {
+        posted = PostMessage(hwnd, WM_APP_RUN_ON_UI, 0,
+                             reinterpret_cast<LPARAM>(heapFn)) != FALSE;
+    });
+    if (!posted) {
+        delete heapFn;  // gate shut, or window gone; drop the work
     }
 }
 
@@ -1001,8 +1050,18 @@ void MainWindow::downloadAndStartWithDefaults() {
 
     // Download missing disks then start. DiskCatalog invokes completion
     // callbacks on a detached worker thread; hop back to the UI thread with
-    // runOnUiThread before touching the terminal/emulator/config (none of
+    // postToUiThread before touching the terminal/emulator/config (none of
     // which are thread-safe).
+    //
+    // The two values below are what the worker-side callbacks are allowed to
+    // know about this window, and they are copies on purpose. Nothing stops the
+    // user quitting mid-transfer - hd1k_combo.img is 49MB and takes about eight
+    // seconds here, and the File menu and the close box stay live throughout -
+    // so a callback that read this->m_hwnd would be reading a MainWindow that
+    // wWinMain has already taken off its stack. See postToUiThread.
+    const HWND uiWindow = m_hwnd;
+    const std::shared_ptr<WorkerPostGate> uiGate = m_uiPostGate;
+
     m_downloadingDisks = true;
 
     // Runs on the UI thread after the last download finishes (or fails).
@@ -1012,11 +1071,11 @@ void MainWindow::downloadAndStartWithDefaults() {
         startEmulator();
     };
 
-    auto downloadGames = [this, games, finishAndStart]() {
+    auto downloadGames = [this, games, finishAndStart, uiWindow, uiGate]() {
         m_diskCatalog->downloadDisk("hd1k_games.img",
             nullptr,
-            [this, games, finishAndStart](bool success, const std::string& error) {
-                runOnUiThread([this, games, finishAndStart, success, error]() {
+            [this, games, finishAndStart, uiWindow, uiGate](bool success, const std::string& error) {
+                postToUiThread(uiWindow, uiGate, [this, games, finishAndStart, success, error]() {
                     auto termOut = [this](const char* msg) {
                         if (m_terminal) {
                             for (const char* p = msg; *p; ++p) {
@@ -1045,8 +1104,8 @@ void MainWindow::downloadAndStartWithDefaults() {
     if (needComboDownload) {
         m_diskCatalog->downloadDisk("hd1k_combo.img",
             nullptr,
-            [this, combo, needGamesDownload, downloadGames, finishAndStart](bool success, const std::string& error) {
-                runOnUiThread([this, combo, needGamesDownload, downloadGames, finishAndStart, success, error]() {
+            [this, combo, needGamesDownload, downloadGames, finishAndStart, uiWindow, uiGate](bool success, const std::string& error) {
+                postToUiThread(uiWindow, uiGate, [this, combo, needGamesDownload, downloadGames, finishAndStart, success, error]() {
                     auto termOut = [this](const char* msg) {
                         if (m_terminal) {
                             for (const char* p = msg; *p; ++p) {
@@ -1220,6 +1279,11 @@ void MainWindow::onEmulatorSettings() {
         }
     }
 
+    // .get() rather than the shared_ptr, and that is not a hole: the dialog is
+    // modal and lives entirely inside this call, on the UI thread, so this
+    // MainWindow and its reference to the catalog outlive it by construction.
+    // What the dialog's own callbacks need is the gate they already carry, not
+    // a share of the catalog - the workers take their own.
     if (ShowWxSettingsDialog(m_hwnd, m_diskCatalog.get(), settings)) {
         // Hoisted from the disk loop below, which is where this reference used
         // to be declared, because the debug and Dazzler write-backs added here
