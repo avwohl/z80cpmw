@@ -41,6 +41,22 @@ absorbed the v1.36 core and closed four gaps this document names — F1–F12,
 the Ctrl window, terminal scrollback as a setting, and TAB. Those are marked
 where they land.
 
+**Then, on 2026-08-29, that column moved again and much further, in two rounds
+on two machines.** Rows **4**, **6** and **13** were re-read against the port
+and all three are corrected below; each had been the port's weakest cell in its
+row and none of them is now. Row 4 went ⬜ → ✅ (`71465cb`, watched on an
+emulator), row 6 went ⬜ → ✅ on the fallback half (`1f70c6b`, `aee7276`), and
+row 13 — the row this document said the Android parser was "the thinnest of the
+four" in — went ⬜ → ✅, with a qualifier stated in the row: that work is
+compiled and has never been run.
+
+**Three rows are not a column, so the `sibling-readings` line for `cpmdroid` is
+deliberately NOT advanced**, and the drift script will keep reporting that
+column as moved. That is the same rule the `ioscpm` line is held to a few
+paragraphs down: reading three rows is not reading a column, and that line is
+what certifies one. Rows 1, 2, 3, 5, 7, 8, 9, 10, 11 and 12 have not been
+re-read since 2026-08-27.
+
 **The iOS/macOS column was re-read from `ioscpm` source on 2026-08-26**, at
 **build 52** (`49851aa`), and for the first time from a checkout on this machine
 rather than at a distance. It supersedes the 2026-08-24 reading at build 50,
@@ -409,6 +425,40 @@ to find them on every platform.
     picker, no share sheet. So the Android 11+ "`Android/data` is invisible in
     the Files app" trap is live, and this is the port where an exported file is
     hardest to reach — which makes it, not iOS, the weakest cell in this row.
+    **That paragraph was true until 2026-08-29 and is now the record of what
+    changed.** `71465cb` closed it in both directions, and the closure was
+    watched on an API 36 emulator rather than argued: a **File transfer**
+    screen on the toolbar listing both folders with sizes and dates, with
+    **Save as…** (`ACTION_CREATE_DOCUMENT`, behind a small custom
+    `ActivityResultContract` because `ActivityResultContracts.CreateDocument`
+    fixes the MIME type at registration and each row has a different one),
+    **Share** (a `FileProvider` scoped to `Imports/` and `Exports/` and
+    deliberately *not* to the external-files root, which also holds the user's
+    downloaded disk library), **Delete**, and an **Import** picker
+    (`ACTION_OPEN_DOCUMENT`) that mangles the host name to `R8`'s own 8.3 rules
+    from `path_to_fcb` in `r8.asm`. The fixed folders did not move and the
+    C++ shim was not touched: what was missing was never the boundary, it was
+    the UI on top of it. So the weakest cell in this row is now iOS again,
+    where the export half is still a fixed folder with no exporter.
+    Two capabilities this port has that **this document never had a row to
+    ask about**, recorded here because row 4 is where they belong — an import
+    is the read half of this row, and both are properties of it:
+    **(i) the import is bounded.** `MAX_IMPORT_BYTES` (16 MiB) is enforced in
+    `copyBounded()` inside `stageIntoImports()`, which every inbound path funnels
+    through, and an over-size source is refused with the partial file deleted
+    rather than left as a truncated import that `R8` would happily read. No
+    other port caps an import at all; the CLI and the browser hand the whole
+    file over. Worth a row of its own only if a second port grows one.
+    **(ii) the OS can hand it a file.** `ImportReceiverActivity` carries
+    `ACTION_SEND`, `ACTION_SEND_MULTIPLE` and `ACTION_VIEW` intent-filters, so
+    **CPMDroid appears in another app's share sheet** — the inbound twin of the
+    share this row has always measured on the outbound side. It refuses
+    anything but a `content://` Uri, stages through the same 8.3 mangling and
+    the same size cap, and reports the mangled name in a toast so the user knows
+    what to type at the `R8` prompt. It is the only inbound OS entry point in
+    the family that actually does something: iOS has none, the CLI does not need
+    one, and this repo *declares* file-type associations in its MSIX manifest
+    and then discards the command line — see parity target (c).
     Containment is real, though, and as of 2026-08-25 it is asserted in the
     right layer. The guest path is reduced to a single leaf by
     `emu_host_path_basename()` inside `emu_host_file_open_read/write()` in the
@@ -439,17 +489,31 @@ to find them on every platform.
     either: no SDK, NDK or Gradle on the machine it was written on, and the C++
     was built for the host against a stub `jni.h`.
 - **Parity targets:** (a) let users reach **arbitrary** host locations within each
-  platform's file model — a document picker / `ACTION_CREATE_DOCUMENT`; and (b) at
-  minimum, **make exports findable**. Both are still open on both mobile ports.
+  platform's file model — a document picker / `ACTION_CREATE_DOCUMENT`; (b) at
+  minimum, **make exports findable**; and (c) — added 2026-08-29, because one
+  port now has it and the target list could not describe it — **let the OS hand
+  the app a file**, an inbound share/open-with entry point, which is (a) from the
+  other side. **(a) and (b) are closed on Android** as of `71465cb` and both
+  remain open on iOS; **(c) is closed on Android**, open on iOS, and ➖ for the CLI, where
+  `argv` already is the invocation. It is **open on Windows, and worse than
+  untouched**: `packaging/msix/AppxManifest.xml` already declares
+  `windows.fileTypeAssociation` for `.img`/`.dsk` and `.rom`, so a Store
+  install offers this app as an Open-with target — while `main.cpp` takes
+  `lpCmdLine` and immediately `UNREFERENCED_PARAMETER`s it, and no window
+  accepts `WM_DROPFILES`. The association resolves to a no-op: double-clicking
+  a disk image starts the emulator and loads nothing.
   (b) used to say it was "done on Android (share sheet plus the paths shown
   in-app)"; that was the `c26aeb7` reading talking, and it is the last claim of
   that reading left in this row — there is no `ACTION_SEND`, no `FileProvider`,
   no `res/xml` and no path display anywhere in `cpmdroid` at `9b68ab1`, and
-  still none at `c06fa58` (re-grepped 2026-08-26). The
-  nearest thing either mobile port has to (b) is `W8` printing its own
-  destination, which both do now. (a) needs a save-as for `W8` —
-  `ACTION_CREATE_DOCUMENT` on Android, a document exporter on iOS — before
-  either can be called ✅.
+  still none at `c06fa58` (re-grepped 2026-08-26) — all four arrived at
+  `71465cb` on 2026-08-29, so that sentence is now a statement about two
+  particular commits and not about the port. The
+  nearest thing **iOS** has to (b) is `W8` printing its own destination, which
+  both ports do; Android went well past (b) at `71465cb`, which is where a File
+  transfer screen with sizes, dates, Share and Save as… landed. (a) now needs
+  only a document exporter on iOS — the Android half, `ACTION_CREATE_DOCUMENT`,
+  is done.
   The shared iOS/Mac **`help_file_transfer.md`** was stale (wrong bundle id
   `com.awohl.iOSCPM`, wrong app name "iOSCPM", no mention of Import File…);
   `ioscpm` commit `9a9d7fd` fixed it on 2026-07-23. `cpmdroid` has its own
@@ -480,8 +544,11 @@ copyrighted content.
     `releaseTag = "v1.4.5"` from which both `catalogURL` and `releaseBaseURL`
     are built, with the reason in a comment (the core reports RomWBW v3.5.1;
     slices from another release print an HBIOS/CBIOS mismatch). Like cpmdroid,
-    help deliberately stays on `releases/latest` — but unlike cpmdroid, without
-    a bundled fallback, so see item 6.
+    help deliberately stays on `releases/latest`, which item 6 explains is only
+    safe behind a bundled fallback — and both ports now have one, `ioscpm` since
+    build 51 and `cpmdroid` since `1f70c6b`. (This clause read "unlike cpmdroid,
+    without a bundled fallback" until 2026-08-29; both halves of that contrast
+    are now false.)
   - **romwbw_emu (web)** *(2026-08-27, at `a95db9f`)* — **there is no catalog
     here at all**, and the cell in the table above used to read "hardcoded list,
     unpinned; 4 of 5 images ship nowhere", which understated it in the one
@@ -541,23 +608,32 @@ In-app help fetched from GitHub, with offline bundled topics.
   through `releases/latest` is one un-attached asset away from the same silent
   break. Ship the topics in the app and treat the download as an optional
   refresh, never as the source.
-- **Verified port behaviour (2026-08-25, correcting the 2026-08-07 entry):**
-  **cpmdroid has NOT fixed this.** The claim that `app/build.gradle.kts` adds
-  the repo's `help/` directory as an assets source dir is wrong — that file
-  mentions help nowhere, `app/src/main/assets` contains `emu_avw.rom` and
-  nothing else, and the repo's own `help/` holds two files (`help_index.json`
-  and `help_quick_start.md`), not seven topics.
-  `HelpActivity` fetches `https://github.com/avwohl/cpmdroid/releases/latest/download/help_index.json`
-  over HTTP with no bundled copy and no on-disk cache, which is precisely the
-  trap described above, still armed. The text that follows described the fix
-  that was supposed to land:
-  `HelpActivity.loadHelpIndex` still **prefers** the published index — so a
-  correction can go out without an app update — but falls back to the bundled
-  one, and `HelpTopicActivity` falls back per topic to the bundled file of the
-  same name. Help now works offline and survives an unpublished release asset.
+- **Verified port behaviour (2026-08-29, superseding the 2026-08-25 entry):**
+  **cpmdroid is out of the trap**, and the 2026-08-25 entry — which correctly
+  found nothing bundled, no cache, and a `build.gradle.kts` that mentions help
+  nowhere — is now the record of what was fixed rather than a live finding.
+  `1f70c6b` and `aee7276` closed it. All eight files (`help_index.json` plus
+  seven topics) ship inside the APK under `app/src/main/assets/help/`,
+  byte-identical to the copies in `release_assets/` that get attached to a
+  release, so there is no second copy to drift; no Gradle rule was needed
+  because AGP packages `src/main/assets/**` verbatim. The order is **download,
+  then the on-disk cache, then the shipped copy** — `resolveHelpIndex` and
+  `resolveContent`, with a `HelpSource` enum that puts "offline copy, saved
+  <date>" or "bundled with the app" in the action-bar subtitle so a reader can
+  tell which one they got. The cache is under `filesDir`, deliberately not
+  `cacheDir`, "because the whole point is a topic that is still there on a train
+  weeks later". It still **prefers** the published index, which is the right way
+  round: a correction reaches users without an app update.
+  Two details worth taking rather than re-deriving. A blank or zero-byte cached
+  file is treated as a **miss**, not as an empty topic, because "a blank pane
+  cannot be told apart from a topic that loaded and had nothing to say"; and a
+  truncated download never becomes a cache entry, because the fetch compares the
+  body's byte count against a declared `Content-Length` and rejects a mismatch.
+  Three of the seven topics were also reworded from iOS to Android on the way
+  (`aee7276`) — they had been describing an iPhone to an Android reader.
 - **Verified ioscpm behaviour (2026-08-26, build 52):** help **yes**, fallback
   **yes, since build 51** — the port this trap applied to on 2026-08-24 is out of
-  it, and `cpmdroid` is the only one still in. `HelpView.swift` still resolves
+  it, and as of 2026-08-29 so is `cpmdroid`, which leaves **no GUI port in it**. `HelpView.swift` still resolves
   `help_index.json` and every topic through `releases/latest/download/`, which is
   the right way round: a published correction still reaches users without an app
   update. What changed is what sits behind it. The index and all seven topics
@@ -751,28 +827,68 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     have no counterpart there. `todo.txt` records both for whoever is next at a
     Mac.
     Parser input **is** bounded, since build 49: `maxCSIParams` 16 and
-    `maxCSIParamDigits` 6, matching cpmdroid, with leading zeros dropped so
+    `maxCSIParamDigits` 6, matching z80cpmw (`cpmdroid` had none until
+    `c0b3bf7`, 2026-08-29, and arrived last of the three), with leading zeros dropped so
     zero-padding cannot spend the digit budget. Build 49 also made SGR 7 a
     render-time toggle instead of an in-place nibble swap, so SGR 27 restores
     the original colours instead of resetting to white-on-black.
-  - **cpmdroid** — ⬜, and this is the row where the 2026-08-07 reading was
-    furthest from the code. `app/src/main/java/com/awohl/cpmdroid/TerminalView.kt`
-    at `origin/master` has **no VT52, no DECSTBM, no DECSC/DECRC, no
-    answerbacks, no private-mode handling, no parameter bounds and no `P @ X S
-    T`** — none of which it could have "ported from the above", since this
-    repo's own item 13 says the flow ran the other way. What is there is a
-    three-state parser whose whole CSI dispatch is `H f A B C D J K m`; SGR
-    handles foreground only (`0`, `30`–`37`, `90`–`97`, no bold, no background,
-    no reverse) and resets to green rather than white; and ESC followed by
-    anything but `[` is discarded, which is what makes every sequence above
-    unreachable rather than merely unimplemented.
-    In the normal state it handles ESC, CR, LF, BS and BEL. **TAB was dropped
-    entirely** until 2026-08-25 — the `else` arm prints 0x20 and up, so 0x09
-    matched nothing — which collapsed every tabbed layout, including RomWBW's
-    own tab-indented boot banner and `DIR`. It now advances to the next
-    8-column stop like the other ports. FF is still discarded.
-    So the mobile ports did not jointly lead this row: **`ioscpm` did**, and
-    z80cpmw's item 13 work came from there.
+  - **cpmdroid** *(2026-08-29, at `167acbe` on `origin/master` — see the caveat
+    at the end of this bullet)* — ✅, and this row has moved further in one day
+    than any other cell in this document. It was the row where the 2026-08-07
+    reading was furthest from the code, and the ⬜ that replaced that reading
+    was accurate until 2026-08-29.
+    **What that ⬜ recorded**, kept here because it is what the closure has to
+    be measured against: no VT52, no DECSTBM, no DECSC/DECRC, no answerbacks,
+    no private-mode handling and no `P @ X S T`; a CSI dispatch of `H f A B C D
+    J K m` and nothing else; foreground-only SGR; and ESC followed by anything
+    but `[` discarded, which is what made every sequence above unreachable
+    rather than merely unimplemented. Every item in that list was accurate at
+    `c6756af`, including "no parameter bounds" — the bounds are `c0b3bf7`
+    (2026-08-29), part of the round this bullet records, and before it the
+    parameter buffer was an unbounded `StringBuilder` that an unterminated
+    escape could grow without limit.
+    **What is there now.** `processEscape()` is a dispatch table, so the ESC
+    branch no longer discards: `7`/`8`, `D`/`E`/`M`, `c` (RIS), `Z`, `<`,
+    `=`/`>`, and the designators `( ) * + #` and space consumed with their
+    argument byte. The full VT52 set with the same auto-detection this repo
+    uses — receiving a VT52-exclusive escape is itself the signal — and `ESC Y`
+    taken through two dedicated parser states. DECSTBM with a region-aware line
+    feed, `IL`/`DL`/`SU`/`SD` and `RI` honouring it. DECSC/DECRC saving the
+    rendition as well as the position, and `CSI s`/`u` sharing the slot. The
+    seven editing finals — `@ P X L M` and the two scrolls `S T` — and
+    `G`/`` ` ``/`d`. Parameter bounds now match this repo and `ioscpm`:
+    `MAX_CSI_PARAMS` 16, `MAX_CSI_PARAM_DIGITS` 6, values clamped to 9999. The query
+    replies (`ESC Z`, `CSI c`, `CSI 5 n`, `CSI 6 n`) with the private forms
+    deliberately silent. DECANM, DECAWM and DECTCEM acted on, with the private
+    marker remembered rather than merely swallowed. Deferred autowrap.
+    **Per-cell attributes**, with the same three bits and the same values as
+    this repo's `TCELL_BOLD`/`TCELL_UNDERLINE`/`TCELL_BLINK`, painted through
+    four `Paint` objects indexed by the flags — the same shape as the four
+    `HFONT`s here and adopted for the same reason.
+    Three divergences that are choices, not gaps, and are marked as such in
+    that port's own `todo.txt` so a later sweep stops re-filing them: **SGR 0
+    resets the foreground to green**, not CGA 7, because that is the app's
+    identity; **`ESC[104m` stays bright**, because a cell there is a full ARGB
+    `Int` with no blink bit to borrow and so nothing forces the 100–107 fold
+    this repo makes; and **SGR 1 does not brighten the colour**, because bold
+    and bright are only the same thing inside a packed attribute byte. That
+    port also implements **SGR 39 and 49**, which neither this repo nor
+    `ioscpm` does — the one place in the row where it is ahead.
+    One thing it still does not have that the others do: it prints every byte
+    from 0x20 **up**, where both other ports stop at 0x7E, so DEL and the whole
+    0x80–0xFF range draw glyphs here and nothing there. That one is in its
+    `todo.txt`. FF is still discarded — but so it is by both other ports, so it
+    belongs on the list of things none of the three has rather than in this
+    cell.
+    **The caveat.** `167acbe` was written on a machine with no Android SDK and
+    **has never been run**. It is compiled — the C++ by host `clang++` at `-Wall -Wextra`, and
+    `TerminalView.kt` by `kotlinc` against real Android framework classes — and
+    that is a type-check, not a screen. Its `MANUAL_CHECKS.md` gained a section
+    listing what to point at it. Read this ✅ as "the code is there and agrees
+    with this document", not as "somebody watched it work"; the other three
+    columns in this row do not carry that qualifier.
+    On the history: the mobile ports did not jointly lead this row. **`ioscpm`
+    did**, and z80cpmw's item 13 work came from there.
   - **z80cpmw (this repo)** — `TerminalView.cpp`
     (`processEscapeChar`, `processCSIChar`, `executeCSI`, `applySGR`).
     **VT52 and the answerbacks landed**, ported from `cpmdroid`: the full VT52
@@ -898,7 +1014,10 @@ extending it; that port's parser turned out to be the thinnest of the four.)
 Android `cpmdroid` is as of **`origin/master`, 2026-08-25, read from source** —
 the whole column, after the `c26aeb7` citations turned out to describe code that
 was never pushed — and every absence claim in it was **re-verified against
-`c6756af`** on 2026-08-27, with none falsified. See the note at the head of this
+`c6756af`** on 2026-08-27, with none falsified. **Rows 4, 6 and 13 were then
+re-read on 2026-08-29 and all three changed**; the other ten rows are still the
+2026-08-25 reading, which is why the `sibling-readings` line below stays where
+it is and this column still reports as drifted. See the note at the head of this
 file.
 The **iOS/macOS column was re-read from `ioscpm` source on 2026-08-26**, at
 **build 52** (`49851aa`), from a checkout on this machine — every row, not only
@@ -965,16 +1084,16 @@ thing:
 | 1. Configurable keymap (termcap) | ◐ (22 keys incl. F1–F12 since build 51; no modifier bindings, lower-camel names, WordStar default, no on-screen key row) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12 and full Ctrl window) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
 | 2. Scrollback | ✅ | ✅ (Settings slider incl. Off since 2026-08-25; drag instead of wheel) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
 | 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip; Copy takes the scrollback since 2026-08-25, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
-| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52) | ⬜ (both folders fixed, no picker, no share, no path UI) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
+| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52) | ✅ (File transfer screen, save-as, share sheet, import picker and an inbound share target since `71465cb`; folders still fixed, import capped at 16 MiB) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
 | 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
-| 6. Help system + offline fallback | ✅ / ✅ bundled since build 51 (download, cache, then the shipped copy) | ✅ / ⬜ (fetches `releases/latest`, nothing bundled, no cache) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
+| 6. Help system + offline fallback | ✅ / ✅ bundled since build 51 (download, cache, then the shipped copy) | ✅ / ✅ bundled since `1f70c6b` (download, cache, then the shipped copy; all eight files in `assets/help/`) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
 | 7. NVRAM autoboot / bootString | ✅ | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
 | 8. Window state / DPI | ⬜ (Mac Catalyst) | ➖ | ➖ |
 | 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt) | ➖ |
 | 10. Dazzler | ⬜ | ⬜ (explicit no-op stubs) | ⬜ (no Dazzler code; the core only offers the hooks this repo uses) |
 | 11. Config profiles | ⬜ | ⬜ (flat SharedPreferences, no named profiles) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
 | 12. Manifest write warning | ✅ (suppressible) | ✅ (suppressible, once per session) | ➖ CLI · ✅ web (*Don't warn* kept across a reload since `108856c`) |
-| 13. Terminal emulation (VT100 + VT52) | ✅ | ⬜ (CSI `H f A B C D J K m` only; no VT52, no DECSTBM, fg-only SGR) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ✅ web (output filter fixed in `2dbf6f2`) |
+| 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (VT52, DECSTBM, DECSC/DECRC, `@ P X L M S T`, the query replies, per-cell bold/underline/blink/reverse — written 2026-08-29, compiled but never run) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ✅ web (output filter fixed in `2dbf6f2`) |
 
 **z80cpmw's own row 13 became ✅ on 2026-08-28**, which makes every row in this
 document ✅ for z80cpmw — the other twelve by construction, this one on the
@@ -997,10 +1116,14 @@ gap together.
 ## Suggested priority order for each GUI port
 
 1. **Terminal emulation (#13)** — decides which software runs at all, so it
-   outranks everything else. **All three ports now implement it**: z80cpmw
-   caught up last, and the three parsers agree on VT52, the scrolling region,
-   deferred autowrap, the editing finals and the answerbacks. What differs is
-   detail, listed per port above.
+   outranks everything else. **All three ports now implement it**: `cpmdroid`
+   caught up last, on 2026-08-29, and the three parsers agree on VT52, the
+   scrolling region, deferred autowrap, the editing finals and the answerbacks.
+   What differs is detail, listed per port above. This line was written before
+   the Android half was true — it is one of the places the "a sweep of a column
+   is not a sweep of the document" warning caught out — and it is now correct
+   for the first time, with the one qualifier row 13 carries: the Android
+   parser is compiled and unrun.
 2. **Configurable keymap (#1)** — biggest remaining UX win, fully specced in
    `docs/CONFIGURATION.md`, and portable as a config schema. For iOS/macOS the
    F1–F12 half landed in build 51; what remains is modifier bindings (`Ctrl+Left`
@@ -1018,17 +1141,27 @@ gap together.
    `TerminalView.cpp`. Done on iOS/macOS and Android.
 4. **Arbitrary-path R8/W8 (#4)** within the platform's file model. On iOS/macOS
    the import half is covered by staging through **Import File…** and what is
-   left is the export half — a document exporter. On Android *neither* half has
-   a UI: no import picker, no `ACTION_CREATE_DOCUMENT`, no path shown anywhere,
-   which is what makes it the weakest cell in that row.
+   left is the export half — a document exporter, which makes it the weakest
+   cell in that row now. **Android closed both halves on 2026-08-29** (`71465cb`)
+   and went past the target: a File transfer screen, save-as through
+   `ACTION_CREATE_DOCUMENT`, a share sheet, an import picker, and an inbound
+   share target so another app can push a file in. That last one is target (c)
+   and Android is the only port with it — it is the worked example iOS should
+   copy, in the way this list has been short of one since the `c26aeb7`
+   reading was withdrawn.
 5. **Pin the disk catalog to an explicit release tag (#5)** to stop HBIOS/CBIOS
    version drift. **Done on both** — Android and iOS/macOS are each pinned to
    `v1.4.5`. What is left is the other half of the same trap: help still
    resolves through `releases/latest`, which is only safe with a bundled
-   fallback. iOS/macOS gained one in build 51; **Android has none**, and this
-   repo has only its own two topics (#6).
-6. Align **help topics / offline fallback (#6)** and **NVRAM/autoboot (#7)** —
-   for Android the remaining piece of #7 is the `bootString` auto-type.
+   fallback. iOS/macOS gained one in build 51 and **Android in `1f70c6b`**, so
+   **this repo is the only port still exposed** — it has only its own two
+   topics, and bundling the seven published ones is blocked on a wording
+   decision rather than on work (#6).
+6. Align **help topics / offline fallback (#6)** and **NVRAM/autoboot (#7)**.
+   The fallback half of #6 is done everywhere but here. For Android the
+   remaining piece of #7 is the `bootString` auto-type, which is the only open
+   half of *this item* there — #1 above and the optional #10/#11 below are still
+   open on that port.
 7. Desktop-only: **window state + DPI (#8)** for the Mac build.
 8. Optional: **profiles (#11)**, **Dazzler (#10)**.
 
