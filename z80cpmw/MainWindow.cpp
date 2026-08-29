@@ -45,6 +45,9 @@ static const UINT WM_APP_SHOW_WELCOME = WM_APP + 1;
 // Posted by runOnUiThread(): lParam owns a heap-allocated std::function to run.
 static const UINT WM_APP_RUN_ON_UI = WM_APP + 2;
 
+// WM_APP + 3 is spoken for too: DazzlerWindow.h declares WM_APP_DAZZLER_CLOSED,
+// which it has to, being the side that posts it.
+
 MainWindow::MainWindow()
     : m_terminal(std::make_unique<TerminalView>())
     , m_emulator(std::make_unique<EmulatorEngine>())
@@ -406,6 +409,23 @@ LRESULT MainWindow::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         }
         return 0;
     }
+
+    case WM_APP_DAZZLER_CLOSED:
+        // The user closed the Dazzler window. That is the same gesture as
+        // unticking View > Dazzler, so it takes the same path: the card goes
+        // down, the check mark comes off, and the choice is saved. Hiding the
+        // window was all that used to happen, and it left the other two saying
+        // the Dazzler was on.
+        //
+        // Guarded rather than called flat, because onViewDazzler() TOGGLES. The
+        // post sits at the back of the queue, so a View > Dazzler click already
+        // queued ahead of it can turn the card off first - and an unguarded
+        // toggle would then turn it straight back on and reopen the window the
+        // user had just closed.
+        if (m_dazzlerEnabled) {
+            onViewDazzler();
+        }
+        return 0;
     }
 
     return DefWindowProcW(m_hwnd, msg, wParam, lParam);
@@ -1149,10 +1169,11 @@ void MainWindow::onEmulatorSettings() {
     // saveSettings() runs, including the one at the bottom of this function -
     // rewrites cfg.dazzlers[0].enabled from m_dazzlerEnabled and, whenever that
     // is true, the port and scale from the live Dazzler's
-    // getBasePort()/getScale(). The one way the
-    // two can drift is a profile load: applyConfig() sets m_dazzlerEnabled true
-    // for an enabled profile but never sets it false for a disabled one, and
-    // the next save then writes the live side back over the profile.
+    // getBasePort()/getScale(). A profile load used to be able to drive the two
+    // apart - applyConfig() set m_dazzlerEnabled true for an enabled profile
+    // but never set it false for a disabled one, so the next save wrote the
+    // live side back over the profile - and no longer can: it goes through
+    // applyDazzlerState() in both directions.
     //
     // So the seed follows exactly the rule updateConfigFromState() writes back
     // by - the live card where there is one, cfg.dazzlers[0] as the record of
@@ -1348,9 +1369,9 @@ void MainWindow::onEmulatorSettings() {
         // default port and scale - in the config of someone who pressed OK
         // having never touched the Dazzler. Neither of the two places that act
         // on the array can tell it from the empty one it replaces:
-        // applyConfig() does nothing unless daz.enabled, and onViewDazzler
-        // reads 0x0E and 4 out of it, which is exactly what it falls back to
-        // when the array is empty.
+        // applyConfig() reads 0x0E and 4 out of an empty array and then acts
+        // only on enabled or on a live card, of which an inert entry says
+        // neither, and onViewDazzler reads the same 0x0E and 4 out of it.
         if (cfgMut.dazzlers.empty()) {
             cfgMut.dazzlers.push_back(config::DazzlerConfig{});
         }
@@ -1412,12 +1433,16 @@ void MainWindow::applyDazzlerState(bool enabled, uint8_t port, int scale) {
         }
         m_emulator->enableDazzler(port, scale);
 
-        // The scale onto the card, by hand, because nothing else does it any
-        // more. enableDazzler() sets it on the card it CONSTRUCTS and returns at
-        // once ("Already enabled") for one that exists, and the only other
-        // writer was DazzlerWindow::setScale, which this function has stopped
-        // calling for the reason given below. Dazzler::m_scale is read nowhere
-        // in Dazzler.cpp - it is purely the record of the choice - but
+        // The scale onto the card, by hand, because nothing else does it
+        // reliably. enableDazzler() sets it on the card it CONSTRUCTS and
+        // returns at once ("Already enabled") for one that exists. The other
+        // writer, DazzlerWindow::setScale() below, writes it through the card
+        // the window is attached to - and neither its being attached nor its
+        // scale having changed is guaranteed here: a port change detaches the
+        // window and builds a new card, and a Settings OK that touched nothing
+        // reaches this with the same scale the window already has.
+        // Dazzler::m_scale is read nowhere in Dazzler.cpp - it is purely the
+        // record of the choice - but
         // updateConfigFromState() reads cfg.dazzlers[0].scale back out of
         // getScale(), so leaving it stale writes the OLD scale to z80cpmw.json
         // one statement after the user changed it in the dialog.
@@ -1425,77 +1450,52 @@ void MainWindow::applyDazzlerState(bool enabled, uint8_t port, int scale) {
             card->setScale(scale);
         }
 
-        // WHERE A NEW WINDOW GOES AND WHETHER IT ENDS UP ON SCREEN. Both are
-        // settled before anything is destroyed below.
+        // WHETHER THE WINDOW ENDS UP ON SCREEN.
         //
         // Not an unconditional show(true), which is what onEmulatorSettings' OK
         // path turned into a bug the moment it began calling this on EVERY OK
-        // rather than only when the Dazzler group changed. DazzlerWindow answers
-        // WM_CLOSE with show(false) - "Hide instead of destroy - let main window
-        // manage lifetime" - so a window the user closed is a HIDDEN window and
-        // the card behind it is still enabled; an OK for the bell or a disk then
-        // reopened it. So it is shown when this call is what ENABLES the card
-        // (View > Dazzler toggling it on, or the Settings checkbox being
-        // ticked), or when there is no window yet, and otherwise the user's own
-        // last word about it stands.
+        // rather than only when the Dazzler group changed: an OK for the bell or
+        // a disk reopened a Dazzler window the user had closed. So it is shown
+        // when this call is what ENABLES the card (View > Dazzler toggling it
+        // on, the Settings checkbox being ticked, a profile arriving with it on)
+        // or when there is no window yet, and is otherwise left exactly as the
+        // user left it.
         //
-        // Reopening a closed window is View > Dazzler off and then on, two
-        // clicks, because WM_CLOSE does not clear m_dazzlerEnabled and the menu
-        // stays ticked. Fixing that means WM_CLOSE telling MainWindow, which is
-        // DazzlerWindow's business rather than this function's.
+        // Closing the window is now one of the ways the card gets DISABLED -
+        // DazzlerWindow's WM_CLOSE posts WM_APP_DAZZLER_CLOSED and this window's
+        // handler routes it through onViewDazzler() - so a window the user
+        // closed arrives here with wasEnabled false and comes back on one click.
         const bool hadWindow = (m_dazzlerWindow != nullptr);
-        const bool wasOnScreen = hadWindow && m_dazzlerWindow->isVisible();
-        const bool wantVisible = !hadWindow || !wasEnabled || wasOnScreen;
+        const bool showIt = !hadWindow || !wasEnabled;
 
-        RECT mainRect = {};
-        GetWindowRect(m_hwnd, &mainRect);
-        int wndX = mainRect.right + 10;   // position next to the main window
-        int wndY = mainRect.top;
-
-        // A scale change REBUILDS the window rather than calling
-        // DazzlerWindow::setScale(), of which this line was the only caller in
-        // the whole tree and which does not do what is wanted here. Its
-        // updateSize() sizes the client to m_dazzler->getWidth() * scale - the
-        // card's CURRENT video mode, which is 32x32 until a guest program
-        // selects otherwise, since Dazzler::getWidth() reads m_x4Mode and
-        // m_use2K and both are false from the constructor.
-        // DazzlerWindow::create() deliberately uses a fixed 128 * scale instead
-        // ("Fixed size for maximum resolution (128x128 in X4 2K mode). Smaller
-        // modes will be scaled to fill this space"), and DazzlerWindow::paint()
-        // StretchBlt's whatever the mode is over the whole client rect. So the
-        // fixed size is the contract. Measured, on a card no guest had touched:
-        // a scale 4 -> 2 change through create() gives the 256x256 client the
-        // contract asks for, where setScale would have sized it from
-        // getWidth() * 2 and produced 64x64.
-        //
-        // The alternative, and the better shape: have DazzlerWindow::setScale
-        // size from Dazzler::MAX_WIDTH the way create() does, and this block
-        // collapses to one setScale() call. That is a change to DazzlerWindow,
-        // which this call site does not own.
-        if (m_dazzlerWindow && m_dazzlerWindow->getScale() != scale) {
-            RECT r = {};
-            if (m_dazzlerWindow->getHwnd() &&
-                GetWindowRect(m_dazzlerWindow->getHwnd(), &r)) {
-                wndX = r.left;   // keep where the user dragged it
-                wndY = r.top;
-            }
-            m_dazzlerWindow->setDazzler(nullptr);
-            m_dazzlerWindow.reset();   // ~DazzlerWindow() destroys the HWND
-        }
-
-        // Create Dazzler window
+        // A scale change RESIZES the window; only a first enable builds one.
+        // DazzlerWindow::setScale() now sizes from Dazzler::MAX_WIDTH the way
+        // create() does, so the two agree, and resizing in place keeps the HWND
+        // and - through SetWindowPos(SWP_NOMOVE) - keeps the window where the
+        // user dragged it, which the rebuild this replaces had to reconstruct by
+        // hand from GetWindowRect.
         if (!m_dazzlerWindow) {
+            RECT mainRect = {};
+            GetWindowRect(m_hwnd, &mainRect);
             m_dazzlerWindow = std::make_unique<DazzlerWindow>();
-            m_dazzlerWindow->create(m_hwnd, wndX, wndY, scale);
+            m_dazzlerWindow->create(m_hwnd,
+                                    mainRect.right + 10,  // next to the main window
+                                    mainRect.top,
+                                    scale);
+        } else {
+            m_dazzlerWindow->setScale(scale);   // no-op when it has not changed
         }
 
         // Connect to emulator's Dazzler
         if (m_dazzlerWindow && m_emulator->getDazzler()) {
             m_dazzlerWindow->setDazzler(m_emulator->getDazzler());
-            // show(false) matters as much as show(true): create() carries
-            // WS_VISIBLE, so a window rebuilt for a scale change comes back on
-            // screen even when the one it replaced had been closed.
-            m_dazzlerWindow->show(wantVisible);
+            // Only ever show(true), and only on the transition decided above.
+            // Nothing here hides a window: the two gestures that take one off
+            // the screen - View > Dazzler off and closing it - both come back
+            // through the disable arm below, which does the hiding.
+            if (showIt) {
+                m_dazzlerWindow->show(true);
+            }
         }
 
         // "0x" and then the port in hex, which it was not: std::to_string on a
@@ -1532,9 +1532,9 @@ void MainWindow::onViewDazzler() {
 
     // The config is still the source of the port and scale here, as it always
     // was: this path only toggles, and when it is toggling ON there is no live
-    // card to read them from. Every call to enableDazzler() - this one through
-    // applyDazzlerState, and applyConfig()'s - sets m_dazzlerEnabled true in
-    // the same breath, so a false m_dazzlerEnabled means no card exists.
+    // card to read them from. Every call to enableDazzler() is now
+    // applyDazzlerState's, which sets m_dazzlerEnabled true in the same breath,
+    // so a false m_dazzlerEnabled means no card exists.
     applyDazzlerState(!m_dazzlerEnabled, port, scale);
 
     // Save Dazzler state to config
@@ -2139,26 +2139,44 @@ void MainWindow::applyConfig() {
         }
     }
 
-    // Apply Dazzler settings (if any configured)
+    // Apply Dazzler settings, through applyDazzlerState() rather than a second
+    // copy of the create-and-show code. The copy that stood here got none of
+    // that function's fixes: it left an existing card at its old port
+    // (enableDazzler() returns at once when one exists), it left an existing
+    // window at its old scale, and it show(true)'d unconditionally - so loading
+    // a profile reopened a Dazzler window the user had closed.
+    //
+    // 0x0E and 4 where the array is empty, the same pair onViewDazzler() falls
+    // back to, so an empty array and an inert entry (enabled false, the
+    // defaults) still cannot be told apart here - which is what lets
+    // onEmulatorSettings write that entry unconditionally.
+    bool dazzlerOn = false;
+    uint8_t dazzlerPort = 0x0E;
+    int dazzlerScale = 4;
     if (!cfg.dazzlers.empty()) {
-        const auto& daz = cfg.dazzlers[0];
-        if (daz.enabled) {
-            m_dazzlerEnabled = true;
-            m_emulator->enableDazzler(daz.port, daz.scale);
+        dazzlerOn = cfg.dazzlers[0].enabled;
+        dazzlerPort = cfg.dazzlers[0].port;
+        dazzlerScale = cfg.dazzlers[0].scale;
+    }
 
-            // Create Dazzler window
-            if (!m_dazzlerWindow) {
-                m_dazzlerWindow = std::make_unique<DazzlerWindow>();
-                RECT mainRect;
-                GetWindowRect(m_hwnd, &mainRect);
-                m_dazzlerWindow->create(m_hwnd, mainRect.right + 10, mainRect.top, daz.scale);
-            }
-            if (m_dazzlerWindow && m_emulator->getDazzler()) {
-                m_dazzlerWindow->setDazzler(m_emulator->getDazzler());
-                m_dazzlerWindow->show(true);
-            }
-            CheckMenuItem(m_menu, ID_VIEW_DAZZLER, MF_CHECKED);
-        }
+    // "or there is a card to take down" is what makes this safe at STARTUP,
+    // which is the other thing this function is for. m_dazzlerEnabled starts
+    // false and getDazzler() starts null, so a config with no Dazzler leaves
+    // the disable arm - which writes the status text and unticks the View menu
+    // - unreached, exactly as the old code left it. On a profile LOAD the same
+    // clause is a fix: a profile with the Dazzler off used to leave a running
+    // card running, its window on screen and its menu item ticked, and the next
+    // save then wrote that live state back over the profile.
+    if (dazzlerOn || m_dazzlerEnabled) {
+        // applyDazzlerState() writes the status bar, which is right when the
+        // user just asked for the Dazzler and wrong from here. At startup
+        // onCreate()'s updateStatusBar() would publish "Dazzler enabled (port
+        // 0x0E)" where "Ready" belongs; on a profile load onLoadProfile()
+        // overwrites it with "Loaded profile: ..." in the next statement
+        // anyway. So the line this function found is the line it leaves.
+        const std::string statusBefore = m_statusText;
+        applyDazzlerState(dazzlerOn, dazzlerPort, dazzlerScale);
+        m_statusText = statusBefore;
     }
 }
 

@@ -69,18 +69,23 @@ private:
     void onViewDazzler();
 
     // Bring the machine, the Dazzler window and the View menu's check mark into
-    // line with one requested Dazzler state. Shared by onViewDazzler(), which
-    // toggles it, and by onEmulatorSettings()' OK path, which can also change
-    // the port or the scale of a card that is already running - the reason the
-    // port and scale are parameters rather than read from the config here.
+    // line with one requested Dazzler state. The one place that does it, and
+    // it has three callers: onViewDazzler(), which toggles it;
+    // onEmulatorSettings()' OK path, which can also change the port or the
+    // scale of a card that is already running - the reason the port and scale
+    // are parameters rather than read from the config here; and applyConfig(),
+    // for startup and for a profile load.
     //
-    // It does NOT save: both callers do that themselves, and
-    // updateConfigFromState() reads back the state this leaves behind.
+    // It does NOT save. The two callers that act on something the user just
+    // asked for do that themselves and updateConfigFromState() reads back the
+    // state this leaves behind; applyConfig() has nothing to write back,
+    // because it is applying a configuration that was just loaded.
     //
-    // It does not force the window onto the screen either. onEmulatorSettings()
-    // reaches it on EVERY OK, and DazzlerWindow answers WM_CLOSE by hiding
-    // rather than destroying, so a window the user closed is put back only when
-    // this call is what enables the card - see the show() in the enable arm.
+    // It does not force the window onto the screen either: onEmulatorSettings()
+    // reaches it on EVERY OK, so it shows the window only when this call is
+    // what ENABLES the card, or when there is no window yet. A window the user
+    // closed is a card that got disabled with it - DazzlerWindow's WM_CLOSE
+    // posts WM_APP_DAZZLER_CLOSED - so it comes back on the next enable.
     void applyDazzlerState(bool enabled, uint8_t port, int scale);
     void onHelpTopics();
     void onHelpAbout();

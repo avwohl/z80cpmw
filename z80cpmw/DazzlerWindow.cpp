@@ -39,8 +39,13 @@ bool DazzlerWindow::create(HWND parent, int x, int y, int scale) {
 
     // Fixed size for maximum resolution (128x128 in X4 2K mode)
     // Smaller modes will be scaled to fill this space
-    int width = 128 * m_scale;
-    int height = 128 * m_scale;
+    //
+    // Named as Dazzler::MAX_WIDTH/MAX_HEIGHT rather than written 128, because
+    // updateSize() has to arrive at the same number from the same place: a
+    // window resized by setScale() and a window built by create() differ then
+    // only by the scale they were given.
+    int width = Dazzler::MAX_WIDTH * m_scale;
+    int height = Dazzler::MAX_HEIGHT * m_scale;
 
     // Adjust for window frame
     RECT rect = { 0, 0, width, height };
@@ -119,10 +124,28 @@ bool DazzlerWindow::isVisible() const {
 }
 
 void DazzlerWindow::updateSize() {
-    if (!m_hwnd || !m_dazzler) return;
+    // No card needed, and that is not an accident: this runs from setScale(),
+    // and MainWindow::applyDazzlerState() disconnects the window from its
+    // Dazzler (setDazzler(nullptr)) before rebuilding the card for a port
+    // change. The old "!m_dazzler return" made the scale silently not apply in
+    // exactly that case.
+    if (!m_hwnd) return;
 
-    int width = m_dazzler->getWidth() * m_scale;
-    int height = m_dazzler->getHeight() * m_scale;
+    // The card's LARGEST mode, not its current one, which is what this function
+    // used to size from and why it ended up with no caller at all.
+    // m_dazzler->getWidth() reads m_x4Mode and m_use2K, both false from
+    // Dazzler's constructor, so on a card no guest has touched it is 32: a
+    // scale-4 window would have been sized to a 128x128 client where create()
+    // had just given it 512x512. paint() StretchDIBits' whatever mode the card
+    // is in over the whole client rect, so the fixed maximum is the contract
+    // and the smaller modes are meant to be stretched into it.
+    //
+    // Measured on the fixed size, driving the running app: View > Dazzler at
+    // scale 4 gives a 512x512 client, and a Settings change to scale 2 - which
+    // reaches here - leaves a 256x256 client, the same HWND, and the window at
+    // the position it had been dragged to.
+    int width = Dazzler::MAX_WIDTH * m_scale;
+    int height = Dazzler::MAX_HEIGHT * m_scale;
 
     // Adjust for window frame
     RECT rect = { 0, 0, width, height };
@@ -177,8 +200,28 @@ LRESULT DazzlerWindow::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         return 1;  // We handle background in WM_PAINT
 
     case WM_CLOSE:
-        // Hide instead of destroy - let main window manage lifetime
+        // Hide instead of destroy - let main window manage lifetime - and TELL
+        // the main window, which hiding alone did not: the card stayed enabled
+        // and View > Dazzler stayed ticked over a window that was not on
+        // screen, so getting it back cost two clicks (untick, tick) instead of
+        // one.
+        //
+        // POSTED rather than called back into the owner, and the thread is the
+        // point. This window is created by MainWindow::applyDazzlerState() and
+        // MainWindow::applyConfig(), both on the UI thread, so its WindowProc
+        // runs on that thread and PostMessage lands on that same thread's
+        // queue: the owner's handler runs after this WM_CLOSE has returned.
+        // A direct call would re-enter this object from inside handleMessage(),
+        // since what the owner does with the news is show(false) and
+        // setDazzler(nullptr) on this very window.
+        //
+        // m_parent's only reader. create() passes nullptr as the
+        // CreateWindowEx parent ("No parent for independent window"), so the
+        // handle it stashes is the only route back to the owner.
         show(false);
+        if (m_parent) {
+            PostMessageW(m_parent, WM_APP_DAZZLER_CLOSED, 0, 0);
+        }
         return 0;
 
     case WM_SIZE:

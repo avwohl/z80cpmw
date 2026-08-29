@@ -13,6 +13,16 @@
 
 class Dazzler;
 
+// Posted to the owner window when the user closes the Dazzler window, so the
+// owner can take the card down and clear its View menu check mark instead of
+// leaving both standing over a window that is no longer on screen.
+//
+// WM_APP + 1 and WM_APP + 2 are taken by MainWindow.cpp (WM_APP_SHOW_WELCOME
+// and WM_APP_RUN_ON_UI); this one lives here because both sides of it - the
+// DazzlerWindow that posts it and the MainWindow that handles it - have to
+// agree on the number, and MainWindow.cpp already includes this header.
+static const UINT WM_APP_DAZZLER_CLOSED = WM_APP + 3;
+
 class DazzlerWindow {
 public:
     DazzlerWindow();
@@ -28,7 +38,9 @@ public:
     // Window handle
     HWND getHwnd() const { return m_hwnd; }
 
-    // Scaling
+    // Scaling. Resizes the window in place through updateSize(), so a scale
+    // change costs neither the window's position nor its HWND - which is why
+    // MainWindow::applyDazzlerState() is one call rather than a rebuild.
     void setScale(int scale);
     int getScale() const { return m_scale; }
 
@@ -40,7 +52,9 @@ public:
     void show(bool visible = true);
     bool isVisible() const;
 
-    // Update window size based on Dazzler resolution
+    // Size the window to Dazzler::MAX_WIDTH * scale - the card's LARGEST mode,
+    // the same fixed size create() uses, and not whatever mode the card is in
+    // now. Needs no Dazzler attached, for the same reason.
     void updateSize();
 
 private:
