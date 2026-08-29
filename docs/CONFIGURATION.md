@@ -204,18 +204,55 @@ report** listing what could not be used, where in the file it is (`display.fonts
 `disks[1].pth`, `keyboard.keys.PgeUp`), and what happens to it next:
 
 - **Unrecognised setting.** Nothing reads it, so it does nothing, and the next
-  time settings are saved it is dropped from the file.
+  time settings are saved it is dropped from the file. A **fifth or later entry
+  in `disks`** is reported here too, and for the same reason: there are only
+  four units (0–3), so nothing ever reads past the fourth, and a save writes
+  exactly four entries back.
 - **Wrong kind of value** — `"keys"` written as an array, `"disks"` as an
-  object. That whole section is skipped and the built-in defaults are used.
-  **Fix this one before you do anything else in the app.** The file itself
-  parses, so it is *not* renamed out of the way and startup will not save over
-  it — but the next save of any kind writes the built-in defaults over the
-  section that was skipped, and several saves happen without you asking for
-  one: closing the window (it records where the window was), the first-run
-  welcome flag, a setting changed with the ROM's `SYSCONF` while the machine
-  runs, and *Start* on a config with no disks, which loads the defaults and
-  saves them. Simply quitting the app is enough to lose the section, so edit
-  the file — or close the app and edit it — before you carry on.
+  object. That whole section is skipped: nothing in it is read, and the app runs
+  on the built-in defaults for it. The file itself parses, so it is *not*
+  renamed out of the way, and **what you typed is kept.** The text of the
+  skipped section is written *back* into that section by every later save of
+  that file, so the saves that happen without you asking for one — closing the
+  window (it records where the window was), the first-run welcome flag, a
+  setting changed with the ROM's `SYSCONF` while the machine runs, and *Start*
+  on a config with no disks, which loads the defaults and saves them — leave it
+  exactly as you wrote it. The report says both halves of that:
+
+  > Sections listed above were not read at all - the value is the wrong kind of
+  > thing, so the whole section was skipped. Saving settings writes such a
+  > section back rather than over it, so what you typed is safe; until it is
+  > corrected, nothing the application changes in that section is saved either.
+
+  **The second half is why this is still the one to fix first.** Nothing the app
+  puts in that section reaches the file either: mount a disk while `"disks"` is
+  an object, or bind a key on the Keyboard page while `"keys"` is an array, and
+  it works for this session and is gone at the next save. The block stays on
+  screen to say so — pressing OK in *Settings* does not take it down, and it is
+  back at the next launch — until you correct the section and a load can read
+  it.
+
+  Two things that writing-back does **not** do:
+
+  - **It only ever goes back to the file it came from.** Save a **profile** out
+    of a config with a skipped section and the profile does not get your text —
+    it gets the built-in defaults for that section, and loads cleanly. Your text
+    is still in the file you typed it in, which is still where it has to be
+    corrected. The rule runs the other way too: a skipped section in a profile
+    is never written into `z80cpmw.json`.
+  - **A file that is wrongly typed *and* unreadable keeps nothing.** The file
+    still parses as JSON, but something else in it stops the document being
+    turned into settings at all — a `disks` entry with no `path`, or a value in
+    a place the loader cannot step over, such as `"keyboard"` written as a
+    string. Nothing in the file is then in force, so there is nothing to write
+    back: it is renamed out of the way like any other unreadable file (below),
+    and the next save writes the built-in defaults for that section. The report
+    tells the two apart: such a line is marked `not kept - the file it is in
+    could not be read as a whole`, and the block closes with
+
+    > A section marked above as not kept is not carried through a save: the file
+    > it is in could not be read as a whole, so nothing from it is in force and
+    > the next save writes the built-in defaults for that section.
 - **Unknown key name** (`F13`, `PgeUp`) or a **reserved** one (the four
   combinations above). The binding is ignored, but the line is **kept** —
   nothing ever removes an entry from `keyboard.keys`, so it is still in the file
@@ -227,12 +264,17 @@ report** listing what could not be used, where in the file it is (`display.fonts
   written over the original, and the report stays on screen — it is the only
   place the backup's name is shown, so it is not taken down when settings are
   saved. (If the rename could not be done at all, the report says so and names
-  the reason; that is the one case where a later save does overwrite the file.)
+  the reason; that is the one case where a later save does overwrite the file,
+  and the block comes down at that save, because its last sentence has stopped
+  being true.)
 
 A **profile** that cannot be read is treated exactly the same way: same report,
 same rename to `<name>.json.bad`. Because it has been renamed it also
 disappears from the *Load Profile* list, and the settings you were running stay
-in force.
+in force — so the report about the file those settings came from stays on
+screen too, with the profile's block added behind it rather than in place of
+it. A profile that *does* load is the other way round: it is the configuration
+now, so it takes the previous file's report down with it and shows its own.
 
 The report survives *Emulator → Start* and *Emulator → Reset* clearing the
 screen, so it is still readable after the machine boots. So do the notices about

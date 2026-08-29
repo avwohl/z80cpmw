@@ -44,9 +44,9 @@ the same binary and also MSIX.
 ## 2. Keystroke delivery, mouse copy/paste, and the first-run Help window
 
 Never watched by a person, and nothing here can automate them.
-`tests\run_tests.bat` is **1020 checks in six suites** now — 516 terminal
-conformance, 244 help renderer and assets, 50 rendering conformance, 66 host
-file transfer, 36 HBIOS host file extension, 108 configuration diagnostics.
+`tests\run_tests.bat` is **1323 checks in six suites** now — 516 terminal
+conformance, 353 help renderer and assets, 50 rendering conformance, 66 host
+file transfer, 36 HBIOS host file extension, 302 configuration diagnostics.
 
 **A cell becoming a pixel is no longer a person's job.** `tests/test_render.cpp`
 creates a real window, drives the parser with real bytes, asks the DWM for the
@@ -110,11 +110,11 @@ these checks are about. Nothing below can be settled by reading the source.
 
 ## 4. The configuration report on screen
 
-108 headless checks say what `ConfigManager::load()` collects. None of them can
+302 headless checks say what `ConfigManager::load()` collects. None of them can
 see the block reach the terminal, or survive what clears it.
 
 - [ ] Break `z80cpmw.json` by hand — delete a closing brace — and launch.
-      Right: the boot output carries a **Configuration report** whose block
+      Right: the boot output carries a **Configuration report** whose line
       begins "could not be read:", **names the backup file** (`z80cpmw.json.bad`,
       or `.bad2` … `.bad20` if that name is taken) and **gives the parser's line
       and column**. That block is the only place in the whole UI those three
@@ -123,18 +123,32 @@ see the block reach the terminal, or survive what clears it.
       `startEmulator()` clears the terminal and `printNotices()` reprints it.
       Then open Settings and press OK: it **stays** even so, because the file was
       renamed away and a save cannot overwrite what is no longer there.
-- [ ] Separately, add a member nothing reads (`"banana": 1`) and launch. Right: a
-      "not recognised:" block saying it will be dropped at the next save — and
-      pressing OK in Settings really does retract that one. This is the pair the
-      one above is the exception to.
+- [ ] Separately, add a member nothing reads (`"banana": 1`) and launch. Right: an
+      "unrecognised setting:" block saying it will be dropped at the next save —
+      and pressing OK in Settings really does retract that one. This is the pair
+      the one above is the exception to.
 - [ ] Write `"keys"` as an **array** under `"keyboard"` and launch. Right: a
       "wrong kind of value:" block naming `keyboard.keys`. This is the case the
-      diagnostics were written for: the file parses, the keymap comes up empty,
-      and the block on screen is the only warning the user gets.
+      diagnostics were written for: the file parses, so nothing is renamed and
+      no dialog appears; none of your bindings are read (the built-in ones are
+      used instead, filled in by `load()`); and the block on screen is the only
+      warning the user gets.
+- [ ] With that block up, open Settings and press **OK**. Right: it **stays** —
+      and `z80cpmw.json` still holds the array exactly as you typed it, because
+      `to_json` splices the section the loader could not read back in at the
+      pointer it came from. `saveSettings()` retracts the *unrecognised setting*
+      block and must not retract this one: a save is what makes that one false,
+      and what keeps this one true.
+- [ ] Then quit and relaunch. Right: the same block again, off the same file —
+      nothing corrected the section and nothing wrote over it. Only correcting
+      it by hand takes the block down, and it goes at the launch after that.
 - [ ] Save a profile, break it by hand, load it. Right: a message box saying the
       profile could not be read, pointing at the terminal for the reason and
       saying current settings are unchanged — not a silent disappearance from
-      the Load Profile list.
+      the Load Profile list. Any block already on screen about `z80cpmw.json`
+      is **still there**, with the profile's behind it: a profile that will not
+      read changes no setting, so it may not take down the report about the
+      file still in force.
 
 ## 5. The bell
 
