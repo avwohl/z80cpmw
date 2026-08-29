@@ -47,6 +47,11 @@ SettingsDialogWx::SettingsDialogWx(wxWindow* parent, DiskCatalog* catalog)
     : wxDialog(parent, wxID_ANY, "Settings", wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , m_catalog(catalog)
+    // Built here, in the init list, because the body's onRefreshCatalog() call
+    // below hands a copy of it to a worker thread before the constructor has
+    // finished. A gate created in the body would be a null shared_ptr at the
+    // one moment it is first needed.
+    , m_postGate(std::make_shared<SettingsDialogPostGate>())
 {
     OutputDebugStringA("[Settings] Constructor: creating controls\n");
     createControls();
@@ -185,6 +190,25 @@ SettingsDialogWx::SettingsDialogWx(wxWindow* parent, DiskCatalog* catalog)
 }
 
 SettingsDialogWx::~SettingsDialogWx() {
+    // Shut the DiskCatalog workers out, and do it as the FIRST statement, while
+    // every base and member of this dialog is still intact. close() either wins
+    // the gate's mutex - after which no worker can ever post to this object
+    // again - or blocks until the wxPostEvent that beat it to the lock has
+    // finished against the still-whole dialog. This function returning is
+    // therefore the proof that nothing on a worker thread will touch *this.
+    //
+    // This body used to be empty, which is what the shipping crash was: the
+    // constructor starts a catalog fetch, the dialog is destroyed the instant
+    // ShowModal() returns, and the detached worker posted into the hole. See
+    // SettingsDialogPostGate for the dumps and for why locking a weak_ptr in
+    // the worker would not have closed it.
+    //
+    // Nothing here waits for the download itself. An in-flight fetch or disk
+    // download keeps running against the DiskCatalog, which MainWindow owns as
+    // m_diskCatalog and which outlives every dialog - so a download the user
+    // asked for still lands in the data folder after they close Settings, and
+    // closing Settings is never delayed by the network.
+    m_postGate->close();
 }
 
 void SettingsDialogWx::createControls() {
@@ -1015,15 +1039,24 @@ void SettingsDialogWx::onRefreshCatalog(wxCommandEvent& event) {
     m_statusText->SetLabel("Loading disk catalog...");
     m_refreshBtn->Enable(false);
 
-    // Store dialog pointer for callback
+    // The raw dialog pointer is still what wxPostEvent needs, but it is no
+    // longer what the worker is trusted with: the gate copied alongside it is
+    // the permission to use it. fetchCatalog runs this callback on a detached
+    // thread seconds later, by which time ShowModal() may have returned and
+    // taken the dialog off the stack with it.
     SettingsDialogWx* dlg = this;
+    auto gate = m_postGate;
 
-    m_catalog->fetchCatalog([dlg](bool success, const std::vector<DiskEntry>& entries, const std::string& error) {
-        // Post event to main thread
+    m_catalog->fetchCatalog([dlg, gate](bool success, const std::vector<DiskEntry>& entries, const std::string& error) {
+        // Built outside the gate on purpose: constructing and filling the event
+        // touches nothing the dialog owns, and the gate is held by the UI
+        // thread's destructor while it waits, so it is kept down to the post.
         wxCommandEvent evt(wxEVT_COMMAND_TEXT_UPDATED, ID_CATALOG_LOADED);
         evt.SetInt(success ? 1 : 0);
         evt.SetString(wxString::FromUTF8(error));
-        wxPostEvent(dlg, evt);
+        // Post event to main thread - only if the dialog is still there, and
+        // atomically with respect to ~SettingsDialogWx deciding that it is not.
+        gate->postIfOpen([&] { wxPostEvent(dlg, evt); });
     });
 }
 
@@ -1065,19 +1098,31 @@ void SettingsDialogWx::onDownloadDisk(wxCommandEvent& event) {
     m_downloadBtn->Enable(false);
     m_progressBar->SetValue(0);
 
+    // Gated for exactly the reason onRefreshCatalog is, because this is the
+    // same shape and was the same crash waiting to be reported: downloadDisk
+    // runs both of these on a detached thread against a stack dialog. It is in
+    // fact the worse of the two - the progress callback fires once per read
+    // block, at most 64KB apiece, for the whole of a multi-megabyte disk image,
+    // so it is posting into the dialog over and over for as long as the
+    // download lasts, and closing Settings at any point in that window used to
+    // be a free access violation.
+    // The only reason the catalog fetch is the one with dumps behind it is that
+    // it starts by itself from the constructor, where downloading needs a user
+    // to have clicked Download first.
     SettingsDialogWx* dlg = this;
+    auto gate = m_postGate;
 
     m_catalog->downloadDisk(filenameStr,
-        [dlg](size_t current, size_t total) {
+        [dlg, gate](size_t current, size_t total) {
             wxCommandEvent evt(wxEVT_COMMAND_TEXT_UPDATED, ID_DOWNLOAD_PROGRESS);
             evt.SetInt(total > 0 ? (int)(current * 100 / total) : 0);
-            wxPostEvent(dlg, evt);
+            gate->postIfOpen([&] { wxPostEvent(dlg, evt); });
         },
-        [dlg](bool success, const std::string& error) {
+        [dlg, gate](bool success, const std::string& error) {
             wxCommandEvent evt(wxEVT_COMMAND_TEXT_UPDATED, ID_DOWNLOAD_COMPLETE);
             evt.SetInt(success ? 1 : 0);
             evt.SetString(wxString::FromUTF8(error));
-            wxPostEvent(dlg, evt);
+            gate->postIfOpen([&] { wxPostEvent(dlg, evt); });
         }
     );
 }

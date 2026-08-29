@@ -57,7 +57,12 @@ void DiskCatalog::setDownloadDirectory(const std::string& dir) {
 }
 
 void DiskCatalog::fetchCatalog(CatalogLoadedCallback callback) {
-    // Run in background thread
+    // Detached, so this returns immediately and nobody can join it. 'this' is
+    // safe to capture (MainWindow owns the one DiskCatalog for the process
+    // lifetime) and 'callback' is captured BY VALUE, so the std::function
+    // itself is alive whenever it is invoked. What is NOT this function's to
+    // guarantee is what the callback closes over - see the contract on
+    // fetchCatalog in DiskCatalog.h.
     std::thread([this, callback]() {
         std::string xml;
         std::string error;
@@ -143,6 +148,8 @@ void DiskCatalog::downloadDisk(const std::string& filename,
 }
 
 void DiskCatalog::cancelDownload() {
+    // A request, not a barrier: the worker still reaches its completeCb after
+    // seeing this. DiskCatalog.h says what that rules the function out of.
     m_cancelRequested = true;
 }
 

@@ -54,15 +54,54 @@ public:
     void setDownloadDirectory(const std::string& dir);
     std::string getDownloadDirectory() const { return m_downloadDir; }
 
-    // Fetch catalog from GitHub (async)
+    // Fetch catalog from GitHub (async).
+    //
+    // CALLER'S CONTRACT, and it is the one that used to be unwritten and cost a
+    // shipping crash: the callback runs LATER, on a DETACHED thread, and this
+    // class will never tell you when. Nothing here can be cancelled or waited
+    // for - see cancelDownload() for why that is on purpose - so a callback
+    // that captures anything shorter-lived than this DiskCatalog has to carry
+    // its own proof that the thing is still alive at the instant it is touched.
+    // SettingsDialogPostGate is what the Settings dialog carries; a bare raw
+    // pointer, or a weak_ptr locked before the call rather than around it, is
+    // not enough.
     void fetchCatalog(CatalogLoadedCallback callback);
 
-    // Download a disk image (async)
+    // Download a disk image (async). Same contract as fetchCatalog, and it
+    // binds harder: progressCb is called once per read block - at most one
+    // 64KB buffer each - for the whole transfer, so a stale capture here is
+    // touched over and over for as long as the download runs, where
+    // fetchCatalog's is touched once at the end.
     void downloadDisk(const std::string& filename,
                       DownloadProgressCallback progressCb,
                       DownloadCompleteCallback completeCb);
 
-    // Cancel current download
+    // Ask the in-flight disk download to stop early.
+    //
+    // NOT a lifetime tool, and deliberately not grown into one - three reasons,
+    // in the order that decides it.
+    //
+    // It does not stop the callback, which is the only thing a dying caller
+    // needs stopped. m_cancelRequested makes downloadToFile's read loop bail
+    // out, and the worker then goes on to call completeCb with "Download
+    // cancelled" - straight into the freed object, exactly the crash this was
+    // supposed to prevent. Nor does it reach the path that actually crashed:
+    // downloadToString, which is the whole of a catalog fetch, never reads
+    // m_cancelRequested at all.
+    //
+    // Making it stop the callback means joining the worker, and the worker sits
+    // in WinHTTP. Nothing in this file calls WinHttpSetTimeouts, so a join is
+    // bounded only by WinHTTP's own defaults - tens of seconds per stage - with
+    // the UI thread stopped inside it. Closing Settings on a dead network would
+    // look like a hang, where the gate blocks it for one wxPostEvent.
+    //
+    // And the download is worth finishing. This object is MainWindow's
+    // m_diskCatalog and outlives every dialog, so a disk the user asked for
+    // still lands in the data folder after the dialog that asked for it has
+    // gone; cancelling on close would throw away the user's own request to buy
+    // nothing. So callers guard their own lifetime instead - see
+    // SettingsDialogPostGate - and this stays what it is: a way for the user to
+    // abandon a download, not a way for an object to survive one.
     void cancelDownload();
 
     // Check if a disk is already downloaded
