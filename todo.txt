@@ -61,19 +61,14 @@ because both are behaviours that a regression would silently take away: the
 block is still there after pressing OK in Settings, and still there after a
 restart.
 
-- [WINDOWS] ~DiskCatalog does not wait for its own workers.  It calls
-cancelDownload() and returns, but cancelDownload only sets m_cancelRequested:
-downloadToFile's read loop checks it and then calls completeCb anyway, and
-downloadToString - the whole of a catalog fetch - never reads it at all.  So a
-detached fetchCatalog or downloadDisk worker can still be inside WinHTTP when
-MainWindow's unique_ptr<DiskCatalog> is destroyed at shutdown, at which point the
-worker's this - m_downloadDir, m_catalogMutex, m_cancelRequested - is freed.  It
-is the shutdown half of the crash SettingsDialogPostGate closed, and it was left
-open on purpose: joining in the destructor blocks app exit on the network for
-WinHTTP's default timeouts, since nothing here calls WinHttpSetTimeouts, and the
-alternative is changing how MainWindow owns and tears the catalog down.  Neither
-is a small edit, and no dump has been seen from it - unlike the dialog half,
-which had five.
+- [WINDOWS] DiskCatalog::m_downloadDir is the one member with no lock and no
+argument written down for why it does not need one.  setDownloadDirectory()
+writes it once, from loadSettings() at startup, and both workers plus
+getDownloadDirectory() read it unsynchronised.  It is not a live bug today - no
+worker can exist at the moment it is written - but that is a property of the
+call order rather than of the class, and the class is the thing that grew a
+documented threading contract when the two use-after-frees were closed.  Either
+write the argument down beside it or give it the same treatment as the rest.
 
 - [WINDOWS] cpmemu has Windows work of its own - the rewritten console input
 path, its test harness, and the cases its suite skips for want of the platform.
