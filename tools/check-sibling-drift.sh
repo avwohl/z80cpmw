@@ -368,6 +368,11 @@ if [ "$Cites" = yes ]; then
 			# unclosed backtick on this line; the last field is prose, not code.
 			for (i = 2; i <= n; i += 2) {
 				tok = part[i]
+				# This document names functions as `foo()` far more often than
+				# as `foo`, and skipping that form left a eighth of the
+				# citations in the marked regions unchecked - including, when
+				# this was noticed, the one sentence that had just been written.
+				sub(/\(\)$/, "", tok)
 				if (tok !~ /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/) continue
 				# Two characters is a letter in prose, not a citation: `R8`,
 				# `W8`, `Up`, `_`.  They resolve trivially and prove nothing.

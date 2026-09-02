@@ -360,11 +360,14 @@ long `DIR` listings).
     `handlePan` truncated each notch and discarded the sub-row remainder at `.ended`,
     and its row pitch was `bounds.height / rows` where `draw(_:)` letterboxes by
     `min(scaleX, scaleY)`.
-  - **Does not match.** History is cleared in `reset()` only; `startEmulator()`
-    clears neither `scrollbackLines` nor `scrollbackOffset`, so Stop then Play leaves
-    the dead session above the new banner and can start parked in history.  The spec
-    line says "cleared on emulator start/reset", z80cpmw clears at both, and no two
-    of the three ports agree — see cpmdroid's entry above.
+  - **Matches since build 58 (2026-09-02).** History is cleared at both fresh-session
+    paths.  It was cleared in `reset()` only, so Stop then Play left the dead session
+    above the new banner and could open already parked in history; `resetScrollback()`
+    now factors the clear and both `reset()` and `startEmulator()` call it, which is
+    the shape and the name this repository already used.  Verified by running it: after
+    Stop then Play the status line reads an empty buffer and the previous session's
+    output is gone.  So the spec line "cleared on emulator start/reset" now holds on
+    two ports of three, cpmdroid diverging deliberately — see its entry above.
 
 <!-- /cites -->
 

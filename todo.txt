@@ -202,11 +202,12 @@ has to measure what Google Play serves for cpmdroid and what the romwbw_emu
 release tag is; ioscpm's 37 came from the itunes lookup API and is real.  The
 citation rule has now been run over the whole document: all thirteen rows carry
 markers, 25 regions, and marking them is what corrected the extractor rather
-than the other way round.  What is left is 21 citations in the cpmdroid column
+than the other way round.  What is left is 25 citations
 reported as "arrived after the recorded reading", and every one is true - the
-reading is c6756af of 2026-08-27 and 71465cb landed the file-transfer work on
-2026-08-29.  They clear when that column is re-read and the block advanced, not
-before, and not by suppressing them.
+cpmdroid reading is c6756af of 2026-08-27 and 71465cb landed the file-transfer
+work on 2026-08-29, and the ioscpm one is 15f48e9 where resetScrollback did not
+exist until build 58.  They clear when those columns are re-read and the block
+advanced, not before, and not by suppressing them.
 
 - [WINDOWS] the sibling-readings block still reads ioscpm 15f48e9 2026-08-27 and
 cpmdroid c6756af 2026-08-27, and both are now stale - ioscpm is at 4b336a5 and
