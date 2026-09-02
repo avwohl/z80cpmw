@@ -205,6 +205,9 @@ written as termcap-style escape strings.
   Mobile maps soft-key/hardware-key events; the CLI maps host-terminal keys. Adopt
   the same config schema (named keys → termcap strings) so configs are portable.
 - **Verified port behaviour (2026-08-07):**
+<!-- cites: cpmdroid -->
+<!-- cites-elsewhere: Keymap.h -->
+<!-- cites-withdrawn: DEFAULT_KEY_BINDINGS decodeKeySequence bindingNameFor sendNamedKey keymap_ f1ToCpm f5ToCpm ctrlRToCpm -->
   - **cpmdroid (Android)** — ⬜, and the previous ✅ here was the largest of the
     2026-08-07 errors. There is **no key map on Android at all**: no
     `DEFAULT_KEY_BINDINGS`, no `decodeKeySequence`, no `bindingNameFor`, no
@@ -227,6 +230,8 @@ written as termcap-style escape strings.
     still no `f1ToCpm`/`f5ToCpm`/`ctrlRToCpm` equivalent and none is needed —
     F1/F5 are not app shortcuts on Android, and Reset has no Ctrl+R accelerator
     to compete with `^R`, which `setupToolbar` now carries a comment to protect.
+<!-- /cites -->
+<!-- cites: ioscpm -->
   - **ioscpm (iOS/macOS)** *(2026-08-26, build 52)* — ◐, and closer than it was.
     The map moved out to `iOSCPM/Views/KeyMap.swift` in build 51 and it has the
     same termcap escape schema (`KeyMap.expand`; it has no explicit `\^` case but
@@ -252,6 +257,7 @@ written as termcap-style escape strings.
     largest remaining gap, and `4deea96`'s own message notes that build 51 made
     it larger rather than smaller.
 
+<!-- /cites -->
 ### 2. Scrollback history  — *new in Windows; iOS/macOS reached it at ioscpm build 57 (2026-09-02), not build 43; Android keeps history but does not yet behave like this spec*
 Lines that scroll off the top are retained so the user can scroll back (great for
 long `DIR` listings).
@@ -398,6 +404,7 @@ to find them on every platform.
   `emu_io_get_data_folder_display` / `resolveRealPath`). Covered by
   `tests/test_hostfile.cpp` and `tests/test_hbios_hostfile.cpp`, 102 checks.
 - **Verified port behaviour:**
+<!-- cites: romwbw_emu -->
   - **romwbw_emu (CLI)** *(2026-08-26)* — **both halves, since `98eb6a1`.** `R8`
     copies the command tail at 0x80 and the backend `fopen`s it verbatim
     (`emu_io_cli.cc`, `emu_host_file_open_read`), with a case-insensitive
@@ -420,6 +427,9 @@ to find them on every platform.
     Worth recording why this row read ✅ for years before it was true: the R8
     half is genuinely unrestricted, the W8 half was never checked, and the CLI's
     own `--help` said "Export CP/M file to emulator CWD" the whole time.
+<!-- /cites -->
+<!-- cites: ioscpm -->
+<!-- cites-elsewhere: emu_io_windows.cpp w8.com -->
   - **ioscpm (iOS/macOS)** *(2026-08-26, build 52)* — `W8` always writes
     `Documents/Exports`, `R8` always reads `Documents/Imports` (no per-transfer
     dialog). As of **v1.4.11 / build 41** an **Import File…** picker (enabled on
@@ -480,6 +490,10 @@ to find them on every platform.
     all four ports now create the empty file that this one and the CLI always
     created. Neither change has been compiled — that repo records it as NOT
     COMPILED, for want of Xcode.
+<!-- /cites -->
+<!-- cites: cpmdroid -->
+<!-- cites-elsewhere: c06fa58 -->
+<!-- cites-withdrawn: OpenDocument -->
   - **cpmdroid (Android)** *(2026-08-25, from `origin/master`; this supersedes
     the 2026-08-07 reading, which described a Files button, an Import File…
     picker and a Share action that **do not exist** — no `res/xml` directory, no
@@ -554,6 +568,7 @@ to find them on every platform.
     behaviour; `ioscpm` closed the same one at `15f48e9`. Not compiled there
     either: no SDK, NDK or Gradle on the machine it was written on, and the C++
     was built for the host against a stub `jni.h`.
+<!-- /cites -->
 - **Parity targets:** (a) let users reach **arbitrary** host locations within each
   platform's file model — a document picker / `ACTION_CREATE_DOCUMENT`; (b) at
   minimum, **make exports findable**; and (c) — added 2026-08-29, because one
@@ -568,6 +583,8 @@ to find them on every platform.
   `lpCmdLine` and immediately `UNREFERENCED_PARAMETER`s it, and no window
   accepts `WM_DROPFILES`. The association resolves to a no-op: double-clicking
   a disk image starts the emulator and loads nothing.
+<!-- cites: cpmdroid -->
+<!-- cites-elsewhere: c26aeb7 c06fa58 -->
   (b) used to say it was "done on Android (share sheet plus the paths shown
   in-app)"; that was the `c26aeb7` reading talking, and it is the last claim of
   that reading left in this row — there is no `ACTION_SEND`, no `FileProvider`,
@@ -575,6 +592,7 @@ to find them on every platform.
   still none at `c06fa58` (re-grepped 2026-08-26) — all four arrived at
   `71465cb` on 2026-08-29, so that sentence is now a statement about two
   particular commits and not about the port. The
+<!-- /cites -->
   nearest thing **iOS** has to (b) is `W8` printing its own destination, which
   both ports do; Android went well past (b) at `71465cb`, which is where a File
   transfer screen with sizes, dates, Share and Save as… landed. (a) now needs
@@ -599,12 +617,15 @@ copyrighted content.
   pin to an explicit tag matching the RomWBW version its embedded ROM was built
   from.** See this repo's `WIP`/parity notes on the version-skew problem.
 - **Verified port behaviour (2026-08-07):**
+<!-- cites: cpmdroid -->
   - **cpmdroid (Android)** — **pinned**. `data/DiskCatalogRepository.kt` builds
     both the catalog URL and the download base from a single
     `RELEASE_TAG = "v1.4.5"`, with the reason recorded in a comment (the core's
     HBIOS reports RomWBW v3.5.1, and slices from other releases print an
     HBIOS/CBIOS mismatch). Help deliberately stays on `releases/latest` — see
     item 6 for why that choice is only safe with a bundled fallback.
+<!-- /cites -->
+<!-- cites: ioscpm -->
   - **ioscpm (iOS/macOS)** *(re-verified 2026-08-24)* — **pinned**, since build
     42. `EmulatorViewModel.swift` holds a single
     `releaseTag = "v1.4.5"` from which both `catalogURL` and `releaseBaseURL`
@@ -615,6 +636,9 @@ copyrighted content.
     build 51 and `cpmdroid` since `1f70c6b`. (This clause read "unlike cpmdroid,
     without a bundled fallback" until 2026-08-29; both halves of that contrast
     are now false.)
+<!-- /cites -->
+<!-- cites: romwbw_emu -->
+<!-- cites-elsewhere: a95db9f disks.xml -->
   - **romwbw_emu (web)** *(2026-08-27, at `a95db9f`)* — **there is no catalog
     here at all**, and the cell in the table above used to read "hardcoded list,
     unpinned; 4 of 5 images ship nowhere", which understated it in the one
@@ -649,6 +673,7 @@ copyrighted content.
     while the two makefile deploy targets, which nothing checks, still do not
     copy it. `web/emu_romwbw.rom` is tracked and referenced by nothing.
 
+<!-- /cites -->
 ### 6. Remote help system + bundled fallback
 In-app help fetched from GitHub, with offline bundled topics.
 - **Behaviour/spec:** `help_index.json` + markdown topics downloaded and cached;
@@ -674,6 +699,8 @@ In-app help fetched from GitHub, with offline bundled topics.
   through `releases/latest` is one un-attached asset away from the same silent
   break. Ship the topics in the app and treat the download as an optional
   refresh, never as the source.
+<!-- cites: cpmdroid -->
+<!-- cites-elsewhere: aee7276 build.gradle.kts -->
 - **Verified port behaviour (2026-08-29, superseding the 2026-08-25 entry):**
   **cpmdroid is out of the trap**, and the 2026-08-25 entry — which correctly
   found nothing bundled, no cache, and a `build.gradle.kts` that mentions help
@@ -697,6 +724,8 @@ In-app help fetched from GitHub, with offline bundled topics.
   body's byte count against a declared `Content-Length` and rejects a mismatch.
   Three of the seven topics were also reworded from iOS to Android on the way
   (`aee7276`) — they had been describing an iPhone to an Android reader.
+<!-- /cites -->
+<!-- cites: ioscpm -->
 - **Verified ioscpm behaviour (2026-08-26, build 52):** help **yes**, fallback
   **yes, since build 51** — the port this trap applied to on 2026-08-24 is out of
   it, and as of 2026-08-29 so is `cpmdroid`, which leaves **no GUI port in it**. `HelpView.swift` still resolves
@@ -718,6 +747,7 @@ In-app help fetched from GitHub, with offline bundled topics.
   network keeps getting the stale published text until that file is re-attached
   to the newest release. `ioscpm`'s `todo.txt` carries it as a release chore.
 
+<!-- /cites -->
 ### 7. NVRAM / autoboot / boot string
 - **Behaviour/spec:** RomWBW autoboot config via `W` at the boot menu persists;
   "Clear Boot Config" resets it; an optional `bootString` is auto-typed at the boot
@@ -727,6 +757,8 @@ In-app help fetched from GitHub, with offline bundled topics.
 - **Where:** `z80cpmw/EmulatorEngine.cpp` (`clearNvramSetting`) and
   `z80cpmw/EmulatorEngine.h` (`setBootString`, inline),
   config `core.bootString`. (ioscpm already has NVRAM boot config.)
+<!-- cites: cpmdroid -->
+<!-- cites-withdrawn: bootString -->
 - **Verified Android behaviour (2026-08-07):** NVRAM persistence is **present**.
   `EmulatorEngine` exposes the string-based native API
   (`setNvramSetting`/`getNvramSetting`/`hasNvramChange`/`isNvramInitialized`);
@@ -739,6 +771,7 @@ In-app help fetched from GitHub, with offline bundled topics.
   automatic input is a single CR sent 500 ms after load to make the ROM print
   its prompt).
 
+<!-- /cites -->
 ### 8. Desktop window state (Windows/macOS only)
 - **Behaviour/spec:** remember main-window position/size across runs with
   monitor-change / off-screen reset; auto-size the window to the exact 80×25 grid on
@@ -746,6 +779,8 @@ In-app help fetched from GitHub, with offline bundled topics.
 - **Where:** `z80cpmw/MainWindow.cpp` (`WindowConfig`, `resizeWindowToTerminal`),
   `TerminalView::createFont`; config `window` block. **N/A to mobile** — but not
   to Mac Catalyst, which is a resizable desktop window.
+<!-- cites: ioscpm -->
+<!-- cites-withdrawn: NSUserActivity -->
 - **Verified ioscpm behaviour (2026-08-24):** **absent.** Nothing in the app
   persists or restores window frame or scene state (no `NSUserActivity`, no
   state-restoration hooks, no stored frame), so a Catalyst window opens at the
@@ -753,9 +788,12 @@ In-app help fetched from GitHub, with offline bundled topics.
   size, so there is no auto-size-to-80×25 either. Tracked in `ioscpm/todo.txt`
   alongside the missing Emulator menu.
 
+<!-- /cites -->
 ### 9. Configurable font size
 - **Where:** config `display.fontSize`, View menu (`MainWindow::onViewFontSize`).
   All GUI ports should expose this; mobile typically pinch-to-zoom.
+<!-- cites: cpmdroid -->
+<!-- cites-elsewhere: Int.MAX_VALUE -->
 - **Verified Android behaviour (2026-08-07):** **present** — a slider in Settings
   (`fontSizeSeekBar`, shown in pt) stored as the `font_size` preference, applied
   through `TerminalView.customFontSize`. There is **no** pinch-to-zoom.
@@ -764,6 +802,8 @@ In-app help fetched from GitHub, with offline bundled topics.
   and a zero font size saturates the column arithmetic to `Int.MAX_VALUE` and kills
   the app on every launch once the value has been persisted. Worth copying: clamp
   where the value is *stored*, not where it is *entered*.
+<!-- /cites -->
+<!-- cites: ioscpm -->
 - **Verified ioscpm behaviour (2026-08-24):** **present**, as a six-step menu
   (14, 16, 18, 20, 24, 28 pt) in `ContentView.swift` — the `Label("Font Size…`
   menu — persisted with `@AppStorage("terminalFontSize")` and applied by
@@ -771,8 +811,10 @@ In-app help fetched from GitHub, with offline bundled topics.
   on change. A fixed choice list rather than a slider, so Android's stored-value
   clamp problem cannot arise here. There is no pinch-to-zoom.
 
+<!-- /cites -->
 ### 10. Cromemco Dazzler graphics card (optional)
 Emulated retro graphics card in a separate window.
+<!-- cites: romwbw_emu -->
 - **Verified romwbw_emu behaviour (2026-08-24):** **absent**, not partial — this
   row said ✅ (partial) and there is no Dazzler code in that repo at all. Every
   "Dazzler" string in it is a *comment* on a hook provided **for** a client like
@@ -789,8 +831,10 @@ Emulated retro graphics card in a separate window.
   reported went nowhere at all. The page implements it now, to the status line
   and to `console.error`, which is a large part of why the dead wiring above
   survived unnoticed for so long.
+<!-- /cites -->
 - **Behaviour/spec:** enable + base I/O port + scale, rendered in its own window.
 - **Where:** `z80cpmw/Dazzler.cpp`, `DazzlerWindow.cpp`; config `hardware.dazzler`.
+<!-- cites: cpmdroid -->
 - **Status:** absent in iOS. **Android is not partial — it is stubbed out on
   purpose** (verified 2026-08-07): `app/src/main/cpp/emu_io_android.cpp` defines
   `dazzler_port_in` returning 0 and `dazzler_port_out` doing nothing, both marked
@@ -800,11 +844,15 @@ Emulated retro graphics card in a separate window.
   without an error, and nothing whatever happens. Low priority unless a port
   specifically wants it.
 
+<!-- /cites -->
 ### 11. Config profiles & JSON config
 - **Behaviour/spec:** named config profiles (save/load/delete); single JSON config
   file with migration from the legacy INI format.
 - **Where:** `z80cpmw/Config.{h,cpp}` (`ConfigManager`). Each port keeps its own
   config format; parity is the *set of settings*, not the file format.
+<!-- cites: cpmdroid -->
+<!-- cites-elsewhere: romwbw_emu -->
+<!-- cites-withdrawn: saveProfile loadProfile listProfiles deleteProfile -->
 - **cpmdroid (Android)** — ⬜. There are no profiles: `saveProfile`,
   `loadProfile`, `listProfiles` and `deleteProfile` do not exist, and there is
   no Settings → Configuration Profiles. `SettingsRepository` is a flat
@@ -813,11 +861,13 @@ Emulated retro graphics card in a separate window.
   the same shape as the `romwbw_emu` CLI's single settings file, so this row is
   ◐-at-best on three of the four ports and ✅ only here.
 
+<!-- /cites -->
 ### 12. Manifest-disk write warning
 - **Behaviour/spec:** warn before writing to a downloaded catalog ("manifest") disk,
   since a re-download would overwrite local changes. Suppressible.
 - **Where:** config `core.warnManifestWrites`; `SettingsDialogWx.cpp`,
   `EmulatorEngine` disk-warning hooks.
+<!-- cites: cpmdroid -->
 - **Verified Android behaviour (2026-08-07):** **present and suppressible.**
   Downloaded (catalog) disks are flagged per unit through
   `EmulatorEngine.setDiskIsManifest` as they are mounted; the emulation loop
@@ -829,6 +879,8 @@ Emulated retro graphics card in a separate window.
   checkbox **off** pushes `setDiskWarningSuppressed(unit, true)` to all 16 units
   (`applyManifestWarningPreference`), but turning it back **on** does not clear
   the suppression — that waits for the next disk reload or boot.
+<!-- /cites -->
+<!-- cites: ioscpm -->
 - **Verified ioscpm behaviour (2026-08-24):** **present and suppressible.** A
   "Disk May Be Overwritten" alert (grep `ContentView.swift` for that string —
   it has two presentation sites) fires on a write to a catalog disk, and
@@ -837,6 +889,7 @@ Emulated retro graphics card in a separate window.
   default applied when the key is absent. The alert is informational — it points
   the user at *Save Disk As* rather than offering to cancel the write.
 
+<!-- /cites -->
 ### 13. Terminal emulation (VT100/ANSI + VT52)
 The front end **is** the terminal, so its escape-sequence coverage decides which
 CP/M software actually runs: WordStar, Zork, TERMDEF, VDE and anything else
@@ -856,6 +909,8 @@ extending it; that port's parser turned out to be the thinnest of the four.)
   per-cell foreground **and background** so reverse video renders; TAB advancing
   to the next 8-column stop.
 - **Where (per port):**
+<!-- cites: ioscpm -->
+<!-- cites-elsewhere: cpmdroid TerminalView.kt c0b3bf7 -->
   - **ioscpm** *(2026-08-26, build 52)* — `iOSCPM/Views/EmulatorViewModel.swift`.
     The origin of the parser: full VT52, scrolling region, answerbacks, deferred
     autowrap, charset consumption. **Build 51 closed the gap this entry used to
@@ -898,6 +953,9 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     zero-padding cannot spend the digit budget. Build 49 also made SGR 7 a
     render-time toggle instead of an in-place nibble swap, so SGR 27 restores
     the original colours instead of resetting to white-on-black.
+<!-- /cites -->
+<!-- cites: cpmdroid -->
+<!-- cites-elsewhere: ioscpm HFONT TCELL_BOLD TCELL_UNDERLINE TCELL_BLINK kotlinc c6756af c0b3bf7 -->
   - **cpmdroid** *(2026-08-29, at `167acbe` on `origin/master` — see the caveat
     at the end of this bullet)* — ✅, and this row has moved further in one day
     than any other cell in this document. It was the row where the 2026-08-07
@@ -955,6 +1013,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     columns in this row do not carry that qualifier.
     On the history: the mobile ports did not jointly lead this row. **`ioscpm`
     did**, and z80cpmw's item 13 work came from there.
+<!-- /cites -->
   - **z80cpmw (this repo)** — `TerminalView.cpp`
     (`processEscapeChar`, `processCSIChar`, `executeCSI`, `applySGR`).
     **VT52 and the answerbacks landed**, ported from `cpmdroid`: the full VT52
@@ -1032,6 +1091,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     deliberately does not; `100–107` fold onto the plain background, because the
     background nibble is three bits and the fourth is blink on real hardware,
     and a wrong shade beats a cell that starts strobing.
+<!-- cites: romwbw_emu -->
   - **romwbw_emu** *(re-verified 2026-08-24)* — the CLI delegates to the host
     terminal, but not transparently: `emu_console_write_char` in
     `emu_io_cli.cc` does `ch &= 0x7F` and then drops every CR, not
@@ -1052,6 +1112,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     their bodies happen to be printable ASCII. The row was ✅ on the strength of
     the library while the wiring was what decided it; the wiring now agrees with
     the library.
+<!-- /cites -->
 - **Parity target:** the mobile ports' coverage, i.e. run WordStar and Zork
   without the screen breaking up. **That port is done** — `TerminalView.kt` /
   `EmulatorViewModel.swift` were pulled back into `TerminalView.cpp` in 1.0.20,

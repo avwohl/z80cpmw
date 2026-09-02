@@ -84,6 +84,13 @@
 
 set -u
 
+# Citations are claims about code, so only code is searched.  Excluding
+# documentation is not tidiness: cpmdroid's own todo.txt now quotes the nine
+# fabricated symbols in the course of recording that they were fabricated, and a
+# plain grep finds them there and calls them real.  A document cannot be evidence
+# for itself.  Paths are exempt - see cite_resolves.
+SrcOnly=". :(exclude)*.md :(exclude)*.txt :(exclude)docs/*"
+
 Fetch=no
 Cites=yes
 for arg in "$@"; do
@@ -147,6 +154,35 @@ fetch_age() {
 	date -r "$_f" '+%Y-%m-%d %H:%M' 2>/dev/null && return
 	stat -c '%y' "$_f" 2>/dev/null | cut -c1-16 && return
 	echo "fetch time unknown"
+}
+
+# Does a cited token resolve in $2 at rev $3?  A file-shaped name is looked up
+# as a path first - MANUAL_CHECKS.md is a real thing to cite and grepping file
+# CONTENT for its name finds nothing - and then, failing that, as content, since
+# `jni.h` is the NDK's header and appears only as an #include.  Everything else
+# is a content search over source, documentation excluded: a document quoting a
+# symbol is not evidence the symbol exists.
+cite_resolves() {
+	_tree=$1 _sym=$2 _rev=$3
+	case "$_sym" in
+		*.h|*.c|*.cc|*.cpp|*.hpp|*.kt|*.kts|*.swift|*.java|*.xml|*.gradle|*.py|*.sh|*.json|*.yml|*.yaml|*.md|*.txt|*.asm)
+			if git -C "$_tree" ls-tree -r --name-only "$_rev" 2>/dev/null |
+			   grep -qx ".*/$_sym\|$_sym"; then
+				return 0
+			fi
+			;;
+	esac
+	# shellcheck disable=SC2086 - SrcOnly is a deliberate word list
+	if git -C "$_tree" grep -q -F -- "$_sym" "$_rev" -- $SrcOnly 2>/dev/null; then
+		return 0
+	fi
+	_bare=${_sym##*.}
+	# shellcheck disable=SC2086
+	if [ "$_bare" != "$_sym" ] && [ "${#_bare}" -ge 4 ] &&
+	   git -C "$_tree" grep -q -F -- "$_bare" "$_rev" -- $SrcOnly 2>/dev/null; then
+		return 0
+	fi
+	return 1
 }
 
 # The build number in a sibling's tree at a given commit.  Every port keeps it
@@ -300,13 +336,6 @@ if [ "$Cites" = yes ]; then
 	echo "citations"
 	echo
 
-	# Citations are claims about code, so only code is searched.  Excluding
-	# documentation is not tidiness: cpmdroid's own todo.txt now quotes the nine
-	# fabricated symbols in the course of recording that they were fabricated,
-	# and a plain grep finds them there and calls them real.  A document cannot
-	# be evidence for itself.
-	SrcOnly=". :(exclude)*.md :(exclude)*.txt :(exclude)docs/*"
-
 	cites=$(awk '
 		/<!-- cites: [A-Za-z0-9_.-]+ -->/ {
 			match($0, /cites: [A-Za-z0-9_.-]+/)
@@ -340,6 +369,9 @@ if [ "$Cites" = yes ]; then
 			for (i = 2; i <= n; i += 2) {
 				tok = part[i]
 				if (tok !~ /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/) continue
+				# Two characters is a letter in prose, not a citation: `R8`,
+				# `W8`, `Up`, `_`.  They resolve trivially and prove nothing.
+				if (length(tok) < 3) continue
 				if (tok in seen_tok && seen[repo SUBSEP tok]) continue
 				seen[repo SUBSEP tok] = 1
 				print repo "\t" tok
@@ -359,10 +391,12 @@ if [ "$Cites" = yes ]; then
 
 	# Collect the declared exceptions first, then test everything else.
 	Allowed=$(printf '%s\n' "$cites" | awk -F'\t' '$2 == "ALLOW" { print $1 "\t" $3 }')
-	# Withdrawn symbols are the inverse assertion: the document names them to
-	# record that they never existed, so the check confirms they still do not.
-	# If one ever resolves, the document has become wrong in the other direction
-	# and somebody should know.
+	# Withdrawn symbols are the inverse assertion: the document says this port
+	# does NOT have them - either because the name was fabricated, or because the
+	# prose is "there is no key map on Android, no DEFAULT_KEY_BINDINGS, no
+	# decodeKeySequence".  Both are claims that can rot the moment the port gains
+	# the thing, and neither is checkable by looking for it.  So the test is
+	# inverted: it fails if the symbol ever starts resolving.
 	Withdrawn=$(printf '%s\n' "$cites" | awk -F'\t' '$2 == "WITHDRAWN" { print $1 "\t" $3 }')
 
 	printf '%s\n' "$cites" | awk -F'\t' '$2 != "ALLOW" && NF == 2' | sort -u |
@@ -379,13 +413,11 @@ if [ "$Cites" = yes ]; then
 			sha=$(printf '%s\n' "$Readings" |
 				awk -v r="$repo" '$1 == r { print $2; exit }')
 			tipref=$(origin_ref "$tree" 2>/dev/null) || tipref=
-			# shellcheck disable=SC2086
-			if [ -n "$tipref" ] &&
-			   git -C "$tree" grep -q -F -- "$sym" "$tipref" -- $SrcOnly 2>/dev/null; then
-				echo "$repo	$sym	DECLARED WITHDRAWN BUT IT NOW EXISTS - the document calls this invented and it is not"
+			if [ -n "$tipref" ] && cite_resolves "$tree" "$sym" "$tipref"; then
+				echo "$repo	$sym	DECLARED ABSENT BUT IT NOW RESOLVES - the document says this port does not have it, and it does"
 				echo "STATUS_FAIL" >> "$CiteFail"
 			else
-				echo "$repo	$sym	withdrawn, and still absent - as the document says"
+				echo "$repo	$sym	declared absent, and still absent - as the document says"
 			fi
 			continue
 		fi
@@ -397,17 +429,7 @@ if [ "$Cites" = yes ]; then
 		[ -n "${sha:-}" ] && [ "$sha" != unknown ] || continue
 		git -C "$tree" cat-file -e "$sha^{commit}" 2>/dev/null || continue
 
-		# shellcheck disable=SC2086 - SrcOnly is a deliberate word list
-		if git -C "$tree" grep -q -F -- "$sym" "$sha" -- $SrcOnly 2>/dev/null; then
-			continue
-		fi
-
-		# The last component of a dotted name, for constants written with their
-		# class.  Only then is it really absent.
-		bare=${sym##*.}
-		# shellcheck disable=SC2086
-		if [ "$bare" != "$sym" ] &&
-		   git -C "$tree" grep -q -F -- "$bare" "$sha" -- $SrcOnly 2>/dev/null; then
+		if cite_resolves "$tree" "$sym" "$sha"; then
 			continue
 		fi
 
@@ -417,9 +439,7 @@ if [ "$Cites" = yes ]; then
 		# after it.  Absent there too, and absent from history, means somebody
 		# wrote down a name that never existed.
 		tipref=$(origin_ref "$tree") || tipref=
-		# shellcheck disable=SC2086
-		if [ -n "$tipref" ] &&
-		   git -C "$tree" grep -q -F -- "$sym" "$tipref" -- $SrcOnly 2>/dev/null; then
+		if [ -n "$tipref" ] && cite_resolves "$tree" "$sym" "$tipref"; then
 			echo "$repo	$sym	arrived after the recorded reading - it is in $tipref but not at $sha"
 			echo "STATUS_FAIL" >> "$CiteFail"
 			continue
