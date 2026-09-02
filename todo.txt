@@ -164,13 +164,48 @@ release.
 Needs a Mac
 ------------
 
-- [MAC] ioscpm's applySGR has the same SGR 90-97 hole this repository fixed in
-978b623.  EmulatorViewModel.swift handles 30-37 and 40-47 and nothing else, so
-the bright half falls through and leaves the attribute alone - here that meant
-ESC[91m from a fresh reset drawing in CGA 7, measured rather than inferred.
-cpmdroid's TerminalView.kt has had the branch since its own ANSI fix, and this
-repository's is now pinned by tests/test_render.cpp reading real pixels.
-Nothing on this machine can build or test the Swift.
+- [MAC] nothing open.  The SGR 90-97 item that stood here closed in ioscpm
+ed0c3d6: applySGR moved to TerminalRendition.swift and now handles 90-97 and
+100-107.  How it was found stale is the part worth keeping - not by a Mac, but by
+grepping the tree the item described.  Every cross-port item in this file is a
+claim about somebody else's code, and nothing re-reads them.
+
+
+The parity document describes ports it has not read
+---------------------------------------------------
+
+- [DECISION] FEATURE_PARITY.md's row 2 and row 3 were corrected on 2026-09-02
+after all three ports were read side by side for the first time.  What that
+turned up is the reason this section exists rather than being three closed items:
+the "Verified Android behaviour (2026-08-07)" block cited nine symbols that exist
+nowhere in cpmdroid, in its tree or anywhere in its history - scrollbackLinesEdit,
+applyTerminalSettings, sendBytes, replyListener, userScrollUp++, snapToLive,
+resetTerminal, historyIsContiguous and visibleHistorySize - and four of the claims
+they carried asserted the opposite of what that code does.  Meanwhile ioscpm's
+row 2 had been a bare unqualified tick since 2026-07-25 over a feature that had
+never captured a single line, and its row 3 was a tick over a port with no text
+selection at all.  Neither was caught because the cells were filled in from commit
+messages: row 2 was flipped in d630619 twelve minutes after ioscpm's b703acf
+landed, without that repository's source being opened.  The decision to make is
+whether a tick is allowed to mean anything other than "somebody read this port's
+code and can name the symbol".
+
+- [DECISION] check-sibling-drift.sh measures one thing, commits behind origin,
+and that is why none of the above was visible to it.  Two additions are drafted
+and neither is written: a shipped-build field in the sibling-readings block, so a
+tick citing a build newer than what users can install says so; and a rule that an
+item body asserting behaviour about a sibling must cite at least one symbol that
+git grep resolves in that sibling at the recorded sha.  The second alone would
+have caught all nine inventions above.  Both are edits here, and both want a
+decision about how hard they should fail before they are worth writing.
+
+- [WINDOWS] the sibling-readings block still reads ioscpm 15f48e9 2026-08-27 and
+cpmdroid c6756af 2026-08-27, and both are now stale - ioscpm is at 4b336a5 and
+cpmdroid at 39b1eb3, both 2026-09-02.  It was deliberately NOT advanced with the
+row 2 and row 3 corrections, because this document's own rule is that the line
+certifies a reading of the WHOLE column and only two of thirteen rows were read.
+Whoever reads rows 1, 4, 5, 6, 7, 8, 9, 10, 11, 12 and 13 against those trees can
+advance it; until then the script reporting both columns as drifted is correct.
 
 
 Needs a person, not a machine

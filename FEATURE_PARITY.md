@@ -252,7 +252,7 @@ written as termcap-style escape strings.
     largest remaining gap, and `4deea96`'s own message notes that build 51 made
     it larger rather than smaller.
 
-### 2. Scrollback history  — *new in Windows; done on iOS/macOS (ioscpm build 43) and Android (cpmdroid 1.19)*
+### 2. Scrollback history  — *new in Windows; iOS/macOS reached it at ioscpm build 57 (2026-09-02), not build 43; Android keeps history but does not yet behave like this spec*
 Lines that scroll off the top are retained so the user can scroll back (great for
 long `DIR` listings).
 - **Behaviour/spec:** ring buffer of full 80-col lines captured at the single
@@ -267,34 +267,80 @@ long `DIR` listings).
 - **Platform mapping:** GUI ports (iOS/macOS/Android) should implement an in-app
   buffer like this. The **Linux CLI can rely on the host terminal's scrollback** —
   document that rather than reimplementing.
-- **Verified Android behaviour (2026-08-07), point by point against the spec above:**
+- **Verified Android behaviour — re-read 2026-09-02, and the 2026-08-07 reading
+  it replaces was substantially fiction.** Nine symbols the old block cited exist
+  nowhere in cpmdroid, in the tree or anywhere in its git history:
+  `scrollbackLinesEdit`, `applyTerminalSettings`, `sendBytes`, `replyListener`,
+  `userScrollUp++`, `snapToLive`, `resetTerminal`, `historyIsContiguous` and
+  `visibleHistorySize`.  Four of the claims they carried were the **opposite** of
+  what the code does.  What follows was re-read against the tree with grep, one
+  citation at a time; every symbol below resolves.
   - **Matches.** Capacity is a setting — `SettingsRepository.DEFAULT_SCROLLBACK_LINES`
-    = **1000**, `0` disables, capped at 10000, edited in Settings
-    (`scrollbackLinesEdit`) and pushed in by `MainActivity.applyTerminalSettings`.
-    Capture happens at a single scroll-off choke point (`scrollRegionUp`), and
-    deliberately **only when the scrolling region starts at row 0**, so a status-line
-    layout does not push its region lines into the history. Snap-to-live on any
-    key sent to CP/M and on paste (`sendChar`/`sendBytes` → `snapToLive`;
-    `pasteFromClipboard` goes through `sendChar`), while terminal answerbacks use
-    a separate `replyListener` so they do **not** yank the user out of history.
-    The view stays anchored as new output arrives (`userScrollUp++`, with the
-    in-flight drag origin moved too). The cursor is hidden while reading history
-    (`onDraw` draws it only when `scroll == 0`). **Shift+PageUp/PageDown** move
-    one page and **Ctrl+Home/End** jump to oldest/live, exactly the Windows
-    chords; **plain PageUp/PageDown still go to CP/M** through the key map.
-    History is cleared on a cold boot (`MainActivity.bootEmulation` →
-    `resetTerminal`, which also resets VT52 mode, the scrolling region and any
-    half-parsed escape).
-  - **Does not match.** No mouse wheel — the touch equivalent is **drag**
-    (`onTouchEvent`; drag down reveals older lines), so the "3 lines/notch" part
-    has no counterpart. Copy takes history *and* screen but is capped at 4000
-    lines / 200000 characters, because the clipboard crosses a Binder
-    transaction that a full 10000-line buffer would overflow. And after a
-    full-screen erase cpmdroid stops **drawing** history above the live rows
-    until output scrolls from the top again (`historyIsContiguous`,
-    `visibleHistorySize`) — the lines are kept, not dropped, but they are hidden;
-    z80cpmw has no such rule. The page/jump chords also need a hardware
-    keyboard, as item 1 notes.
+    = **1000**, offered as `SCROLLBACK_CHOICES` (0, 100, 250, 500, 1000, 2000, 5000,
+    10000), where `0` disables.  It is a choice list, not the slider or edit field
+    the old block described.  Capture happens at a single scroll-off choke point
+    (`scrollRegionUp`), and deliberately **only when the scrolling region starts at
+    row 0**, so a status-line layout does not push its region lines into the
+    history.  **Shift+PageUp/PageDown** move one page and **Ctrl+Home/End** jump to
+    oldest/live, exactly the Windows chords, and **plain PageUp/PageDown still go to
+    CP/M** — `KEYCODE_PAGE_UP` branches on `isShiftPressed` and otherwise calls
+    `sendEscapeSeq("[5~")`.  `copyScreenToClipboard` takes history **and** screen,
+    iterating `historyChars` before `screenBuffer`.
+  - **Does not match — and these are defects, not platform differences.** The view
+    does **not** stay anchored as output arrives: `processOutput` runs
+    `if (data.isNotEmpty()) userScrollUp = 0` before the bytes are even parsed, so
+    any output at all yanks the reader back to the live prompt.  Scrollback there is
+    usable only while the guest is idle, which is most of the reason to have it.
+    The cursor is **not** hidden while reading history: `drawCursor` is called
+    whenever `liveRow == cursorRow`, with no test on the offset.  History is **not**
+    cleared on a cold boot: `clear()` zeroes `userScrollUp` but never empties
+    `historyChars` and its three companions, and the only place those are emptied is
+    the capacity-zero path, so `bootEmulation` leaves the dead session above the new
+    banner.  And no history is drawn **at all** while the soft keyboard is up —
+    `onDraw` splits on `viewportRows < rows` and that branch never reads
+    `userScrollUp` or `historyChars`, while the drag and chord handlers still consume
+    the gesture and call `invalidate()`.
+  - **Genuine platform differences.** No mouse wheel — the touch equivalent is
+    **drag** (`onTouchEvent`; drag down reveals older lines), so the "3 lines/notch"
+    part has no counterpart.  The page/jump chords need a hardware keyboard, as item
+    1 notes.
+  - **Withdrawn.** The old block's "capped at 4000 lines / 200000 characters"
+    clipboard limit, and the Binder-transaction reasoning under it, describe nothing
+    in the code: neither number appears anywhere in cpmdroid, and
+    `copyScreenToClipboard` applies no cap.  Whether one is *needed* is a real
+    question and is now an open item in cpmdroid's todo.txt; what is certain is that
+    none exists.
+
+- **Verified iOS/macOS behaviour (2026-09-02), point by point against the spec
+  above.** Read against ioscpm at `4b336a5`, and confirmed by running the Catalyst
+  build rather than by reading alone.
+  - **Matches, but only since build 57.** Ring buffer at a single choke point:
+    `scrollUp` captures, and `scrollRegion` now delegates to it whenever the region
+    is the whole screen, so the line-feed path reaches the buffer.  **Until that
+    commit it did not**, which is the entry below.  Mouse wheel at 3 lines/notch and
+    **Shift+PageUp/PageDown** / **Ctrl+Home/End** all work; plain PageUp/PageDown
+    still reach CP/M through `specialKey`.  Cursor hidden while reading history —
+    `ContentView` passes `showCursor: !viewModel.isScrolledBack && viewModel.cursorVisible`.  The view stays
+    anchored as output arrives: `scrollUp` advances `scrollbackOffset` by the number
+    of lines captured.  Capacity configurable via `scrollbackCapacity` (default
+    1000, `0` disables), persisted under the same `scrollbackLines` key this
+    document's `display.scrollbackLines` names.
+  - **Was broken from build 42 to build 56, in every shipped build and every
+    build in between.** The line-feed handler called `scrollRegion` directly, which
+    shifts rows and blanks the bottom without keeping what it shifts; only `scrollUp`
+    appends to the buffer.  With the default full-screen region — which is nearly
+    always — every newline-driven scroll discarded its top line, so the buffer stayed
+    empty, `adjustScrollback` clamped every gesture to an offset of 0, and the
+    feature was invisible.  The row above was ✅ for six weeks over this.  Two
+    further defects would have kept the wheel dead even with a full buffer:
+    `handlePan` truncated each notch and discarded the sub-row remainder at `.ended`,
+    and its row pitch was `bounds.height / rows` where `draw(_:)` letterboxes by
+    `min(scaleX, scaleY)`.
+  - **Does not match.** History is cleared in `reset()` only; `startEmulator()`
+    clears neither `scrollbackLines` nor `scrollbackOffset`, so Stop then Play leaves
+    the dead session above the new banner and can start parked in history.  The spec
+    line says "cleared on emulator start/reset", z80cpmw clears at both, and no two
+    of the three ports agree — see cpmdroid's entry above.
 
 ### 3. Mouse text selection + Copy/Paste
 Drag to select terminal text, right-click for Copy/Paste.
@@ -1082,8 +1128,8 @@ thing:
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
 | 1. Configurable keymap (termcap) | ◐ (22 keys incl. F1–F12 since build 51; no modifier bindings, lower-camel names, WordStar default, no on-screen key row) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12 and full Ctrl window) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
-| 2. Scrollback | ✅ | ✅ (Settings slider incl. Off since 2026-08-25; drag instead of wheel) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
-| 3. Mouse/native Copy-Paste | ✅ | ✅ (control strip; Copy takes the scrollback since 2026-08-25, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
+| 2. Scrollback | ✅ since ioscpm build 57 (2026-09-02) (⬜ before it: the LF path called `scrollRegion`, which does not capture, so no line ever entered the buffer from build 42 on) | ◐ (capacity choices incl. Off, capture at `scrollRegionUp`, both chord pairs — but `processOutput` zeroes `userScrollUp` on any output, `onDraw` draws no history while the soft keyboard is up, and `clear()` leaves the previous session's history in place) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
+| 3. Mouse/native Copy-Paste | ✅ since ioscpm build 57 (2026-09-02) (pointer drag selects a linear span incl. scrollback, Cmd+C takes the selection; ⬜ before it — `copyText` copied the whole visible screen and nothing less) | ◐ (control strip; `copyScreenToClipboard` takes history and screen, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
 | 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52) | ✅ (File transfer screen, save-as, share sheet, import picker and an inbound share target since `71465cb`; folders still fixed, import capped at 16 MiB) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
 | 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
 | 6. Help system + offline fallback | ✅ / ✅ bundled since build 51 (download, cache, then the shipped copy) | ✅ / ✅ bundled since `1f70c6b` (download, cache, then the shipped copy; all eight files in `assets/help/`) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
