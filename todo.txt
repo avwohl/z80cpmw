@@ -181,7 +181,11 @@ the "Verified Android behaviour (2026-08-07)" block cited nine symbols that exis
 nowhere in cpmdroid, in its tree or anywhere in its history - scrollbackLinesEdit,
 applyTerminalSettings, sendBytes, replyListener, userScrollUp++, snapToLive,
 resetTerminal, historyIsContiguous and visibleHistorySize - and four of the claims
-they carried asserted the opposite of what that code does.  Meanwhile ioscpm's
+they carried asserted the opposite of what that code does.  The correction then had
+to be corrected in turn: the first pass called cpmdroid's keeping of history across a
+cold boot a defect, when clear() documents it as a considered product decision, and
+it repeated the old block's misattribution of the capture choke point.  Reading a
+port from outside is harder than it looks even when you know that is the failure.  Meanwhile ioscpm's
 row 2 had been a bare unqualified tick since 2026-07-25 over a feature that had
 never captured a single line, and its row 3 was a tick over a port with no text
 selection at all.  Neither was caught because the cells were filled in from commit

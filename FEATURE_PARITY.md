@@ -278,10 +278,14 @@ long `DIR` listings).
   - **Matches.** Capacity is a setting — `SettingsRepository.DEFAULT_SCROLLBACK_LINES`
     = **1000**, offered as `SCROLLBACK_CHOICES` (0, 100, 250, 500, 1000, 2000, 5000,
     10000), where `0` disables.  It is a choice list, not the slider or edit field
-    the old block described.  Capture happens at a single scroll-off choke point
-    (`scrollRegionUp`), and deliberately **only when the scrolling region starts at
-    row 0**, so a status-line layout does not push its region lines into the
-    history.  **Shift+PageUp/PageDown** move one page and **Ctrl+Home/End** jump to
+    the old block described.  Capture happens at a single scroll-off choke point —
+    `scrollUp`, which does the four `addLast` calls; `scrollRegionUp` delegates to
+    it and captures nothing itself, so the old block named the wrong function.  The
+    guard is `scrollTop == 0 && scrollBottom == rows - 1`: the region must be the
+    **whole screen**, not merely start at row 0, so a status-line layout does not
+    push its region lines into the history.  That is the same shape as this
+    repository's `scrollRegionUp` and as ioscpm's `scrollRegion` since build 57 —
+    all three now agree, and cpmdroid always did.  **Shift+PageUp/PageDown** move one page and **Ctrl+Home/End** jump to
     oldest/live, exactly the Windows chords, and **plain PageUp/PageDown still go to
     CP/M** — `KEYCODE_PAGE_UP` branches on `isShiftPressed` and otherwise calls
     `sendEscapeSeq("[5~")`.  `copyScreenToClipboard` takes history **and** screen,
@@ -292,14 +296,22 @@ long `DIR` listings).
     any output at all yanks the reader back to the live prompt.  Scrollback there is
     usable only while the guest is idle, which is most of the reason to have it.
     The cursor is **not** hidden while reading history: `drawCursor` is called
-    whenever `liveRow == cursorRow`, with no test on the offset.  History is **not**
-    cleared on a cold boot: `clear()` zeroes `userScrollUp` but never empties
-    `historyChars` and its three companions, and the only place those are emptied is
-    the capacity-zero path, so `bootEmulation` leaves the dead session above the new
-    banner.  And no history is drawn **at all** while the soft keyboard is up —
+    whenever `liveRow == cursorRow`, with no test on the offset.  And no history is drawn **at all** while the soft keyboard is up —
     `onDraw` splits on `viewportRows < rows` and that branch never reads
     `userScrollUp` or `historyChars`, while the drag and chord handlers still consume
     the gesture and call `invalidate()`.
+  - **A deliberate divergence, not a defect — and the old block had this backwards
+    too.** History is not cleared on a cold boot, and that is a decision `clear()`
+    documents at length: "The scrollback itself is deliberately kept... losing the
+    user's history is a product decision, not part of putting the terminal back to
+    power-on."  It even names how the siblings differ — both drop it at the CALL
+    SITE (this repository's `startEmulator` and `onEmulatorReset` call
+    `resetScrollback` beside `clear()`; ioscpm's `reset()` empties its buffer) — which
+    here would be `MainActivity`.  So the spec line "history cleared on emulator
+    start/reset" is a place the three ports genuinely disagree on purpose, not a bug
+    in one of them, and the old block's claim that cpmdroid cleared it was wrong in
+    the opposite direction from everything else here: it credited the port with
+    behaviour it had considered and rejected.
   - **Genuine platform differences.** No mouse wheel — the touch equivalent is
     **drag** (`onTouchEvent`; drag down reveals older lines), so the "3 lines/notch"
     part has no counterpart.  The page/jump chords need a hardware keyboard, as item
@@ -1128,7 +1140,7 @@ thing:
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
 | 1. Configurable keymap (termcap) | ◐ (22 keys incl. F1–F12 since build 51; no modifier bindings, lower-camel names, WordStar default, no on-screen key row) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12 and full Ctrl window) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
-| 2. Scrollback | ✅ since ioscpm build 57 (2026-09-02) (⬜ before it: the LF path called `scrollRegion`, which does not capture, so no line ever entered the buffer from build 42 on) | ◐ (capacity choices incl. Off, capture at `scrollRegionUp`, both chord pairs — but `processOutput` zeroes `userScrollUp` on any output, `onDraw` draws no history while the soft keyboard is up, and `clear()` leaves the previous session's history in place) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
+| 2. Scrollback | ✅ since ioscpm build 57 (2026-09-02) (⬜ before it: the LF path called `scrollRegion`, which does not capture, so no line ever entered the buffer from build 42 on) | ◐ (capacity choices incl. Off, capture at `scrollRegionUp`, both chord pairs — but `processOutput` zeroes `userScrollUp` on any output, and `onDraw` draws no history while the soft keyboard is up; keeping history across a cold boot is deliberate there, not a defect) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
 | 3. Mouse/native Copy-Paste | ✅ since ioscpm build 57 (2026-09-02) (pointer drag selects a linear span incl. scrollback, Cmd+C takes the selection; ⬜ before it — `copyText` copied the whole visible screen and nothing less) | ◐ (control strip; `copyScreenToClipboard` takes history and screen, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
 | 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52) | ✅ (File transfer screen, save-as, share sheet, import picker and an inbound share target since `71465cb`; folders still fixed, import capped at 16 MiB) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
 | 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
