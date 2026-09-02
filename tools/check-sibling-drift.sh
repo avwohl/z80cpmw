@@ -9,13 +9,47 @@
 # that report.
 #
 # It reads the sibling-readings block in FEATURE_PARITY.md - one line per
-# sibling, "<repo> <sha> <date>" - and for each one:
+# sibling, "<repo> <sha> <date> shipped:<build>" - and for each one:
 #
 #   * finds the checkout at ../<repo> beside this repository,
 #   * checks the recorded sha is a real object in it.  A cite naming a commit
 #     nobody has is the c26aeb7 failure this document was rewritten to undo,
 #     and it is worth catching mechanically rather than by argument,
-#   * lists the commits that have landed since.
+#   * lists the commits that have landed since,
+#   * compares the build number in the tree at the recorded sha against the
+#     build the port actually SHIPS, and
+#   * checks that every symbol the document cites about that port resolves in
+#     that port's tree.
+#
+# The last two exist because of what 2026-09-02 turned up, and neither was
+# visible to a check that only counted commits.
+#
+# Shipped-build.  A tick means "this is in the tree", which is not what a user
+# has.  ioscpm's row 2 was a tick from 2026-07-25 over scrollback that had never
+# captured a line, and even after that was fixed the App Store served build 37
+# while the tree was at 57 - twenty builds and six months of ticks describing
+# software nobody could install.  The shipped: field is hand-maintained, because
+# no tree knows what a store is serving; what the script does is compare it to
+# the build in the tree and say so.  shipped:unknown is a failure, not a pass -
+# an unmeasured claim about what ships is the thing this is here to stop.
+#
+# Citations.  On 2026-09-02 the block describing Android cited NINE symbols that
+# existed nowhere in cpmdroid, in its tree or anywhere in its history, and four
+# of the claims resting on them asserted the opposite of what that code does.
+# They were written from a paraphrase of a commit message.  So: prose about a
+# sibling is delimited with
+#
+#     <!-- cites: <repo> -->  ...  <!-- /cites -->
+#
+# and every `backticked` identifier inside that region must resolve, with
+# git grep, in that sibling at the recorded sha.  A deliberate cross-port
+# reference - naming z80cpmw's own function while describing how it differs -
+# is declared with
+#
+#     <!-- cites-elsewhere: symA symB -->
+#
+# inside the region, so the exception is visible in the document rather than
+# silent in the checker.  This rule alone would have caught all nine.
 #
 # Drift is measured against origin, not against the local checkout.  It used to
 # be measured against local HEAD, and that let a stale checkout certify a column
@@ -34,10 +68,16 @@
 # --fetch to update the remote-tracking refs first, which is the only thing here
 # that writes to a sibling, and is off by default for exactly that reason.
 #
-# Exit status: 0 when every column is current against origin, 1 when any has
-# drifted, any recorded sha is missing or unreadable, or any column could not be
-# checked against origin at all.  So it can gate a sweep.  "Could not check"
-# counts as a failure on purpose: a gate that cannot verify must not say yes.
+# Exit status: 0 when every column is current against origin, its shipped build
+# is recorded and level with the tree it was read from, and every symbol it cites
+# resolves.  1 when any has drifted, any recorded sha is missing or unreadable,
+# any shipped build is unknown or behind, any cited symbol resolves nowhere, or
+# any column could not be checked at all.  So it can gate a sweep.  "Could not
+# check" counts as a failure on purpose: a gate that cannot verify must not say
+# yes.
+#
+# --no-cites skips the citation pass, which is the slow half; the drift and
+# shipped-build checks are cheap and always run.
 #
 # Run it from anywhere; it locates the repository from its own path.
 # It reads only, unless --fetch is given.
@@ -45,12 +85,14 @@
 set -u
 
 Fetch=no
+Cites=yes
 for arg in "$@"; do
 	case "$arg" in
 		--fetch) Fetch=yes ;;
+		--no-cites) Cites=no ;;
 		-h|--help)
 			sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
-			echo "usage: $0 [--fetch]"
+			echo "usage: $0 [--fetch] [--no-cites]"
 			exit 0
 			;;
 		*)
@@ -107,13 +149,42 @@ fetch_age() {
 	echo "fetch time unknown"
 }
 
+# The build number in a sibling's tree at a given commit.  Every port keeps it
+# somewhere different and none of them is guessable, so the knowledge lives here
+# rather than in the document; a port whose file moves must be corrected here,
+# and prints "unknown" until it is, which fails.  Read at the recorded sha, not
+# at HEAD: the question is what build the reading described.
+tree_build() {
+	_repo=$1 _tree=$2 _sha=$3
+	case "$_repo" in
+		ioscpm)
+			git -C "$_tree" show "$_sha:iOSCPM.xcodeproj/project.pbxproj" 2>/dev/null |
+				sed -n 's/.*CURRENT_PROJECT_VERSION = \([0-9][0-9]*\);.*/\1/p' | head -1
+			;;
+		cpmdroid)
+			git -C "$_tree" show "$_sha:app/build.gradle.kts" 2>/dev/null |
+				sed -n 's/.*versionCode *= *\([0-9][0-9]*\).*/\1/p' | head -1
+			;;
+		romwbw_emu)
+			git -C "$_tree" show "$_sha:VERSION" 2>/dev/null | head -1 | tr -d ' \t\r'
+			;;
+		*)
+			;;
+	esac
+}
+
 status=0
+
+# The citation loop runs in a pipeline, hence a subshell, so it cannot set
+# $status directly.  It appends here instead and the caller reads it back.
+CiteFail=$(mktemp) || exit 1
+trap 'rm -f "$CiteFail"' EXIT INT TERM
 
 echo "FEATURE_PARITY.md vs the checkouts in $SiblingDir"
 echo
 
 # The read loop runs in this shell, not a subshell, so $status survives it.
-while read -r repo sha date; do
+while read -r repo sha date shipped rest; do
 	[ -n "${repo:-}" ] || continue
 	case "$repo" in \#*) continue ;; esac
 
@@ -181,9 +252,200 @@ while read -r repo sha date; do
 		git -C "$tree" log --format='		%h %ad %s' --date=short "$sha..$ref"
 		status=1
 	fi
+
+	# What the reading describes, against what a user can install.  A tick over
+	# a build nobody has is still a lie about the product even when it is a true
+	# statement about the tree.
+	case "${shipped:-}" in
+		shipped:*) ship=${shipped#shipped:} ;;
+		*)         ship= ;;
+	esac
+	built=$(tree_build "$repo" "$tree" "$sha")
+	if [ -z "$ship" ]; then
+		echo "$repo	SHIPPED BUILD NOT RECORDED - add 'shipped:<build>' to its sibling-readings line"
+		echo "		The tree at $sha is build ${built:-unknown}.  What users have is"
+		echo "		not in this repository and has to be measured, not inferred."
+		status=1
+	elif [ "$ship" = unknown ]; then
+		echo "$repo	SHIPPED BUILD UNKNOWN - tree at $sha is build ${built:-unknown}"
+		echo "		Measure it and record it; an unmeasured claim about what ships"
+		echo "		is what this field exists to stop."
+		status=1
+	elif [ -z "$built" ]; then
+		echo "$repo	CANNOT READ THE BUILD NUMBER at $sha - tree_build() has no rule for this port, or its file moved"
+		status=1
+	elif [ "$built" != "$ship" ]; then
+		echo "$repo	READ AT BUILD $built, SHIPS $ship - every tick in this column describes software no user has"
+		status=1
+	else
+		echo "$repo		build $built, and that is what ships"
+	fi
 done <<SIBLINGS
 $Readings
 SIBLINGS
+
+# ---------------------------------------------------------------------------
+# Citations.  Every `backticked` identifier inside a <!-- cites: repo --> region
+# must resolve in that repo at its recorded sha.
+#
+# The extraction is deliberately conservative: only bare identifiers and dotted
+# names are tested, so prose in backticks, expressions, flags and literals are
+# skipped rather than guessed at.  A dotted name is tested by its last component
+# too, because `SettingsRepository.DEFAULT_SCROLLBACK_LINES` is a real constant
+# written with its class.  Missing a citation is a smaller failure here than
+# inventing one: this catches fabricated symbols, which is what happened, and
+# does not pretend to check English.
+if [ "$Cites" = yes ]; then
+	echo
+	echo "citations"
+	echo
+
+	# Citations are claims about code, so only code is searched.  Excluding
+	# documentation is not tidiness: cpmdroid's own todo.txt now quotes the nine
+	# fabricated symbols in the course of recording that they were fabricated,
+	# and a plain grep finds them there and calls them real.  A document cannot
+	# be evidence for itself.
+	SrcOnly=". :(exclude)*.md :(exclude)*.txt :(exclude)docs/*"
+
+	cites=$(awk '
+		/<!-- cites: [A-Za-z0-9_.-]+ -->/ {
+			match($0, /cites: [A-Za-z0-9_.-]+/)
+			repo = substr($0, RSTART + 7, RLENGTH - 7)
+			inblock = 1
+			next
+		}
+		/<!-- \/cites -->/ { inblock = 0; repo = ""; next }
+		inblock && /<!-- cites-withdrawn:/ {
+			line = $0
+			sub(/.*cites-withdrawn:[ \t]*/, "", line)
+			sub(/-->.*/, "", line)
+			n = split(line, wd, /[ \t]+/)
+			for (i = 1; i <= n; i++)
+				if (wd[i] != "") withdrawn[repo SUBSEP wd[i]] = 1
+			next
+		}
+		inblock && /<!-- cites-elsewhere:/ {
+			line = $0
+			sub(/.*cites-elsewhere:[ \t]*/, "", line)
+			sub(/-->.*/, "", line)
+			n = split(line, ex, /[ \t]+/)
+			for (i = 1; i <= n; i++)
+				if (ex[i] != "") allowed[repo SUBSEP ex[i]] = 1
+			next
+		}
+		inblock {
+			n = split($0, part, "`")
+			# Fields 2, 4, 6 ... sit between backticks.  An odd count means an
+			# unclosed backtick on this line; the last field is prose, not code.
+			for (i = 2; i <= n; i += 2) {
+				tok = part[i]
+				if (tok !~ /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/) continue
+				if (tok in seen_tok && seen[repo SUBSEP tok]) continue
+				seen[repo SUBSEP tok] = 1
+				print repo "\t" tok
+			}
+		}
+		END {
+			for (k in allowed) {
+				split(k, p, SUBSEP)
+				print p[1] "\tALLOW\t" p[2]
+			}
+			for (k in withdrawn) {
+				split(k, p, SUBSEP)
+				print p[1] "\tWITHDRAWN\t" p[2]
+			}
+		}
+	' "$Parity")
+
+	# Collect the declared exceptions first, then test everything else.
+	Allowed=$(printf '%s\n' "$cites" | awk -F'\t' '$2 == "ALLOW" { print $1 "\t" $3 }')
+	# Withdrawn symbols are the inverse assertion: the document names them to
+	# record that they never existed, so the check confirms they still do not.
+	# If one ever resolves, the document has become wrong in the other direction
+	# and somebody should know.
+	Withdrawn=$(printf '%s\n' "$cites" | awk -F'\t' '$2 == "WITHDRAWN" { print $1 "\t" $3 }')
+
+	printf '%s\n' "$cites" | awk -F'\t' '$2 != "ALLOW" && NF == 2' | sort -u |
+	while IFS="$(printf '\t')" read -r repo sym; do
+		[ -n "${repo:-}" ] && [ -n "${sym:-}" ] || continue
+
+		if printf '%s\n' "$Allowed" | grep -qx "$repo	$sym"; then
+			echo "$repo	$sym	declared as a reference to another port"
+			continue
+		fi
+
+		if printf '%s\n' "$Withdrawn" | grep -qx "$repo	$sym"; then
+			tree="$SiblingDir/$repo"
+			sha=$(printf '%s\n' "$Readings" |
+				awk -v r="$repo" '$1 == r { print $2; exit }')
+			tipref=$(origin_ref "$tree" 2>/dev/null) || tipref=
+			# shellcheck disable=SC2086
+			if [ -n "$tipref" ] &&
+			   git -C "$tree" grep -q -F -- "$sym" "$tipref" -- $SrcOnly 2>/dev/null; then
+				echo "$repo	$sym	DECLARED WITHDRAWN BUT IT NOW EXISTS - the document calls this invented and it is not"
+				echo "STATUS_FAIL" >> "$CiteFail"
+			else
+				echo "$repo	$sym	withdrawn, and still absent - as the document says"
+			fi
+			continue
+		fi
+
+		tree="$SiblingDir/$repo"
+		[ -d "$tree/.git" ] || continue
+		sha=$(printf '%s\n' "$Readings" |
+			awk -v r="$repo" '$1 == r { print $2; exit }')
+		[ -n "${sha:-}" ] && [ "$sha" != unknown ] || continue
+		git -C "$tree" cat-file -e "$sha^{commit}" 2>/dev/null || continue
+
+		# shellcheck disable=SC2086 - SrcOnly is a deliberate word list
+		if git -C "$tree" grep -q -F -- "$sym" "$sha" -- $SrcOnly 2>/dev/null; then
+			continue
+		fi
+
+		# The last component of a dotted name, for constants written with their
+		# class.  Only then is it really absent.
+		bare=${sym##*.}
+		# shellcheck disable=SC2086
+		if [ "$bare" != "$sym" ] &&
+		   git -C "$tree" grep -q -F -- "$bare" "$sha" -- $SrcOnly 2>/dev/null; then
+			continue
+		fi
+
+		# Absent at the recorded sha is two very different things, and calling
+		# them by one name is how this check would earn a reputation for noise.
+		# Present at origin means the READING is stale and the symbol arrived
+		# after it.  Absent there too, and absent from history, means somebody
+		# wrote down a name that never existed.
+		tipref=$(origin_ref "$tree") || tipref=
+		# shellcheck disable=SC2086
+		if [ -n "$tipref" ] &&
+		   git -C "$tree" grep -q -F -- "$sym" "$tipref" -- $SrcOnly 2>/dev/null; then
+			echo "$repo	$sym	arrived after the recorded reading - it is in $tipref but not at $sha"
+			echo "STATUS_FAIL" >> "$CiteFail"
+			continue
+		fi
+
+		# History probe, source only.  Documentation is excluded on purpose: a
+		# note quoting a fabricated symbol - including the ones written on
+		# 2026-09-02 recording that they were fabricated - would otherwise count
+		# as evidence the symbol once existed, which is exactly backwards.
+		# shellcheck disable=SC2086
+		ever=$(git -C "$tree" log --oneline -S"$sym" --all -- $SrcOnly 2>/dev/null |
+			wc -l | tr -d ' ')
+		if [ "${ever:-0}" = "0" ]; then
+			echo "$repo	$sym	RESOLVES NOWHERE, and no commit in that repository ever contained it in source"
+		else
+			echo "$repo	$sym	NOT IN THE TREE at $sha nor at origin ($ever source commit(s) touched it once)"
+		fi
+		echo "STATUS_FAIL" >> "$CiteFail"
+	done
+
+	if [ -s "$CiteFail" ]; then
+		status=1
+	else
+		echo "every cited symbol resolves in the port it describes."
+	fi
+fi
 
 echo
 if [ "$status" -eq 0 ]; then

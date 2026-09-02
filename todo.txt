@@ -194,14 +194,15 @@ landed, without that repository's source being opened.  The decision to make is
 whether a tick is allowed to mean anything other than "somebody read this port's
 code and can name the symbol".
 
-- [DECISION] check-sibling-drift.sh measures one thing, commits behind origin,
-and that is why none of the above was visible to it.  Two additions are drafted
-and neither is written: a shipped-build field in the sibling-readings block, so a
-tick citing a build newer than what users can install says so; and a rule that an
-item body asserting behaviour about a sibling must cite at least one symbol that
-git grep resolves in that sibling at the recorded sha.  The second alone would
-have caught all nine inventions above.  Both are edits here, and both want a
-decision about how hard they should fail before they are worth writing.
+- [WINDOWS] check-sibling-drift.sh now measures three things, and two of them
+are new, so their false-positive rate is unproven.  The shipped-build field is
+hand-maintained because no tree knows what a store is serving, and two of the
+three ports are recorded shipped:unknown - which fails, deliberately.  Somebody
+has to measure what Google Play serves for cpmdroid and what the romwbw_emu
+release tag is; ioscpm's 37 came from the itunes lookup API and is real.  The
+citation rule needs the same eye: it tested clean on the two blocks that carry
+markers today, but nothing else in the document is marked yet, and marking the
+other eleven rows is where it will find out whether the extractor is too eager.
 
 - [WINDOWS] the sibling-readings block still reads ioscpm 15f48e9 2026-08-27 and
 cpmdroid c6756af 2026-08-27, and both are now stale - ioscpm is at 4b336a5 and

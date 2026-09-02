@@ -267,6 +267,9 @@ long `DIR` listings).
 - **Platform mapping:** GUI ports (iOS/macOS/Android) should implement an in-app
   buffer like this. The **Linux CLI can rely on the host terminal's scrollback** —
   document that rather than reimplementing.
+<!-- cites: cpmdroid -->
+<!-- cites-elsewhere: startEmulator onEmulatorReset resetScrollback scrollRegion reset -->
+<!-- cites-withdrawn: scrollbackLinesEdit applyTerminalSettings sendBytes replyListener snapToLive resetTerminal historyIsContiguous visibleHistorySize -->
 - **Verified Android behaviour — re-read 2026-09-02, and the 2026-08-07 reading
   it replaces was substantially fiction.** Nine symbols the old block cited exist
   nowhere in cpmdroid, in the tree or anywhere in its git history:
@@ -323,6 +326,9 @@ long `DIR` listings).
     question and is now an open item in cpmdroid's todo.txt; what is certain is that
     none exists.
 
+<!-- /cites -->
+
+<!-- cites: ioscpm -->
 - **Verified iOS/macOS behaviour (2026-09-02), point by point against the spec
   above.** Read against ioscpm at `4b336a5`, and confirmed by running the Catalyst
   build rather than by reading alone.
@@ -353,6 +359,8 @@ long `DIR` listings).
     the dead session above the new banner and can start parked in history.  The spec
     line says "cleared on emulator start/reset", z80cpmw clears at both, and no two
     of the three ports agree — see cpmdroid's entry above.
+
+<!-- /cites -->
 
 ### 3. Mouse text selection + Copy/Paste
 Drag to select terminal text, right-click for Copy/Paste.
@@ -1111,9 +1119,9 @@ when that was; `--fetch` updates them first and is the only thing the script
 does that writes to a sibling.
 
 ```sibling-readings
-ioscpm     15f48e9  2026-08-27
-cpmdroid   c6756af  2026-08-27
-romwbw_emu a95db9f  2026-08-27
+ioscpm     15f48e9  2026-08-27  shipped:37
+cpmdroid   c6756af  2026-08-27  shipped:unknown
+romwbw_emu a95db9f  2026-08-27  shipped:unknown
 ```
 
 What each of those three readings is, because they are not the same kind of
