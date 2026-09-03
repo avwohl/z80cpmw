@@ -205,19 +205,24 @@ markers, 25 regions, and marking them is what corrected the extractor rather
 than the other way round.  Every citation in the document now resolves in the
 port it describes, at the commit that port's column was read at.
 
-- [WINDOWS] romwbw_emu is the column that has not been re-read.  ioscpm and
-cpmdroid were read across all thirteen rows on 2026-09-02 and the block advanced
-to e33beea and e9436a5; romwbw_emu still sits at a95db9f of 2026-08-27 and is
-thirteen commits behind, so check-sibling-drift.sh reports it drifted, which is
-correct.  Whoever re-reads it advances that line and not before.
+- [DECISION] one shipped: field is still unknown.  All three columns were read
+across all thirteen rows on 2026-09-02 and the block now records e33beea,
+e9436a5 and fce8f87; romwbw_emu reads build 1.38 against the v1.38 tag and is the
+first column to pass that check.  What is left is cpmdroid: its tree is at
+versionCode 25 and what Google Play serves is recorded nowhere, so the script
+fails on it, deliberately.  ioscpm's 37 is real and measured, and the gap it
+reports is the honest one - the tree is at build 58, so every tick in that column
+describes software no user can install, twenty-one builds wide.
 
-- [DECISION] two of the three shipped: fields are still unknown, and the script
-fails on them deliberately.  cpmdroid's tree is at versionCode 25 and what Google
-Play serves is not recorded anywhere; romwbw_emu's release tag is not either.
-ioscpm's 37 is real and measured, and the gap it now reports is the honest one -
-the tree is at build 58, so every tick in that column describes software no user
-can install.  That gap is the thing the field was added to make visible, and it
-is twenty-one builds wide.
+- [BROWSER] the web half of the romwbw_emu column is read, not watched.  The
+xterm CDN caveat that spanned it was closed by 5920681 on 2026-08-26 - vendored
+under web/vendor with the tags pointing there - and this document went on
+asserting it for a week, including through a column reading taken the day after
+it closed.  That is worth keeping as the reason the citation rule exists.  What
+nobody has done is open the page: that repo's own todo.txt carries a [BROWSER]
+item saying no browser has drawn it since, web/ holds no .wasm at all since
+2096ea2 and 95d422a, and make serve now fails on absent emcc rather than serving
+a stale build.  Serving the unpacked deb is the way in.
 
 
 Needs a person, not a machine

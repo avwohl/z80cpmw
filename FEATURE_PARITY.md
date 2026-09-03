@@ -97,7 +97,9 @@ survive reading the code:
 - **10 Dazzler** was ✅ (partial) and there is no Dazzler code at all.
 - **13 terminal (web)** was ✅ on the strength of xterm.js; the output filter
   never delivered TAB, BEL, FF or anything ≥ 0x7F to it. *(Fixed upstream in
-  `2dbf6f2`, hours after this sweep was written; the row is ✅ again.)*
+  `2dbf6f2`, hours after this sweep was written - but only the page half: the
+  wasm backend still masks to 0x7F and drops every CR, so the row is ◐, not
+  ✅.)*
 - **4 R8/W8 (CLI)** was ✅ "host paths"; only R8 took one, W8 wrote to CWD.
   *(Fixed upstream in `98eb6a1`, 50 minutes after this sweep was committed: W8
   now takes `<cpmname> [hostpath]`. The row is ✅ again.)*
@@ -473,11 +475,18 @@ to find them on every platform.
   `tests/test_hostfile.cpp` and `tests/test_hbios_hostfile.cpp`, 102 checks.
 - **Verified port behaviour:**
 <!-- cites: romwbw_emu -->
-  - **romwbw_emu (CLI)** *(2026-08-26)* — **both halves, since `98eb6a1`.** `R8`
+  - **romwbw_emu (CLI)** *(2026-09-02, at `fce8f87`)* — **both halves, since `98eb6a1`.** `R8`
     copies the command tail at 0x80 and the backend `fopen`s it verbatim
     (`emu_io_cli.cc`, `emu_host_file_open_read`), with a case-insensitive
     per-component retry (`resolve_path_case_insensitive`) to undo the CCP's
-    uppercasing — so any host path works. `W8` is `W8 <cpmname> [hostpath]` now:
+:    uppercasing — so any host path works.  `R8` prints the file that was opened
+    rather than the path that was typed, the same question `W8` asks about its
+    destination: `H_GETRNAME` (`0xEA`) is the read twin of `H_GETNAME`, and the
+    CLI's `emu_host_file_get_read_name()` answers with the absolute path it
+    resolved.  A directory is refused outright, because `fopen("rb")` succeeds
+    on one and only the first read fails, so `R8` used to delete the CP/M file
+    of that name and replace it with an empty one.  `W8` is
+    `W8 <cpmname> [hostpath]` now::
     `w8.asm` reads the command tail as well as the default FCB, takes the whole
     rest of the line as the path so a directory name may contain spaces, and
     still falls back to the bare lowercased 8.3 name in the emulator's CWD when
@@ -495,6 +504,24 @@ to find them on every platform.
     Worth recording why this row read ✅ for years before it was true: the R8
     half is genuinely unrestricted, the W8 half was never checked, and the CLI's
     own `--help` said "Export CP/M file to emulator CWD" the whole time.
+  - **romwbw_emu (web)** *(2026-09-02, `fce8f87`; read from source, never run
+    here)* — ✅, and it is a picker and a download rather than a path.  `R8`'s
+    string goes to `js_host_file_request_read`, which opens a file picker, and
+    only the bytes come back - `emu_host_file_provide_data` takes no name - so
+    the CP/M name is still the one `r8.asm` derives from the path that was
+    typed, and `emu_host_file_get_read_name()` deliberately answers with an
+    empty string so `R8` prints the request rather than pretending to know.
+    `W8` buffers the file and `emu_host_file_close_write` downloads it, an
+    empty file included; `emu_host_path_basename` cuts a host path down to its
+    last component and lowercases it, which is both the download name and what
+    `H_GETNAME` answers, so `W8` can print the name the browser will really
+    use.  That reduction is also why this backend returns
+    `EMU_HOST_CAP_SAFE_PATHS`: there is no directory for a guest path to escape
+    into.  Two things the page's own File Transfer panel says about `R8` are
+    wrong, and a reader of this row will meet them: the CP/M name does not come
+    from the file that was picked, and the substitute for a character CP/M
+    cannot hold is `-` rather than the `_` the panel promises - `fcb_char`
+    picks it precisely because `_` is a CCP filename delimiter.
 <!-- /cites -->
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: emu_io_windows.cpp w8.com -->
@@ -780,8 +807,8 @@ copyrighted content.
     `releases/latest`.
 <!-- /cites -->
 <!-- cites: romwbw_emu -->
-<!-- cites-elsewhere: a95db9f disks.xml -->
-  - **romwbw_emu (web)** *(2026-08-27, at `a95db9f`)* — **there is no catalog
+<!-- cites-elsewhere: fce8f87 disks.xml -->
+  - **romwbw_emu (web)** *(re-read 2026-09-02, at `fce8f87`)* — **there is no catalog
     here at all**, and the cell in the table above used to read "hardcoded list,
     unpinned; 4 of 5 images ship nowhere", which understated it in the one
     direction that matters. Nothing fetches `disks.xml`, nothing names a release
@@ -805,8 +832,9 @@ copyrighted content.
     first-time visitor gets, not something they have to go looking for. It is at
     least *reported*: the loader collects `diskFailures` and puts the HTTP
     status on screen rather than starting a machine with no disk in silence.
-    Two smaller facts from the same read. The repository has exactly two images,
-    `disks/hd1k_combo.img` and `disks/hd1k_infocom.img`; of the five names the
+    Two smaller facts from the same read. The repository has exactly two disk
+    images outside `archive/`, `disks/hd1k_combo.img` and
+    `disks/hd1k_infocom.img`; of the five names the
     page offers, four exist nowhere in the tree, and the one image it does have
     besides the combo is not offered. And the ROM select has the same shape but
     was already fixed on the packaged path only: it offers one ROM,
@@ -814,6 +842,14 @@ copyrighted content.
     stages it beside the page with a comment recording exactly that lesson —
     while the two makefile deploy targets, which nothing checks, still do not
     copy it. `web/emu_romwbw.rom` is tracked and referenced by nothing.
+    **The missing image and the duplicated ROM are a ruling nobody has made,
+    not work nobody has noticed**, and since `41565a1` the tree says so:
+    `DECISIONS.md` carries "What a package ships: the duplicated ROM, and the
+    missing disk" as one item, and states the same two facts this row does -
+    that no `.img` is staged by `release.yml` or by `web/makefile`'s deploy
+    targets, and that `z80cpm_tools.img` exists nowhere in this tree.  Shipping
+    the 49 MB combo image in a deb is what the answer costs, which is why it is
+    a question rather than a chore.
 
 <!-- /cites -->
 ### 6. Remote help system + bundled fallback
@@ -1018,10 +1054,12 @@ Emulated retro graphics card in a separate window.
   side that have never executed. That half still stands: `2dbf6f2` looked at it
   and deliberately left it alone. What that commit did fix is the one channel
   that would have complained — `Module.onError`, called by `emu_error()`
-  (`src/emu_io_wasm.cc`) and implemented nowhere, so every error the core
-  reported went nowhere at all. The page implements it now, to the status line
-  and to `console.error`, which is a large part of why the dead wiring above
-  survived unnoticed for so long.
+  (`src/emu_io_wasm.cc`) and implemented nowhere.  Not quite nowhere: the
+  `js_error` shim has fallen back to `console.error` when the page defines no
+  handler since the very first commit, so the errors reached a devtools console
+  nobody had open and never the page itself.  The page implements it now, to
+  the status line and to `console.error` both, which is a large part of why the
+  dead wiring above survived unnoticed for so long.
 <!-- /cites -->
 - **Behaviour/spec:** enable + base I/O port + scale, rendered in its own window.
 - **Where:** `z80cpmw/Dazzler.cpp`, `DazzlerWindow.cpp`; config `hardware.dazzler`.
@@ -1314,8 +1352,9 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     newline (progress counters, status-line redraws) overwrites nothing, and
     8-bit output is gone before the tty sees it.
 
-    The web build loads **xterm.js 5.3**, which *is* a far more complete VT than
-    any native front end, and since `2dbf6f2` the app no longer starves it.
+    The web build loads **xterm.js 5.3**, vendored under `web/vendor/` since
+    `5920681` rather than fetched from a CDN, and it *is* a far more complete VT
+    than any native front end; since `2dbf6f2` the page no longer starves it.
     `Module.onConsoleOutput` (the `Module.onConsoleOutput =` assignment in
     `web/romwbw.html-template`) hands every byte to `term.write()` unchanged,
     with LF the single exception: it is written as CR LF, because a CP/M guest's
@@ -1325,8 +1364,18 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     and rewrote BS as `\b \b` — a *destructive* backspace, so a guest moving the
     cursor left erased a character. CSI sequences survived that only because
     their bodies happen to be printable ASCII. The row was ✅ on the strength of
-    the library while the wiring was what decided it; the wiring now agrees with
-    the library.
+    the library while the wiring was what decided it; the page now agrees with
+    the library. **The backend does not**, and it is the CLI's own defect one
+    layer down: `emu_console_write_char` in `src/emu_io_wasm.cc` does `ch &= 0x7F`
+    and drops every CR before the page sees a byte, so a guest returning to
+    column 0 without a newline overwrites nothing here either, and an 8-bit byte
+    arrives as its low seven bits. That is why this cell is ◐ and not ✅: what
+    `2dbf6f2` fixed is the page half of a two-layer filter.
+    `tests/web_console_output.js` walks all 256 byte values through the handler
+    lifted out of the template, which proves the page hands every byte on and
+    proves nothing about the stream reaching it. Read from source only - node is
+    absent from this machine, so neither web test was run here, and no browser
+    has drawn the page at all since xterm was vendored.
 <!-- /cites -->
 - **Parity target:** the mobile ports' coverage, i.e. run WordStar and Zork
   without the screen breaking up. **That port is done** — `TerminalView.kt` /
@@ -1397,7 +1446,7 @@ does that writes to a sibling.
 ```sibling-readings
 ioscpm     e33beea  2026-09-02  shipped:37
 cpmdroid   e9436a5  2026-09-02  shipped:unknown
-romwbw_emu a95db9f  2026-08-27  shipped:unknown
+romwbw_emu fce8f87  2026-09-02  shipped:1.38
 ```
 
 What each of those three readings is, because they are not the same kind of
@@ -1431,11 +1480,11 @@ thing:
 | 6. Help system + offline fallback | ✅ / ✅ bundled since build 51 (download, cache, then the shipped copy) | ✅ / ✅ bundled since `1f70c6b` (download, cache, then the shipped copy; all eight files in `assets/help/`) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
 | 7. NVRAM autoboot / bootString | ✅ NVRAM / ⬜ bootString (`setBootString` is in the vendored core and on the bridge; no Swift caller ever passes it a value, and there is no setting for one) | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
 | 8. Window state / DPI | ⬜ (Mac Catalyst) | ➖ | ➖ |
-| 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt; the range is enforced on the slider only, and API 24–25 ignore `android:min`) | ➖ |
+| 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt; the range is enforced on the slider only, and API 24–25 ignore `android:min`) | ➖ CLI (host terminal; no font flag and no font config key) · ◐ web (fixed `fontSize: 16` in the `new Terminal` options, no control on the page and no font key among the six it persists, so only browser zoom moves it) |
 | 10. Dazzler | ⬜ | ⬜ (explicit no-op stubs) | ⬜ (no Dazzler code; the core only offers the hooks this repo uses) |
 | 11. Config profiles | ⬜ | ⬜ (flat SharedPreferences, no named profiles) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
 | 12. Manifest write warning | ✅ (suppressible, once per session) | ✅ (suppressible, once per session) | ➖ CLI · ✅ web (*Don't warn* kept across a reload since `108856c`) |
-| 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (VT52, DECSTBM, DECSC/DECRC, `@ P X L M S T`, the query replies, per-cell bold/underline/blink/reverse — written 2026-08-29, compiled but never run) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ✅ web (output filter fixed in `2dbf6f2`) |
+| 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (VT52, DECSTBM, DECSC/DECRC, `@ P X L M S T`, the query replies, per-cell bold/underline/blink/reverse — written 2026-08-29, compiled but never run) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ◐ web (page filter fixed in `2dbf6f2`; the wasm backend drops CR and masks to 0x7F the same way) |
 
 **z80cpmw's own row 13 became ✅ on 2026-08-28**, which makes every row in this
 document ✅ for z80cpmw — the other twelve by construction, this one on the
@@ -1445,15 +1494,30 @@ beyond the packed CGA byte, and that closed in `480edcb` and `29d3438`. Read the
 1.0.20 parser, without the attribute work and without the bright half of the
 palette.
 
-**One caveat spans the whole web column.** `xterm.js`, its CSS and the fit addon
-are three jsdelivr `<script>`/`<link>` tags in `web/romwbw.html-template` (grep
-it for `cdn.jsdelivr.net`) with no vendored copy and no SRI, and `release.yml`
-packages only
-`romwbw.html`/`.js`/`.wasm`. So offline — or from an installed deb — `new
-Terminal(...)` throws at top level and there is **no terminal at all**: rows 2, 3
-and 13 are ✅/◐ only for a browser with internet access. romwbw_emu's `todo.txt`
-tracks vendoring the three files, which would close the SRI hole and the offline
-gap together.
+**The caveat that used to span the whole web column is closed, and was already
+closed when this column was last read.** `xterm.js`, its CSS and the fit addon
+were three jsdelivr `<script>`/`<link>` tags with no vendored copy and no SRI, so
+offline - or from an installed deb - `new Terminal(...)` threw at top level and
+there was no terminal at all. `5920681` (2026-08-26, one day before the reading
+this block replaces) vendored all three under `web/vendor/`, and
+`web/romwbw.html-template` and `web/romwbw-debug.html` load them from there;
+`.github/workflows/release.yml` stages that directory - the three files and both
+MIT licences - beside `romwbw.html`/`.js`/`.wasm`, `roms/*.rom` and `emu_avw.rom`,
+so an installed deb or rpm has a terminal with no network at all. The only
+`cdn.jsdelivr.net` left in that repo is `archive/cpm22/index.html`, which nothing
+builds and nothing packages. The tags carry no `integrity=` and deliberately not:
+SRI checks a file fetched from a host you do not control, and these are
+same-origin files inside the package - `web/vendor/README.md` records the npm
+tarballs the bytes came from and the three sha384 digests the old tags carried, so
+an update can still be checked against what shipped. What is *not* closed is that
+nobody has looked at the result: that repo's `todo.txt` no longer tracks vendoring
+but carries a `[BROWSER]` item saying no browser has drawn the page since, and
+`MANUAL_CHECKS.md` says the staged paths were checked by fetching every `href` and
+`src` and no further. Nor can that be done from the source tree any more - `web/`
+holds no `.wasm` at all since `2096ea2` and `95d422a` deleted the stale ones, so
+`make serve` and both deploy targets fail on absent emcc rather than serving a
+five-month-old build, and the checklist now says to serve the unpacked deb
+instead. Rows 2, 3 and 13 are read from source, not watched.
 
 ## Suggested priority order for each GUI port
 
