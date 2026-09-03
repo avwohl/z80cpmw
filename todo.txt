@@ -205,14 +205,25 @@ markers, 25 regions, and marking them is what corrected the extractor rather
 than the other way round.  Every citation in the document now resolves in the
 port it describes, at the commit that port's column was read at.
 
-- [DECISION] one shipped: field is still unknown.  All three columns were read
-across all thirteen rows on 2026-09-02 and the block now records e33beea,
-e9436a5 and fce8f87; romwbw_emu reads build 1.38 against the v1.38 tag and is the
-first column to pass that check.  What is left is cpmdroid: its tree is at
-versionCode 25 and what Google Play serves is recorded nowhere, so the script
-fails on it, deliberately.  ioscpm's 37 is real and measured, and the gap it
-reports is the honest one - the tree is at build 58, so every tick in that column
-describes software no user can install, twenty-one builds wide.
+- [ANDROID] cpmdroid does not tag its releases.  Its tags stop at v1.14 while
+Play serves versionCode 25 (1.24), so check-sibling-drift.sh has nothing to
+measure the shipped artefact from and falls back to the commit that set the
+number - which reports four commits of drift where the real answer might be
+fewer or more.  romwbw_emu tags and gets an exact one.  Tagging on release costs
+nothing and is the difference between a number and a commit.
+
+- [DECISION] all three shipped: fields are now recorded - ioscpm 37 (measured
+through the itunes lookup API), cpmdroid 25 (from the Play console, 2026-09-03),
+romwbw_emu 1.38 (the v1.38 tag).  Two of the three still fail, and both failures
+are real.  ioscpm's tree is at build 58 against a Store serving 37, twenty-one
+builds of ticks describing software nobody can install.  cpmdroid and romwbw_emu
+MATCH on the number and still fail, because a matching number is a weaker
+statement than it looks: a version is bumped when somebody cuts a release, so
+everything landing afterwards sits in the tree under the previous build's number.
+cpmdroid is four commits past its bump and two of them are the scrollback fixes;
+romwbw_emu is one past its tag.  The check says so now rather than reporting a
+clean pass, which is what it did for romwbw_emu for exactly as long as it took to
+record cpmdroid's number and notice the same thing was true next door.
 
 - [BROWSER] the web half of the romwbw_emu column is read, not watched.  The
 xterm CDN caveat that spanned it was closed by 5920681 on 2026-08-26 - vendored

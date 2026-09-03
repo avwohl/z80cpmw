@@ -185,6 +185,34 @@ cite_resolves() {
 	return 1
 }
 
+# The commit that last set a port's build number to its current value, so the
+# tree can be asked whether anything has landed since.  A matching build number
+# is a weaker statement than it looks: a number is only bumped when somebody
+# cuts a release, so work that lands afterwards sits in the tree under the
+# number of the build before it.  cpmdroid was exactly here on 2026-09-03 -
+# versionCode 25 in the tree, versionCode 25 on Play, and four commits between
+# them including two scrollback fixes no user had.
+version_bump_commit() {
+	_repo=$1 _tree=$2 _sha=$3 _built=$4
+	# A release tag is the better answer where there is one: it names the commit
+	# the artefact was actually cut from, where the version-bump commit only
+	# names when the number changed - romwbw_emu bumps VERSION and then tags a
+	# commit or two later, so measuring from the bump overstates the gap.
+	for _t in "v$_built" "$_built"; do
+		if git -C "$_tree" rev-parse --verify --quiet "$_t^{commit}" >/dev/null 2>&1; then
+			git -C "$_tree" rev-parse "$_t^{commit}"
+			return 0
+		fi
+	done
+	case "$_repo" in
+		ioscpm)     _f=iOSCPM.xcodeproj/project.pbxproj ;;
+		cpmdroid)   _f=app/build.gradle.kts ;;
+		romwbw_emu) _f=VERSION ;;
+		*)          return 1 ;;
+	esac
+	git -C "$_tree" log --format=%H -S"$_built" "$_sha" -- "$_f" 2>/dev/null | tail -1
+}
+
 # The build number in a sibling's tree at a given commit.  Every port keeps it
 # somewhere different and none of them is guessable, so the knowledge lives here
 # rather than in the document; a port whose file moves must be corrected here,
@@ -314,7 +342,21 @@ while read -r repo sha date shipped rest; do
 		echo "$repo	READ AT BUILD $built, SHIPS $ship - every tick in this column describes software no user has"
 		status=1
 	else
-		echo "$repo		build $built, and that is what ships"
+		# Same number is not the same software.  Say how much has landed since
+		# the number was set, because that is the part a version match hides.
+		bump=$(version_bump_commit "$repo" "$tree" "$sha" "$built")
+		since=
+		[ -n "${bump:-}" ] &&
+			since=$(git -C "$tree" rev-list --count "$bump..$sha" 2>/dev/null)
+		if [ -n "${since:-}" ] && [ "$since" != "0" ]; then
+			echo "$repo	build $built matches what ships, BUT $since commit(s) landed after that number was set"
+			echo "		The column is read against a tree that is not the shipped"
+			echo "		build, even though the numbers agree.  Bump on release, or"
+			echo "		read the tag."
+			status=1
+		else
+			echo "$repo		build $built, and that is what ships"
+		fi
 	fi
 done <<SIBLINGS
 $Readings

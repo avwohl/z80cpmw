@@ -1445,7 +1445,7 @@ does that writes to a sibling.
 
 ```sibling-readings
 ioscpm     e33beea  2026-09-02  shipped:37
-cpmdroid   e9436a5  2026-09-02  shipped:unknown
+cpmdroid   e9436a5  2026-09-02  shipped:25
 romwbw_emu fce8f87  2026-09-02  shipped:1.38
 ```
 
