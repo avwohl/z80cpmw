@@ -41,27 +41,25 @@ has the measurements.
 Packaging and signing
 ----------------------
 
-- [WINDOWS] [RELEASE] DO NOT MAKE A SIGNED build-msix.ps1 -Beta RUN WHILE
-Version.h SAYS 1.0.22.  v1.0.22-beta is published and the script names its
-output from Version.h, so such a run re-mints the published artifact under its
-own name and nothing in the script objects: Assert-ExeVersion compares the exe
-against Version.h and says nothing about a package being replaced, and the
-signing-kit guard does not fire because the kit really is where it is expected
-to be.  This has already happened once, on 2026-08-28, and cost a live Azure
-Trusted Signing call; the published digest was restored from the GitHub release
-and matches dist\ again, but the call is spent.  -WhatIf is a hard binding error
-there now and is deliberately not SupportsShouldProcess, so it is not a way to
-find out either.  The rehearsal that IS safe is
-  build-msix.ps1 -Beta -SkipBuild -SkipSign
-which exits 0, writes dist\z80cpmw-1.0.22-beta-unsigned.msix and its .pdb, and
-leaves dist\z80cpmw-1.0.22-beta.msix on hash 1549C223 before and after.
+- [WINDOWS] STANDING RULE, not a task: NEVER MAKE A SIGNED build-msix.ps1 -Beta
+RUN ON A VERSION THAT IS ALREADY PUBLISHED.  The script names its output from
+Version.h, so such a run re-mints the published artifact under its own name and
+nothing in the script objects - Assert-ExeVersion compares the exe against
+Version.h and says nothing about a package being replaced, and the signing-kit
+guard does not fire because the kit really is where it is expected to be.  It
+has happened once, on 2026-08-28 against the published 1.0.22, and cost a live
+Azure Trusted Signing call.  -WhatIf is a hard binding error there and is
+deliberately not SupportsShouldProcess, so it is not a way to find out either;
+the safe rehearsal is -Beta -SkipBuild -SkipSign, which writes a distinct
+"-unsigned" name and reaches neither sign.ps1 nor the network.
+  Check `gh release list` against Version.h before signing.  This belongs in
+  KNOWN_PROBLEMS.md rather than here once somebody moves it - it can never be
+  "done".
 
-  What is still owed: dist\ has no z80cpmw-1.0.22-beta.pdb and 1.0.22's symbols
-  stay unrecoverable.  The -Beta branch copies bin\<Configuration>\z80cpmw.pdb
-  out beside the .msix and errors out if it is not there, so a beta cannot ship
-  symbol-less in silence again; the first signed -Beta run on a version that has
-  not shipped is what proves that end to end, and 1.0.23 is where it happens.
-  The whole item closes when that run is made.
+  The .pdb half of this item is CLOSED, in 1.0.23.  The signed run was made on
+  2026-09-03, printed "Symbols kept", and dist\z80cpmw-1.0.23-beta.pdb is
+  byte-identical to bin\Release\z80cpmw.pdb.  1.0.22's own symbols remain
+  unrecoverable and always will be; that is a fact now, not a task.
 
 
 The disk images are behind the core
@@ -174,13 +172,16 @@ checks), and dist\z80cpmw.msix is the unsigned Store package.  What is left is
 the Partner Center upload, which only the owner can do.  Until it goes through,
 1.0.22 is still what users have and CHANGELOG.md's header says so.
 
-  Two things follow the submission rather than preceding it:
-  - No -beta package has been cut for 1.0.23.  A signed -Beta run is now legal
-    (the version has moved off the published 1.0.22), and it is the run that
-    proves the .pdb copy end to end - see the packaging item above.
-  - The Store channel leaves no trace in the repo, so record 1.0.23 in
-    store-releases-are-invisible-from-the-repo terms once it is live: no git tag
-    and no GitHub release will exist for it.
+  The signed sideload beta IS cut: dist\z80cpmw-1.0.23-beta.msix, signed and
+  verified 2026-09-03, with its .pdb beside it.  It carries the same binary as
+  the Store package (exe sha256 800715614bd5e20f... in both).  What is left for
+  it is a GitHub release - tag v1.0.23-beta, attach the .msix - which nobody has
+  made yet.  Make it a PRERELEASE: 1.0.16/1.0.17/1.0.21 all are, and v1.0.22-beta
+  being flagged Latest is the open [DECISION] below.
+
+  The Store channel leaves no trace in the repo, so record 1.0.23 in
+  store-releases-are-invisible-from-the-repo terms once it is live: no git tag
+  and no GitHub release will exist for the Store side.
 
 - [DECISION] what is a tick allowed to mean?  The 2026-09-02 audit read all
 three sibling ports side by side for the first time and the answer it forced is

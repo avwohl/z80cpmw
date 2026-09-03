@@ -10,12 +10,20 @@ current sideload package is **1.0.22-beta**, which is the same binary signed
 under our own publisher. **1.0.20** was built and tagged but never published on
 any channel, and **1.0.21** shipped only as a signed sideload beta.
 
-**1.0.23 is built but not yet published on either channel.** `dist\z80cpmw.msix`
-is the unsigned Store package, awaiting a Partner Center submission; no `-beta`
-package has been cut for it, so nothing is signed and no sideload artifact
-exists. Until that submission goes through, 1.0.22 is still what users have -
-which is why the paragraph above still names it as the released version rather
-than being edited to the newest number in the file.
+**1.0.23 is built and signed but not yet published on either channel.**
+`dist\z80cpmw.msix` is the unsigned Store package, awaiting a Partner Center
+submission, and `dist\z80cpmw-1.0.23-beta.msix` is the signed sideload package,
+awaiting a GitHub release. Both exist locally; neither has been distributed, so
+1.0.22 is still what users have on both channels - which is why the paragraph
+above still names it as the released version rather than being edited to the
+newest number in the file.
+
+The two carry **the same binary**, as 1.0.22 did: `z80cpmw.exe` hashes
+`800715614bd5e20f…` inside both packages, because the beta was cut with
+`-SkipBuild` off the build the Store package was made from rather than being
+rebuilt. They differ only where they must - `Publisher="CN=724C9014-…"` and
+unsigned for the Store, `Publisher="CN=Aaron Wohl, …"` and Authenticode-signed
+for the sideload.
 
 The two channels share a number only when they carry the same build, as 1.0.22
 does. They remain separate package identities either way - the Store package is
@@ -1836,6 +1844,28 @@ headless suites green from `tests\run_tests.bat` — **1323 checks, 0 failures**
 diagnostics 302, host file transfer 66, rendering conformance 50, HBIOS host
 file extension 36). `dist\z80cpmw.msix` is the unsigned Store package;
 Microsoft re-signs it at submission.
+
+### Fixed
+- **A beta ships with its symbols, and this is the run that proved it.**
+  1.0.22's `.pdb` was never kept — `dist\` holds none, a rebuild is a different
+  binary with a different debug GUID, and a crash dump from the shipped 1.0.22
+  is therefore unreadable and always will be. `build-msix.ps1` grew a step 6
+  that copies `bin\<Configuration>\z80cpmw.pdb` out beside the `.msix` and
+  errors if it is absent, so a beta cannot ship symbol-less in silence again.
+  Until now that step had only ever run under `-SkipSign`, because 1.0.22 was
+  published on both channels and a signed `-Beta` run would have re-minted a
+  published artifact under its own name — `todo.txt` said in as many words that
+  the first signed run on an unshipped version is what proves the rule end to
+  end, and that 1.0.23 is where it happens. It happened: the run printed
+  `Symbols kept: dist\z80cpmw-1.0.23-beta.pdb`, and that file is byte-identical
+  to `bin\Release\z80cpmw.pdb` (`dfc1b9789fc71f03…`), so the symbols beside the
+  package really are the ones built with the binary inside it. The item is
+  closed.
+  The signature was verified rather than assumed: `signtool verify` reports 0
+  warnings and 0 errors, the Trusted Signing cert chains to a Microsoft public
+  root (so testers need no dev-cert import), and the signature is timestamped,
+  which is what keeps it valid after the leaf certificate expires — this one
+  expires 2026-09-04, the day after the signing.
 
 ### Changed
 - **No disk images ship in the package any more, and nothing was ever reading
