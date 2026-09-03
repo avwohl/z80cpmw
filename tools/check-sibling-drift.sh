@@ -192,6 +192,25 @@ cite_resolves() {
 # number of the build before it.  cpmdroid was exactly here on 2026-09-03 -
 # versionCode 25 in the tree, versionCode 25 on Play, and four commits between
 # them including two scrollback fixes no user had.
+# Does every commit in a range touch documentation only?  A column reading is a
+# reading of code, so prose landing after it does not invalidate the reading -
+# and reporting it as drift at the same weight as a real change is how a checker
+# earns a reputation for noise and stops being read.  Conservative on purpose:
+# any path outside the documentation set, and any commit that changed nothing,
+# makes the whole range count.
+docs_only_range() {
+	_tree=$1 _range=$2
+	_files=$(git -C "$_tree" log --format= --name-only "$_range" 2>/dev/null | sort -u | sed '/^$/d')
+	[ -n "$_files" ] || return 1
+	for _f in $_files; do
+		case "$_f" in
+			*.md|*.txt|docs/*|*/docs/*) ;;
+			*) return 1 ;;
+		esac
+	done
+	return 0
+}
+
 # The human-facing release name in a tree, which is not always the build number:
 # cpmdroid ships versionCode 25 as "1.24" and tags the name, not the code.
 tree_release_name() {
@@ -230,10 +249,20 @@ version_bump_commit() {
 			return 0
 		fi
 	done
+	# Ports suffix their tags differently - z80cpmw ships 1.0.22 as the signed
+	# sideload v1.0.22-beta - so fall back to the newest tag that NAMES this
+	# version before giving up on tags entirely.
+	_t=$(git -C "$_tree" tag --list "*$_built*" --sort=-v:refname 2>/dev/null | head -1)
+	if [ -n "${_t:-}" ] &&
+	   git -C "$_tree" rev-parse --verify --quiet "$_t^{commit}" >/dev/null 2>&1; then
+		echo "$(git -C "$_tree" rev-parse "$_t^{commit}") $_t"
+		return 0
+	fi
 	case "$_repo" in
 		ioscpm)     _f=iOSCPM.xcodeproj/project.pbxproj ;;
 		cpmdroid)   _f=app/build.gradle.kts ;;
 		romwbw_emu) _f=VERSION ;;
+		z80cpmw)    _f=z80cpmw/Version.h ;;
 		*)          return 1 ;;
 	esac
 	_c=$(git -C "$_tree" log --format=%H -S"$_built" "$_sha" -- "$_f" 2>/dev/null | tail -1)
@@ -260,6 +289,16 @@ tree_build() {
 		romwbw_emu)
 			git -C "$_tree" show "$_sha:VERSION" 2>/dev/null | head -1 | tr -d ' \t\r'
 			;;
+		z80cpmw)
+			# This repo's own version, composed from four #defines rather than
+			# written out, so it is assembled the way Version.h's own comment
+			# says the packaging scripts do it.
+			git -C "$_tree" show "$_sha:z80cpmw/Version.h" 2>/dev/null |
+				awk '/^#define VERSION_MAJOR/ {a=$3}
+				     /^#define VERSION_MINOR/ {b=$3}
+				     /^#define VERSION_PATCH/ {c=$3}
+				     END { if (a != "") printf "%s.%s.%s", a, b, c }'
+			;;
 		*)
 			;;
 	esac
@@ -281,6 +320,15 @@ while read -r repo sha date shipped rest; do
 	case "$repo" in \#*) continue ;; esac
 
 	tree="$SiblingDir/$repo"
+	# This repository describes itself in the same table it describes the others
+	# in, and its column is maintained in place rather than read at a commit - so
+	# there is no drift to measure, only a shipped state.  It was left out of this
+	# block entirely until 2026-09-03, which meant the one column every other
+	# column is scored against was the only one whose shipped state nothing
+	# checked.  The asymmetry the prose had, reproduced in the mechanism.
+	home=no
+	[ "$tree" = "$RootDir" ] && home=yes
+
 	if [ ! -d "$tree/.git" ]; then
 		echo "$repo	NOT CHECKED OUT at $tree - the column cannot be re-read here"
 		status=1
@@ -292,12 +340,21 @@ while read -r repo sha date shipped rest; do
 			echo "$repo	could not fetch - the comparison below is as old as the last one that worked"
 	fi
 
+	[ "$sha" = HEAD ] && sha=$(git -C "$tree" rev-parse --short HEAD 2>/dev/null)
+
 	head=$(git -C "$tree" rev-parse --short HEAD 2>/dev/null)
 	if [ -z "$head" ]; then
 		echo "$repo	cannot read HEAD of $tree"
 		status=1
 		continue
 	fi
+
+	if [ "$home" = yes ]; then
+		# No reading to drift: this column is edited in the same commit as the
+		# code it describes.  Only the shipped question is open, and it falls
+		# through to the check below.
+		echo "$repo	this repository - column maintained in place, HEAD $head"
+	else
 
 	# The tip to measure the reading against.  Local HEAD is not it: a checkout
 	# that has fetched and not merged would report a column as current that is
@@ -339,10 +396,14 @@ while read -r repo sha date shipped rest; do
 	behind=$(git -C "$tree" rev-list --count "$sha..$ref" 2>/dev/null)
 	if [ "$behind" = "0" ]; then
 		echo "$repo	current: read $sha ($date), $ref is $tip (last fetch: $fetched)"
+	elif docs_only_range "$tree" "$sha..$ref"; then
+		# The reading still stands: nothing it describes has changed.
+		echo "$repo	current: read $sha ($date); $behind commit(s) since, documentation only"
 	else
 		echo "$repo	DRIFTED: read $sha ($date), $ref is $tip, $behind commit(s) since (last fetch: $fetched)"
 		git -C "$tree" log --format='		%h %ad %s' --date=short "$sha..$ref"
 		status=1
+	fi
 	fi
 
 	# What the reading describes, against what a user can install.  A tick over
@@ -378,7 +439,10 @@ while read -r repo sha date shipped rest; do
 		since=
 		[ -n "${bump:-}" ] &&
 			since=$(git -C "$tree" rev-list --count "$bump..$sha" 2>/dev/null)
-		if [ -n "${since:-}" ] && [ "$since" != "0" ]; then
+		if [ -n "${since:-}" ] && [ "$since" != "0" ] &&
+		   docs_only_range "$tree" "$bump..$sha"; then
+			echo "$repo		build $built ships, and the $since commit(s) since $label are documentation only"
+		elif [ -n "${since:-}" ] && [ "$since" != "0" ]; then
 			case "$label" in
 				the-commit-that-set-the-number)
 					echo "$repo	build $built matches what ships, BUT $since commit(s) landed after the number was set"

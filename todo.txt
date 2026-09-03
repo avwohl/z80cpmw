@@ -205,6 +205,17 @@ markers, 25 regions, and marking them is what corrected the extractor rather
 than the other way round.  Every citation in the document now resolves in the
 port it describes, at the commit that port's column was read at.
 
+- [WINDOWS] the Store build is twenty-three source commits old.  Store 1.0.22
+(confirmed 1.0.22.0 on 2026-09-03) and sideload 1.0.22-beta both came off the
+2026-08-23 build, and z80cpmw/ has moved twenty-three commits since - the
+attribute work and the palette this document already named, plus a download
+thread outliving its dialog, the catalog shutdown ownership, a Keyboard page in
+Settings, three Settings controls that read and wrote nothing, a downloader
+hidden at 200% DPI, a Reset confirmation, bundled help topics and a truncated
+download refusal.  Version.h still reads 1.0.22, so the numbers agree and prove
+nothing; check-sibling-drift.sh measures from the v1.0.22-beta tag now and says
+51 commits, of which those twenty-three are source.  Cutting 1.0.23 is the item.
+
 - [DECISION] all three shipped: fields are now recorded - ioscpm 37 (measured
 through the itunes lookup API), cpmdroid 25 (from the Play console, 2026-09-03),
 romwbw_emu 1.38 (the v1.38 tag).  Two of the three still fail, and both failures
