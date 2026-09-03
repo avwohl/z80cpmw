@@ -205,13 +205,6 @@ markers, 25 regions, and marking them is what corrected the extractor rather
 than the other way round.  Every citation in the document now resolves in the
 port it describes, at the commit that port's column was read at.
 
-- [ANDROID] cpmdroid does not tag its releases.  Its tags stop at v1.14 while
-Play serves versionCode 25 (1.24), so check-sibling-drift.sh has nothing to
-measure the shipped artefact from and falls back to the commit that set the
-number - which reports four commits of drift where the real answer might be
-fewer or more.  romwbw_emu tags and gets an exact one.  Tagging on release costs
-nothing and is the difference between a number and a commit.
-
 - [DECISION] all three shipped: fields are now recorded - ioscpm 37 (measured
 through the itunes lookup API), cpmdroid 25 (from the Play console, 2026-09-03),
 romwbw_emu 1.38 (the v1.38 tag).  Two of the three still fail, and both failures
@@ -220,8 +213,8 @@ builds of ticks describing software nobody can install.  cpmdroid and romwbw_emu
 MATCH on the number and still fail, because a matching number is a weaker
 statement than it looks: a version is bumped when somebody cuts a release, so
 everything landing afterwards sits in the tree under the previous build's number.
-cpmdroid is four commits past its bump and two of them are the scrollback fixes;
-romwbw_emu is one past its tag.  The check says so now rather than reporting a
+cpmdroid is four commits past v1.24 and two of them are the scrollback fixes;
+romwbw_emu is one past v1.38.  Both are measured from a tag and are exact.  The check says so now rather than reporting a
 clean pass, which is what it did for romwbw_emu for exactly as long as it took to
 record cpmdroid's number and notice the same thing was true next door.
 

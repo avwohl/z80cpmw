@@ -192,15 +192,41 @@ cite_resolves() {
 # number of the build before it.  cpmdroid was exactly here on 2026-09-03 -
 # versionCode 25 in the tree, versionCode 25 on Play, and four commits between
 # them including two scrollback fixes no user had.
+# The human-facing release name in a tree, which is not always the build number:
+# cpmdroid ships versionCode 25 as "1.24" and tags the name, not the code.
+tree_release_name() {
+	_repo=$1 _tree=$2 _sha=$3
+	case "$_repo" in
+		ioscpm)
+			git -C "$_tree" show "$_sha:iOSCPM.xcodeproj/project.pbxproj" 2>/dev/null |
+				sed -n 's/.*MARKETING_VERSION = \([0-9.]*\);.*/\1/p' | head -1
+			;;
+		cpmdroid)
+			git -C "$_tree" show "$_sha:app/build.gradle.kts" 2>/dev/null |
+				sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' | head -1
+			;;
+		romwbw_emu)
+			git -C "$_tree" show "$_sha:VERSION" 2>/dev/null | head -1 | tr -d ' \t\r'
+			;;
+	esac
+}
+
+# Where the shipped artefact was cut from, as "<sha> <label>".
+#
+# A release tag is the better answer where there is one: it names the commit an
+# artefact was built from, where the version-bump commit only names when the
+# number changed - romwbw_emu bumps VERSION and tags a commit later, so measuring
+# from the bump overstates the gap.  Tags are looked up by BOTH the build number
+# and the release name, because ports differ about which they tag.  Without a tag
+# the bump commit is all there is, and the caller says so rather than passing an
+# upper bound off as the artefact.
 version_bump_commit() {
 	_repo=$1 _tree=$2 _sha=$3 _built=$4
-	# A release tag is the better answer where there is one: it names the commit
-	# the artefact was actually cut from, where the version-bump commit only
-	# names when the number changed - romwbw_emu bumps VERSION and then tags a
-	# commit or two later, so measuring from the bump overstates the gap.
-	for _t in "v$_built" "$_built"; do
+	_name=$(tree_release_name "$_repo" "$_tree" "$_sha")
+	for _t in "v$_built" "$_built" "v$_name" "$_name"; do
+		[ -n "${_t#v}" ] || continue
 		if git -C "$_tree" rev-parse --verify --quiet "$_t^{commit}" >/dev/null 2>&1; then
-			git -C "$_tree" rev-parse "$_t^{commit}"
+			echo "$(git -C "$_tree" rev-parse "$_t^{commit}") $_t"
 			return 0
 		fi
 	done
@@ -210,7 +236,9 @@ version_bump_commit() {
 		romwbw_emu) _f=VERSION ;;
 		*)          return 1 ;;
 	esac
-	git -C "$_tree" log --format=%H -S"$_built" "$_sha" -- "$_f" 2>/dev/null | tail -1
+	_c=$(git -C "$_tree" log --format=%H -S"$_built" "$_sha" -- "$_f" 2>/dev/null | tail -1)
+	[ -n "$_c" ] || return 1
+	echo "$_c the-commit-that-set-the-number"
 }
 
 # The build number in a sibling's tree at a given commit.  Every port keeps it
@@ -344,15 +372,26 @@ while read -r repo sha date shipped rest; do
 	else
 		# Same number is not the same software.  Say how much has landed since
 		# the number was set, because that is the part a version match hides.
-		bump=$(version_bump_commit "$repo" "$tree" "$sha" "$built")
+		ref=$(version_bump_commit "$repo" "$tree" "$sha" "$built") || ref=
+		bump=${ref%% *}
+		label=${ref#* }
 		since=
 		[ -n "${bump:-}" ] &&
 			since=$(git -C "$tree" rev-list --count "$bump..$sha" 2>/dev/null)
 		if [ -n "${since:-}" ] && [ "$since" != "0" ]; then
-			echo "$repo	build $built matches what ships, BUT $since commit(s) landed after that number was set"
-			echo "		The column is read against a tree that is not the shipped"
-			echo "		build, even though the numbers agree.  Bump on release, or"
-			echo "		read the tag."
+			case "$label" in
+				the-commit-that-set-the-number)
+					echo "$repo	build $built matches what ships, BUT $since commit(s) landed after the number was set"
+					echo "		No release tag to measure from, so this counts from the"
+					echo "		bump and is an upper bound, not the artefact.  Tag on"
+					echo "		release and it becomes exact."
+					;;
+				*)
+					echo "$repo	build $built matches what ships, BUT $since commit(s) landed after $label"
+					echo "		The column is read against a tree that is not the tagged"
+					echo "		release, even though the numbers agree."
+					;;
+			esac
 			status=1
 		else
 			echo "$repo		build $built, and that is what ships"
