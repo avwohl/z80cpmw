@@ -56,20 +56,38 @@ errors, **1325 checks, 0 failures** across the six suites.
   `romwbw_emu`, `cpmdroid` and `ioscpm` were deleted, because each of those has
   its own list and a note here could never be actioned from here; and the
   remainder were fixed rather than reworded.
-- **The disk catalog is repinned to `ioscpm` `v1.4.12`.** This is the change
-  that reaches users: `RELEASE_TAG` in `DiskCatalog.cpp` decides which images
-  the app downloads, and `v1.4.5` served an `R8` that hands an unfiltered host
-  basename to `F_DELETE` - importing a host file whose name contains `?` or `*`
-  erased every matching CP/M file first, silently. Verified in the **published
-  bytes** rather than in the lineage: the `v1.4.12` `hd1k_combo.img` (sha256
-  `89b8ae1a…`, downloaded and hashed) contains `Usage: W8 <cpmname> [hostpath]`
-  and the `06 E9 CF` bytes of the `HBF_HOST_CAPS` probe, and the `v1.4.5` image
-  it replaces contains neither. Upstream's `r8.asm` `fcb_char` now maps `?` and
-  `*` out of the FCB before `F_DELETE` sees it, and `w8.asm` defers EOF runs
-  instead of stopping at the first `1Ah`. The two catalogs are 7042 bytes each
-  and differ on one line, so nothing else about the disk set moves - and the
-  `version` attribute is unchanged, which is what would trigger a disk wipe on a
-  port that has one (this one does not).
+- **The disk catalog is repinned to `ioscpm` `v1.4.12`.** `RELEASE_TAG` in
+  `DiskCatalog.cpp` is this port's own choice of which ioscpm release its users
+  download, and it is the *whole* of what this repository contributes to the
+  question. It said `v1.4.5` while `v1.4.12` existed, so the defect was never
+  "`R8` is broken here" - `R8` and `W8` are CP/M programs on a published disk
+  image, fixed in `romwbw_emu/src/r8.asm` and built by ioscpm, and nothing in a
+  z80cpmw build contains either. The defect was that this port served an older
+  release than the one available. Each port pins independently, so each can rot
+  independently; that is the cost of the pin, and the ROM pairing below is what
+  it buys.
+  What the newer release carries, verified in the **published bytes** rather
+  than in the lineage: the `v1.4.12` `hd1k_combo.img` (sha256 `89b8ae1a…`,
+  downloaded and hashed here) contains `Usage: W8 <cpmname> [hostpath]` and the
+  `06 E9 CF` bytes of the `HBF_HOST_CAPS` probe, where the `v1.4.5` image
+  contains neither. Upstream's `fcb_char` now maps `?` and `*` out of the FCB
+  before `F_DELETE` sees it - the old `R8` erased every matching CP/M file when
+  importing a host file whose name held either - and `w8.asm` defers EOF runs
+  instead of stopping at the first `1Ah`.
+  **The pin's own justification was checked rather than assumed**, because
+  moving it is the exact thing its comment warns about: a new release swapping
+  images out from under an installed client and re-introducing an HBIOS/CBIOS
+  mismatch with the ROM this port embeds. Byte-diffing the two images: **5,121
+  bytes differ out of 51,380,224 (0.01%), in three regions** - the CP/M
+  directory entries for `R8 COM` and `W8 COM`, whose extents and record counts
+  moved because the files grew; `R8.COM`'s data; and `W8.COM`'s data, which was
+  all zeros in `v1.4.5`, consistent with the `org 0100h` padding that release
+  removed. **The first differing byte anywhere is 1.02 MB in**, so the boot
+  tracks, the HBIOS/CBIOS system area and the CP/M system image are
+  byte-identical. The pairing the pin protects is untouched.
+  The two catalogs are also 7042 bytes each and differ on one line, so no other
+  image in the set moves, and the `version` attribute is unchanged - which is
+  what would trigger a disk wipe on a port that has one (this one does not).
 - **The three documents gated on that repin are updated**, each against its own
   condition rather than all at once. `README.md`, `docs/FILE_TRANSFER.md` and
   the bundled Help topic lose the "W8 does not take a host path yet" paragraph
