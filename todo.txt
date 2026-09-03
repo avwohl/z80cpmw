@@ -202,20 +202,22 @@ has to measure what Google Play serves for cpmdroid and what the romwbw_emu
 release tag is; ioscpm's 37 came from the itunes lookup API and is real.  The
 citation rule has now been run over the whole document: all thirteen rows carry
 markers, 25 regions, and marking them is what corrected the extractor rather
-than the other way round.  What is left is 25 citations
-reported as "arrived after the recorded reading", and every one is true - the
-cpmdroid reading is c6756af of 2026-08-27 and 71465cb landed the file-transfer
-work on 2026-08-29, and the ioscpm one is 15f48e9 where resetScrollback did not
-exist until build 58.  They clear when those columns are re-read and the block
-advanced, not before, and not by suppressing them.
+than the other way round.  Every citation in the document now resolves in the
+port it describes, at the commit that port's column was read at.
 
-- [WINDOWS] the sibling-readings block still reads ioscpm 15f48e9 2026-08-27 and
-cpmdroid c6756af 2026-08-27, and both are now stale - ioscpm is at 4b336a5 and
-cpmdroid at 39b1eb3, both 2026-09-02.  It was deliberately NOT advanced with the
-row 2 and row 3 corrections, because this document's own rule is that the line
-certifies a reading of the WHOLE column and only two of thirteen rows were read.
-Whoever reads rows 1, 4, 5, 6, 7, 8, 9, 10, 11, 12 and 13 against those trees can
-advance it; until then the script reporting both columns as drifted is correct.
+- [WINDOWS] romwbw_emu is the column that has not been re-read.  ioscpm and
+cpmdroid were read across all thirteen rows on 2026-09-02 and the block advanced
+to e33beea and e9436a5; romwbw_emu still sits at a95db9f of 2026-08-27 and is
+thirteen commits behind, so check-sibling-drift.sh reports it drifted, which is
+correct.  Whoever re-reads it advances that line and not before.
+
+- [DECISION] two of the three shipped: fields are still unknown, and the script
+fails on them deliberately.  cpmdroid's tree is at versionCode 25 and what Google
+Play serves is not recorded anywhere; romwbw_emu's release tag is not either.
+ioscpm's 37 is real and measured, and the gap it now reports is the honest one -
+the tree is at build 58, so every tick in that column describes software no user
+can install.  That gap is the thing the field was added to make visible, and it
+is twenty-one builds wide.
 
 
 Needs a person, not a machine

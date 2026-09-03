@@ -215,9 +215,16 @@ written as termcap-style escape strings.
     Settings → Keyboard Map. Zero grep hits for any of them at `origin/master`.
     `TerminalView.handleKeyDown` is a fixed `when` over keycodes, and the bytes
     it sends are compiled in.
-    What that fixed table now covers, as of 2026-08-25, is the VT220 set this
-    document specifies: Enter, Backspace, Tab, Esc, the four arrows as
-    `\E[A`–`\E[D`, and **F1–F12** as `\EOP`–`\EOS` and `\E[15~`…`\E[24~`.
+    What that fixed table now covers, as of `c0b3bf7` (2026-08-29), is the VT220
+    set this document specifies: Enter, Backspace, Tab, Esc, the four arrows as
+    `\E[A`–`\E[D`, **F1–F12** as `\EOP`–`\EOS` and `\E[15~`…`\E[24~` out of
+    `sendFunctionKey`, and the whole navigation cluster - `\E[H`, `\E[F`,
+    `\E[5~`, `\E[6~`, `\E[2~` and `^?` for Forward Delete, off
+    `KEYCODE_MOVE_HOME`, `KEYCODE_MOVE_END`, `KEYCODE_PAGE_UP`,
+    `KEYCODE_PAGE_DOWN`, `KEYCODE_INSERT` and `KEYCODE_FORWARD_DEL`.  Ctrl+arrow
+    is a binding of its own there too - `sendArrow` emits `[1;5` and the final
+    byte when Ctrl is held - so all three ports send the same four sequences by
+    default, though they differ on whether the dialect gates them.
     The F-keys are new — before that they reached `else -> -1` and were dropped,
     so the old claim that "all twelve F-keys always reach CP/M" was exactly
     backwards. **Ctrl** now covers the whole `'@'`–`'_'` window rather than
@@ -237,28 +244,41 @@ written as termcap-style escape strings.
     same termcap escape schema (`KeyMap.expand`; it has no explicit `\^` case but
     its default arm emits the same literal `^`, so every documented escape
     decodes to the same bytes) and a per-key editor. **Build 51 closed the
-    F1–F12 gap**: `SpecialKey` is twenty-two cases now, not ten, and its F-key
+    F1–F12 gap**: `SpecialKey` went from ten cases to twenty-two, and stands at
+    twenty-six since the Ctrl+arrows, and its F-key
     bytes are this repo's — `\EOP`..`\EOS` then `\E[15~`, `\E[17~` and up,
     skipping 16 and 22 the way a real VT220 does. Its own tests assert them
     against this table rather than against "something reasonable", which is the
     check that keeps the two maps portable. The `VT52` profile deliberately
     differs: PF1–PF4 as `\EP`..`\ES` and nothing for F5–F12, because a VT52
     program cannot be expecting a VT100 sequence.
-    What still differs is the *shape* of the map, not its size. There is no
-    modifier concept at all — `SpecialKey` names a key, so `Ctrl+Left` cannot be
-    bound separately from `Left`, which is the gap this repo closed for itself in
-    `[Unreleased]`. The names are lower-camel raw values (`up`, `pageUp`) rather
-    than `Up`/`PageUp`. It is organised as named profiles (`WordStar`,
+    **The modifier gap closed on 2026-08-27 in `0165dac`, and this document did
+    not notice**, because that commit was read for row 13 alone - the erase family
+    and `applySGR`, nothing else.  `SpecialKey` carries `ctrlUp`, `ctrlDown`,
+    `ctrlLeft` and `ctrlRight`, and `unmodifiedBase` and `controlModified` are
+    mutual inverses, so a modified slot that was never given a binding falls back
+    to the plain key - which is what keeps a Custom profile saved before those
+    slots existed sending what it always sent.  An *empty* binding is not the same
+    as an absent one and deliberately sends nothing.  What still differs is the
+    *shape* of the map: it is the four arrows and nothing else, so there is no
+    general modifier schema and no way to bind a Shift- or Alt-modified key at
+    all.  The default bytes agree with this repo's in the `WordStar` and
+    `VT100/ANSI` profiles (`\E[1;5A`…`\E[1;5D`) but deliberately not in `VT52`,
+    which binds them to the plain VT52 arrows and has a test asserting it.  And on
+    Mac Catalyst the four resolve but never fire: WindowServer takes Ctrl+arrow
+    for Mission Control before the app is asked, which the source says in as many
+    words.  The names are lower-camel raw values (`up`, `pageUp`, `ctrlUp`) rather
+    than `Up`/`PageUp`/`Ctrl+Up`. It is organised as named profiles (`WordStar`,
     `VT100/ANSI`, `VT52`, `Custom`) whose default is still the **WordStar
     diamond** (`^E`/`^X`/`^S`/`^D`), not the VT220 table, and its `VT100/ANSI`
     profile still binds Delete to `\E[3~` where z80cpmw and cpmdroid send `^?`.
-    And there is still no on-screen way to press any of them: the twenty-two
-    bindable keys need a hardware keyboard. `ioscpm`'s `todo.txt` calls that its
+    And there is still no on-screen way to press any of them: all twenty-six
+    bindable slots need a hardware keyboard. `ioscpm`'s `todo.txt` calls that its
     largest remaining gap, and `4deea96`'s own message notes that build 51 made
     it larger rather than smaller.
 
 <!-- /cites -->
-### 2. Scrollback history  — *new in Windows; iOS/macOS reached it at ioscpm build 57 (2026-09-02), not build 43; Android keeps history but does not yet behave like this spec*
+### 2. Scrollback history  — *new in Windows; iOS/macOS reached it at ioscpm build 57 (2026-09-02), not build 43; Android reached it the same day in `e9436a5`, and keeps history across a cold boot on purpose*
 Lines that scroll off the top are retained so the user can scroll back (great for
 long `DIR` listings).
 - **Behaviour/spec:** ring buffer of full 80-col lines captured at the single
@@ -299,16 +319,21 @@ long `DIR` listings).
     CP/M** — `KEYCODE_PAGE_UP` branches on `isShiftPressed` and otherwise calls
     `sendEscapeSeq("[5~")`.  `copyScreenToClipboard` takes history **and** screen,
     iterating `historyChars` before `screenBuffer`.
-  - **Does not match — and these are defects, not platform differences.** The view
-    does **not** stay anchored as output arrives: `processOutput` runs
-    `if (data.isNotEmpty()) userScrollUp = 0` before the bytes are even parsed, so
-    any output at all yanks the reader back to the live prompt.  Scrollback there is
-    usable only while the guest is idle, which is most of the reason to have it.
-    The cursor is **not** hidden while reading history: `drawCursor` is called
-    whenever `liveRow == cursorRow`, with no test on the offset.  And no history is drawn **at all** while the soft keyboard is up —
-    `onDraw` splits on `viewportRows < rows` and that branch never reads
-    `userScrollUp` or `historyChars`, while the drag and chord handlers still consume
-    the gesture and call `invalidate()`.
+  - **Matched since the afternoon of 2026-09-02.** The three defects this block
+    listed earlier the same day were all fixed later that afternoon, and are
+    re-read here at the commit this column now records.  The view stays anchored as output arrives:
+    `processOutput` no longer touches `userScrollUp` at all, and `scrollUp`
+    advances it by one for each line it captures while the reader is in history -
+    the same anchoring z80cpmw and ioscpm do, and its comment names both.  The
+    cursor is drawn only at the live bottom: `drawCursor` is reached under
+    `liveRow == cursorRow && scroll == 0`.  And `onDraw` has one drawing path
+    instead of two, so history renders with the soft keyboard up; `maxScrollLines`
+    counts the live rows a short viewport hides as scrollable content, so a fresh
+    boot with nothing in history can still be scrolled to the top of its own
+    screen.  What snaps the view back to live is now a key rather than output:
+    `sendChar` clears `userScrollUp`, which covers typing and paste -
+    `pasteFromClipboard` goes through it - while `sendAnswerback` deliberately does
+    not, so a terminal query cannot yank the user out of history.
   - **A deliberate divergence, not a defect — and the old block had this backwards
     too.** History is not cleared on a cold boot, and that is a decision `clear()`
     documents at length: "The scrollback itself is deliberately kept... losing the
@@ -336,8 +361,9 @@ long `DIR` listings).
 
 <!-- cites: ioscpm -->
 - **Verified iOS/macOS behaviour (2026-09-02), point by point against the spec
-  above.** Read against ioscpm at `4b336a5`, and confirmed by running the Catalyst
-  build rather than by reading alone.
+  above.** Read against ioscpm at build 58, the commit the `sibling-readings` block
+  below records, and confirmed by running the Catalyst build rather than by reading
+  alone.
   - **Matches, but only since build 57.** Ring buffer at a single choke point:
     `scrollUp` captures, and `scrollRegion` now delegates to it whenever the region
     is the whole screen, so the line-feed path reaches the buffer.  **Until that
@@ -381,6 +407,45 @@ Drag to select terminal text, right-click for Copy/Paste.
   `showContextMenu`, `copySelectionToClipboard`, `pasteFromClipboard`).
 - **Platform mapping:** macOS = native selection + ⌘C/⌘V; Android = the "control
   strip" Copy/Paste (cpmdroid already has this); Linux CLI = host terminal.
+- **Verified port behaviour:**
+<!-- cites: ioscpm -->
+  - **ioscpm (iOS/macOS)** *(2026-09-02, build 58)* — ✅ on Mac Catalyst, ◐ on iOS,
+    and no selection at all before build 57 - Copy All, ⌘C and ⌘V were all there,
+    but `copyText` was the whole-screen copy and there was nothing to select.  A
+    pointer drag now runs `handleSelectPan`, which sets an anchor cell and a focus
+    cell; `selectionSpan` orders them whichever way the drag went and `isSelected`
+    tests membership, so the span is **linear** - anchor cell to focus cell,
+    wrapping at the row end - rather than rectangular, which is what makes copying
+    a wrapped line give you the line.  The highlight is drawn over the cell's own
+    background and under its glyph, as a translucent fill rather than this repo's
+    inversion, so guest colours stay readable.  `copyText` copies `selectedText`
+    when there is a selection and falls back to `copyAllText` when there is not;
+    ⌘C and the long-press menu both land there, and `selectedText` trims each
+    row's trailing blanks and reads the cells that are on screen, so it copies out
+    of scrollback.  Ctrl+C/Ctrl+V are left alone - they are `UIKeyCommand`s on
+    Control that fold to `^C`/`^V`.
+    **The split is Mac-only, on purpose.** `handlePan` hands a touch-driven drag
+    to `handleSelectPan` only under `targetEnvironment(macCatalyst)`; on iOS a
+    finger drag is the only way to scroll, so it keeps that job and there is still
+    no selection there - the long-press menu offers **Copy All** alone.
+    Three gaps against the spec above, on both platforms.  The context menu has no
+    Paste - ⌘V is the only way in.  Paste is not gated on the emulator running.
+    And the CRLF normalisation is only half done: `pasteText` turns an LF into a
+    CR but passes a CR through untouched, so a pasted CRLF reaches CP/M as **two**
+    CRs.  Non-ASCII filtering is real - `sendKey` drops any character with no
+    `asciiValue`.
+<!-- /cites -->
+<!-- cites: cpmdroid -->
+  - **cpmdroid (Android)** *(2026-09-02)* — ◐, and the "cpmdroid already has this"
+    above is the control strip, not selection.  `copyScreenToClipboard` takes the
+    whole thing - `historyChars` first, then `screenBuffer`, each row's trailing
+    blanks trimmed, no cap - and `pasteFromClipboard` sends the clipboard through
+    `sendChar`, dropping anything above 0x7F and mapping LF **and** CR alike to
+    0x0D, so a pasted CRLF arrives as two CRs there too.  There is no selection
+    model at all: `onTouchEvent` has one meaning for a drag, which is scrollback,
+    and nothing anywhere tracks an anchor or paints a highlight.  So the Copy half
+    of this row is a Copy All and the drag-select half is absent.
+<!-- /cites -->
 
 ### 4. R8 / W8 host file transfer — arbitrary host paths + a findable data folder
 `R8 name` imports a host file into CP/M; `W8 name` exports. **User-facing doc:
@@ -433,9 +498,9 @@ to find them on every platform.
 <!-- /cites -->
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: emu_io_windows.cpp w8.com -->
-  - **ioscpm (iOS/macOS)** *(2026-08-26, build 52)* — `W8` always writes
-    `Documents/Exports`, `R8` always reads `Documents/Imports` (no per-transfer
-    dialog). As of **v1.4.11 / build 41** an **Import File…** picker (enabled on
+  - **ioscpm (iOS/macOS)** *(2026-08-26 at build 52, re-read 2026-09-02 at
+    build 58)* — `W8` always writes `Documents/Exports`, `R8` always reads
+    `Documents/Imports` (no per-transfer dialog). As of **v1.4.11 / build 41** an **Import File…** picker (enabled on
     iOS *and* Mac Catalyst) stages an arbitrary-location file into `Imports` for a
     later `R8`; the old opt-in per-transfer picker was removed. So arbitrary-path
     *import* is covered (via staging), but `W8` export still has no
@@ -470,29 +535,48 @@ to find them on every platform.
     while the old `w8.com` is what ships. Second, containment belongs in the
     layer the capability bit is about — `emu_host_path_caps()`, not the UI above
     it.
-    **Two changes since, at `15f48e9`** (2026-08-27), neither of which
-    contradicts anything above. `emu_io_ios.mm` now defines
-    `emu_host_file_get_read_name()` and returns `""`, which that port had to do
-    or stop linking — `hbios_dispatch.cc` calls it unconditionally for
-    `HBF_HOST_GETRNAME` and is symlinked into `iOSCPM/Core/`, so the core moved
-    under that repo without a file there being touched, exactly as
-    `emu_host_path_caps()` did before it. `""` is a legal answer that `emu_io.h`
-    names as one, and it is the honest one there: the effective source is known
-    only in Swift, where the delegate resolves a leaf against `Imports`
-    case-insensitively and then calls `emu_host_file_load()`, which carries
-    bytes and no name. **This repo had the same missing symbol and answers
-    differently** — `emu_io_windows.cpp` records the path
-    `emu_host_file_open_read()` actually resolved and opened — because on this
-    backend that path is known. And the **zero-byte `W8` export bug is fixed**
-    on iOS: `emu_host_file_close_write()` no longer requires a non-empty buffer
-    to reach `WRITE_READY`, and `checkHostFileState()` no longer guards on the
-    write-data pointer, which by the shared contract is `nullptr` for an empty
-    buffer and so could never answer the question. Both halves were needed;
-    either alone still swallowed the export. That is the same divergence
-    `cpmdroid` closed in `c06fa58` and the browser backend closed in v1.36, so
-    all four ports now create the empty file that this one and the CLI always
-    created. Neither change has been compiled — that repo records it as NOT
-    COMPILED, for want of Xcode.
+    **Two changes at `15f48e9`** (2026-08-27), and a re-reading on 2026-09-02
+    at build 58 that supersedes half of one of them. `emu_io_ios.mm` defines
+    `emu_host_file_get_read_name()`, which that port had to do or stop linking —
+    `hbios_dispatch.cc` calls it unconditionally for `HBF_HOST_GETRNAME` and is
+    symlinked into `iOSCPM/Core/`, so the core moved under that repo without a
+    file there being touched, exactly as `emu_host_path_caps()` did before it.
+    At `15f48e9` it returned `""` unconditionally, and this document called that
+    the honest answer because the resolved source was known only in Swift.
+    **Build 55 stopped that being true.** `emu_host_file_load_named()` carries
+    the absolute path the Swift layer really opened down beside the bytes; the
+    getter reports it while the state is `HOST_FILE_READING` and `""` at every
+    other moment, and the name is cleared on open, close and cancel. It is worth
+    having because the CCP uppercases the command line, so a file stored in
+    lower case is reached under a shouted name and the delegate's
+    case-insensitive scan of `Imports` is what actually finds it. **So this
+    row's cross-port contrast is gone**: `emu_io_windows.cpp` records what
+    `emu_host_file_open_read()` resolved and opened, that port now does the
+    same, and `cpmdroid` closed the identical gap in `167acbe`. What that port
+    measured, and wrote into its own source rather than leaving to be found, is
+    worth carrying here: with today's `R8` the answer is usually still `""`, and
+    correctly so, because `R8` prints its Reading: line between the open and the
+    first read, an open there only parks the request, and the guest is rewound
+    on `HBF_HOST_READ` until Swift answers — so the state is still
+    `WAITING_READ` at the moment the guest asks. And the **zero-byte `W8` export
+    bug is fixed** on iOS: `emu_host_file_close_write()` no longer requires a
+    non-empty buffer to reach `WRITE_READY`, and `checkHostFileState()` no
+    longer guards on the write-data pointer, which by the shared contract is
+    `nullptr` for an empty buffer and so could never answer the question. Both
+    halves were needed; either alone still swallowed the export. That is the
+    same divergence `cpmdroid` closed in `c06fa58` and the browser backend
+    closed in v1.36, so all four ports now create the empty file that this one
+    and the CLI always created. **The read side of that same hole stayed open**
+    until build 55: `baseAddress` is nil for an empty `Data` and the hand-off
+    sat inside the binding that unwrapped it, so an empty file in `Imports` left
+    the backend parked in `WAITING_READ`. This paragraph ended "neither change
+    has been compiled — that repo records it as NOT COMPILED, for want of
+    Xcode" until 2026-09-02, and that is now false rather than merely stale:
+    build 53 was given a build number precisely because the section that had
+    been sitting in that repo's CHANGELOG without one had at last been compiled,
+    and each of builds 53 to 58 records a clean build — 53 and 56 for the iPhone
+    17 Pro simulator and for Mac Catalyst, 54 and 55 for that simulator, 57 and
+    58 for Catalyst, those two launched and driven rather than merely built.
 <!-- /cites -->
 <!-- cites: cpmdroid -->
 <!-- cites-elsewhere: c06fa58 -->
@@ -568,9 +652,33 @@ to find them on every platform.
     guest is still handing bytes down can no longer serve a partial export as a
     finished one. An empty CP/M file is a real file — this port and the CLI
     always created it — so this closes a divergence rather than choosing a
-    behaviour; `ioscpm` closed the same one at `15f48e9`. Not compiled there
-    either: no SDK, NDK or Gradle on the machine it was written on, and the C++
-    was built for the host against a stub `jni.h`.
+    behaviour; `ioscpm` closed the same one at `15f48e9`. It was not compiled
+    when it was written — no SDK, NDK or Gradle on the machine it was written
+    on, and the C++ was built for the host against a stub `jni.h` — and that
+    stopped being true on 2026-08-29, on a machine with the SDK, NDK
+    28.0.13004108 and an API 36 emulator. `./gradlew clean assembleDebug` built
+    the native library for all four ABIs at -Wall -Wextra with no native
+    warning, and the fix itself was watched in CP/M 2.2 booted from the combo
+    image: `SAVE 0 EMPTY.TXT` then `W8 EMPTY.TXT` prints `Done: 0 bytes` and
+    leaves a real zero-byte file in Exports, while `W8 R8.COM` still exports its
+    1792 bytes.
+    **Re-read on 2026-09-02**, and one thing in this row did move after
+    `71465cb`. `167acbe`, later the same day, made
+    `emu_host_file_get_read_name()` answer with what was opened rather than with
+    what was asked for: the Kotlin layer hands the absolute path of the file it
+    resolved down beside the bytes — `provideHostFileData()`, stored by
+    `emu_host_set_read_source()` — and the getter is gated on
+    `HOST_FILE_READING`, where it used to return the guest's own basenamed
+    request at any moment. That port's own note records what the gate is for: a
+    bare-FCB `R8` sends no name at all, so the old getter printed a `Reading:`
+    line with nothing after it for a file that was being read. `ioscpm` reached
+    the same place at build 55, and both ports write down the same measured
+    caveat — `R8` asks between the open and the first read, an open on either
+    port only parks the request, so the answer at that moment is usually still
+    `""` and `R8` falls back to printing what was typed. Nothing else in this row
+    moved: the folders, the File transfer screen, the import cap, the inbound
+    share target and the C++ containment all read at today's head as described
+    above.
 <!-- /cites -->
 - **Parity targets:** (a) let users reach **arbitrary** host locations within each
   platform's file model — a document picker / `ACTION_CREATE_DOCUMENT`; (b) at
@@ -606,7 +714,14 @@ to find them on every platform.
   `ioscpm` commit `9a9d7fd` fixed it on 2026-07-23. `cpmdroid` has its own
   Android-worded copy at `release_assets/help_file_transfer.md`, split off the
   same day (`78e6ec6`), so the two no longer share that text — a change to one no
-  longer fixes the other.
+  longer fixes the other. **That split is now meant to close.** `ioscpm`'s
+  `7569745` (2026-08-28) rewrote all eight files in `release_assets/` to stop
+  being written for iOS only: Folder Locations now has four platform
+  subsections and none of them is the default, one of them this port's, and the
+  commit's stated reason is that the Android fork can then go away and all three
+  ports read the same file again. As of 2026-09-02 the fork is still there —
+  `cpmdroid` still carries its own copy — so until it is deleted the sentence
+  above still describes the two trees.
 
 ### 5. Remote disk catalog + downloader (pinned)
 Download prebuilt disk images from the shared release host instead of bundling
@@ -621,16 +736,17 @@ copyrighted content.
   from.** See this repo's `WIP`/parity notes on the version-skew problem.
 - **Verified port behaviour (2026-08-07):**
 <!-- cites: cpmdroid -->
-  - **cpmdroid (Android)** — **pinned**. `data/DiskCatalogRepository.kt` builds
-    both the catalog URL and the download base from a single
+  - **cpmdroid (Android)** *(re-verified 2026-09-02)* — **pinned**.
+    `data/DiskCatalogRepository.kt` builds both the catalog URL and the download
+    base from a single
     `RELEASE_TAG = "v1.4.5"`, with the reason recorded in a comment (the core's
     HBIOS reports RomWBW v3.5.1, and slices from other releases print an
     HBIOS/CBIOS mismatch). Help deliberately stays on `releases/latest` — see
     item 6 for why that choice is only safe with a bundled fallback.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-  - **ioscpm (iOS/macOS)** *(re-verified 2026-08-24)* — **pinned**, since build
-    42. `EmulatorViewModel.swift` holds a single
+  - **ioscpm (iOS/macOS)** *(re-verified 2026-09-02, at build 58)* — **pinned**,
+    since build 42. `EmulatorViewModel.swift` holds a single
     `releaseTag = "v1.4.5"` from which both `catalogURL` and `releaseBaseURL`
     are built, with the reason in a comment (the core reports RomWBW v3.5.1;
     slices from another release print an HBIOS/CBIOS mismatch). Like cpmdroid,
@@ -639,6 +755,29 @@ copyrighted content.
     build 51 and `cpmdroid` since `1f70c6b`. (This clause read "unlike cpmdroid,
     without a bundled fallback" until 2026-08-29; both halves of that contrast
     are now false.)
+    **Three things the downloader gained after that reading**, all at builds 55
+    and 56 and all inside what this row's spec calls download and delete. Every
+    download is now verified against the catalog's hash before it is installed:
+    the check existed but sat in a function whose only callers were its own
+    retry arms, so no real download ever entered it, and it now lives in
+    `downloadDiskFromSettings`, which hashes the temp file before moving it into
+    place - so an installed disk is a passed check. The cached catalog is
+    stamped with the pin it was fetched under (`catalogCacheTagKey`), because
+    the cache carries one tag's hashes while `parseDiskCatalogXML` always
+    rebuilds the URLs from the tag this build is pinned to, so a cache from an
+    older pin would pair the wrong hashes with the right URLs; on a mismatch
+    `loadCachedCatalog` keeps exactly the entries whose file is already on disk,
+    which are never re-downloaded, rather than emptying the catalog on a device
+    that has no network to refetch with. And a catalog version bump no longer
+    deletes the whole library: `checkCatalogVersionAndInvalidate` now calls
+    `deleteCatalogDisks`, which removes only the images the NEW catalog lists,
+    so a disk the user imported, a disk `createNewDisk` made, and an image
+    dropped from the catalog in the same bump are all kept - nothing can
+    re-fetch any of those. The match is case-insensitive because `Documents` is
+    published to the Files app on a case-insensitive volume. None of this
+    reaches a user yet: that repo records the App Store as serving 1.4.9, builds
+    36/37, which predate the pin and all of the above and still fetch from
+    `releases/latest`.
 <!-- /cites -->
 <!-- cites: romwbw_emu -->
 <!-- cites-elsewhere: a95db9f disks.xml -->
@@ -710,9 +849,17 @@ In-app help fetched from GitHub, with offline bundled topics.
   nowhere — is now the record of what was fixed rather than a live finding.
   `1f70c6b` and `aee7276` closed it. All eight files (`help_index.json` plus
   seven topics) ship inside the APK under `app/src/main/assets/help/`,
-  byte-identical to the copies in `release_assets/` that get attached to a
-  release, so there is no second copy to drift; no Gradle rule was needed
-  because AGP packages `src/main/assets/**` verbatim. The order is **download,
+  byte-identical to the copies in `release_assets/` that a release is meant to
+  carry, so there is no second copy to drift; no Gradle rule was needed
+  because AGP packages `src/main/assets/**` verbatim. **Nothing is attached
+  today, which is the trap seen from the other side.** The releases were listed
+  on 2026-09-02: `v1.14`, which is what `releases/latest` resolves to, carries
+  `app-release.apk` and nothing else; help assets were last attached to `v1.11`
+  and only two of the eight; `v1.0` is the one release that ever had all eight.
+  So `INDEX_URL` returns 404 for every reader, every time — exactly what the
+  comment above it predicts — and the bundled copy is doing the whole job. That
+  is not a defect in this port's fallback, it is what the fallback was built
+  for, but it does mean the download half has no live asset to be right about. The order is **download,
   then the on-disk cache, then the shipped copy** — `resolveHelpIndex` and
   `resolveContent`, with a `HelpSource` enum that puts "offline copy, saved
   <date>" or "bundled with the app" in the action-bar subtitle so a reader can
@@ -729,7 +876,7 @@ In-app help fetched from GitHub, with offline bundled topics.
   (`aee7276`) — they had been describing an iPhone to an Android reader.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-- **Verified ioscpm behaviour (2026-08-26, build 52):** help **yes**, fallback
+- **Verified ioscpm behaviour (2026-09-02, build 58):** help **yes**, fallback
   **yes, since build 51** — the port this trap applied to on 2026-08-24 is out of
   it, and as of 2026-08-29 so is `cpmdroid`, which leaves **no GUI port in it**. `HelpView.swift` still resolves
   `help_index.json` and every topic through `releases/latest/download/`, which is
@@ -743,12 +890,21 @@ In-app help fetched from GitHub, with offline bundled topics.
   second copy to drift from the one that gets attached to a release. That is the
   detail worth taking here: this repo has the same seven topics to bundle and the
   same `release_assets/` problem to avoid.
-  One consequence of preferring the published copy survives, and it is not a
-  defect in the fallback: `release_assets/help_quick_start.md` was corrected in
-  build 49 — it advertised a `Ctrl+E` emulator console that does not exist, which
-  is actively harmful because `^E` is WordStar cursor-up — and a user with a
-  network keeps getting the stale published text until that file is re-attached
-  to the newest release. `ioscpm`'s `todo.txt` carries it as a release chore.
+  The consequence of preferring the published copy that this row used to carry
+  is **closed, and measured rather than inferred**.
+  `release_assets/help_quick_start.md` was corrected in build 49 — it advertised
+  a `Ctrl+E` emulator console that does not exist, which is actively harmful
+  because `^E` is WordStar cursor-up — and a networked user kept reading the
+  stale published text until the file was re-attached. Build 56 (2026-09-01)
+  attached all eight, `help_index.json` and the seven topics, to `v1.4.11`,
+  which is what `releases/latest` still resolves to; all eight were fetched on
+  2026-09-02 and every one is byte-identical to `release_assets/`, and
+  `ioscpm`'s `todo.txt` no longer carries the chore. Two things from that
+  attempt are worth taking rather than re-deriving: the first pass uploaded two
+  files from a stale checkout and left the published set at two vintages, and
+  `releases/latest/download/` kept serving the old bytes through a CDN for
+  minutes afterwards, so the check has to go through the tagged release rather
+  than the redirect.
 
 <!-- /cites -->
 ### 7. NVRAM / autoboot / boot string
@@ -775,6 +931,29 @@ In-app help fetched from GitHub, with offline bundled topics.
   its prompt).
 
 <!-- /cites -->
+<!-- cites: ioscpm -->
+- **Verified ioscpm behaviour (2026-09-02, build 58) — the first one written
+  down for that port in this row, and the flat ✅ in the matrix was wrong:**
+  NVRAM persistence is **present**; the **`bootString` auto-type is not**, which
+  puts this port exactly where Android is. `bootString` in
+  `EmulatorViewModel.swift` is that port's name for the NVRAM setting rather
+  than a host-typed string: its `didSet` writes it to `UserDefaults` under
+  `nvramKey`, `loadSelectedResources` (reached from `startEmulator`) and `reset`
+  both push it into the guest with `setNvramSetting`, and `emulatorVDAWriteChar`
+  polls `hasNvramChange` on every character written and calls
+  `syncNvramFromEmulator`, so a `SYSCONF` edit made inside the guest comes back
+  out to the UI and to `UserDefaults`. `ContentView.swift`'s Boot Options
+  section shows it read-only, captions it "Configure via ROM 'W' menu
+  (SYSCONF)", and offers **Clear Auto-Boot** (`clearAutoboot`) — this row's
+  "Clear Boot Config". The auto-typed string is a different thing and nothing
+  reaches it: `setBootString` is in the vendored core and on the Objective-C
+  bridge, no Swift file names it, and the only call that runs is
+  `setNvramSetting`'s own guard clearing it to the empty string. Two loose ends
+  found while reading, neither of them a parity claim: `loadNvram` is private
+  and has no callers, and `isNvramInitialized` is on the bridge and is never
+  called from Swift, where Android does call it.
+
+<!-- /cites -->
 ### 8. Desktop window state (Windows/macOS only)
 - **Behaviour/spec:** remember main-window position/size across runs with
   monitor-change / off-screen reset; auto-size the window to the exact 80×25 grid on
@@ -797,14 +976,23 @@ In-app help fetched from GitHub, with offline bundled topics.
   All GUI ports should expose this; mobile typically pinch-to-zoom.
 <!-- cites: cpmdroid -->
 <!-- cites-elsewhere: Int.MAX_VALUE -->
-- **Verified Android behaviour (2026-08-07):** **present** — a slider in Settings
-  (`fontSizeSeekBar`, shown in pt) stored as the `font_size` preference, applied
-  through `TerminalView.customFontSize`. There is **no** pinch-to-zoom.
-  Range is clamped **in the repository**, 8–24, not only on the slider: `android:min`
-  on a `SeekBar` needs API 26 and is ignored on 24–25, where the slider reaches 0 —
-  and a zero font size saturates the column arithmetic to `Int.MAX_VALUE` and kills
-  the app on every launch once the value has been persisted. Worth copying: clamp
-  where the value is *stored*, not where it is *entered*.
+- **Verified Android behaviour - re-read 2026-09-02:** **present** - a slider in
+  Settings (`fontSizeSeekBar`, shown in pt) stored as the `font_size` preference,
+  applied through `TerminalView.customFontSize`.  There is **no** pinch-to-zoom.
+  The 8–24 range is real, but it is enforced **only on the slider**, which is the
+  opposite of what the 2026-08-07 reading said: `android:min` and `android:max`
+  sit on the seek bar in the settings layout and nothing behind them clamps.
+  `getSettings` reads `font_size` back raw; `saveSettings` and `setFontSize`
+  write it through unchecked; the settings screen hands `saveSettings` the seek
+  bar's `progress` directly; and `scrollbackLines` is the only field
+  `SettingsRepository` coerces at all.  That matters because `android:min` on a
+  `SeekBar` needs API 26 and is ignored on 24–25, and this app's `minSdk` is 24,
+  so on those two levels the slider reaches 0 - and a zero font size leaves
+  `calculateFontSize` dividing the available width by a zero `charWidth`, which
+  saturates the column count to `Int.MAX_VALUE` and kills the app on every launch
+  once the value has been persisted.  That last step is read from the source, not
+  watched running on an API 24 device.  So the lesson is worth copying and the
+  code is not: clamp where the value is *stored*, not where it is *entered*.
 <!-- /cites -->
 <!-- cites: ioscpm -->
 - **Verified ioscpm behaviour (2026-08-24):** **present**, as a six-step menu
@@ -871,11 +1059,11 @@ Emulated retro graphics card in a separate window.
 - **Where:** config `core.warnManifestWrites`; `SettingsDialogWx.cpp`,
   `EmulatorEngine` disk-warning hooks.
 <!-- cites: cpmdroid -->
-- **Verified Android behaviour (2026-08-07):** **present and suppressible.**
+- **Verified Android behaviour (2026-09-02):** **present and suppressible.**
   Downloaded (catalog) disks are flagged per unit through
   `EmulatorEngine.setDiskIsManifest` as they are mounted; the emulation loop
   polls `checkManifestWriteWarning` and raises a dialog **once per session**;
-  Settings has a *Warn on manifest writes* checkbox
+  Settings has a *Warn when writing to downloaded disks* checkbox
   (`SettingsRepository.isWarnManifestWritesEnabled`, default **true**), and the
   preference migration deliberately drops the pre-v3 stored `false` so the newer
   default takes effect. One asymmetry, if you copy the code: turning the
@@ -884,13 +1072,21 @@ Emulated retro graphics card in a separate window.
   the suppression — that waits for the next disk reload or boot.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-- **Verified ioscpm behaviour (2026-08-24):** **present and suppressible.** A
-  "Disk May Be Overwritten" alert (grep `ContentView.swift` for that string —
-  it has two presentation sites) fires on a write to a catalog disk, and
-  Settings has a *Warn on manifest writes* toggle bound to
+- **Verified ioscpm behaviour (2026-09-02, build 58):** **present and
+  suppressible.** A "Disk May Be Overwritten" alert (grep `ContentView.swift`
+  for that string — it has two presentation sites) fires on a write to a catalog
+  disk, and Settings has a *Warn on Downloaded Disk Writes* toggle bound to
   `EmulatorViewModel.warnManifestWrites`, persisted in `UserDefaults` with the
   default applied when the key is absent. The alert is informational — it points
-  the user at *Save Disk As* rather than offering to cancel the write.
+  the user at *Save Disk As* rather than offering to cancel the write. It fires
+  **once per session**, exactly as the Android one does and for the same reason:
+  the two ports compile the same core file — this port's
+  `iOSCPM/Core/hbios_dispatch.cc` is a symlink into `romwbw_emu` — and the flag
+  `pollManifestWriteWarning` sets is a static that `reset()` deliberately leaves
+  alone. Two asymmetries against Android, in opposite directions: turning the
+  toggle back **on** here does clear the suppression, because
+  `applyWarningSuppression` pushes the current setting either way — but it
+  pushes it to units 0-3 only, where Android walks all 16.
 
 <!-- /cites -->
 ### 13. Terminal emulation (VT100/ANSI + VT52)
@@ -909,12 +1105,14 @@ extending it; that port's parser turned out to be the thinnest of the four.)
   DECTCEM); **deferred autowrap** (writing the last column arms the wrap instead
   of scrolling immediately); character-set designators (`ESC ( ) * + #` and
   `ESC SP`) consumed with their parameter byte rather than leaking as glyphs;
-  per-cell foreground **and background** so reverse video renders; TAB advancing
-  to the next 8-column stop.
+  per-cell foreground **and background** so reverse video renders; per-cell
+  bold, underline and blink since its build 55, with the bright SGR halves
+  90-97 and 100-107 and the defaults 39 and 49; TAB advancing to the next
+  8-column stop.
 - **Where (per port):**
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: cpmdroid TerminalView.kt c0b3bf7 -->
-  - **ioscpm** *(2026-08-26, build 52)* — `iOSCPM/Views/EmulatorViewModel.swift`.
+  - **ioscpm** *(re-read 2026-09-02, build 58)* — `iOSCPM/Views/EmulatorViewModel.swift`, with the whole of SGR now in `TerminalRendition.swift`.
     The origin of the parser: full VT52, scrolling region, answerbacks, deferred
     autowrap, charset consumption. **Build 51 closed the gap this entry used to
     name.** `@` (ICH), `P` (DCH), `X` (ECH), `S` (SU) and `T` (SD) are all
@@ -922,8 +1120,12 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     parsed and dropped — both returning to their power-on state on cold boot, so
     a guest that hides the cursor and dies does not leave it hidden for the next
     session. SU routes through `scrollUp()` only when the region is the whole
-    screen and through `scrollRegion()` otherwise, which is the rule LF already
-    followed: lines pushed out of a status-line window were never history.
+    screen and through `scrollRegion()` otherwise, so lines pushed out of a
+    status-line window are never history. **LF did not follow that rule until
+    build 57**, which is what this entry used to claim it did: the LF handler
+    called `scrollRegion()` unconditionally, and that function did not capture,
+    so no ordinary newline ever reached the buffer - see row 2. The whole-screen
+    test now lives inside `scrollRegion()`, so both paths get it.
     One difference remains and it is deliberate on that side: the new finals
     blank with a *default* cell rather than the current SGR background, matching
     the rest of that port's erase family, where this repo paints the current
@@ -937,19 +1139,26 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     needs an `ioscpm` release. **That move has landed upstream since**, in
     `0165dac`, so it is no longer a difference — read on 2026-08-28 at
     `0dbab43`, two commits past the `15f48e9` this column was carried forward
-    to. Treat this as a reading of `applySGR` and the erase family, not of the
-    column: the rest of the cells below still stand at build 52.
-    That reading turns up a different difference, and it is the one this repo
-    spent 2026-08-28 closing in itself: **`applySGR` there has no bright half.**
-    The whole switch is `0`, `1`, `22`, `7`, `27`, `30...37`, `40...47` and
-    `default: break`, so `ESC[91m` leaves the attribute byte alone and the text
-    draws in whatever was current — exactly what this repo did until `978b623`.
-    `cpmdroid`'s `TerminalView.kt` has carried `p in 90..97` since its own ANSI
-    fix, which makes `ioscpm` the one port without it. That switch also has no
-    per-cell face: `1` sets the CGA intensity bit and nothing records bold,
-    underline or blink, so this repo's `TCELL_*` flags and four-face paint path
-    have no counterpart there. `todo.txt` records both for whoever is next at a
-    Mac.
+    to.
+    That reading turned up a different difference, and it did not survive the
+    week: **`applySGR` there had no bright half and no per-cell face.** The
+    whole switch was `0`, `1`, `22`, `7`, `27`, `30...37`, `40...47` and
+    `default: break`, so `ESC[91m` left the attribute byte alone and the text
+    drew in whatever was current - exactly what this repo did until `978b623`.
+    `cpmdroid`'s `TerminalView.kt` had carried the bright half since its own
+    ANSI fix, and `ioscpm` was briefly the one port without it. **Build 55
+    closed both halves on 2026-09-01**, and moved the whole of SGR out of the
+    view model into `TerminalRendition.swift`: `90...97` set the colour with the
+    intensity bit and `100...107` fold onto the plain background, for the same
+    three-bit reason this repo folds them; `CellFlags` carries bold, underline
+    and blink with this repo's three values byte for byte; and
+    `TerminalView.swift` paints them, through a bold `UIFont`, an underline
+    attribute and a 500 ms blink phase on the cursor's own timer. An erase there
+    zeroes the flags and keeps the colours, as here - `blankCell` is built from
+    `displayAttr`. `TerminalRenditionTests.swift` drives all of it headlessly,
+    which is the first unit test any part of that parser has had. `todo.txt`
+    carries neither item now; what it carries is that the faces have been
+    watched on the simulator and not yet on a device.
     Parser input **is** bounded, since build 49: `maxCSIParams` 16 and
     `maxCSIParamDigits` 6, matching z80cpmw (`cpmdroid` had none until
     `c0b3bf7`, 2026-08-29, and arrived last of the three), with leading zeros dropped so
@@ -959,7 +1168,8 @@ extending it; that port's parser turned out to be the thinnest of the four.)
 <!-- /cites -->
 <!-- cites: cpmdroid -->
 <!-- cites-elsewhere: ioscpm HFONT TCELL_BOLD TCELL_UNDERLINE TCELL_BLINK kotlinc c6756af c0b3bf7 -->
-  - **cpmdroid** *(2026-08-29, at `167acbe` on `origin/master` — see the caveat
+  - **cpmdroid** *(2026-08-29 at `167acbe`, re-read 2026-09-02 at the current
+    tip, where nothing in this row has moved — see the caveat
     at the end of this bullet)* — ✅, and this row has moved further in one day
     than any other cell in this document. It was the row where the 2026-08-07
     reading was furthest from the code, and the ⬜ that replaced that reading
@@ -999,8 +1209,8 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     `Int` with no blink bit to borrow and so nothing forces the 100–107 fold
     this repo makes; and **SGR 1 does not brighten the colour**, because bold
     and bright are only the same thing inside a packed attribute byte. That
-    port also implements **SGR 39 and 49**, which neither this repo nor
-    `ioscpm` does — the one place in the row where it is ahead.
+    port also implements **SGR 39 and 49**, and so does `ioscpm` since its
+    build 55 - which leaves this repo the only one of the three without them.
     One thing it still does not have that the others do: it prints every byte
     from 0x20 **up**, where both other ports stop at 0x7E, so DEL and the whole
     0x80–0xFF range draw glyphs here and nothing there. That one is in its
@@ -1082,8 +1292,10 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     reset — which also means a reset finally *does* reset VT52 mode, DECAWM,
     DECTCEM and the scrolling region, all of which it used to leave alone
     precisely because `ESC [ 2 J` shared the path. Note that `ESC [ 2 J`
-    deliberately still preserves the scrolling region: `ioscpm`'s
-    `clearTerminal()` resets it, and that is `ioscpm`'s bug, not a gap here.
+    deliberately still preserves the scrolling region, and `ioscpm` now agrees:
+    `ESC [ 2 J` there routes through its own `eraseScreen()`, and only the
+    machine-level `clearTerminal()` resets the region. That was `ioscpm`'s bug
+    when this paragraph was written; it is the same split as here now.
 
     **Also fixed 2026-08-28:** SGR **90–97** and **100–107** were not handled at
     all — they fell through `applySGR()`'s default and left the attribute byte
@@ -1183,8 +1395,8 @@ when that was; `--fetch` updates them first and is the only thing the script
 does that writes to a sibling.
 
 ```sibling-readings
-ioscpm     15f48e9  2026-08-27  shipped:37
-cpmdroid   c6756af  2026-08-27  shipped:unknown
+ioscpm     e33beea  2026-09-02  shipped:37
+cpmdroid   e9436a5  2026-09-02  shipped:unknown
 romwbw_emu a95db9f  2026-08-27  shipped:unknown
 ```
 
@@ -1211,18 +1423,18 @@ thing:
 
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
-| 1. Configurable keymap (termcap) | ◐ (22 keys incl. F1–F12 since build 51; no modifier bindings, lower-camel names, WordStar default, no on-screen key row) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12 and full Ctrl window) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
-| 2. Scrollback | ✅ since ioscpm build 57 (2026-09-02) (⬜ before it: the LF path called `scrollRegion`, which does not capture, so no line ever entered the buffer from build 42 on) | ◐ (capacity choices incl. Off, capture at `scrollRegionUp`, both chord pairs — but `processOutput` zeroes `userScrollUp` on any output, and `onDraw` draws no history while the soft keyboard is up; keeping history across a cold boot is deliberate there, not a defect) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
-| 3. Mouse/native Copy-Paste | ✅ since ioscpm build 57 (2026-09-02) (pointer drag selects a linear span incl. scrollback, Cmd+C takes the selection; ⬜ before it — `copyText` copied the whole visible screen and nothing less) | ◐ (control strip; `copyScreenToClipboard` takes history and screen, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
+| 1. Configurable keymap (termcap) | ◐ (26 keys: F1–F12 since build 51, the four Ctrl+arrows since `0165dac`; no other modifier bindings, lower-camel names, WordStar default, no on-screen key row) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12, the nav cluster and Ctrl+arrow since `c0b3bf7`) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
+| 2. Scrollback | ✅ since ioscpm build 57 (2026-09-02), cleared at both fresh-session paths since build 58 (⬜ before 57: the LF path called `scrollRegion`, which does not capture, so no line ever entered the buffer from build 42 on) | ✅ since `e9436a5` (2026-09-02) (capacity choices incl. Off, capture at `scrollUp`, both chord pairs, the view anchors, the cursor hides, and history draws with the soft keyboard up; keeping history across a cold boot is deliberate there, not a defect) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
+| 3. Mouse/native Copy-Paste | ✅ Mac Catalyst since ioscpm build 57 (2026-09-02) (pointer drag selects a linear span incl. scrollback, Cmd+C takes the selection; ⬜ before it — `copyText` copied the whole visible screen and nothing less) · ◐ iOS (no drag selection there: a finger drag scrolls, and the long-press menu offers Copy All alone) | ◐ (control strip; `copyScreenToClipboard` takes history and screen, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
 | 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52) | ✅ (File transfer screen, save-as, share sheet, import picker and an inbound share target since `71465cb`; folders still fixed, import capped at 16 MiB) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
 | 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
 | 6. Help system + offline fallback | ✅ / ✅ bundled since build 51 (download, cache, then the shipped copy) | ✅ / ✅ bundled since `1f70c6b` (download, cache, then the shipped copy; all eight files in `assets/help/`) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
-| 7. NVRAM autoboot / bootString | ✅ | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
+| 7. NVRAM autoboot / bootString | ✅ NVRAM / ⬜ bootString (`setBootString` is in the vendored core and on the bridge; no Swift caller ever passes it a value, and there is no setting for one) | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
 | 8. Window state / DPI | ⬜ (Mac Catalyst) | ➖ | ➖ |
-| 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt) | ➖ |
+| 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt; the range is enforced on the slider only, and API 24–25 ignore `android:min`) | ➖ |
 | 10. Dazzler | ⬜ | ⬜ (explicit no-op stubs) | ⬜ (no Dazzler code; the core only offers the hooks this repo uses) |
 | 11. Config profiles | ⬜ | ⬜ (flat SharedPreferences, no named profiles) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
-| 12. Manifest write warning | ✅ (suppressible) | ✅ (suppressible, once per session) | ➖ CLI · ✅ web (*Don't warn* kept across a reload since `108856c`) |
+| 12. Manifest write warning | ✅ (suppressible, once per session) | ✅ (suppressible, once per session) | ➖ CLI · ✅ web (*Don't warn* kept across a reload since `108856c`) |
 | 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (VT52, DECSTBM, DECSC/DECRC, `@ P X L M S T`, the query replies, per-cell bold/underline/blink/reverse — written 2026-08-29, compiled but never run) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ✅ web (output filter fixed in `2dbf6f2`) |
 
 **z80cpmw's own row 13 became ✅ on 2026-08-28**, which makes every row in this
