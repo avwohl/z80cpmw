@@ -10,6 +10,13 @@ current sideload package is **1.0.22-beta**, which is the same binary signed
 under our own publisher. **1.0.20** was built and tagged but never published on
 any channel, and **1.0.21** shipped only as a signed sideload beta.
 
+**1.0.23 is built but not yet published on either channel.** `dist\z80cpmw.msix`
+is the unsigned Store package, awaiting a Partner Center submission; no `-beta`
+package has been cut for it, so nothing is signed and no sideload artifact
+exists. Until that submission goes through, 1.0.22 is still what users have -
+which is why the paragraph above still names it as the released version rather
+than being edited to the newest number in the file.
+
 The two channels share a number only when they carry the same build, as 1.0.22
 does. They remain separate package identities either way - the Store package is
 `Publisher="CN=724C9014-..."` and the sideload package is
@@ -100,6 +107,9 @@ entry below names no suite, it was checked the first way.
 on both channels, so a signed `-Beta` package run would overwrite a published
 artifact under its own name; the number moves when this work is released. See
 the `build-msix.ps1 -Beta` entry under **Changed** and the correction under it.
+
+**Superseded 2026-09-03: `Version.h` reads 1.0.23** and everything above is
+released under that number. See `[1.0.23]` below.
 
 ### Added
 - **`emu_host_path_caps()`, and with it the sync to the `romwbw_emu` v1.36
@@ -793,6 +803,174 @@ the `build-msix.ps1 -Beta` entry under **Changed** and the correction under it.
   patched in a scratch copy to return its argument, the section fails four
   checks that it did not previously even print.
 
+- **The Dazzler had three create-and-show paths and only one of them was right.**
+  `todo.txt` carried this as three items and they were one bug with three faces.
+  `DazzlerWindow::setScale()` sized the window from the card's *current* video
+  mode - `updateSize()` used `m_dazzler->getWidth() * m_scale`, and `getWidth()`
+  reads `m_x4Mode` and `m_use2K`, both false from `Dazzler`'s constructor, so on
+  a card no guest has touched it is 32. A scale-4 window was sized to a 128x128
+  client where `create()` had just given it 512x512. `create()`'s fixed
+  `128 * scale` is the contract - it says so, and `paint()` `StretchDIBits`' the
+  card's mode over the whole client rect - so `setScale` shrank a window that had
+  been sized correctly, which is why it had ended up with **no caller at all**.
+  Both sites name `Dazzler::MAX_WIDTH`/`MAX_HEIGHT` now rather than writing 128,
+  so they cannot drift apart, and `updateSize()` no longer needs a card:
+  `applyDazzlerState()` detaches the window from its `Dazzler` before rebuilding
+  the card for a port change, and the old `!m_dazzler` early return made the
+  scale silently not apply in exactly that case. Resizing in place also keeps the
+  `HWND` and, through `SetWindowPos(SWP_NOMOVE)`, the position the user dragged
+  the window to, which the rebuild had been reconstructing by hand.
+  **Closing the window told nobody.** `WM_CLOSE` answered with `show(false)` -
+  "Hide instead of destroy - let main window manage lifetime" - while
+  `m_dazzlerEnabled` stayed true and *View > Dazzler* stayed ticked over a window
+  that was not on screen, so getting it back cost two clicks. It posts
+  `WM_APP_DAZZLER_CLOSED` to the handle `create()` stashes in `m_parent` - the
+  only reader that member has ever had - and `MainWindow` routes it through
+  `onViewDazzler()`: closing the window is the same gesture as unticking the menu
+  item, so it takes the card down, clears the check mark and saves the choice.
+  Posted rather than called back, and the thread is the point: both creators run
+  on the UI thread, so the post lands on that thread's queue and the owner's
+  handler runs after `WM_CLOSE` has returned, where a direct call would re-enter
+  the `DazzlerWindow` still inside `handleMessage()` - what the owner does with
+  the news is `show(false)` and `setDazzler(nullptr)` on that very object. The
+  handler is guarded by `m_dazzlerEnabled` because `onViewDazzler()` *toggles*: a
+  *View > Dazzler* click already queued ahead of the post would otherwise be
+  undone by it.
+  **`applyConfig()` carried a second copy of the code and it was the copy that
+  got none of the fixes** - it left an existing card at its old port
+  (`enableDazzler()` returns at once when one exists), left an existing window at
+  its old scale, and `show(true)`'d unconditionally, so loading a profile
+  reopened a Dazzler window the user had closed. It calls `applyDazzlerState()`
+  now. Two things had to be checked before routing it, because `applyConfig()`
+  runs at *startup* as well as on a profile load: it acts only when the config
+  says enabled or when there is a card to take down, so a startup with no Dazzler
+  never reaches the disable arm and never writes its status text or unticks the
+  menu - exactly what the old code did - while on a profile load the same clause
+  is a fix, since a profile with the Dazzler off used to leave a running card
+  running with its window on screen and its menu item ticked, and the next save
+  wrote that live state back over the profile. And `applyDazzlerState()` sets the
+  status bar, which is right when the user just asked for the Dazzler and wrong
+  from here, so the line it found is the line it leaves.
+  Measured by driving the built app (`WM_COMMAND`, `GetMenuState`,
+  `GetClientRect`, `PrintWindow`): scale 4 gives a 512x512 client; a Settings
+  change to scale 2 leaves a 256x256 client, the same `HWND` and the same window
+  position; the window's X unticks *View > Dazzler* and one click brings it back;
+  a profile carrying port `0x1E` and scale 3 moves the live card and resizes the
+  window to 384x384; a profile with the Dazzler off closes it; and three
+  close/reopen cycles with the machine running leave it running.
+- **Three controls in Settings were reading and writing nothing.** The Dazzler
+  group was seeded from nothing and read back nowhere, so the checkbox opened
+  *unchecked* on a machine running a Dazzler and a port typed into it was gone at
+  OK. `todo.txt` had asked which of `cfg.dazzlers[0]` and the live card is
+  authoritative when they disagree at startup, and the source answers it rather
+  than a preference: at startup the **config** is, because it is the only side
+  that exists - `m_dazzlerEnabled` starts false and `getDazzler()` starts null,
+  and `applyConfig()` manufactures both from `cfg.dazzlers[0]`; afterwards the
+  **live card** is, because `updateConfigFromState()` rewrites `cfg.dazzlers[0]`
+  from it on every save. So the seed follows the rule the write-back already
+  used. That answer is what made this more than two lines per side: a write into
+  the config alone would have been discarded a second time by the
+  `saveSettings()` at the bottom of the same function, so the machine has to
+  change first - and changing the port of a running card means tearing it down,
+  because `enableDazzler()` returns early when one exists and `Dazzler` has
+  `getBasePort()` but no `setBasePort()`. That is `applyDazzlerState()`, which
+  `onViewDazzler()` now calls too, so the menu toggle and the dialog cannot
+  drift. `debugMode` was assigned false under a "TODO: get from emulator" and
+  there is nothing to get - `EmulatorEngine::m_debug` is private with no getter -
+  so `cfg.debug` is the only durable record, and the OK path was not writing it
+  either. `setCacheRoot()` is the one line `HelpAssets.h` asked for, in
+  `onCreate()`, and its placement is provable rather than probable: both routes
+  to `ShowHelpWindow` are dispatched from `run()`'s message loop, while
+  `onCreate` runs inside the `CreateWindowExW` that `create()` performs before
+  `run()` is called.
+- **A detached download worker outlived the dialog it was posting to, and that
+  one had dumps behind it.** `SettingsDialogWx::~SettingsDialogWx` was empty and
+  the dialog is a *stack* object - `ShowWxSettingsDialogInternal` builds
+  `SettingsDialogWx dlg(nullptr, catalog)` and it dies the instant `ShowModal()`
+  returns. The constructor starts a catalog fetch, and `DiskCatalog::fetchCatalog`
+  runs its callback on a **detached** `std::thread`, so closing *Settings* before
+  the fetch landed left that worker calling `wxPostEvent` on freed memory. Every
+  dump it produced was `0xC0000005` at the same address, `z80cpmw.exe+0x5ABF3`,
+  with the faulting stack running thread trampoline into the fetch worker into
+  the `std::function` call. The fix is a gate the workers hold instead of a bare
+  pointer: a mutex and a bool, built in the constructor's init list because the
+  body hands a copy to a thread before the constructor has finished.
+  `postIfOpen()` takes the mutex *across* the `wxPostEvent`, the destructor's
+  `close()` takes the same mutex, and that is the whole of it - once `close()`
+  has returned no worker can post, and a post already begun finished while the
+  dialog was still whole. A `weak_ptr` to the dialog was tried on paper and
+  rejected: locking it and finding the dialog alive still lets the UI thread
+  return from `ShowModal()` and destroy it before the `wxPostEvent`, because the
+  `shared_ptr` keeps the *control block* alive, not the `wxDialog` - nothing in
+  that scheme ever makes the destructor and the post exclude each other.
+  `onDownloadDisk` got the same gate unasked, being the same shape and the worse
+  of the two, since its progress callback fires once per read block for a
+  multi-megabyte image rather than once at the end. The calls stayed
+  `wxPostEvent` rather than becoming `wxQueueEvent`, and that was checked rather
+  than assumed: `wx/event.h` does warn that `wxPostEvent` is not thread-safe
+  because `Clone()` shallow-copies `wxString`, but `wx/string.h` typedefs
+  `wxStringImpl` to `std::wstring` unconditionally and MSVC's copy constructor
+  deep-copies, so the hazard is not present in this build. Measured with the
+  driver that found it - `WM_COMMAND 2004`, then `WM_CLOSE` after a delay, twelve
+  cycles a run. Before: dumps at 0, 150, 400 and 800ms, the delay moving only the
+  odds. After: 144 open-close cycles over 0/50/150/250/400/600/800ms with
+  repeats, zero dumps, and a dialog left open still reaches "Catalog loaded" with
+  the catalog's twenty entries.
+- **`DiskCatalog` was destroyed out from under its own workers, and the debug
+  build was the only one that looked well behaved.** The workers run detached and
+  nothing joined them, so `MainWindow`'s `unique_ptr` could free the object while
+  one was still reading `m_cancelRequested` and `m_downloadState` down the
+  download path, `m_catalogMutex` and `m_catalogEntries` down the fetch path, and
+  `m_downloadDir` down both - out of the freed block. It is a `shared_ptr` now
+  and each worker captures `shared_from_this()`, so the last reference out
+  destroys the object, on whichever thread that is.
+  Measured with a 4s sleep inserted after the release, because the natural window
+  is the ~45ms between `WM_CLOSE` and `ExitProcess`: 34 natural shutdown cycles
+  with a fetch in flight and 10 with a 49MB download in flight produced **no dump
+  at all**, before or after, and that is reported rather than dressed up.
+  Widened, the shipping code did three different wrong things and not one of them
+  was a crash. With a download running the read loop read `m_cancelRequested`
+  back as raw byte `0xDD` - the debug CRT's freed-memory fill - within 0-78ms of
+  the release and took it for a cancel the user never asked for. With a fetch
+  running the worker went into `std::mutex::lock` on the freed `m_catalogMutex`
+  and never came out, 3/3. And rebuilt `/MD`, which is what ships, `free()` does
+  not fill: the same read came back **false** in 3/3 runs, nothing bailed out,
+  and the whole tail ran to completion - reading a download directory back as a
+  15-character string where a 45-character path went in. The debug build looked
+  well behaved only because `0xDD` happens to mean true.
+  Joining in `~DiskCatalog` was rejected on what the code does: the worker sits
+  in WinHTTP and nothing in that file calls `WinHttpSetTimeouts`, so a join is
+  bounded only by WinHTTP's defaults with the UI thread stopped in it. Shared
+  ownership costs one atomic and blocks nothing. `~DiskCatalog` can now run on a
+  worker thread, which is safe because of what it does - a string, a vector, a
+  mutex and two atomics destroyed, no window handle, no wx, no COM - and it
+  cannot race the worker that runs it, since a worker's `shared_ptr` lives in the
+  lambda's captures and the trampoline destroys those only after the body has
+  returned.
+  Its `cancelDownload()` is gone, being unreachable-with-effect for exactly the
+  reason shared ownership exists, and the one useful thing that call was doing by
+  accident is explicit now: `MainWindow::onDestroy` cancels. At quit the transfer
+  cannot finish, and the read loop noticing is what gets `downloadToFile` to its
+  cleanup label, closes the file and removes the partial `.img` - which
+  `diskFileLooksComplete`'s 1MB floor would otherwise take for a finished
+  download and boot the guest from. `onDestroy` rather than `~MainWindow` buys
+  the worker the whole message-loop drain to act on it. Confirmed: the data
+  folder is empty after a run of shutdowns mid-transfer.
+  **The third caller is why `shared_ptr` alone was not the fix.**
+  `downloadAndStartWithDefaults`' completion callbacks captured `MainWindow`'s
+  raw `this` and called `runOnUiThread`, which reads `this->m_hwnd` on the worker
+  thread - and `MainWindow` is a stack object in `wWinMain`. Keeping the catalog
+  alive *longer* would have made that path strictly more reachable, not less: the
+  trace caught the worker inside `MainWindow::runOnUiThread` while the UI thread
+  was inside `~MainWindow`, printing `isWindow=0`. `runOnUiThread` is replaced by
+  a file-static `postToUiThread` taking the window and a gate by value, so the
+  worker touches no `MainWindow` state at all. Capturing the `HWND` alone was not
+  enough - handles are recycled, `IsWindow`'s own documentation warns of it, and
+  a `WM_APP_RUN_ON_UI` carrying a heap pointer must not be delivered to somebody
+  else's window - so `onDestroy` closes the gate and after that no post happens.
+  The dialog gate above is the same object, promoted to `WorkerPostGate` in
+  `DiskCatalog.h` next to the callback contract that creates the need.
+
 ### Changed
 - **`QKZ80_NO_TRACE` is defined for both configurations.** This port installs no
   tracer, so the decoder was paying a virtual call at every one of the core's
@@ -920,6 +1098,82 @@ the `build-msix.ps1 -Beta` entry under **Changed** and the correction under it.
   none. `packaging/scripts/build-nsis.ps1` has the same missing
   `[CmdletBinding()]` and still swallows a stray `-WhatIf`; it is left for its
   own commit, and `todo.txt` and `STORE_SUBMISSION.md` both name the gap.
+
+- **`tools/check-sibling-drift.sh` stopped measuring only commits.** Counting
+  commits answers "has this tree moved", which is not the question
+  `FEATURE_PARITY.md` exists to answer. Two things were added, neither visible to
+  a commit count, and both came out of what re-reading the columns turned up.
+  **Shipped build.** The `sibling-readings` line carries `shipped:<build>`, and
+  the script reads the build out of each port's tree at the recorded sha -
+  `CURRENT_PROJECT_VERSION` from `ioscpm`'s pbxproj, `versionCode` from
+  `cpmdroid`'s `build.gradle.kts`, `romwbw_emu`'s `VERSION` file, the four
+  `#define`s in this repository's `Version.h` - and says so when they differ from
+  what is served. A tick means "in the tree", which is not what a user has:
+  `ioscpm`'s row 2 was a tick from 2026-07-25 over scrollback that had never
+  captured a line, and after that was fixed the App Store still served build 37
+  against a tree at 57. `shipped:unknown` **fails** rather than passes.
+  **Citations.** Prose about a sibling is delimited with `<!-- cites: repo -->`
+  and every backticked identifier inside must resolve, by `git grep`, in that
+  port at the recorded sha. The Android block cited nine symbols that existed
+  nowhere in `cpmdroid`; this is what catches them. Three refinements were earned
+  by running it rather than by designing it: the greps exclude `*.md`, `*.txt`
+  and `docs/`, because `cpmdroid`'s own `todo.txt` now quotes all nine fabricated
+  names in the course of recording that they were fabricated, and an unscoped
+  grep finds them there and calls them real - a document cannot be evidence for
+  itself. Absent at the recorded sha is two different things: present at `origin`
+  means the **reading** is stale and the symbol arrived later, and only
+  absent-everywhere is fabrication; calling those by one name is how a checker
+  earns a reputation for noise. And `cites-withdrawn:` declares symbols the
+  document names *in order to record that they never existed*, inverting the test
+  so it fails if one ever resolves - which makes naming the nine a live assertion
+  rather than a comment that rots. `cites-elsewhere:` declares deliberate
+  cross-port references, so the exception is visible in the document rather than
+  silent in the checker.
+- **A matching version number is not a matching build, and the check says so.**
+  Recording `cpmdroid`'s shipped `versionCode` 25 turned up something the check
+  was getting wrong: numbers matching is weaker than it looks. A version is
+  bumped when somebody cuts a release, so everything landing afterwards sits in
+  the tree under the previous build's number. `cpmdroid`'s tree read
+  `versionCode` 25 against a Play console serving `versionCode` 25 with four
+  commits between them, two of which were the scrollback fixes no user had, and
+  the check would have called that a clean pass. It now reports how far the tree
+  has moved since the number was set, and fails when it has. It prefers a
+  **release tag** where one exists, because a tag names the commit an artefact
+  was cut from where the bump commit only names when the number changed -
+  `romwbw_emu` bumps `VERSION` and tags a commit later, so measuring from the
+  bump said two and the tag says one, which is the true answer. That immediately
+  reclassified `romwbw_emu`, which `FEATURE_PARITY.md` had recorded as "build
+  1.38, and that is what ships" an hour earlier; it is one commit past the tag,
+  and that claim was as overstated as the ones this document has spent a week
+  correcting - made by the check rather than by a person, which is not a defence.
+  Two fixes were needed to get there, both from ports disagreeing about what they
+  tag: the lookup tried only the build *number*, and `cpmdroid` ships
+  `versionCode` 25 under the name 1.24 and tags the name, so `v1.24` was
+  invisible and it silently fell back to the bump commit while printing the
+  message for a tag. `tree_release_name()` reads `MARKETING_VERSION`,
+  `versionName` or `VERSION`, and tags are tried by both. The fallback also
+  returned a bare sha where the caller expected `<sha> <label>`, so the output
+  named a 40-character hex string as the release it measured from. Both paths are
+  exercised now, and the message distinguishes them, because "four commits after
+  `v1.24`" and "four commits after the number was set" are different claims - the
+  first is the artefact, the second an upper bound a tag would sharpen.
+- **Drift is classified by what a commit touches.** A column reading is a reading
+  of *code*, so documentation landing after it does not invalidate it, and
+  reporting that at the same weight as a real change is how a checker gets
+  ignored. `ioscpm` was failing on a `todo.txt` commit and `romwbw_emu` on a
+  changelog one; both read current now, with the count stated. The three that
+  still fail are the three carrying code users do not have.
+- **`z80cpmw` has a `sibling-readings` line of its own.** This repository was
+  absent from that block because it describes itself, so the shipped-build check
+  never ran on the one column every other column is scored against - the same
+  asymmetry the 2026-09-02 audit found in the prose, reproduced in the mechanism
+  and pointing the other way. The home repo has no reading to drift, since its
+  column is edited in the same commit as the code it describes, so only the
+  shipped question is asked. The self-description was stale in the way this whole
+  exercise has been about: "the attribute work, and the bright half of the
+  palette ... are unreleased" named two things and was true on 2026-08-28, and
+  twenty-three source commits later it read as a complete list and was not one.
+  Replaced with the count and the shape rather than a list that will rot again.
 
 ### Documentation
 The cross-port sweep that produced `FEATURE_PARITY.md` was committed the same
@@ -1234,6 +1488,168 @@ were still carrying the old text in their own paragraphs were swept on
   shipped, checking `Version.h` against the published releases first, because
   nothing in the script does.
 
+- **`docs/CONFIGURATION.md`'s "Wrong kind of value" bullet was half the opposite
+  of what happens.** It still said "the next save of any kind writes the built-in
+  defaults over the section that was skipped" and that "simply quitting the app
+  is enough to lose the section". `ConfigManager::loadFromFile` keeps the skipped
+  section's own text in `AppConfig::unreadSections` and `to_json` splices it back
+  at the pointer it came from, so the very saves the bullet listed as the danger
+  - the window placement at close, the welcome flag, `SYSCONF`, *Start* on a
+  config with no disks - are the ones that write the user's text back. The bullet
+  says so now and quotes `renderBlock`'s own sentence for it, since the user sees
+  both and they had better agree word for word. The "fix it first" instruction
+  stays, moved onto the half still true: while a section is carried, nothing the
+  application puts there reaches the file either, so a disk mounted while
+  `"disks"` is an object is gone at the next save.
+  The two limits are what the bullet never had, and they are the reason
+  `todo.txt` kept it open. **A carry goes back only to the file it came from** -
+  `saveToFile` clears it when `AppConfig::unreadSectionsFrom` does not name the
+  path being written - so a profile saved out of such a config gets the built-in
+  defaults for that section and loads cleanly, which is exactly the different
+  file a user would otherwise be surprised by. **And a document that is wrongly
+  typed *and* unreadable is quarantined with its carry dropped**: `inspectDocument`
+  marks those diagnostics not-carried from the same readable test the loader
+  uses, and `renderBlock` prints "not kept - the file it is in could not be read
+  as a whole" on the line with a different closing sentence under the block. The
+  example given for that case is a `disks` entry with no `path` rather than a
+  syntax error, and the distinction is measured rather than assumed: a file that
+  will not parse never reaches `inspectDocument`, so it raises no section-level
+  diagnostic at all to be marked. Five shapes were run through `inspectDocument`
+  and `renderBlock` in a scratch program to check every sentence the file now
+  quotes.
+- **`MANUAL_CHECKS.md`'s "keys as an array" step gets the two lines it was
+  missing** - the block is still there after pressing OK in *Settings*, and still
+  there after a restart - and loses a claim that was never true: the keymap does
+  not "come up empty", because `load()`'s fill loop puts every default binding
+  into the map `from_json` left empty. The "banana" step was quoting a label the
+  app does not print, "not recognised:"; `problemLabel()` renders `UnknownMember`
+  as "unrecognised setting:". The profile step gains the behaviour that changed
+  under it - a profile that will not read leaves the report about the file still
+  in force standing.
+- **`FEATURE_PARITY.md`'s rows 2 and 3 were corrected after all three ports were
+  read side by side for the first time**, prompted by `ioscpm` turning out to
+  have a scrollback that had never captured a line. Row 2 scored `ioscpm` a bare
+  tick from 2026-07-25 over a feature that had never held any history, and row 3
+  scored it a tick over a port with **no text selection at all**; both became
+  true on 2026-09-02 at build 57 and not before, and both cells say so rather
+  than reading as though they always had been.
+  **The "Verified Android behaviour (2026-08-07)" block was substantially
+  fiction.** Nine symbols it cited exist nowhere in `cpmdroid`, in the tree or
+  anywhere in its history, and four claims resting on them asserted the opposite
+  of what that code does - the view is not anchored as output arrives, the cursor
+  is not hidden over history, and no history is drawn at all while the soft
+  keyboard is up. Its clipboard cap described nothing: neither number appears in
+  that repository. The block is rewritten from a citation-by-citation re-read,
+  the real findings kept, and the inventions **named** so the next reader knows
+  what happened - which is what `cites-withdrawn:` now enforces mechanically.
+  **The correction then had to be corrected**, and that is the part worth
+  keeping. Its first pass kept the old block's claim that `cpmdroid` captures at
+  `scrollRegionUp`, which it does not - `scrollUp()` does the four `addLast`
+  calls and is the only path into the history - and kept the old condition, "only
+  when the scrolling region starts at row 0", which is not what the code says and
+  contradicts its own status-line rationale. The guard is the *whole screen*,
+  which is the same shape as this repository's `scrollRegionUp` and as `ioscpm`'s
+  `scrollRegion` since build 57, so all three agree and `cpmdroid` always did.
+  The third error is the same failure the whole pass was about: it listed
+  `cpmdroid` keeping history across a cold boot as a **defect**, when `clear()`'s
+  docstring says the opposite at length and names how the siblings differ. The
+  port had considered exactly this and decided against it, in a comment, and the
+  correction asserted a bug without reading it. So "history cleared on emulator
+  start/reset" is a line where the three ports disagree *on purpose*. Reading a
+  port from outside is harder than it looks even when you know that is the
+  failure mode.
+- **Three Android rows move, and the two capabilities with no row get one.**
+  Rows 4, 6 and 13 were re-read against `cpmdroid`; all three had been that
+  port's weakest cell in their row and none of them is now. Row 13 is the big
+  one: this document called that parser "the thinnest of the four" and was right
+  when it was written, and it now has VT52 with the same auto-detection this repo
+  uses, DECSTBM with a region-aware line feed, DECSC/DECRC saving the rendition
+  as well as the position, the seven editing finals, the query replies, the three
+  private modes, deferred autowrap, and per-cell attributes carrying **this
+  repository's three bits with the same values**, so the two ports' cells can be
+  diffed directly. The tick carries a qualifier the other three columns in that
+  row do not, and the row says it rather than letting a reader assume otherwise:
+  that work is compiled and has **never been run**.
+  A bounded import and an inbound share went into row 4 rather than a fourteenth
+  row, because a new row would have renumbered every "item 13" and "(#4)" in a
+  file that has dozens of them, against a catalog the status table, the priority
+  list and seven rows all depend on. Writing the third transfer target - "let the
+  OS hand the app a file" - turned up something in **this** repository: the first
+  draft called it not-applicable for Windows, "no such OS affordance to wire up",
+  and the evidence against that is in this tree. `packaging/msix/AppxManifest.xml`
+  already declares `windows.fileTypeAssociation` for `.img`/`.dsk` and `.rom`, so
+  a Store install offers this app as an Open-with target - while `main.cpp` takes
+  `lpCmdLine` and immediately `UNREFERENCED_PARAMETER`s it, and no window accepts
+  `WM_DROPFILES`. Double-clicking a disk image starts the emulator and loads
+  nothing. That target is open on Windows, and worse than untouched.
+- **Both sibling columns re-read across all thirteen rows**, thirty-five
+  corrections, and the `sibling-readings` block advanced to match. The one worth
+  naming is row 1, where the document said `ioscpm` has "no modifier concept at
+  all" and that Ctrl+Left cannot be bound separately from Left. That closed on
+  2026-08-27 - `SpecialKey` carries `ctrlUp`/`ctrlDown`/`ctrlLeft`/`ctrlRight`,
+  twenty-six cases not twenty-two - and this document had read that very commit
+  for row 13 alone, the erase family and `applySGR`, and nothing else. **A
+  reading scoped to the row somebody mentioned is how a column rots while looking
+  maintained.** Row 13 lost several claims the same way.
+  Provenance, because this document is about not overstating readings. Rows 2-7,
+  9 and 12 were corrected by an agent and independently checked by a second one
+  against the code; row 1's checker found four errors in the proposal but
+  returned no usable text, so that row was verified and rewritten by hand; row
+  13's checker died on a session limit and its seven claims were verified by hand
+  instead. All of it is a source reading. Nothing in either column was watched
+  running except `ioscpm`'s scrollback and selection, and `cpmdroid` has no SDK
+  on this machine at all.
+- **The `romwbw_emu` column re-read, and a caveat that was false before it was
+  written.** Thirteen corrections. The one that matters spanned the whole web
+  column: xterm.js, its CSS and the fit addon were described as three jsdelivr
+  tags with no vendored copy and no SRI, so an offline page had no terminal at
+  all. That was vendored under `web/vendor` on 2026-08-26 with the template
+  pointed at it, and `release.yml` stages the directory into the packages. **The
+  date is the point.** That commit is an ancestor of the one the readings block
+  recorded, so the caveat was already false on 2026-08-27 when the column was
+  last read and *certified*. Row 1's error the week before was a commit read for
+  one row and not the others, which is a scoping failure; this one was never
+  checked at all, in the paragraph the column gives the most prominence to. A
+  reading that certifies a whole column is worth what its least-checked paragraph
+  is worth. Also corrected: row 9's web half hardcodes a font size in the
+  template with no control; row 13's web cell overstated, since the page hands
+  bytes to `term.write()` unchanged but the build does not; row 5's web half; and
+  row 10's Dazzler absence re-confirmed. One claim where an agent and I disagreed
+  went to the code and the agent was right: what reads as an integrity attribute
+  in the template is a comment explaining why SRI is deliberately absent for
+  same-origin files.
+- **The citation rule has been run over all thirteen rows** - 25 marked regions,
+  up from two - and marking them is what corrected the checker rather than the
+  other way round. Multi-port blocks are marked per sub-bullet, so a claim about
+  Android and a claim about iOS in the same item are checked against different
+  trees. Four things the real document taught the check: the bare-component
+  fallback was a false-pass machine, making `` `Keymap.h` `` pass by searching for
+  "h" and `` `w8.com` `` pass on "com", so a component under four characters no
+  longer counts - a false pass is worse here than a false failure, since the
+  whole point is to catch a citation nobody checked. File-shaped tokens are
+  looked up as paths rather than content, because grepping file *content* for
+  "MANUAL_CHECKS.md" finds nothing however real the file is - which is how that
+  file came to be reported as a fabrication. A path not in the tree falls through
+  to a content search instead of failing, because `jni.h` is the NDK's header and
+  a name can be a true citation while belonging to somebody else's tree. And the
+  recorded-sha test and the origin test go through one resolver now, so they
+  cannot disagree about what resolving means; they did.
+  The extractor was also skipping the way this document names a function.
+  `` `foo()` `` is the near-universal form here and only bare identifiers were
+  tested, so 25 citations inside the marked regions - an eighth of them - were
+  never checked at all. It was noticed the honest way: a sentence had just been
+  written into the `ioscpm` scrollback block, the checker reported clean, and the
+  reason it reported clean was that it had not looked. Every citation in the
+  document now resolves in the port it describes, at the commit that port's
+  column was read at: **zero failures, down from twenty-five, without a single
+  one being suppressed.** Verified in both directions by injecting a fabricated
+  symbol into a marked block - caught, exit 1.
+- **The stale `[MAC]` item came off `todo.txt` by grepping the tree it
+  described.** The SGR 90-97 gap it recorded had closed upstream, and `applySGR`
+  is not in the file the item named any more. Every cross-port item in that file
+  is a claim about somebody else's code and nothing re-reads them, which is the
+  argument the citation rule above exists to answer.
+
 ### Verified
 - **The tree builds against the v1.36 core.** Both configurations, against
   `romwbw_emu` `17cd380` (`v1.36-1`) and `cpmemu` `9fee3c2`. The link error the
@@ -1341,7 +1757,12 @@ were still carrying the old text in their own paragraphs were swept on
   tested, against a throwaway localhost server, while the wiring inside
   `downloadToString` was checked by probe. The Dazzler group in Settings and
   `settings.debugMode` were both re-confirmed broken and deliberately not
-  touched; `todo.txt` has them.
+  touched; `todo.txt` has them. *(Corrected 2026-09-03: both were fixed later
+  the same day, in "Three controls in Settings that were reading and writing
+  nothing" under **Fixed** above, and this sentence went on pointing at a
+  `todo.txt` that no longer had them for six days. It survived a changelog pass
+  written after the fix landed — which is the same failure the `FEATURE_PARITY.md`
+  entries below are about, in this file.)*
 - **A note for the next person driving this app from a script**, since that is
   how half of the above was checked and it cost two crashes and two dumps: a
   common-control message that carries a **pointer** - `TCM_GETITEMRECT`,
@@ -1353,6 +1774,107 @@ were still carrying the old text in their own paragraphs were swept on
   rectangle and the 900x819 dialog reads as 450x410, as though `SetSize` were
   being ignored. And wx's notebook tab class is `_wx_SysTabCtl32`, not
   `SysTabControl32`.
+
+- **1323 checks in six suites**, which is four suites out of date from the 1020
+  recorded above: terminal conformance 516, help renderer and assets 353,
+  rendering conformance 50, host file transfer 66, HBIOS host file extension 36,
+  configuration diagnostics 302. All six were built and run with their own `/Fo`
+  and `/Fe` under a scratch directory rather than through `tests\run_tests.bat`,
+  which shares `obj\`.
+- **This port has no catalog-invalidation wipe, which nobody had checked.**
+  `romwbw_emu` `docs/RELEASE_ORDER_2026-08-25.md` adds a second data-loss path to
+  its step 5 - `ioscpm` compares `disks.xml`'s `version` attribute against a
+  stored default on every successful fetch and, on any difference, deletes every
+  `.img` in its disks folder, including images the user imported or created,
+  which are in no catalog and cannot be re-downloaded. It fired in the field once
+  already. That document asks for `cpmdroid` and `z80cpmw` to each be checked for
+  the same behaviour before their own step 5, and this is that check for this
+  port: `DiskCatalog.cpp` never reads the `version` attribute at all - it is
+  absent from `parseCatalogXML` and from the whole file - and its only three
+  deletes are two partial-download cleanups and `deleteDownloadedDisk()`, which
+  is one file at the user's request. **The hazard does not exist here**, so the
+  catalog pin can move on this port without an answer to it. That is a fact about
+  this backend rather than a decision, and it is recorded so the next person does
+  not have to re-derive it.
+- **Repinning the catalog to `v1.4.12` changes exactly one image.** The refreshed
+  disk images were published on `avwohl/ioscpm` as `v1.4.12` on 2026-09-01, 29
+  assets, as a prerelease - so `releases/latest` is untouched and no installed
+  client sees anything. Both catalogs were fetched and diffed here: `v1.4.5`'s
+  `disks.xml` and `v1.4.12`'s are **7042 bytes each and differ on one line**, the
+  `<sha256>` of `hd1k_combo.img`, from `be19984e…` to `89b8ae1a…`. Every other
+  filename, size and hash is identical, and so is the `version` attribute - which
+  matters twice over: nothing else about the disk set changes, so no
+  HBIOS/CBIOS pairing moves, and on a port that *did* have the invalidation wipe
+  this would not have fired it either. The staged `bin\Release\disks\hd1k_combo.img`
+  hashes `be19984e…`, so the image bundled in the package today is byte-for-byte
+  the unfixed one the catalog served, which is what `todo.txt` said and is now
+  measured rather than inferred. The staged `hd1k_games.img` hashes
+  `7f33738c…`, which is exactly what *both* catalogs record for it, so that image
+  is already current and the refresh touches one file - it still carries neither
+  `R8` nor `W8`, and that caveat stays true wherever it is written down.
+  `releases/latest` was checked independently rather than taken from the release
+  order's word: it redirects to `v1.4.11`, so the prerelease really is invisible
+  to installed clients.
+  `packaging/scripts/verify-disk-assets.sh` could **not** be run: `cpmls` is not
+  on `PATH` on this machine and the script exits 2 rather than guessing. The
+  refresh is not finished until it passes on the staged images somewhere that has
+  cpmtools.
+
+## [1.0.23] - 2026-09-03
+
+The twenty-three source commits recorded under **[Unreleased]** above, cut as a
+release. Everything in that section ships here; this entry records only what
+changed at packaging time, and the version bump those commits were waiting on -
+`Version.h` moves 1.0.22 → 1.0.23, which is what makes a signed `-Beta` run
+legal again (1.0.22 is published on both channels, so a `-Beta` run under that
+number would have re-minted a published artifact).
+
+Built and packaged on a Windows machine: MSBuild 18, Release x64, **0 warnings
+and 0 errors**, `bin\Release\z80cpmw.exe` reporting `1.0.23.0`, and all six
+headless suites green from `tests\run_tests.bat` — **1323 checks, 0 failures**
+(terminal conformance 516, help renderer and assets 353, configuration
+diagnostics 302, host file transfer 66, rendering conformance 50, HBIOS host
+file extension 36). `dist\z80cpmw.msix` is the unsigned Store package;
+Microsoft re-signs it at submission.
+
+### Changed
+- **No disk images ship in the package any more, and nothing was ever reading
+  them.** Every port gets its disk images from the **ioscpm release area**,
+  through the catalog pinned in `DiskCatalog.cpp`'s `RELEASE_TAG`. Both vehicles
+  contradicted that: `build-msix.ps1` copied `bin\Release\disks\*` into the
+  staging directory and `z80cpmw.nsi` installed `hd1k_combo.img` and
+  `hd1k_games.img` into `$INSTDIR\disks`, and the published
+  `z80cpmw-1.0.22-beta.msix` really does carry `disks/hd1k_combo.img` — verified
+  by opening the package, and its bytes hash `be19984e…`, the unfixed image.
+  **It was dead payload.** The only function that reads the install directory's
+  `disks\` folder is `MainWindow::loadDefaultDisks()`, which looks for
+  `cpm_wbw.img` and `zsys_wbw.img` — not the hd1k pair that was actually staged
+  — and `grep -rn loadDefaultDisks z80cpmw/` returns exactly two hits, its
+  definition and its declaration. It has no caller. There is no `CopyFile`
+  anywhere that would stage a bundled image into the data folder either, and the
+  other three `getAppDirectory()` call sites are all ROM paths. The path a real
+  user takes is `downloadAndStartWithDefaults()`, which looks in the *user data*
+  folder and downloads what is missing. So the images could only ever have been
+  read by a function that does not run, looking for filenames that were not
+  there.
+  Removing them is a **size change with no behaviour change**: 12.7 MB → 7.07 MB
+  packaged, 57 MB of payload gone. The NSIS uninstaller still deletes both files
+  so installs that had them are cleaned up. What a user's `R8` and `W8` actually
+  do is decided entirely by `RELEASE_TAG`, which is unchanged at `v1.4.5` here
+  and is its own item in `todo.txt`.
+  This also retires a standing claim. `todo.txt` and `STORE_SUBMISSION.md` both
+  said the stale bundled `R8` meant "that destructive bug is live in what ships
+  today". The bug is real and reaches users, but through the *catalog*, not
+  through the package — the bundled copy was never opened. Both documents are
+  corrected rather than deleted, because the overstatement is the kind this
+  project has been correcting all week: it was inferred from what the packaging
+  scripts copy, without checking whether anything reads the result.
+- **`STORE_SUBMISSION.md` step 3 is no longer a gate.** It told the submitter to
+  run `verify-disk-assets.sh` over `bin/Release/disks` and required exit 0; there
+  are now no images in the package for it to check. The step records what
+  replaced it and why, and keeps the pointer to the script, which is still the
+  right tool for checking a set of images *before they are published* — that is
+  `ioscpm`'s job, not this package's.
 
 ## [1.0.22] - 2026-08-23
 

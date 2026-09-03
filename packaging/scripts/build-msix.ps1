@@ -148,13 +148,16 @@ if (Test-Path $stagingDir) {
 New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stagingDir "Assets") -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stagingDir "roms") -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $stagingDir "disks") -Force | Out-Null
+
+# No disks\ directory, and that is the design rather than an omission: every
+# port gets its disk images from the ioscpm release area, through the catalog
+# pinned in DiskCatalog.cpp's RELEASE_TAG. Nothing is bundled, so nothing can
+# go stale in a package or disagree with what the catalog serves.
 
 # Copy application files
 Copy-Item (Join-Path $BinDir "z80cpmw.exe") $stagingDir
 Copy-Item (Join-Path $BinDir "*.dll") $stagingDir
 Copy-Item (Join-Path $BinDir "roms\*") (Join-Path $stagingDir "roms")
-Copy-Item (Join-Path $BinDir "disks\*") (Join-Path $stagingDir "disks")
 
 # Copy assets
 Copy-Item (Join-Path $assetsDir "*") (Join-Path $stagingDir "Assets")

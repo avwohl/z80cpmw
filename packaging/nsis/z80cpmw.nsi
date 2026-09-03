@@ -119,10 +119,14 @@ Section "Main Application" SecMain
     File "..\..\bin\Release\roms\emu_avw.rom"
     File "..\..\bin\Release\roms\emu_romwbw.rom"
 
-    ; Disk images
-    SetOutPath "$INSTDIR\disks"
-    File "..\..\bin\Release\disks\hd1k_combo.img"
-    File "..\..\bin\Release\disks\hd1k_games.img"
+    ; No disk images are installed, and that is the design rather than an
+    ; omission: every port gets its disk images from the ioscpm release area,
+    ; through the catalog pinned in DiskCatalog.cpp's RELEASE_TAG. The two that
+    ; used to be installed here were never read - the only function that looks
+    ; in $INSTDIR\disks is loadDefaultDisks(), which wants cpm_wbw.img and
+    ; zsys_wbw.img and has no caller - so they cost 57 MB and could go stale
+    ; against what the catalog serves. The uninstaller still deletes them, to
+    ; clean up installs that had them.
 
     ; Create start menu shortcuts
     SetOutPath "$INSTDIR"

@@ -258,30 +258,28 @@ The Store carried 1.0.14, then 1.0.19, and now **1.0.22**, published 2026-08-23.
    - `build-msix.ps1` refuses to package a `bin\Release\z80cpmw.exe` whose
      version does not match `Version.h`.
 
-3. **Verify the disk images**
-   - `packaging/scripts/verify-disk-assets.sh bin/Release/disks` (a POSIX shell;
-     Git Bash or WSL on a Windows build machine). It must exit 0.
-   - Nothing else in the build checks what is *inside* the images.
-     `build-msix.ps1` and `z80cpmw.nsi` copy `bin\Release\disks\*.img` in as
-     they find them, and no build target puts `r8.com` or `w8.com` on an image,
-     so a stale utility ships silently and forever — the images are not tracked
-     in this repository either, so `git status` cannot notice.
-   - It checks three things per image: that the CP/M directory reads as a CP/M
-     directory with the diskdef chosen for that geometry, that `r8.com` and
-     `w8.com` are byte-for-byte what `romwbw_emu/src/{r8,w8}.asm` assembles to,
-     and that `w8.com` contains the `HBF_HOST_CAPS` probe (`06 e9 cf`). The
-     probe is the one that cannot be eyeballed: a `W8` that takes a host path
-     and never asks the emulator whether the path is safe prints the *same*
-     usage line as one that asks, so the usage string does not discriminate
-     armed from unarmed.
-   - **The images shipped in 1.0.22 fail this check.** Measured 2026-08-27 on
-     the images unpacked from the published `z80cpmw-1.0.22-beta.msix`:
-     `hd1k_combo.img` carries a 1079-byte `r8.com` where the source now builds
-     1792, and a `w8.com` whose usage is `Usage: W8 <cpmname>` with no
-     `[hostpath]` and no probe — i.e. the W8 from before romwbw_emu `98eb6a1`.
-     `hd1k_games.img` carries neither utility at all, so file transfer does not
-     work from that disk. Rebuild with `romwbw_emu/disks/rebuild_disk_utils.sh`
-     and restage before the next submission.
+3. **Nothing to do — no disk images ship in the package**
+   - **As of 1.0.23 the package contains no `disks\` folder at all.** Every port
+     gets its disk images from the **ioscpm release area**, through the catalog
+     pinned in `DiskCatalog.cpp`'s `RELEASE_TAG`. That is the design; a bundled
+     copy is a second source of the same file that can only disagree with the
+     first.
+   - Up to and including 1.0.22 both vehicles *did* bundle `hd1k_combo.img` and
+     `hd1k_games.img`, and **nothing ever read them**. The only function that
+     looks in the install directory's `disks\` is `loadDefaultDisks()`, which
+     wants `cpm_wbw.img` and `zsys_wbw.img` — neither of which was staged — and
+     it has no caller. `downloadAndStartWithDefaults()`, which is the path a
+     real user takes, looks in the *user data* folder and downloads what is
+     missing. So the two images cost 57 MB of payload (12.7 MB → 7.07 MB
+     packaged) and bought nothing.
+   - The image the user actually runs is therefore governed by `RELEASE_TAG`,
+     not by this build. Changing which images users get is a **code change**
+     with its own release, not a packaging step. See `todo.txt`.
+   - `packaging/scripts/verify-disk-assets.sh` is still the right tool for
+     checking a set of images before they are published, and
+     `romwbw_emu/disks/verify_disk_utils.sh` is its upstream twin — but neither
+     is a gate on *this* package any more, because this package has no images
+     to check.
 
 4. **Build the package**
    - `cd packaging\scripts` then `.\build-msix.ps1 -Configuration Release`,
