@@ -25,50 +25,27 @@ static HelpWindow* g_helpWindow = nullptr;
 // Markdown for the bundled "Getting Started" topic (served locally, no network).
 // Shown in the scrollable help window so it does not overflow the terminal.
 //
-// The "File Transfer (R8 / W8)" section describes the R8 and W8 on the disk images
-// this build actually ships, which are older than the ones romwbw_emu builds today.
-// Measured 2026-08-28 over bin/Release/disks: hd1k_combo.img's w8.com prints
-// "Usage: W8 <cpmname>" with no [hostpath] and carries none of the 06 E9 CF bytes of
-// the HBF_HOST_CAPS probe, and hd1k_games.img holds no r8.com or w8.com directory
-// entry at all. Three blocks below exist only to say so, and are deleted rather than
-// reworded once the refreshed images land: the paragraph opening "W8 does not take a
-// host path yet", the paragraph opening "Two cautions until then", and the sentence
-// opening "The games disk carries neither utility". They do not share one condition,
-// so they do not all come out at the same moment.
+// The "File Transfer (R8 / W8)" section describes the R8 and W8 the disk catalog
+// serves, which since the v1.4.12 repin are the current ones: verified against the
+// published hd1k_combo.img (sha256 89b8ae1a...) rather than against its lineage -
+// the raw image contains "Usage: W8 <cpmname> [hostpath]" and the 06 E9 CF bytes of
+// the HBF_HOST_CAPS probe, and the v1.4.5 image it replaced contains neither.
 //
-// packaging/scripts/verify-disk-assets.sh is the gate for the first two, and it gates
-// less than its name suggests. A missing utility is severity-split by image there:
-// only when the diskdef is wbw_hd1k_0 - an image over 8 MB carrying a 55 AA MBR
-// signature, i.e. the boot image - does the miss reach bad(); on a plain 8 MB image it
-// prints "nothing to check" and leaves $fail alone, on that script's reasoning that a
-// secondary data disk carrying neither utility is a choice, not a fault. A copy that
-// IS present is checked wherever it sits. So a PASS says: the boot image carries both
-// utilities, every w8.com found on any staged image probes HBF_HOST_CAPS, and every
-// copy matches what romwbw_emu/src builds today - with um80/ul80 missing it exits 2
-// instead, which is not a pass. An armed w8.com necessarily takes a host path, because
-// the probe landed upstream after the [hostpath] tail did, so a PASS retires the
-// "W8 does not take a host path yet" paragraph outright. It does not on its own retire
-// "Two cautions until then": that gate compares bytes, not behaviour, and those two
-// hazards are gone only once upstream r8.asm and w8.asm have dropped the unfiltered
-// F_DELETE and the 1Ah truncation. Re-read them before deleting that block.
+// Three blocks used to sit here saying W8 took no host path and warning about the
+// old R8's unfiltered F_DELETE and the old W8's 1Ah truncation. Two are gone with
+// the repin; upstream r8.asm's fcb_char now maps '?' and '*' out of the FCB before
+// F_DELETE sees it, and w8.asm defers EOF runs instead of stopping at the first 1Ah.
 //
-// The games-disk sentence has its own condition and the gate will never supply it:
-// hd1k_games.img is a plain 8 MB image, so verify-disk-assets.sh passes whether or not
-// it still carries r8.com and w8.com. Delete that sentence only once a run over the
-// staged disks prints no "carries no r8.com" / "carries no w8.com" info line for
-// hd1k_games.img - equivalently, once cpmls -f wbw_hd1k lists both names on it.
+// The third stays and has no gate that will ever supply it: hd1k_games.img still
+// carries no r8.com or w8.com, and v1.4.12 re-uploaded it byte-identical
+// (sha256 7f33738c...), so the sentence "The games disk carries neither utility"
+// is true until somebody rebuilds that image. Do not delete it along with the
+// others - it was never gated on the same thing they were.
 //
-// Deleting any of the three ahead of its own condition was rejected: the R8 wildcard
-// erasure named in the second block is live in what ships today, not merely in an old
-// lineage. The paragraph opening "A bare name" is NOT on the list and must not be
-// pulled onto it by acquiring a clause. It briefly read "A bare name, and so every W8
-// export, uses the app's data folder", which is true only while the shipped W8 ignores
-// the command tail, so deleting the three blocks around it would have left it asserting
-// exactly what docs/FILE_TRANSFER.md records as the false statement that document used
-// to carry. The clause is gone and the paragraph is permanently true as it stands. The
-// matching turnover in README.md and docs/FILE_TRANSFER.md is a single [RELEASE] item
-// in todo.txt, and the wording here is deliberately README.md's so the two cannot drift
-// apart while they wait.
+// The paragraph opening "A bare name" is deliberately unconditional and must stay
+// that way. It briefly carried a clause tying it to a W8 that ignored the command
+// tail; that clause is gone, and re-adding one would make it false the moment the
+// images move again. The wording here is README.md's, so the two cannot drift.
 std::string help_topics::gettingStartedMarkdown() {
     return R"DOC(# Getting Started
 
@@ -103,16 +80,9 @@ R8 takes a full path and reads exactly that file, even on the Store build:
 
     R8 C:\Users\me\Desktop\getkey2.com
 
-W8 does not take a host path yet, whatever it is given: the W8.COM on the
-bundled disk images reads only the parsed FCB and never the command tail, so
-every export goes to the app's data folder instead. A host path for W8 is
-upstream and arrives when the images are refreshed.
+W8 takes one too, and prints where the file really went:
 
-Two cautions until then, both properties of the utilities on the bundled images
-rather than of the app: the R8 on those images hands an unfiltered host basename
-to F_DELETE, so importing a host file whose name contains ? or * erases every
-matching CP/M file on the disk without saying so; and that W8 truncates a binary
-export at the first 1Ah byte.
+    W8 REPORT.TXT C:\Users\me\Desktop\report.txt
 
 The games disk carries neither utility at all, so nothing transfers from it -
 run R8 and W8 from the combo disk.

@@ -3,9 +3,9 @@
 Working notes / handoff. Not user-facing docs, and not a record of what shipped:
 **what shipped is in [`CHANGELOG.md`](CHANGELOG.md)**. Open items only.
 
-**See also [`todo.txt`](todo.txt)** — the list form, and where the work that
-needs a Windows machine is gathered. Anything below that is also an action item
-appears there too; this file keeps the longer explanations.
+**See also [`CLAUDE.md`](CLAUDE.md)** for the build recipe and the standing
+rules, and [`MANUAL_CHECKS.md`](MANUAL_CHECKS.md) for what needs a person. This
+file keeps the longer explanations that do not fit either.
 
 The 1.0.15 round this file used to describe is finished and released, and its
 history was moved out — the keymap, mouse copy/paste and About path fix are

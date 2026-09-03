@@ -203,6 +203,28 @@ if (!(Test-Path $builtInstaller)) {
 }
 $destPath = Join-Path $OutputDir $expectedName
 Move-Item $builtInstaller $destPath -Force
+
+# Step 6: Keep this build's symbols, for the same reason build-msix.ps1 -Beta
+# does. The installer is a vehicle testers actually run, and a crash dump from
+# it is unreadable without the .pdb built alongside that exact exe. It cannot be
+# recovered later: a rebuild - against a different vcpkg wxWidgets, say - is a
+# different binary with a different debug GUID, so its symbols will not load
+# against the one that shipped. This script kept none until now, so an NSIS-only
+# release had its symbols nowhere; 1.0.22 lost its that way on both channels.
+# Named from the installer's own stem so the pair stays obvious.
+$pdbSource = Join-Path $BinDir "z80cpmw.pdb"
+$pdbPath = Join-Path $OutputDir "z80cpmw-$verShort-setup.pdb"
+if (Test-Path $pdbSource) {
+    Copy-Item $pdbSource $pdbPath -Force
+    Write-Host "Symbols kept: $pdbPath" -ForegroundColor Green
+} else {
+    # An error rather than a warning, and after the installer has been moved so
+    # the build is not thrown away: shipping without symbols is the failure this
+    # step exists to prevent, and it must not pass quietly.
+    Write-Error "No $pdbSource to keep beside the installer. The .exe in $destPath will have no recoverable symbols - rebuild Release and re-run." -ErrorAction Continue
+    exit 1
+}
+
 Write-Host ""
 Write-Host "Installer build complete!" -ForegroundColor Cyan
 Write-Host "Output: $destPath" -ForegroundColor Green

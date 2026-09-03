@@ -24,7 +24,7 @@ on each port of the emulator.
 | **Windows** (unpackaged) | `%LOCALAPPDATA%\z80cpmw\data\` | *Emulator → Settings → Open Folder* |
 | **Windows** (Microsoft Store / MSIX) | `…\Packages\AaronWohl.Z80CPM_<hash>\LocalCache\Local\z80cpmw\data\` | *Emulator → Settings → Open Folder* (don't type the path by hand — the app shows it) |
 | **Windows** (any) — `R8` with a full path | reads exactly the file you named | — |
-| **Windows** (any) — `W8` with a full path | **not yet**; see below | — |
+| **Windows** (any) — `W8` with a full path | writes exactly where you named, and prints the resolved path | — |
 | **macOS** | `~/Library/Containers/com.awohl.cpm/Data/Documents/Exports\|Imports/` | menu **Open Exports/Imports Folder** → Finder |
 | **iOS / iPadOS** | app's **Documents** → `Exports/` and `Imports/` | **Files app → On My iPhone/iPad → Z80CPM → Exports/Imports** |
 | **Android** | `/storage/emulated/0/Android/data/com.awohl.cpmdroid/files/Exports\|Imports/` | a third-party file manager, or a PC over USB (see below) |
@@ -44,33 +44,29 @@ redirected:
 R8 C:\Users\me\Downloads\prog.com   → reads from Downloads
 ```
 
-**`W8` does not take one yet, and this document used to say it did.** The
-`W8.COM` inside the disk images this app ships reads only the filename CP/M has
-already parsed into the default FCB; it never looks at the rest of the command
-line. So `W8 C:\Users\me\Desktop\out.com` does not write to your Desktop — the
-CCP mangles that into an 8.3 FCB and W8 writes the result into the data folder,
-which is not what you asked for and not what you would guess from the output.
-
-`W8 <cpmname> [hostpath]` exists upstream (`romwbw_emu` `98eb6a1`) and behaves
-the way `R8` does. It reaches this app when the bundled disk images are
-refreshed; until then, export with a bare name and move the file afterwards:
+**`W8` takes one too**, in the form `W8 <cpmname> [hostpath]`:
 
 ```
-W8 OUT.COM                          → the data folder, as out.com
+W8 OUT.COM C:\Users\me\Desktop\out.com   → writes to Desktop
+W8 OUT.COM                               → the data folder, as out.com
 ```
 
-The Windows host side of the transfer is not the limitation here — it resolves
-whatever path the guest hands it. The limitation is the CP/M program doing the
-asking.
+This document used to say `W8` took a host path when it did not, then said it
+did not once that was corrected. Both are now history: the utilities come from
+the disk catalog, pinned by `RELEASE_TAG` in `DiskCatalog.cpp`, and that pin
+names a release whose `w8.com` takes the path and asks the emulator whether it
+is safe to before doing so (`HBF_HOST_CAPS`).
 
-The refreshed `W8` will also *tell you where the file went*, which is worth more
-on this platform than on any other: it asks the emulator for the effective
-destination (`HBF_HOST_GETNAME`) instead of echoing what you typed, so a bare
-name prints as the data folder, and an installed Store/MSIX build prints the
-redirected `LocalCache` path the OS actually wrote to rather than the
-`%LOCALAPPDATA%` path the app asked for. Until the images are refreshed, `W8`
-prints the name you gave and the checklist at the end of this document is how you
-find the file.
+It also *tells you where the file went*, which is worth more on this platform
+than on any other: it asks the emulator for the effective destination
+(`HBF_HOST_GETNAME`) instead of echoing what you typed, so a bare name prints as
+the data folder, and an installed Store/MSIX build prints the redirected
+`LocalCache` path the OS actually wrote to rather than the `%LOCALAPPDATA%` path
+the app asked for.
+
+If your `W8` prints `Usage: W8 <cpmname>` with no `[hostpath]`, you are running
+an older image than the pin serves — delete it from the data folder and let the
+app download it again.
 
 **A bare name goes to the app's data folder.** `W8 out.com` (no path) lands in:
 
@@ -162,12 +158,11 @@ To import, place the file in the matching `Imports/` folder the same way, then r
 
 ## "I can't find my exported file" — checklist
 
-0. **Windows: read what `W8` printed** — but only if your disk images are current
-   enough for it to say anything useful. The `w8.com` in the images this app
-   ships prints the name you typed, which is not where the file is; the newer one
-   prints the real destination, redirection and all. See the `W8` note above.
-1. **Did you give a full path?** (Windows only, and only with a refreshed
-   `w8.com` — see above.) If so it's at that exact path, not in any data folder.
+0. **Windows: read what `W8` printed.** It prints the real destination,
+   redirection and all — not the name you typed. That is usually the whole
+   answer. (If it printed no path at all, see the `W8` note above.)
+1. **Did you give a full path?** (Windows only.) If so it's at that exact path,
+   not in any data folder.
 2. **Windows:** open *Emulator → Settings → Open Folder*, or read the path shown in
    *Help → About* / the boot banner. Don't guess the `Packages\…` path.
 3. **macOS:** use the **Open Exports Folder** menu item — the container path is

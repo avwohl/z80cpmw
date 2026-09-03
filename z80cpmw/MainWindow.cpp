@@ -819,8 +819,9 @@ void MainWindow::onFileSaveDisk(int unit) {
 }
 
 void MainWindow::onFileSaveAllDisks() {
-    std::string appDir = EmulatorEngine::getAppDirectory();
-
+    // Each disk is saved back to the path it was loaded from, which is why
+    // there is no app-directory lookup here: a disk lives wherever the user
+    // mounted it from, and for a downloaded one that is the data folder.
     for (int unit = 0; unit < 2; unit++) {
         if (m_emulator->isDiskLoaded(unit)) {
             std::string path = m_emulator->getDiskPath(unit);
@@ -1884,25 +1885,6 @@ void MainWindow::loadDefaultROM() {
                   "WARNING: ROM file not found (emu_avw.rom)\r\n"
                   "Please use Emulator > ROM to load a ROM file,\r\n"
                   "or place ROM files in the 'roms' subdirectory.\r\n\r\n");
-    }
-}
-
-void MainWindow::loadDefaultDisks() {
-    // Try to find and load default disk images
-    std::vector<std::string> defaultDisks = {
-        "cpm_wbw.img",
-        "zsys_wbw.img"
-    };
-
-    std::string appDir = EmulatorEngine::getAppDirectory();
-    std::string disksDir = appDir + "\\disks";
-
-    for (int unit = 0; unit < 2 && unit < (int)defaultDisks.size(); unit++) {
-        std::string diskPath = disksDir + "\\" + defaultDisks[unit];
-        if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
-            m_emulator->loadDisk(unit, diskPath);
-            m_emulator->setDiskPath(unit, diskPath);
-        }
     }
 }
 

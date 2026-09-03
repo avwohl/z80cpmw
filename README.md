@@ -127,16 +127,17 @@ Store build):
 R8 C:\Users\me\Desktop\getkey2.com
 ```
 
-**`W8` does not take a host path yet**, whatever it is given: the `W8.COM` on
-the bundled disk images reads only the parsed FCB and never the command tail, so
-every export goes to the app's data folder. A host path for `W8` is upstream and
-arrives when the images are refreshed.
+`W8` takes one too, and prints the path the file really went to — which on any
+MSIX install is the redirected `LocalCache` location, not the one you typed:
 
-**Two cautions until then**, both properties of the utilities on the bundled
-images rather than of the app: the `R8` on those images hands an unfiltered host
-basename to `F_DELETE`, so importing a host file whose name contains `?` or `*`
-erases **every matching CP/M file** on the disk without saying so; and that `W8`
-truncates a binary export at the first `1Ah` byte.
+```
+W8 REPORT.TXT C:\Users\me\Desktop\report.txt
+```
+
+Both utilities come from the disk catalog, not from this app: the images are
+published in the [ioscpm release area](https://github.com/avwohl/ioscpm/releases)
+and pinned by `RELEASE_TAG` in `DiskCatalog.cpp`. Nothing is bundled in the
+installer, so the `R8` and `W8` you get are whichever the pinned release carries.
 
 A bare name (`W8 out.com`) goes to the app's data folder — whose real location the
 app shows in *Emulator → Settings* (with an **Open Folder** button), *Help → About*,

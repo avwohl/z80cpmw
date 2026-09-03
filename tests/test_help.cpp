@@ -203,7 +203,10 @@ static void test_bundled_file_transfer() {
                "and did not reappear in the Configuration topic");
 
     // Whatever wording replaces it, the line that says a full path works must
-    // be about R8. One line mentions a full path; it names R8 and not W8.
+    // be about R8. Both utilities take a host path now, but they do not take
+    // the SAME argument list - R8 takes the path alone, W8 takes a CP/M name
+    // and then the path - so one line covering both is still the confusion this
+    // pins against, even though it is no longer a false claim.
     std::vector<std::string> hits;
     for (const auto& line : sourceLines(gs)) {
         if (contains(line, "full path")) hits.push_back(line);
@@ -214,15 +217,29 @@ static void test_bundled_file_transfer() {
         checkFalse(contains(hits[0], "W8"), "that line does not name W8: " + hits[0]);
     }
 
-    // The two hazards of the utilities on the shipped images, and the games
-    // disk that carries neither. Named so that deleting a block without its
-    // condition being met is a test failure rather than a quiet loss.
-    checkTrue(contains(gs, "W8 does not take a host path yet"),
-              "the W8 host-path block is present");
-    checkTrue(contains(gs, "Two cautions until then"),
-              "the R8 wildcard / W8 1Ah caution block is present");
+    // The two hazard blocks are GONE, and their condition was met before they
+    // went: the catalog pin moved to v1.4.12, whose published hd1k_combo.img
+    // contains "Usage: W8 <cpmname> [hostpath]" and the 06 E9 CF probe bytes
+    // where v1.4.5's contained neither. These assertions are inverted from what
+    // they used to be, deliberately - they used to pin the blocks IN so that
+    // deleting one early was a failure, and they now pin them OUT so that
+    // reintroducing a caveat about a W8 that no longer ships is a failure too.
+    checkFalse(contains(gs, "W8 does not take a host path yet"),
+               "the W8 host-path caveat is gone");
+    checkFalse(contains(gs, "Two cautions until then"),
+               "the R8 wildcard / W8 1Ah caution block is gone");
+    checkFalse(contains(gs, "truncates a binary export"),
+               "and no rewording of the 1Ah hazard survives");
+
+    // The games-disk sentence is NOT gated on the same thing and stays. v1.4.12
+    // re-uploaded hd1k_games.img byte-identical (sha256 7f33738c...), so it
+    // still carries no r8.com or w8.com. Nothing in the repin makes this false.
     checkTrue(contains(gs, "The games disk carries neither utility"),
-              "the games-disk sentence is present");
+              "the games-disk sentence is still present");
+
+    // W8 now offers a host path, and the topic has to say so somewhere.
+    checkTrue(contains(gs, "W8 REPORT.TXT"),
+              "the topic shows W8 taking a host path");
 }
 
 static void test_bundled_render_invariants() {

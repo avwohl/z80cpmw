@@ -160,7 +160,6 @@ private:
     // Find and load ROM/disk files
     std::string findResourceFile(const std::string& filename);
     void loadDefaultROM();
-    void loadDefaultDisks();
 
     // Startup help
     void showStartupInstructions();

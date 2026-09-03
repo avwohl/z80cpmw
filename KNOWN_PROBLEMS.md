@@ -2,8 +2,8 @@
 
 Standing facts that will never be "done": limits of tools this project depends
 on, and traps set for whoever edits certain files next. None of them is an open
-item, which is why none of them is in `todo.txt` — an entry here is something to
-know, not something to do.
+item — an entry here is something to know, not something to do. That is the
+distinction from `CLAUDE.md`, which holds the rules to follow.
 
 Delete an entry only when it stops being true.
 

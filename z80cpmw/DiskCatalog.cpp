@@ -14,7 +14,20 @@
 // embedded ROM. When you rebuild the ROMs + disks against a new RomWBW version
 // and cut a new ioscpm release, bump RELEASE_TAG here to that new tag (and bump
 // the app version). This is the single source of truth for both URLs below.
-static const std::wstring RELEASE_TAG = L"v1.4.5";
+// v1.4.12 (2026-09-01) replaces v1.4.5. The only difference between the two
+// catalogs is hd1k_combo.img: 7042 bytes each, differing on one line, the
+// <sha256> going be19984e... -> 89b8ae1a.... Every other filename, size and
+// hash is identical, and so is the catalog's version attribute - which matters
+// because a moved version attribute is what triggers the disk-wipe on ports
+// that have one (this one does not; nothing here reads that attribute).
+//
+// What the new combo image fixes is R8: the old one hands an unfiltered host
+// basename to F_DELETE, so importing a host file whose name contains ? or *
+// erased every matching CP/M file first. It also brings the v1.36 W8 - no
+// truncation of a binary export at the first 1Ah, host paths containing a
+// space, 32-bit byte counts, and no bogus org 0100h padding w8.com with 256
+// leading zero bytes.
+static const std::wstring RELEASE_TAG = L"v1.4.12";
 
 const std::wstring DiskCatalog::CATALOG_URL =
     L"https://github.com/avwohl/ioscpm/releases/download/" + RELEASE_TAG + L"/disks.xml";
@@ -22,6 +35,12 @@ const std::wstring DiskCatalog::RELEASE_BASE_URL =
     L"https://github.com/avwohl/ioscpm/releases/download/" + RELEASE_TAG + L"/";
 
 DiskCatalog::DiskCatalog() {
+    // m_downloadDir is assigned here without taking m_downloadDirMutex, and
+    // that is the one place it is safe: a constructor runs before any other
+    // thread can hold a reference to the object, since the workers capture
+    // shared_from_this() and there is no shared_ptr to share until this returns.
+    // Every other write goes through setDownloadDirectory().
+    //
     // Default to user data directory\data (for Store app compatibility)
     // Will be overridden by MainWindow::loadSettings() with proper path
     wchar_t* localAppData = nullptr;
@@ -57,8 +76,15 @@ DiskCatalog::~DiskCatalog() {
 }
 
 void DiskCatalog::setDownloadDirectory(const std::string& dir) {
-    m_downloadDir = dir;
-    // Create directory if it doesn't exist
+    {
+        std::lock_guard<std::mutex> lock(m_downloadDirMutex);
+        m_downloadDir = dir;
+    }
+    // Both calls below use the caller's own 'dir' rather than re-reading the
+    // member, and the lock is released before them on purpose:
+    // updateDownloadedStatus() takes m_downloadDirMutex itself, and holding it
+    // across a CreateDirectory would put a filesystem call inside the lock that
+    // every worker read contends on.
     CreateDirectoryA(dir.c_str(), nullptr);
     updateDownloadedStatus();
 }
@@ -123,8 +149,14 @@ void DiskCatalog::downloadDisk(const std::string& filename,
     // so this worker is reading members continuously for tens of seconds rather
     // than for the few milliseconds a fetch spends outside WinHTTP.
     std::thread([this, self = shared_from_this(), filename, progressCb, completeCb]() {
+        // One read of the download directory for the whole of this transfer.
+        // Taken once rather than twice so the directory that is created and the
+        // path the bytes are written to cannot be two different strings if the
+        // Settings dialog moves the folder mid-download.
+        const std::string downloadDir = getDownloadDirectory();
+
         // Create download directory if needed
-        CreateDirectoryA(m_downloadDir.c_str(), nullptr);
+        CreateDirectoryA(downloadDir.c_str(), nullptr);
 
         // Build URL
         std::wstring url = RELEASE_BASE_URL;
@@ -132,7 +164,7 @@ void DiskCatalog::downloadDisk(const std::string& filename,
             url += static_cast<wchar_t>(c);
         }
 
-        std::string localPath = m_downloadDir + "\\" + filename;
+        std::string localPath = downloadDir + "\\" + filename;
         std::string error;
 
         bool success = downloadToFile(url, localPath, progressCb, error);
@@ -215,7 +247,7 @@ bool DiskCatalog::deleteDownloadedDisk(const std::string& filename) {
 }
 
 std::string DiskCatalog::getDiskPath(const std::string& filename) const {
-    return m_downloadDir + "\\" + filename;
+    return getDownloadDirectory() + "\\" + filename;
 }
 
 bool DiskCatalog::downloadToString(const std::wstring& url, std::string& result, std::string& error) {

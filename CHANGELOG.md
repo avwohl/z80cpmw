@@ -39,6 +39,80 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
+### After 1.0.23 was packaged
+
+**These changes are NOT in the 1.0.23 packages.** `dist\z80cpmw.msix` and
+`dist\z80cpmw-1.0.23-beta.msix` were built and signed before this work landed,
+so they carry `RELEASE_TAG = v1.4.5` and the unlocked `m_downloadDir`. Either
+re-cut 1.0.23 - legal, since it is published on neither channel - or let this
+be 1.0.24. Everything below is built and green: Release x64, 0 warnings and 0
+errors, **1325 checks, 0 failures** across the six suites.
+
+- **`todo.txt` is gone, and this is what emptying it consisted of.** It had
+  grown for six rounds because each pass added cross-repository notes faster
+  than it closed anything, and most of what accumulated was neither a bug nor a
+  feature for this client. The standing rules moved to a new `CLAUDE.md` (where
+  they can be followed rather than re-read as tasks); items about `cpmemu`,
+  `romwbw_emu`, `cpmdroid` and `ioscpm` were deleted, because each of those has
+  its own list and a note here could never be actioned from here; and the
+  remainder were fixed rather than reworded.
+- **The disk catalog is repinned to `ioscpm` `v1.4.12`.** This is the change
+  that reaches users: `RELEASE_TAG` in `DiskCatalog.cpp` decides which images
+  the app downloads, and `v1.4.5` served an `R8` that hands an unfiltered host
+  basename to `F_DELETE` - importing a host file whose name contains `?` or `*`
+  erased every matching CP/M file first, silently. Verified in the **published
+  bytes** rather than in the lineage: the `v1.4.12` `hd1k_combo.img` (sha256
+  `89b8ae1a…`, downloaded and hashed) contains `Usage: W8 <cpmname> [hostpath]`
+  and the `06 E9 CF` bytes of the `HBF_HOST_CAPS` probe, and the `v1.4.5` image
+  it replaces contains neither. Upstream's `r8.asm` `fcb_char` now maps `?` and
+  `*` out of the FCB before `F_DELETE` sees it, and `w8.asm` defers EOF runs
+  instead of stopping at the first `1Ah`. The two catalogs are 7042 bytes each
+  and differ on one line, so nothing else about the disk set moves - and the
+  `version` attribute is unchanged, which is what would trigger a disk wipe on a
+  port that has one (this one does not).
+- **The three documents gated on that repin are updated**, each against its own
+  condition rather than all at once. `README.md`, `docs/FILE_TRANSFER.md` and
+  the bundled Help topic lose the "W8 does not take a host path yet" paragraph
+  and the "Two cautions until then" block; `docs/FILE_TRANSFER.md`'s capability
+  table and its "I can't find my exported file" checklist lose the step-0/1
+  caveats; and `MANUAL_CHECKS.md`'s struck-out `W8` check is re-instated with
+  the syntax to type. **The games-disk sentence stays** in all three - it was
+  never gated on the same thing, and `v1.4.12` re-uploaded `hd1k_games.img`
+  byte-identical (`7f33738c…`), so it still carries neither utility.
+  The help suite **caught this**: two assertions existed to fail if a block was
+  deleted before its condition was met. They are now inverted - they pin the
+  blocks *out*, so re-introducing a caveat about a `W8` that no longer ships is
+  a failure too - and the games-disk assertion is untouched.
+- **`DiskCatalog::m_downloadDir` is locked.** It was the one member with neither
+  a lock nor a written argument for not needing one: written by
+  `setDownloadDirectory()` and read unsynchronised by both workers and by
+  `getDownloadDirectory()`. It was safe only because of *when* it happened to be
+  written - a property of the call order, not of the class, and the class had
+  grown a documented threading contract when the two use-after-frees were fixed.
+  It gets its own `m_downloadDirMutex` rather than sharing `m_catalogMutex`,
+  because `updateDownloadedStatus()` reaches `getDiskPath()` and would
+  self-deadlock on a non-recursive mutex; `setDownloadDirectory()` releases the
+  lock before calling it for the same reason, and uses the caller's own string
+  rather than re-reading the member. The download worker takes **one** copy for
+  the whole transfer, so the directory it creates and the path it writes to
+  cannot become two different strings if the folder moves mid-download. The
+  constructor's assignment stays unlocked and says why: no other thread can hold
+  a reference before it returns.
+- **`MainWindow::loadDefaultDisks()` is deleted.** It had no caller, and it
+  looked in the install directory's `disks\` for `cpm_wbw.img`/`zsys_wbw.img` -
+  filenames that were never staged into either package. Establishing that is
+  what proved the bundled images were dead weight in the first place.
+  `onFileSaveAllDisks()` loses an `appDir` it computed and never used.
+- **`build-nsis.ps1` keeps the `.pdb`.** It kept none, so an NSIS-only release
+  had its symbols nowhere recoverable - the same defect that lost 1.0.22's, now
+  closed on the vehicle that still had it. It writes
+  `dist\z80cpmw-<ver>-setup.pdb` and **errors** if `bin\<Configuration>\z80cpmw.pdb`
+  is absent, after moving the installer so a build is not thrown away.
+- **`v1.0.22-beta` is flagged prerelease**, matching 1.0.16, 1.0.17 and 1.0.21.
+  It was the only beta marked Latest.
+
+### Released as 1.0.23
+
 The first pass on a Windows machine since the cross-port sweep that produced
 `todo.txt`. That sweep was done on a Mac, so everything it found here was found
 by reading; this is what compiling and running it turned up.

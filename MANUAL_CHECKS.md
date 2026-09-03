@@ -2,12 +2,12 @@
 
 Checks that need a person: an installed package, keys pressed, a screen watched.
 Nothing here can be settled by reading the source or by any test in this
-repository, which is why none of it lives in `todo.txt` — that file keeps a
-one-line pointer at this one.
+repository, which is why none of it belongs in a to-do list — nothing here can
+be closed by writing code.
 
 **Delete a check once someone has run it.** The result belongs in `CHANGELOG.md`
 under **Verified**, not here. A check that has been run and left in place turns
-this file into the same accumulating record `todo.txt` was.
+this file into an accumulating record instead of a work list.
 
 ---
 
@@ -22,12 +22,14 @@ prints.
 `dist\z80cpmw-1.0.22-beta.msix` (attached to the `v1.0.22-beta` release); it is
 the same binary and also MSIX.
 
-- [ ] ~~`W8 C:\Users\<you>\Desktop\test.txt` → the file appears on the
-      Desktop.~~ **This checkbox tests the wrong thing today.** The `W8.COM` on
-      the bundled images reads only the parsed FCB and never the command tail,
-      so it cannot take a host path whatever the Windows backend does — the
-      failure would be guest-side, not MSIX redirection. Re-instate this when
-      the images are refreshed (`todo.txt`, disk-image section).
+- [ ] `W8 TEST.TXT C:\Users\<you>\Desktop\test.txt` → the file appears on the
+      Desktop, and `W8` prints that path rather than the name you typed.
+      Re-instated with the `v1.4.12` catalog repin: the image the app downloads
+      now carries a `w8.com` that takes a host path and probes `HBF_HOST_CAPS`
+      first — verified in the published bytes, which contain
+      `Usage: W8 <cpmname> [hostpath]` and `06 E9 CF` where the old image had
+      neither. If your `W8` still prints `Usage: W8 <cpmname>`, you have the old
+      image cached in the data folder; delete it and let the app re-download.
 - [ ] `W8 getkey2.com` (a bare name) → the file lands under
       `…\Packages\AaronWohl.Z80CPM_*\LocalCache\Local\z80cpmw\data\`.
 - [ ] The path `W8` reports agrees with what About, Settings → Open Folder and

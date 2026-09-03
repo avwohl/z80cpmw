@@ -206,7 +206,12 @@ public:
 
     // Set the local directory for downloaded disks
     void setDownloadDirectory(const std::string& dir);
-    std::string getDownloadDirectory() const { return m_downloadDir; }
+    // Returns a copy, not a reference: the caller must not be handed a string
+    // a worker can reassign under it.
+    std::string getDownloadDirectory() const {
+        std::lock_guard<std::mutex> lock(m_downloadDirMutex);
+        return m_downloadDir;
+    }
 
     // Fetch catalog from GitHub (async).
     //
@@ -301,6 +306,16 @@ private:
     // Update downloaded status for all entries
     void updateDownloadedStatus();
 
+    // Guards m_downloadDir. Written by setDownloadDirectory() from
+    // loadSettings() at startup and by the Settings dialog, and read by both
+    // workers (downloadDisk builds its local path from it, updateDownloadedStatus
+    // stats every entry against it) and by getDownloadDirectory() on the UI
+    // thread. It was unsynchronised, and safe only because of when it happened
+    // to be written rather than because of anything the class guarantees - a
+    // property of the call order, not of the type. Separate from m_catalogMutex
+    // on purpose: updateDownloadedStatus() takes that one while holding this,
+    // so sharing would self-deadlock.
+    mutable std::mutex m_downloadDirMutex;
     std::string m_downloadDir;
     // Guards m_catalogEntries: it is written by the fetchCatalog worker thread
     // and read from the UI thread and the download worker.
