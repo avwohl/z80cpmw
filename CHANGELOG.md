@@ -10,20 +10,20 @@ current sideload package is **1.0.22-beta**, which is the same binary signed
 under our own publisher. **1.0.20** was built and tagged but never published on
 any channel, and **1.0.21** shipped only as a signed sideload beta.
 
-**1.0.23 is built and signed but not yet published on either channel.**
-`dist\z80cpmw.msix` is the unsigned Store package, awaiting a Partner Center
-submission, and `dist\z80cpmw-1.0.23-beta.msix` is the signed sideload package,
-awaiting a GitHub release. Both exist locally; neither has been distributed, so
-1.0.22 is still what users have on both channels - which is why the paragraph
-above still names it as the released version rather than being edited to the
-newest number in the file.
+**1.0.23 shipped to the Store and 1.0.24 is packaged.** 1.0.23 went out
+carrying the old catalog pin, so `1.0.24` exists to deliver the repin that
+missed it; `dist\z80cpmw.msix` is its unsigned Store package, awaiting a Partner
+Center submission. No `-beta` package has been cut for 1.0.24 yet. The Store
+channel leaves no git tag and no GitHub release behind, so the repository is not
+evidence of what has shipped - see the note below.
 
-The two carry **the same binary**, as 1.0.22 did: `z80cpmw.exe` hashes
-`800715614bd5e20f…` inside both packages, because the beta was cut with
-`-SkipBuild` off the build the Store package was made from rather than being
-rebuilt. They differ only where they must - `Publisher="CN=724C9014-…"` and
-unsigned for the Store, `Publisher="CN=Aaron Wohl, …"` and Authenticode-signed
-for the sideload.
+1.0.23's two packages carried **the same binary**, as 1.0.22's did:
+`z80cpmw.exe` hashed `800715614bd5e20f…` inside both, because the beta was cut
+with `-SkipBuild` off the build the Store package was made from rather than
+being rebuilt. That is the rule for any version present on both channels - they
+differ only where they must, `Publisher="CN=724C9014-…"` and unsigned for the
+Store, `Publisher="CN=Aaron Wohl, …"` and Authenticode-signed for the sideload.
+If a `-beta` is cut for 1.0.24 it must come off this same build the same way.
 
 The two channels share a number only when they carry the same build, as 1.0.22
 does. They remain separate package identities either way - the Store package is
@@ -39,95 +39,8 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
-### After 1.0.23 was packaged
-
-**These changes are NOT in the 1.0.23 packages.** `dist\z80cpmw.msix` and
-`dist\z80cpmw-1.0.23-beta.msix` were built and signed before this work landed,
-so they carry `RELEASE_TAG = v1.4.5` and the unlocked `m_downloadDir`. Either
-re-cut 1.0.23 - legal, since it is published on neither channel - or let this
-be 1.0.24. Everything below is built and green: Release x64, 0 warnings and 0
-errors, **1325 checks, 0 failures** across the six suites.
-
-- **`todo.txt` is gone, and this is what emptying it consisted of.** It had
-  grown for six rounds because each pass added cross-repository notes faster
-  than it closed anything, and most of what accumulated was neither a bug nor a
-  feature for this client. The standing rules moved to a new `CLAUDE.md` (where
-  they can be followed rather than re-read as tasks); items about `cpmemu`,
-  `romwbw_emu`, `cpmdroid` and `ioscpm` were deleted, because each of those has
-  its own list and a note here could never be actioned from here; and the
-  remainder were fixed rather than reworded.
-- **The disk catalog is repinned to `ioscpm` `v1.4.12`.** `RELEASE_TAG` in
-  `DiskCatalog.cpp` is this port's own choice of which ioscpm release its users
-  download, and it is the *whole* of what this repository contributes to the
-  question. It said `v1.4.5` while `v1.4.12` existed, so the defect was never
-  "`R8` is broken here" - `R8` and `W8` are CP/M programs on a published disk
-  image, fixed in `romwbw_emu/src/r8.asm` and built by ioscpm, and nothing in a
-  z80cpmw build contains either. The defect was that this port served an older
-  release than the one available. Each port pins independently, so each can rot
-  independently; that is the cost of the pin, and the ROM pairing below is what
-  it buys.
-  What the newer release carries, verified in the **published bytes** rather
-  than in the lineage: the `v1.4.12` `hd1k_combo.img` (sha256 `89b8ae1a…`,
-  downloaded and hashed here) contains `Usage: W8 <cpmname> [hostpath]` and the
-  `06 E9 CF` bytes of the `HBF_HOST_CAPS` probe, where the `v1.4.5` image
-  contains neither. Upstream's `fcb_char` now maps `?` and `*` out of the FCB
-  before `F_DELETE` sees it - the old `R8` erased every matching CP/M file when
-  importing a host file whose name held either - and `w8.asm` defers EOF runs
-  instead of stopping at the first `1Ah`.
-  **The pin's own justification was checked rather than assumed**, because
-  moving it is the exact thing its comment warns about: a new release swapping
-  images out from under an installed client and re-introducing an HBIOS/CBIOS
-  mismatch with the ROM this port embeds. Byte-diffing the two images: **5,121
-  bytes differ out of 51,380,224 (0.01%), in three regions** - the CP/M
-  directory entries for `R8 COM` and `W8 COM`, whose extents and record counts
-  moved because the files grew; `R8.COM`'s data; and `W8.COM`'s data, which was
-  all zeros in `v1.4.5`, consistent with the `org 0100h` padding that release
-  removed. **The first differing byte anywhere is 1.02 MB in**, so the boot
-  tracks, the HBIOS/CBIOS system area and the CP/M system image are
-  byte-identical. The pairing the pin protects is untouched.
-  The two catalogs are also 7042 bytes each and differ on one line, so no other
-  image in the set moves, and the `version` attribute is unchanged - which is
-  what would trigger a disk wipe on a port that has one (this one does not).
-- **The three documents gated on that repin are updated**, each against its own
-  condition rather than all at once. `README.md`, `docs/FILE_TRANSFER.md` and
-  the bundled Help topic lose the "W8 does not take a host path yet" paragraph
-  and the "Two cautions until then" block; `docs/FILE_TRANSFER.md`'s capability
-  table and its "I can't find my exported file" checklist lose the step-0/1
-  caveats; and `MANUAL_CHECKS.md`'s struck-out `W8` check is re-instated with
-  the syntax to type. **The games-disk sentence stays** in all three - it was
-  never gated on the same thing, and `v1.4.12` re-uploaded `hd1k_games.img`
-  byte-identical (`7f33738c…`), so it still carries neither utility.
-  The help suite **caught this**: two assertions existed to fail if a block was
-  deleted before its condition was met. They are now inverted - they pin the
-  blocks *out*, so re-introducing a caveat about a `W8` that no longer ships is
-  a failure too - and the games-disk assertion is untouched.
-- **`DiskCatalog::m_downloadDir` is locked.** It was the one member with neither
-  a lock nor a written argument for not needing one: written by
-  `setDownloadDirectory()` and read unsynchronised by both workers and by
-  `getDownloadDirectory()`. It was safe only because of *when* it happened to be
-  written - a property of the call order, not of the class, and the class had
-  grown a documented threading contract when the two use-after-frees were fixed.
-  It gets its own `m_downloadDirMutex` rather than sharing `m_catalogMutex`,
-  because `updateDownloadedStatus()` reaches `getDiskPath()` and would
-  self-deadlock on a non-recursive mutex; `setDownloadDirectory()` releases the
-  lock before calling it for the same reason, and uses the caller's own string
-  rather than re-reading the member. The download worker takes **one** copy for
-  the whole transfer, so the directory it creates and the path it writes to
-  cannot become two different strings if the folder moves mid-download. The
-  constructor's assignment stays unlocked and says why: no other thread can hold
-  a reference before it returns.
-- **`MainWindow::loadDefaultDisks()` is deleted.** It had no caller, and it
-  looked in the install directory's `disks\` for `cpm_wbw.img`/`zsys_wbw.img` -
-  filenames that were never staged into either package. Establishing that is
-  what proved the bundled images were dead weight in the first place.
-  `onFileSaveAllDisks()` loses an `appDir` it computed and never used.
-- **`build-nsis.ps1` keeps the `.pdb`.** It kept none, so an NSIS-only release
-  had its symbols nowhere recoverable - the same defect that lost 1.0.22's, now
-  closed on the vehicle that still had it. It writes
-  `dist\z80cpmw-<ver>-setup.pdb` and **errors** if `bin\<Configuration>\z80cpmw.pdb`
-  is absent, after moving the installer so a build is not thrown away.
-- **`v1.0.22-beta` is flagged prerelease**, matching 1.0.16, 1.0.17 and 1.0.21.
-  It was the only beta marked Latest.
+Nothing. 1.0.24 is packaged; the detail of what 1.0.23 carried is kept below it
+because that release's entry refers back to it.
 
 ### Released as 1.0.23
 
@@ -1919,6 +1832,113 @@ were still carrying the old text in their own paragraphs were swept on
   on `PATH` on this machine and the script exits 2 rather than guessing. The
   refresh is not finished until it passes on the staged images somewhere that has
   cpmtools.
+
+## [1.0.24] - 2026-09-03
+
+**The release that actually delivers the `R8` fix to Windows users**, which
+1.0.23 did not. Everything below was in the tree when 1.0.23 was packaged and
+missed the build; the repin is the whole point of cutting this.
+
+Release x64, MSBuild 18, **0 warnings and 0 errors**, `bin\Release\z80cpmw.exe`
+reporting `1.0.24.0`, and all six headless suites green - **1325 checks, 0
+failures** (terminal conformance 516, help renderer and assets 355,
+configuration diagnostics 302, host file transfer 66, rendering conformance 50,
+HBIOS host file extension 36). `dist\z80cpmw.msix` is the unsigned Store
+package.
+
+**Verified at the artifact, not the tree**, which is the check 1.0.23 did not
+have: `tools/check-disk-pins.sh` reports `z80cpmw.msix carries v1.4.12, agrees
+with the tree`. The tree being right is not the same as the package being right,
+and last time the difference cost a release.
+
+**How this came to be a separate release.** These changes were in the tree when
+1.0.23 was packaged, and the packages were built before them - so 1.0.23 shipped
+carrying `RELEASE_TAG = v1.4.5` and the unlocked `m_downloadDir`. That was said
+in the changelog, said in the commit, and said out loud, and it shipped anyway.
+A note that has to be read at the right moment is not a gate, which is why
+`tools/check-disk-pins.sh` now looks at the built artifact and why this release
+was verified against the package rather than the source.
+
+- **`todo.txt` is gone, and this is what emptying it consisted of.** It had
+  grown for six rounds because each pass added cross-repository notes faster
+  than it closed anything, and most of what accumulated was neither a bug nor a
+  feature for this client. The standing rules moved to a new `CLAUDE.md` (where
+  they can be followed rather than re-read as tasks); items about `cpmemu`,
+  `romwbw_emu`, `cpmdroid` and `ioscpm` were deleted, because each of those has
+  its own list and a note here could never be actioned from here; and the
+  remainder were fixed rather than reworded.
+- **The disk catalog is repinned to `ioscpm` `v1.4.12`.** `RELEASE_TAG` in
+  `DiskCatalog.cpp` is this port's own choice of which ioscpm release its users
+  download, and it is the *whole* of what this repository contributes to the
+  question. It said `v1.4.5` while `v1.4.12` existed, so the defect was never
+  "`R8` is broken here" - `R8` and `W8` are CP/M programs on a published disk
+  image, fixed in `romwbw_emu/src/r8.asm` and built by ioscpm, and nothing in a
+  z80cpmw build contains either. The defect was that this port served an older
+  release than the one available. Each port pins independently, so each can rot
+  independently; that is the cost of the pin, and the ROM pairing below is what
+  it buys.
+  What the newer release carries, verified in the **published bytes** rather
+  than in the lineage: the `v1.4.12` `hd1k_combo.img` (sha256 `89b8ae1a…`,
+  downloaded and hashed here) contains `Usage: W8 <cpmname> [hostpath]` and the
+  `06 E9 CF` bytes of the `HBF_HOST_CAPS` probe, where the `v1.4.5` image
+  contains neither. Upstream's `fcb_char` now maps `?` and `*` out of the FCB
+  before `F_DELETE` sees it - the old `R8` erased every matching CP/M file when
+  importing a host file whose name held either - and `w8.asm` defers EOF runs
+  instead of stopping at the first `1Ah`.
+  **The pin's own justification was checked rather than assumed**, because
+  moving it is the exact thing its comment warns about: a new release swapping
+  images out from under an installed client and re-introducing an HBIOS/CBIOS
+  mismatch with the ROM this port embeds. Byte-diffing the two images: **5,121
+  bytes differ out of 51,380,224 (0.01%), in three regions** - the CP/M
+  directory entries for `R8 COM` and `W8 COM`, whose extents and record counts
+  moved because the files grew; `R8.COM`'s data; and `W8.COM`'s data, which was
+  all zeros in `v1.4.5`, consistent with the `org 0100h` padding that release
+  removed. **The first differing byte anywhere is 1.02 MB in**, so the boot
+  tracks, the HBIOS/CBIOS system area and the CP/M system image are
+  byte-identical. The pairing the pin protects is untouched.
+  The two catalogs are also 7042 bytes each and differ on one line, so no other
+  image in the set moves, and the `version` attribute is unchanged - which is
+  what would trigger a disk wipe on a port that has one (this one does not).
+- **The three documents gated on that repin are updated**, each against its own
+  condition rather than all at once. `README.md`, `docs/FILE_TRANSFER.md` and
+  the bundled Help topic lose the "W8 does not take a host path yet" paragraph
+  and the "Two cautions until then" block; `docs/FILE_TRANSFER.md`'s capability
+  table and its "I can't find my exported file" checklist lose the step-0/1
+  caveats; and `MANUAL_CHECKS.md`'s struck-out `W8` check is re-instated with
+  the syntax to type. **The games-disk sentence stays** in all three - it was
+  never gated on the same thing, and `v1.4.12` re-uploaded `hd1k_games.img`
+  byte-identical (`7f33738c…`), so it still carries neither utility.
+  The help suite **caught this**: two assertions existed to fail if a block was
+  deleted before its condition was met. They are now inverted - they pin the
+  blocks *out*, so re-introducing a caveat about a `W8` that no longer ships is
+  a failure too - and the games-disk assertion is untouched.
+- **`DiskCatalog::m_downloadDir` is locked.** It was the one member with neither
+  a lock nor a written argument for not needing one: written by
+  `setDownloadDirectory()` and read unsynchronised by both workers and by
+  `getDownloadDirectory()`. It was safe only because of *when* it happened to be
+  written - a property of the call order, not of the class, and the class had
+  grown a documented threading contract when the two use-after-frees were fixed.
+  It gets its own `m_downloadDirMutex` rather than sharing `m_catalogMutex`,
+  because `updateDownloadedStatus()` reaches `getDiskPath()` and would
+  self-deadlock on a non-recursive mutex; `setDownloadDirectory()` releases the
+  lock before calling it for the same reason, and uses the caller's own string
+  rather than re-reading the member. The download worker takes **one** copy for
+  the whole transfer, so the directory it creates and the path it writes to
+  cannot become two different strings if the folder moves mid-download. The
+  constructor's assignment stays unlocked and says why: no other thread can hold
+  a reference before it returns.
+- **`MainWindow::loadDefaultDisks()` is deleted.** It had no caller, and it
+  looked in the install directory's `disks\` for `cpm_wbw.img`/`zsys_wbw.img` -
+  filenames that were never staged into either package. Establishing that is
+  what proved the bundled images were dead weight in the first place.
+  `onFileSaveAllDisks()` loses an `appDir` it computed and never used.
+- **`build-nsis.ps1` keeps the `.pdb`.** It kept none, so an NSIS-only release
+  had its symbols nowhere recoverable - the same defect that lost 1.0.22's, now
+  closed on the vehicle that still had it. It writes
+  `dist\z80cpmw-<ver>-setup.pdb` and **errors** if `bin\<Configuration>\z80cpmw.pdb`
+  is absent, after moving the installer so a build is not thrown away.
+- **`v1.0.22-beta` is flagged prerelease**, matching 1.0.16, 1.0.17 and 1.0.21.
+  It was the only beta marked Latest.
 
 ## [1.0.23] - 2026-09-03
 
