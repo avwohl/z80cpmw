@@ -10,22 +10,27 @@ KNOWN_PROBLEMS.md (standing facts that will never be "done"), WIP.md (handoff).
 1.0.24 IS BUILT AND PUBLISHED ON NEITHER CHANNEL
 -------------------------------------------------
 
-- [RELEASE] 1.0.24 exists as a build and reaches no user.  Version.h says 1.0.24
-as of 5ee0e5f, RELEASE_TAG in DiskCatalog.cpp says v1.4.12, and
-tools/check-disk-pins.sh was run against the package rather than the tree and
-reported "z80cpmw.msix carries v1.4.12, agrees with the tree".  That is the
-build to ship.  Nothing has gone out since: the newest GitHub release is
-v1.0.22-beta from 2026-08-24, and `git show v1.0.22-beta:z80cpmw/DiskCatalog.cpp`
-reads v1.4.5.  dbd53b1 records 1.0.23 going to both channels carrying v1.4.5 as
-well.  So every Windows user today fetches the v1.4.5 catalog and runs the R8
-that hands an unfiltered host basename to F_DELETE - importing a host file whose
-name holds ? or * erases every matching CP/M file first and says nothing.
+- [RELEASE] 1.0.24 is packaged and awaits a Partner Center submission.  That
+submission is the whole item.  Version.h says 1.0.24 as of 5ee0e5f, RELEASE_TAG
+in DiskCatalog.cpp says v1.4.12, dist\z80cpmw.msix is its unsigned Store package,
+and tools/check-disk-pins.sh was run against that package rather than the tree
+and reported it carries v1.4.12.  The Store is on 1.0.23, which went out carrying
+v1.4.5 - CHANGELOG.md's header says both things.  So every Windows user today
+fetches the v1.4.5 catalog and runs the R8 that hands an unfiltered host basename
+to F_DELETE: importing a host file whose name holds ? or * erases every matching
+CP/M file first and says nothing.
+
+  Do not read shipping state out of this repository.  The Store channel leaves no
+  git tag and no GitHub release behind, so git is evidence of what was built and
+  never of what went out - the newest GitHub release is v1.0.22-beta from
+  2026-08-24 and it is two Store versions behind.  CHANGELOG.md's header is the
+  record.
 
   If a -Beta package is cut it must come off this same build with -SkipBuild, so
   both channels carry one binary, and it must not be signed on a published
   version number.
 
-- [RELEASE] the published v1.0.22-beta.msix still carries disks\hd1k_combo.img,
+- [RELEASE] the sideload v1.0.22-beta.msix still carries disks\hd1k_combo.img,
 49 MB of it, hashing be19984e... - the pre-fix image.  Both packaging vehicles
 staged it until 1.0.23 removed them, and nothing ever read it: loadDefaultDisks()
 was the only function that looked in the install directory's disks\ folder, it
