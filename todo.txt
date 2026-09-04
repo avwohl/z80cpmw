@@ -1,0 +1,47 @@
+Todo list.  Open items for this project only - the rules that govern this file
+are in CLAUDE.md, finished work is in CHANGELOG.md, and a closed item is deleted
+rather than annotated.  Notes about what another repository ought to do do not
+belong here; cpmemu, romwbw_emu, cpmdroid and ioscpm each have their own list.
+
+Related: MANUAL_CHECKS.md (checks needing a person at a keyboard),
+KNOWN_PROBLEMS.md (standing facts that will never be "done"), WIP.md (handoff).
+
+
+1.0.24 IS BUILT AND PUBLISHED ON NEITHER CHANNEL
+-------------------------------------------------
+
+- [RELEASE] 1.0.24 exists as a build and reaches no user.  Version.h says 1.0.24
+as of 5ee0e5f, RELEASE_TAG in DiskCatalog.cpp says v1.4.12, and
+tools/check-disk-pins.sh was run against the package rather than the tree and
+reported "z80cpmw.msix carries v1.4.12, agrees with the tree".  That is the
+build to ship.  Nothing has gone out since: the newest GitHub release is
+v1.0.22-beta from 2026-08-24, and `git show v1.0.22-beta:z80cpmw/DiskCatalog.cpp`
+reads v1.4.5.  dbd53b1 records 1.0.23 going to both channels carrying v1.4.5 as
+well.  So every Windows user today fetches the v1.4.5 catalog and runs the R8
+that hands an unfiltered host basename to F_DELETE - importing a host file whose
+name holds ? or * erases every matching CP/M file first and says nothing.
+
+  If a -Beta package is cut it must come off this same build with -SkipBuild, so
+  both channels carry one binary, and it must not be signed on a published
+  version number.
+
+- [RELEASE] the published v1.0.22-beta.msix still carries disks\hd1k_combo.img,
+49 MB of it, hashing be19984e... - the pre-fix image.  Both packaging vehicles
+staged it until 1.0.23 removed them, and nothing ever read it: loadDefaultDisks()
+was the only function that looked in the install directory's disks\ folder, it
+wanted cpm_wbw.img and zsys_wbw.img rather than what was staged, and it had no
+caller.  It is deleted now.  The item is not a defect to fix in the code - it is
+that the package a user downloads today is still that one, which is the same
+sentence as the item above and closes with the same release.
+
+  disks/cpm_wbw.img and disks/zsys_wbw.img are still tracked in this repository,
+  13824 and 10240 bytes, and are what the deleted function wanted.  Decide
+  whether they go too, or whether something is meant to read them.
+
+- [RELEASE] shipping the repin does not refresh an image already on a machine,
+and the release notes should not claim it does.  disks.xml's version attribute
+is 13 at v1.4.5 and 13 at v1.4.12 alike, deliberately, because changing it wipes
+downloaded disks; hd1k_combo.img is the only one of the twenty whose bytes moved.
+A user who has already downloaded it keeps the old R8 until they delete it by
+hand.  ioscpm and cpmdroid have the identical hole, and whichever port solves it
+first is worth copying rather than re-deriving.
