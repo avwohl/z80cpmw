@@ -30,18 +30,23 @@ CP/M file first and says nothing.
   both channels carry one binary, and it must not be signed on a published
   version number.
 
-- [RELEASE] the sideload v1.0.22-beta.msix still carries disks\hd1k_combo.img,
-49 MB of it, hashing be19984e... - the pre-fix image.  Both packaging vehicles
-staged it until 1.0.23 removed them, and nothing ever read it: loadDefaultDisks()
-was the only function that looked in the install directory's disks\ folder, it
-wanted cpm_wbw.img and zsys_wbw.img rather than what was staged, and it had no
-caller.  It is deleted now.  The item is not a defect to fix in the code - it is
-that the package a user downloads today is still that one, which is the same
-sentence as the item above and closes with the same release.
+- [RELEASE] the GitHub channel is worse off than the Store one and nothing says
+so.  v1.0.14 is what GitHub marks Latest, and it has no pin at all:
+DiskCatalog.cpp at that tag builds both URLs from
+releases/latest/download/, so anyone who installs the stable download gets a
+client that floats onto ioscpm's releases/latest - today v1.4.11, the pre-fix
+R8.  Pinning arrived after it, and the newest thing on that channel since is
+v1.0.22-beta.  Cutting a -beta off the 1.0.24 build fixes both at once; until
+then the stable GitHub download is the least protected way to install this app.
 
-  disks/cpm_wbw.img and disks/zsys_wbw.img are still tracked in this repository,
-  13824 and 10240 bytes, and are what the deleted function wanted.  Decide
-  whether they go too, or whether something is meant to read them.
+  Two low ones that ride along and close with the same release.  Both
+  downloadable msix packages carry a disks\ folder with a stale hd1k_combo.img
+  (v1.0.14 c14b9bef..., v1.0.22-beta be19984e...) - inert, since the only reader
+  of that folder was loadDefaultDisks(), which had no caller and wanted
+  filenames that were never staged, and dbd53b1 removed the staging - so it is
+  ~57 MB of dead payload, not a wrong image in use.  And disks/cpm_wbw.img and
+  disks/zsys_wbw.img are still tracked here, 13824 and 10240 bytes, and are what
+  that deleted function wanted; decide whether they go too.
 
 - [RELEASE] shipping the repin does not refresh an image already on a machine,
 and the release notes should not claim it does.  disks.xml's version attribute
