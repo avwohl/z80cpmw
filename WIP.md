@@ -46,12 +46,14 @@ recorded is `romwbw_emu` `17cd380` (`v1.36-1`) and `cpmemu` `9fee3c2`, and both
 checkouts stand five commits past it as of 2026-08-28.
 `tools/check-sibling-drift.sh` reports where the siblings stand.
 
-**Three of the six suites need none of that.** `tests\run_tests.bat` runs the
+**Four of the seven suites need none of that.** `tests\run_tests.bat` runs the
 terminal conformance suite, then the help renderer and asset suite, then the
-rendering suite, all before the two blocks that `exit /b 1` when a sibling
-checkout is missing: `TerminalView.cpp` and `HelpAssets.cpp` reach for Win32 and
-the standard library and nothing else, so those three build and run on any
-machine with a compiler, whether or not the app itself can be built. The
+rendering suite, then the disk provenance suite, all before the two blocks that
+`exit /b 1` when a sibling checkout is missing: `TerminalView.cpp` and
+`HelpAssets.cpp` reach for Win32 and the standard library and nothing else, and
+`DiskLedger.cpp` reaches for neither while `DiskHash.cpp` wants only Win32 and
+bcrypt, so those four build and run on any machine with a compiler, whether or
+not the app itself can be built. The
 rendering suite wants one thing more — an interactive window station, since it
 renders a real window with `PrintWindow(PW_RENDERFULLCONTENT)` and samples the
 pixels — and prints SKIP and exits 0 where there is no desktop rather than

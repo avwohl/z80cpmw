@@ -122,11 +122,13 @@ Section "Main Application" SecMain
     ; No disk images are installed, and that is the design rather than an
     ; omission: every port gets its disk images from the ioscpm release area,
     ; through the catalog pinned in DiskCatalog.cpp's RELEASE_TAG. The two that
-    ; used to be installed here were never read - the only function that looks
-    ; in $INSTDIR\disks is loadDefaultDisks(), which wants cpm_wbw.img and
-    ; zsys_wbw.img and has no caller - so they cost 57 MB and could go stale
-    ; against what the catalog serves. The uninstaller still deletes them, to
-    ; clean up installs that had them.
+    ; used to be installed here were never read - the only function that looked
+    ; in $INSTDIR\disks was loadDefaultDisks(), which had no caller and wanted
+    ; cpm_wbw.img and zsys_wbw.img, filenames this installer never staged - so
+    ; they cost 57 MB and could go stale against what the catalog serves. That
+    ; function was deleted in 1.0.24 and the two images it wanted stopped being
+    ; tracked in 1.0.25; .gitignore now refuses them. The uninstaller still
+    ; deletes the folder, to clean up installs that had it.
 
     ; Create start menu shortcuts
     SetOutPath "$INSTDIR"

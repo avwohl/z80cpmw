@@ -86,6 +86,16 @@ Write-Host "Version $pkgVersion (from z80cpmw\Version.h)" -ForegroundColor Green
 # name. Only read when -Beta; the Store package name is fixed.
 $betaStem = if ($SkipSign) { "z80cpmw-$verShort-beta-unsigned" } else { "z80cpmw-$verShort-beta" }
 
+# What the .pdb kept in step 6 is called, on whichever arm ran.
+#
+# The Store package's own name carries no version - it is always
+# dist\z80cpmw.msix - so its symbols have to carry one instead. An unversioned
+# z80cpmw.pdb beside it would be overwritten by the next Store build, which is
+# precisely how a shipped version's symbols are lost, and losing them is not
+# recoverable: a rebuild has a different debug GUID and will not symbolicate a
+# stack from the binary that shipped.
+$pdbStem = if ($Beta) { $betaStem } else { "z80cpmw-$verShort-store" }
+
 # Guard against packaging a stale binary: -SkipBuild over an old bin\Release
 # would otherwise label the package with a version the exe does not carry.
 function Assert-ExeVersion([string]$exePath, [string]$expected) {
@@ -302,28 +312,32 @@ elseif (!$SkipSign -and $CertificatePath) {
 # Cleanup
 Remove-Item -Recurse -Force $stagingDir
 
-# Step 6: Keep the beta build's symbols.
-# The Store package is re-signed and served by Microsoft, but the sideload beta
-# is the binary testers actually run, and a crash dump from it is unreadable
-# without the .pdb built alongside that exact exe. It cannot be recovered later:
-# a rebuild - against a different vcpkg wxWidgets, say - is a different binary
-# with a different debug GUID, so its symbols will not load against the one
-# that shipped. 1.0.22 shipped with no .pdb on either channel for
-# exactly that reason. Named from $betaStem so the pair stays obvious.
+# Step 6: Keep the build's symbols.
+# A crash dump is unreadable without the .pdb built alongside that exact exe, and
+# it cannot be recovered later: a rebuild - against a different vcpkg wxWidgets,
+# say - is a different binary with a different debug GUID, so its symbols will
+# not load against the one that shipped. 1.0.22 shipped with no .pdb on either
+# channel for exactly that reason.
 #
-# This runs on BOTH beta arms, signed and rehearsal alike, which is the point of
+# This ran on the beta arms only until 1.0.25, which left the defect open on the
+# vehicle that reaches the most people. Microsoft re-signing the Store package
+# does not change what a Store crash dump needs, and the Store binary is the one
+# most users run; "the beta is the binary testers actually run" was a reason to
+# cover the beta, never a reason to leave the Store arm uncovered. CLAUDE.md said
+# both scripts kept their symbols while this one did not, so the rule was true of
+# the documentation and not of the code.
+#
+# It runs on every arm, the unsigned rehearsal included, which is the point of
 # having a rehearsal: the copy and its Write-Error are what a dry run is checking,
 # and an arm that skipped them would prove nothing about the run that ships.
-if ($Beta) {
-    $pdbSource = Join-Path $BinDir "z80cpmw.pdb"
-    $pdbPath = Join-Path $OutputDir "$betaStem.pdb"
-    if (Test-Path $pdbSource) {
-        Copy-Item $pdbSource $pdbPath -Force
-        Write-Host "Symbols kept: $pdbPath" -ForegroundColor Green
-    } else {
-        Write-Error "No symbols at $pdbSource. The package at $msixPath is good, but its .pdb cannot be produced by rebuilding later. Rebuild this configuration and re-run." -ErrorAction Continue
-        exit 1
-    }
+$pdbSource = Join-Path $BinDir "z80cpmw.pdb"
+$pdbPath = Join-Path $OutputDir "$pdbStem.pdb"
+if (Test-Path $pdbSource) {
+    Copy-Item $pdbSource $pdbPath -Force
+    Write-Host "Symbols kept: $pdbPath" -ForegroundColor Green
+} else {
+    Write-Error "No symbols at $pdbSource. The package at $msixPath is good, but its .pdb cannot be produced by rebuilding later. Rebuild this configuration and re-run." -ErrorAction Continue
+    exit 1
 }
 
 Write-Host ""

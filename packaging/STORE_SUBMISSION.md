@@ -267,9 +267,11 @@ The Store carried 1.0.14, then 1.0.19, and now **1.0.22**, published 2026-08-23.
      first.
    - Up to and including 1.0.22 both vehicles *did* bundle `hd1k_combo.img` and
      `hd1k_games.img`, and **nothing ever read them**. The only function that
-     looks in the install directory's `disks\` is `loadDefaultDisks()`, which
-     wants `cpm_wbw.img` and `zsys_wbw.img` — neither of which was staged — and
-     it has no caller. `downloadAndStartWithDefaults()`, which is the path a
+     looked in the install directory's `disks\` was `loadDefaultDisks()`, which
+     wanted `cpm_wbw.img` and `zsys_wbw.img` — neither of which was staged — and
+     it had no caller; it was deleted in 1.0.24, and the two images it wanted
+     stopped being tracked in the repository in 1.0.25.
+     `downloadAndStartWithDefaults()`, which is the path a
      real user takes, looks in the *user data* folder and downloads what is
      missing. So the two images cost 57 MB of payload (12.7 MB → 7.07 MB
      packaged) and bought nothing.

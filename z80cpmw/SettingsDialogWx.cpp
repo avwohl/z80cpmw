@@ -846,7 +846,18 @@ void SettingsDialogWx::populateCatalog() {
     for (size_t i = 0; i < entries.size(); i++) {
         long idx = m_catalogList->InsertItem(i, wxString::FromUTF8(entries[i].filename));
         m_catalogList->SetItem(idx, 1, wxString::FromUTF8(entries[i].description));
-        m_catalogList->SetItem(idx, 2, entries[i].isDownloaded ? "Downloaded" : "Available");
+        // The status column answers "have you got it" AND, since 1.0.25,
+        // "is it still the one the catalog names" - which the previous line
+        // could not, because it read a size and both hd1k_combo.img images are
+        // 51,380,224 bytes. DiskLedger::describe is deliberately the only place
+        // the wording lives, so a verdict cannot be reworded in one dialog and
+        // not the other. It is consulted only for a file that is actually here:
+        // freshness stays NotInstalled until a fetch has computed it, and
+        // isDownloaded is what a stat says right now.
+        m_catalogList->SetItem(idx, 2,
+                               entries[i].isDownloaded
+                                   ? DiskLedger::describe(entries[i].freshness)
+                                   : "Available");
     }
 }
 

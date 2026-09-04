@@ -209,6 +209,22 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
     <ClCompile Include="EmulatorEngine.cpp" />
     <ClCompile Include="emu_io_windows.cpp" />
     <ClCompile Include="DiskCatalog.cpp" />
+    <!-- NotUsing, and for a reason that is load-bearing rather than incidental:
+         DiskLedger.cpp holds no Win32, no WinHTTP and no file system, which is
+         the whole reason tests\test_diskledger.cpp can check its decisions on a
+         machine with no data folder. Putting pch.h at the top to satisfy /Yu
+         would make that false. -->
+    <ClCompile Include="DiskLedger.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <!-- NotUsing for the same reason, one step weaker: DiskHash.cpp does need
+         windows.h and bcrypt.h, but not WinHTTP, not wx and not DiskCatalog.
+         That is what lets the disk provenance suite link it and check a hash
+         against a known vector - which nothing could do while these two
+         functions were private statics on the class that owns the downloads. -->
+    <ClCompile Include="DiskHash.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <!-- NotUsing so the file can stay small. It includes windows.h,
          <algorithm>, <sstream>, <string>, <vector> and resource.h and nothing
          else, which is the property tests\test_help.cpp is built on; resource.h

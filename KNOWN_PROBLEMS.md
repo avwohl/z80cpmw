@@ -22,8 +22,19 @@ the evidence and the whole of what is left.
 `build-msix.ps1 -Beta` keeps the `.pdb` now, and that half is no longer
 untested: the unsigned rehearsal `-Beta -SkipBuild -SkipSign` was run on
 2026-08-28, exits 0, and writes the package and its `.pdb` together, the `.pdb`
-hashing equal to `bin\Release\z80cpmw.pdb`. So this cannot happen silently again
-from 1.0.23 on. It cannot be undone for 1.0.22.
+hashing equal to `bin\Release\z80cpmw.pdb`. It cannot be undone for 1.0.22.
+
+**And it happened a second time, on the arm that fix did not cover.** Step 6 of
+`build-msix.ps1` was `if ($Beta)` until 1.0.25, so a Store package built without
+a beta beside it kept no symbols at all. **1.0.24 is such a package.** No `.pdb`
+for it exists anywhere — `dist\` holds `z80cpmw-1.0.21-beta.pdb` and
+`z80cpmw-1.0.23-beta.pdb` and nothing else, and `bin\Release\z80cpmw.pdb` has
+been rebuilt at 1.0.25 since. If `dist\z80cpmw-1.0.24-store.msix` is submitted,
+its crash dumps are unreadable exactly as 1.0.22's are; submitting 1.0.25
+instead is the only version of that choice with symbols behind it. 1.0.23
+escapes by accident rather than by design: its beta was cut from the same build
+with `-SkipBuild`, so `z80cpmw-1.0.23-beta.pdb` symbolicates the Store binary
+too — which is a property of how that release happened to be cut, not a rule.
 
 ## `emu_host_path_basename()` is a link error waiting to be triggered
 

@@ -7,6 +7,14 @@
 #include "Version.h"
 #include <thread>
 #include <sstream>
+#include <vector>
+#include <memory>
+#include <cstdio>
+
+// The two measurements, kept in their own file so a suite can link them without
+// linking WinHTTP and this class. DiskHash.h says why that mattered enough to
+// split.
+#include "DiskHash.h"
 
 // Disk images are pinned to one explicit ioscpm release tag (not "latest"), so a
 // new ioscpm release can't silently swap the disk images out from under an
@@ -87,6 +95,16 @@ void DiskCatalog::setDownloadDirectory(const std::string& dir) {
     // every worker read contends on.
     CreateDirectoryA(dir.c_str(), nullptr);
     updateDownloadedStatus();
+
+    // A different data folder is a different ledger, so the one in hand stops
+    // describing anything. Dropped rather than re-read here: this runs on the UI
+    // thread (loadSettings at startup, and the Settings dialog), and the next
+    // fetchCatalog worker is where reading a file belongs.
+    {
+        std::lock_guard<std::mutex> lock(m_ledgerMutex);
+        m_ledger = DiskLedger();
+        m_ledgerLoaded = false;
+    }
 }
 
 void DiskCatalog::fetchCatalog(CatalogLoadedCallback callback) {
@@ -123,6 +141,12 @@ void DiskCatalog::fetchCatalog(CatalogLoadedCallback callback) {
             m_catalogEntries = entries;
         }
         updateDownloadedStatus();
+        // Worker-thread only, and this is the worker. It reads up to 211MB when
+        // a measurement has gone stale, which is why it is here and not in
+        // updateDownloadedStatus() - that one is also called from
+        // setDownloadDirectory() on the UI thread, and hashing the library
+        // inside the Settings dialog's OK handler would freeze it.
+        updateFreshness();
 
         if (callback) {
             callback(true, getCatalogEntries(), "");
@@ -177,8 +201,60 @@ void DiskCatalog::downloadDisk(const std::string& filename,
                 completeCb(false, "Download cancelled");
             }
         } else if (success) {
+            // What the catalog says these bytes should be. Empty when the entry
+            // carries no <sha256>, which is a case that has to keep working:
+            // an older catalog than this build expects must still install.
+            std::string catalogHash;
+            for (const auto& entry : getCatalogEntries()) {
+                if (entry.filename == filename) {
+                    catalogHash = entry.sha256;
+                    break;
+                }
+            }
+
+            std::string wanted;
+            if (DiskLedger::normalizedHash(catalogHash, wanted)) {
+                std::string actual;
+                if (!diskhash::sha256File(localPath, actual)) {
+                    m_downloadState = DownloadState::Failed;
+                    DeleteFileA(localPath.c_str());
+                    if (completeCb) {
+                        completeCb(false, "Downloaded file could not be read back");
+                    }
+                    return;
+                }
+                if (actual != wanted) {
+                    // The size check in downloadToFile passes on a transfer that
+                    // is the right length and the wrong bytes; this does not.
+                    // Keeping it would also poison the ledger, which records
+                    // provenance only for a download it VERIFIED - a recorded
+                    // hash these bytes never had would read as Current for ever.
+                    m_downloadState = DownloadState::Failed;
+                    DeleteFileA(localPath.c_str());
+                    if (completeCb) {
+                        completeCb(false, "Downloaded image does not match the catalog checksum");
+                    }
+                    return;
+                }
+
+                // Verified. This is the one moment provenance can honestly be
+                // written: we know both which published image was asked for and
+                // that the bytes on disk are it.
+                loadLedgerIfNeeded();
+                DiskFileFacts facts;
+                bool haveFacts = diskhash::statFile(localPath, facts);
+                DiskLedger updated;
+                {
+                    std::lock_guard<std::mutex> lock(m_ledgerMutex);
+                    m_ledger.recordInstall(filename, wanted, haveFacts ? &facts : nullptr);
+                    updated = m_ledger;
+                }
+                saveLedger(updated);
+            }
+
             m_downloadState = DownloadState::Completed;
             updateDownloadedStatus();
+            updateFreshness();
             if (completeCb) {
                 completeCb(true, "");
             }
@@ -233,14 +309,28 @@ bool DiskCatalog::isDiskDownloaded(const std::string& filename) const {
 bool DiskCatalog::deleteDownloadedDisk(const std::string& filename) {
     std::string path = getDiskPath(filename);
     if (DeleteFileA(path.c_str())) {
-        // Update status
-        std::lock_guard<std::mutex> lock(m_catalogMutex);
-        for (auto& entry : m_catalogEntries) {
-            if (entry.filename == filename) {
-                entry.isDownloaded = false;
-                break;
+        {
+            // Update status
+            std::lock_guard<std::mutex> lock(m_catalogMutex);
+            for (auto& entry : m_catalogEntries) {
+                if (entry.filename == filename) {
+                    entry.isDownloaded = false;
+                    entry.freshness = DiskFreshness::NotInstalled;
+                    break;
+                }
             }
         }
+        // The record described a file that is gone. Left behind it would be
+        // claimed by the next file to take that name - a hand-copied image, or a
+        // download this build did not verify - and describe bytes it has never
+        // seen. Taken outside the catalog lock: saveLedger writes a file.
+        DiskLedger updated;
+        {
+            std::lock_guard<std::mutex> lock(m_ledgerMutex);
+            m_ledger.removeRecord(filename);
+            updated = m_ledger;
+        }
+        saveLedger(updated);
         return true;
     }
     return false;
@@ -579,6 +669,10 @@ bool DiskCatalog::parseCatalogXML(const std::string& xml, std::vector<DiskEntry>
         entry.name = extractField("name");
         entry.description = extractField("description");
         entry.license = extractField("license");
+        // Read but not validated here: an <sha256></sha256> and a missing
+        // element both come back as the empty string, and telling a usable hash
+        // from either is DiskLedger::normalizedHash's job, in one place.
+        entry.sha256 = extractField("sha256");
 
         std::string sizeStr = extractField("size");
         if (!sizeStr.empty()) {
@@ -622,4 +716,164 @@ void DiskCatalog::updateDownloadedStatus() {
             }
         }
     }
+}
+
+//=============================================================================
+// Provenance
+//
+// DiskLedger.h carries the reasoning; what is here is the I/O it deliberately
+// does not have. The short version: a downloaded disk is a writable CP/M
+// volume, so "its bytes differ from the catalog" is not evidence that it is
+// stale - it is the normal state of a disk somebody has saved a file on. What
+// decides staleness is which published image the bytes CAME FROM, and the only
+// moment that can honestly be recorded is a download this code verified.
+//=============================================================================
+
+std::string DiskCatalog::ledgerPath() const {
+    return getDownloadDirectory() + "\\disk_ledger.json";
+}
+
+void DiskCatalog::loadLedgerIfNeeded() {
+    {
+        std::lock_guard<std::mutex> lock(m_ledgerMutex);
+        if (m_ledgerLoaded) return;
+    }
+
+    // Read outside the lock: this is a file, and the lock is taken by callers
+    // that must not wait on one.
+    std::string text;
+    const std::string path = ledgerPath();
+    std::unique_ptr<FILE, int (*)(FILE*)> file(fopen(path.c_str(), "rb"), &fclose);
+    if (file) {
+        char buffer[4096];
+        size_t read = 0;
+        while ((read = fread(buffer, 1, sizeof(buffer), file.get())) > 0) {
+            text.append(buffer, read);
+        }
+    }
+
+    DiskLedger loaded = DiskLedger::deserialize(text);
+
+    std::lock_guard<std::mutex> lock(m_ledgerMutex);
+    // Another worker may have got here first. Its copy is at least as new as
+    // this one, and overwriting it would throw away a provenance record written
+    // by a download that finished while this read was in flight.
+    if (m_ledgerLoaded) return;
+    m_ledger = loaded;
+    m_ledgerLoaded = true;
+}
+
+void DiskCatalog::saveLedger(const DiskLedger& ledger) const {
+    const std::string path = ledgerPath();
+    const std::string text = ledger.serialize();
+
+    // Written through a temporary and moved into place. A ledger truncated by a
+    // crash mid-write deserialises to an empty one, which is safe by design -
+    // but an empty one costs a re-hash of the whole library, and there is no
+    // reason to accept that when a rename is atomic.
+    const std::string temp = path + ".new";
+    {
+        std::unique_ptr<FILE, int (*)(FILE*)> file(fopen(temp.c_str(), "wb"), &fclose);
+        if (!file) return;
+        if (fwrite(text.data(), 1, text.size(), file.get()) != text.size()) return;
+    }
+    MoveFileExA(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+}
+
+void DiskCatalog::updateFreshness() {
+    loadLedgerIfNeeded();
+
+    // Everything below works on copies, and each lock is taken and released on
+    // its own. Nothing here holds two at once - which is the rule that keeps
+    // this out of the self-deadlock updateDownloadedStatus() had to be written
+    // around.
+    const std::vector<DiskEntry> entries = getCatalogEntries();
+    DiskLedger ledger;
+    {
+        std::lock_guard<std::mutex> lock(m_ledgerMutex);
+        ledger = m_ledger;
+    }
+
+    std::vector<std::pair<std::string, DiskFreshness>> verdicts;
+    verdicts.reserve(entries.size());
+    bool ledgerChanged = false;
+
+    for (const auto& entry : entries) {
+        const std::string path = getDiskPath(entry.filename);
+
+        DiskFileFacts facts;
+        const bool present = diskhash::statFile(path, facts);
+
+        DiskFreshness verdict = ledger.freshness(entry.filename, entry.sha256,
+                                                 present ? &facts : nullptr);
+
+        if (verdict == DiskFreshness::NeedsMeasurement) {
+            // The expensive branch, and the reason this function is
+            // worker-thread-only. It is reached for a file installed before this
+            // bookkeeping existed, and for one whose size or write time has
+            // moved since we last looked - i.e. once per file that changed,
+            // rather than once per fetch.
+            std::string measured;
+            if (diskhash::sha256File(path, measured)) {
+                ledger.recordMeasurement(entry.filename, measured, facts);
+                // An image that already hashes to the catalog is current
+                // whoever downloaded it, so it can stop being provenance-less
+                // and never has to be hashed again. Nineteen of the twenty.
+                ledger.adoptProvenanceIfCurrent(entry.filename, entry.sha256);
+                ledgerChanged = true;
+                verdict = ledger.freshness(entry.filename, entry.sha256, &facts);
+            } else {
+                // Unreadable. Say nothing rather than guess; the next fetch
+                // tries again.
+                verdict = DiskFreshness::NeedsMeasurement;
+            }
+        }
+
+        verdicts.emplace_back(entry.filename, verdict);
+    }
+
+    if (ledgerChanged) {
+        DiskLedger toSave;
+        {
+            std::lock_guard<std::mutex> lock(m_ledgerMutex);
+            // Merge rather than assign: a download that completed while this was
+            // hashing has written a provenance record straight into m_ledger,
+            // and the copy taken at the top of this function does not have it.
+            for (const auto& [name, record] : ledger.records()) {
+                if (!m_ledger.record(name)) {
+                    m_ledger.setRecord(name, record);
+                } else if (m_ledger.record(name)->installedCatalogSha256.empty() &&
+                           !record.installedCatalogSha256.empty()) {
+                    m_ledger.setRecord(name, record);
+                } else if (!m_ledger.record(name)->hasMeasurement && record.hasMeasurement) {
+                    DiskRecord merged = *m_ledger.record(name);
+                    merged.hasMeasurement = true;
+                    merged.measuredSha256 = record.measuredSha256;
+                    merged.measuredSize = record.measuredSize;
+                    merged.measuredModified = record.measuredModified;
+                    m_ledger.setRecord(name, merged);
+                }
+            }
+            toSave = m_ledger;
+        }
+        saveLedger(toSave);
+    }
+
+    std::lock_guard<std::mutex> lock(m_catalogMutex);
+    for (const auto& [name, verdict] : verdicts) {
+        for (auto& entry : m_catalogEntries) {
+            if (entry.filename == name) {
+                entry.freshness = verdict;
+                break;
+            }
+        }
+    }
+}
+
+DiskFreshness DiskCatalog::getFreshness(const std::string& filename) const {
+    std::lock_guard<std::mutex> lock(m_catalogMutex);
+    for (const auto& entry : m_catalogEntries) {
+        if (entry.filename == filename) return entry.freshness;
+    }
+    return DiskFreshness::NotInstalled;
 }

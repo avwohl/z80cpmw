@@ -11,7 +11,7 @@ because `z80cpmw.vcxproj` compiles core sources straight out of them. They are
 not submodules and nothing fetches them.
 
     MSBuild z80cpmw.sln -p:Configuration=Release -p:Platform=x64 -t:Rebuild -m
-    cmd /c tests\run_tests.bat        # six headless suites, ~1325 checks
+    cmd /c tests\run_tests.bat        # seven headless suites, ~1467 checks
 
 The suites need no wxWidgets, no vcpkg and no window (except the rendering one,
 which opens its own). They run on any machine with a compiler. wxWidgets comes
@@ -48,8 +48,13 @@ must differ too.
 
 **A `.pdb` cannot be recovered after the fact.** A rebuild has a different debug
 GUID, so its symbols will not load against a shipped binary. Both packaging
-scripts keep the `.pdb` beside their output and fail if it is missing. 1.0.22
-shipped without one and its crash dumps are permanently unreadable.
+scripts keep the `.pdb` beside their output and fail if it is missing — but
+`build-msix.ps1` did that on its `-Beta` arm only until 1.0.25, so the rule was
+true of this file before it was true of the code. 1.0.22 and 1.0.24 both shipped
+Store packages with no symbols kept anywhere, and their crash dumps are
+permanently unreadable. The Store package's name carries no version, so its
+`.pdb` carries one instead: `dist\z80cpmw-<ver>-store.pdb`, which the next Store
+build cannot overwrite.
 
 **Say what was measured, not what was inferred.** This tree has repeatedly
 carried claims that were reasoned from one side of a mechanism without checking
@@ -64,6 +69,24 @@ identifier inside must resolve by `git grep` in that port at the recorded
 commit. `tools/check-sibling-drift.sh` enforces it and also reports how far each
 port's tree has moved past what its column was read at. Run it before trusting
 that document.
+
+## Searching this tree without a permission prompt
+
+Use `Grep`, `Glob` and `Read`, not `grep`/`find`/`cat` through Bash. The
+dedicated tools do not prompt; a Bash pipeline prompts once **per segment**, so
+one `cat x && grep y | head` is three interruptions. This is also a rule for
+subagents and workflows — a fan-out of seven investigators each running
+`git show` is where the prompt floods have come from, so tell them the same
+thing when you write their prompts, and prefer running the handful of `git` /
+`gh` commands yourself in one place.
+
+The prompts themselves are decided by `.claude/settings.json`, never by this
+file: `permissions.allow` there lists the read-only Bash forms (`grep:*`,
+`git log:*`, `gh release list:*`, …) plus `Read`/`Glob`/`Grep`. Add to that
+list when a new read-only command starts prompting. Note that Claude Code only
+watches for settings changes in directories that already had a settings file
+when the session started, so the first session that *creates* `.claude/` keeps
+prompting until `/config` is opened once or the session restarts.
 
 ## todo.txt
 

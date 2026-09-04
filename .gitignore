@@ -60,7 +60,14 @@ desktop.ini
 
 # Exclude large binary files that should be downloaded
 # roms/*.rom
-# disks/*.img
+
+# Not a commented-out intention any more.  CLAUDE.md's standing rule is that
+# every disk image comes from the ioscpm release area pinned by RELEASE_TAG and
+# that nothing is bundled in any package; disks/cpm_wbw.img and
+# disks/zsys_wbw.img were the last two tracked here, they were what the deleted
+# MainWindow::loadDefaultDisks() wanted, and no packaging script has staged them
+# since dbd53b1.  This is what stops the next one being committed by accident.
+disks/*.img
 
 # Upstream repos (pulled for reference)
 upstream/

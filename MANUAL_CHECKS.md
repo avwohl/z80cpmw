@@ -46,9 +46,10 @@ the same binary and also MSIX.
 ## 2. Keystroke delivery, mouse copy/paste, and the first-run Help window
 
 Never watched by a person, and nothing here can automate them.
-`tests\run_tests.bat` is **1323 checks in six suites** now — 516 terminal
-conformance, 353 help renderer and assets, 50 rendering conformance, 66 host
-file transfer, 36 HBIOS host file extension, 302 configuration diagnostics.
+`tests\run_tests.bat` is **1467 checks in seven suites** now — 516 terminal
+conformance, 355 help renderer and assets, 302 configuration diagnostics, 142
+disk provenance, 66 host file transfer, 50 rendering conformance, 36 HBIOS host
+file extension.
 
 **A cell becoming a pixel is no longer a person's job.** `tests/test_render.cpp`
 creates a real window, drives the parser with real bytes, asks the DWM for the
@@ -92,7 +93,46 @@ these checks are about. Nothing below can be settled by reading the source.
    suite; the *offline arm through the window* is not, because it needs WinHTTP
    to fail machine-wide.
 
-## 3. Reset asks first
+## 3. The disk status column, and the verdict behind it
+
+142 headless checks say what `DiskLedger` decides and that `DiskHash` measures
+it correctly. None of them can see a word reach the screen:
+`SettingsDialogWx.cpp` is in no suite and needs a real window, and the verdict
+is computed on the `fetchCatalog` worker against a live catalog and a real data
+folder, neither of which a suite has.
+
+- [ ] Settings → **Disk Images** with `hd1k_combo.img` already downloaded, on a
+      machine that has never run 1.0.25. Right: the status column says
+      **"Differs from catalog"** if that copy came from `v1.4.5`, and plain
+      **"Downloaded"** if it came from `v1.4.12`. This is the migration case and
+      it is the one most users are in — there is no ledger yet, so the app
+      hashes the file once and says only what it can prove. The first fetch
+      after an upgrade therefore reads ~49MB; watch that the dialog **stays
+      responsive** while it does, which is the whole reason that work is on the
+      worker.
+- [ ] Open it a **second** time. Right: the same verdict, and no re-read — the
+      measurement is cached in `data\disk_ledger.json` against the file's size
+      and write time. If it re-hashes every time, the write time is not
+      round-tripping and every launch will pay 211MB.
+- [ ] **Delete** that disk and **Download** it again, then reopen Settings.
+      Right: **"Downloaded"**, because the download was verified against the
+      catalog hash and its provenance recorded. Check `data\disk_ledger.json`
+      holds an `installedCatalogSha256` of `89b8ae1a…` for it.
+- [ ] Boot the guest off that disk, **save a file** in CP/M, quit, and reopen
+      Settings. Right: still **"Downloaded"** — the catalog has not moved, so
+      writing to the volume must not make it look stale. This is the check that
+      the verdict is provenance and not a byte comparison; if it says anything
+      about an update, the design has been undone.
+- [ ] Corrupt the copy by hand — open `data\hd1k_combo.img` and change a byte
+      well past the first megabyte — then reopen Settings. Right: still
+      **"Downloaded"**, for the same reason. (`R8`/`W8` may of course break;
+      that is not what this checks.)
+- [ ] Point `RELEASE_TAG` at `v1.4.5`, rebuild, and open Settings with a
+      `v1.4.12` copy installed and untouched. Right: **"Update available"** —
+      the superseded-and-pristine case, which is the only one that would ever be
+      replaced without asking. Put `RELEASE_TAG` back afterwards.
+
+## 4. Reset asks first
 
 `onEmulatorReset()` used to reboot on the keystroke. It asks now, and
 `MainWindow.cpp` is in no suite — it needs wxWidgets and a real window.
@@ -110,7 +150,7 @@ these checks are about. Nothing below can be settled by reading the source.
       `onEmulatorStart()` cold-boots without confirmation, so confirming a
       stopped Reset but not a Start would be arbitrary.
 
-## 4. The configuration report on screen
+## 5. The configuration report on screen
 
 302 headless checks say what `ConfigManager::load()` collects. None of them can
 see the block reach the terminal, or survive what clears it.
@@ -152,7 +192,7 @@ see the block reach the terminal, or survive what clears it.
       read changes no setting, so it may not take down the report about the
       file still in force.
 
-## 5. The bell
+## 6. The bell
 
 - [ ] Settings → Terminal, clear **Sound the bell (BEL, character 7)**, OK. Get
       the guest to *print* `0x07` — `TYPE` a file with one in it, `PRINT CHR$(7)`
@@ -165,7 +205,7 @@ see the block reach the terminal, or survive what clears it.
       ever stops calling `setBellEnabled()` this is a setting that only works
       after you change it a second time.
 
-## 6. The Keyboard page
+## 7. The Keyboard page
 
 - [ ] Settings → Keyboard, select a key, type a new sequence, OK, then press the
       key at the CP/M prompt. Right: the new bytes arrive, with no restart of the
@@ -177,7 +217,7 @@ see the block reach the terminal, or survive what clears it.
       is a mystery, which is the thing `reservedPurpose()` exists to prevent.
       The reserved rows sit below the ten navigation keys, so scroll for them.
 
-## 7. Settings on a short screen
+## 8. Settings on a short screen
 
 The dialog is four notebook pages and its height comes from `Fit()`, so adding
 the Keyboard page moved it: 819 to 1105px at 200% scaling on the display it was

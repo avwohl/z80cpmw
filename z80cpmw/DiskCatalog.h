@@ -6,6 +6,8 @@
 
 #pragma once
 
+#include "DiskLedger.h"
+
 #include <windows.h>
 #include <winhttp.h>
 #include <string>
@@ -24,7 +26,25 @@ struct DiskEntry {
     std::string description;
     size_t size = 0;
     std::string license;
+    // The catalog's <sha256> for this image, exactly as published - or empty,
+    // which is a real case the parser cannot distinguish from a missing element
+    // and which DiskLedger::normalizedHash is the test for. Nothing compared
+    // this before 1.0.25, which is why a repinned catalog could not be noticed:
+    // hd1k_combo.img is 51,380,224 bytes at v1.4.5 and at v1.4.12 alike and
+    // differs in 5,121 of them, so no size check can ever see the difference.
+    std::string sha256;
     bool isDownloaded = false;
+    // Whether the copy in the data folder is still the image the catalog names,
+    // and what may be done about it if not. Filled in by the fetchCatalog
+    // worker; DiskLedger.h has the whole of the reasoning.
+    //
+    // NeedsMeasurement is the right default and NotInstalled is not: this value
+    // is read before any fetch has computed it, and "we have not looked yet" is
+    // what is true then. It also makes the two callers correct without either of
+    // them special-casing an uncomputed entry - describe() renders it as plain
+    // "Downloaded", and action() asks for a measurement rather than offering
+    // anything.
+    DiskFreshness freshness = DiskFreshness::NeedsMeasurement;
 };
 
 // Download state
@@ -292,7 +312,24 @@ public:
         return m_catalogEntries;
     }
 
+    // The ledger's verdict for one entry, as of the last fetch. Returns
+    // NotInstalled for a name the catalog does not carry, which is also what a
+    // caller with no catalog yet gets.
+    DiskFreshness getFreshness(const std::string& filename) const;
+
 private:
+    // MUST RUN ON A WORKER THREAD, for the same reason diskhash::sha256File
+    // does: this is what calls it, once per downloaded image whose measurement
+    // has gone stale. Takes no lock across any other lock - it works on copies and
+    // assigns the results back one lock at a time - because updateDownloadedStatus
+    // reaching getDiskPath is exactly the shape that made m_downloadDirMutex a
+    // separate mutex in the first place.
+    void updateFreshness();
+
+    std::string ledgerPath() const;
+    void loadLedgerIfNeeded();
+    void saveLedger(const DiskLedger& ledger) const;
+
     // Download a URL to a string (blocking)
     bool downloadToString(const std::wstring& url, std::string& result, std::string& error);
 
@@ -323,6 +360,16 @@ private:
     std::vector<DiskEntry> m_catalogEntries;
     std::atomic<DownloadState> m_downloadState{DownloadState::Idle};
     std::atomic<bool> m_cancelRequested{false};
+
+    // Guards m_ledger. Its own mutex, and never held while either of the two
+    // above is: every user of it copies the ledger out, works on the copy, and
+    // assigns it back, so there is no path on which two of these three locks are
+    // held at once. m_ledgerLoaded exists so the file is read once rather than
+    // on every fetch; setDownloadDirectory clears it, because a different data
+    // folder is a different ledger.
+    mutable std::mutex m_ledgerMutex;
+    DiskLedger m_ledger;
+    bool m_ledgerLoaded = false;
 
     static const std::wstring CATALOG_URL;
     static const std::wstring RELEASE_BASE_URL;

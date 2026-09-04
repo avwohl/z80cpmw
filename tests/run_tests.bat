@@ -157,6 +157,43 @@ if errorlevel 1 (
     echo RENDERING CONFORMANCE SUITE FAILED
     exit /b 1
 )
+REM The disk provenance suite needs the least of any of them: DiskLedger.cpp
+REM holds no Win32, no WinHTTP and no file system, which is exactly why the
+REM decisions it makes are checkable at all.  DiskHash.cpp is linked beside it
+REM and does need windows.h and bcrypt.h - but not WinHTTP and not DiskCatalog,
+REM which is the whole reason those two functions were split out of that class:
+REM a wrong hash marks every image in the library as differing from the catalog,
+REM and that is not a failure anyone can see by reading.  bcrypt.lib is named by
+REM a pragma inside DiskHash.cpp, so it is absent from the link line here.
+REM
+REM It sits above the two sibling guards below for the same reason the help
+REM suite does - everything after an exit /b 1 is unreachable on a machine that
+REM has only this repository, and this suite has no reason to be there.
+if not exist "obj\tests\ledger" mkdir "obj\tests\ledger"
+
+echo.
+echo === Building the disk provenance suite ===
+cl /nologo /EHsc /W3 /O2 /std:c++17 ^
+    /D _CRT_SECURE_NO_WARNINGS ^
+    /I z80cpmw ^
+    tests\test_diskledger.cpp ^
+    z80cpmw\DiskLedger.cpp ^
+    z80cpmw\DiskHash.cpp ^
+    /Fo:obj\tests\ledger\ ^
+    /Fe:obj\tests\ledger\test_diskledger.exe ^
+    /link /SUBSYSTEM:CONSOLE
+if errorlevel 1 (
+    echo Build failed.
+    exit /b 1
+)
+
+echo.
+obj\tests\ledger\test_diskledger.exe
+if errorlevel 1 (
+    echo.
+    echo DISK PROVENANCE SUITE FAILED
+    exit /b 1
+)
 if not exist "..\romwbw_emu\src\emu_io.h" (
     echo.
     echo Missing ..\romwbw_emu - clone it beside this repository to run the

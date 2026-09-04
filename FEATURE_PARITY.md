@@ -1308,7 +1308,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     landed in `tests/`. It drives the terminal through the public interface
     only: cursor state is read back with `ESC [ 6 n`, which puts the answerback
     under test rather than assuming it, and screen content through `cellAt()`.
-    `tests\run_tests.bat` runs it first of **six suites, 1020 checks**, and the
+    `tests\run_tests.bat` runs it first of **seven suites, 1467 checks**, and the
     one beside it is not a model check at all — `tests/test_render.cpp` opens a
     real window, drives it with real bytes, asks the DWM for it with
     `PrintWindow(PW_RENDERFULLCONTENT)` and reads the pixels, 50 checks over the

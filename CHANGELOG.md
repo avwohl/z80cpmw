@@ -5,17 +5,20 @@ All notable changes to **z80cpmw** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use a simple `MAJOR.MINOR.PATCH` scheme: a `-beta` suffix names the
 signed GitHub / sideload package, and the bare number names the Microsoft Store
-release. The released Store version is **1.0.22**, published 2026-08-23; the
-current sideload package is **1.0.22-beta**, which is the same binary signed
-under our own publisher. **1.0.20** was built and tagged but never published on
-any channel, and **1.0.21** shipped only as a signed sideload beta.
+release. The released Store version is **1.0.23**; the newest sideload package
+is **1.0.22-beta**, which is the same binary as Store 1.0.22 signed under our
+own publisher. **1.0.20** was built and tagged but never published on any
+channel, and **1.0.21** shipped only as a signed sideload beta.
 
-**1.0.23 shipped to the Store and 1.0.24 is packaged.** 1.0.23 went out
-carrying the old catalog pin, so `1.0.24` exists to deliver the repin that
-missed it; `dist\z80cpmw.msix` is its unsigned Store package, awaiting a Partner
-Center submission. No `-beta` package has been cut for 1.0.24 yet. The Store
-channel leaves no git tag and no GitHub release behind, so the repository is not
-evidence of what has shipped - see the note below.
+**1.0.23 shipped to the Store; 1.0.24 is packaged and unsubmitted; 1.0.25 is a
+tree.** 1.0.23 went out carrying the old catalog pin, so `1.0.24` exists to
+deliver the repin that missed it, and `dist\z80cpmw.msix` is its unsigned Store
+package, still awaiting a Partner Center submission. `1.0.25` is the version
+number the work below it carries; it does not retire that package, because
+1.0.24 is built and verified at the artifact and 1.0.25 is not yet built at all.
+No `-beta` package has been cut for either. The Store channel leaves no git tag
+and no GitHub release behind, so the repository is not evidence of what has
+shipped - see the note below.
 
 1.0.23's two packages carried **the same binary**, as 1.0.22's did:
 `z80cpmw.exe` hashed `800715614bd5e20f…` inside both, because the beta was cut
@@ -39,8 +42,9 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
-Nothing. 1.0.24 is packaged; the detail of what 1.0.23 carried is kept below it
-because that release's entry refers back to it.
+Nothing. `Version.h` says 1.0.25 and that release's entry is below; the detail
+of what 1.0.23 carried is kept under this heading because 1.0.23's own entry
+refers back to it.
 
 ### Released as 1.0.23
 
@@ -1832,6 +1836,156 @@ were still carrying the old text in their own paragraphs were swept on
   on `PATH` on this machine and the script exits 2 rather than guessing. The
   refresh is not finished until it passes on the staged images somewhere that has
   cpmtools.
+
+## [1.0.25] - 2026-09-04
+
+**A user is now told when the disk image on their machine is no longer the one
+the catalog serves.** 1.0.24 repins `RELEASE_TAG` to `v1.4.12`, and that decides
+what a *new* download gets and nothing else: a machine that already had
+`hd1k_combo.img` kept the old `R8` and nothing anywhere said so. This is the
+half of that hole which can be closed in this repository.
+
+Release x64, MSBuild 18, **0 warnings and 0 errors**, and **seven** headless
+suites green - **1467 checks, 0 failures** (terminal conformance 516, help
+renderer and assets 355, configuration diagnostics 302, **disk provenance 142**,
+host file transfer 66, rendering conformance 50, HBIOS host file extension 36).
+`dist\z80cpmw.msix` is the unsigned Store package, 7,090,707 bytes, and it was
+**verified at the artifact rather than at the tree**: `tools/check-disk-pins.sh`
+reports `z80cpmw.msix carries v1.4.12, agrees with the tree`, its
+`AppxManifest.xml` reads `Version="1.0.25.0"` with the Store identity
+`Publisher="CN=724C9014-…"`, and it holds **0 entries matching `*.img`** — the
+"nothing is bundled" rule checked in the package instead of asserted from the
+script. No `-beta` has been cut; if one is, it must come off this same
+`bin\Release` with `-SkipBuild`.
+
+1.0.24's package was **not** overwritten by that build. `build-msix.ps1` writes
+the fixed name `dist\z80cpmw.msix` and deletes whatever is already there, so it
+was copied to `dist\z80cpmw-1.0.24-store.msix` first — 7,074,904 bytes, sha256
+`6320364e…`. It is still submittable.
+
+- **`DiskLedger` decides staleness from provenance, not from bytes**, and that
+  distinction is the whole design rather than an implementation detail. It is
+  **ported from `ioscpm`'s `iOSCPM/Views/DiskLedger.swift`**, which solved this
+  first; `todo.txt` said the first port to solve it was worth copying rather
+  than re-deriving, and this is that copy. What is dropped is the iOS-only half
+  - `NetworkCondition` and the expensive/constrained deferrals, which are about
+  somebody's cellular plan. What is kept is every decision that can lose work.
+  **The obvious fix destroys user data.** "Hash the file, re-download when it
+  differs from the catalog" is wrong in the direction that loses work, because a
+  downloaded disk is a *writable CP/M volume*: the emulator writes the guest's
+  changes straight into `data\hd1k_combo.img`, so the first time somebody saves
+  a file inside a catalog disk its bytes stop matching the catalog for ever -
+  and it is not stale, it is theirs. So the ledger records **the catalog
+  `<sha256>` that a verified download actually matched**, which local writes
+  cannot change: `superseded` is *recorded provenance != the catalog's current
+  hash*, and `pristine` - do the bytes still hash to what we recorded - decides
+  only whether replacing them is lossy. Only a superseded **and** pristine image
+  is ever a candidate for replacement without asking.
+  **Migration is the honest limit.** Every install in service has no ledger,
+  because nothing has ever written one, so an image that does not hash to the
+  catalog is either the superseded one or the user's own work and *there is no
+  evidence that separates them*. Those get a verdict of "Differs from catalog"
+  and never the automatic path. One case does resolve on its own: an image that
+  already hashes to the catalog is current whoever fetched it, so its provenance
+  is adopted on sight - which is what stops a migrating install re-hashing
+  nineteen of the twenty entries every time the catalog is fetched.
+- **`<sha256>` is parsed at last.** `parseCatalogXML` read `filename`, `name`,
+  `description`, `license` and `size` and skipped the hash the catalog has
+  always published, so nothing could compare anything: `isDiskDownloaded` is a
+  size floor (`size >= expectedSize`), and **both `hd1k_combo.img` images are
+  51,380,224 bytes** and differ in 5,121 of them, so no size check could ever
+  have seen the repin. An `<sha256></sha256>` and a missing element both parse
+  to the empty string, and telling either from a usable hash is
+  `DiskLedger::normalizedHash`'s job in one place rather than each caller's.
+- **A download is now verified against the catalog's hash before it counts.**
+  `downloadToFile` compared the byte count against `Content-Length`, which
+  passes a transfer that is the right length and the wrong bytes. A mismatch now
+  deletes the file and fails the download - and it has to, because provenance is
+  recorded only for a transfer this code verified: a recorded hash the bytes
+  never had would read as `Current` for ever. An entry whose catalog carries no
+  usable `<sha256>` still installs, unverified and without provenance, so an
+  older catalog than this build expects keeps working.
+- **Settings → Disk Images says which of the five things is true.**
+  `DiskLedger::describe` is the only place the wording lives, so a verdict
+  cannot be reworded in one dialog and not another: "Available", "Downloaded",
+  "Update available", "Update available (overwrites your changes)", and
+  "Differs from catalog" for the ambiguous migration case - which says what is
+  known rather than accusing the user of being out of date.
+- **`DiskHash` exists so the measurements can be checked.** `sha256File` and
+  `statFile` were written as private statics on `DiskCatalog`, where no suite
+  could reach them, and **neither failure is visible by reading**: a wrong hash
+  marks every image in the library as differing from the catalog, and a write
+  time read the wrong way re-hashes 211MB on every launch for ever. Split into
+  `DiskHash.cpp` - Win32 and the CRT, no WinHTTP, no wx, no `DiskCatalog` - the
+  suite links them, and it checks the hash against **FIPS 180-4's own vectors**
+  for `""` and `"abc"` rather than against the code agreeing with itself. The
+  64KB read loop is checked at 65535, 65536, 65537 and 200000 bytes against
+  BCrypt's *one-shot* API, which chunks nothing; a loop that stopped after one
+  block, or mistook a read error for EOF, would return a confident hash of a
+  prefix. The write time is stored as raw `FILETIME` ticks, as an integer all
+  the way to the JSON, for the reason the ported comment gives: a time that
+  round-trips a hair off invalidates every measurement on every launch.
+- **The threading contract is unchanged, and that took the work.**
+  `updateFreshness()` reads up to 211MB, so it runs on the `fetchCatalog`
+  worker and never from `updateDownloadedStatus()` - which is *also* called by
+  `setDownloadDirectory()` on the UI thread, and hashing the library inside the
+  Settings dialog's OK handler would freeze it. `m_ledgerMutex` is a third
+  mutex rather than a share of either existing one, and nothing holds two at
+  once: every user copies the ledger out, works on the copy and assigns it back.
+  The write-back **merges** rather than assigns, because a download that
+  completed while the hashing ran has already written a provenance record that
+  the copy taken at the top does not have. The ledger file is written through a
+  temporary and `MoveFileEx`'d into place; a truncated one deserialises to an
+  *empty* ledger rather than a half one, since a stale measurement against the
+  wrong file reads as a verdict while a missing record only costs a re-measure.
+- **`DiskCatalog.cpp` still never reads `disks.xml`'s `version` attribute.** The
+  check recorded under 1.0.23 - that this port has none of the
+  catalog-invalidation wipe that deleted user-imported images on `ioscpm` -
+  stays true: this release adds a `<sha256>` reader and no attribute reader.
+- **`disks/cpm_wbw.img` and `disks/zsys_wbw.img` are deleted**, 13,824 and
+  10,240 bytes, and the `disks/` folder with them. They were what the deleted
+  `MainWindow::loadDefaultDisks()` wanted, no packaging script has staged them
+  since dbd53b1, and nothing in the tree names them: `Grep` over the sources,
+  the tests, `tools/`, `build*.bat`, the `.vcxproj`, the `.nsi` and the
+  packaging scripts returns only prose about their deletion. `.gitignore`'s
+  commented-out `# disks/*.img` is now a real rule, so the standing "disk images
+  come from the ioscpm release area, always" is enforced rather than remembered.
+  The two comments that described `loadDefaultDisks()` in the present tense -
+  in `z80cpmw.nsi` and `packaging/STORE_SUBMISSION.md` - are corrected.
+- **`build-msix.ps1` keeps the Store package's `.pdb`.** Step 6 was
+  `if ($Beta)`, so the symbol copy — and the `Write-Error` that fails the run
+  when there are none — covered the sideload beta and **not** the Store package,
+  which is the binary most users run. `CLAUDE.md` has said "both packaging
+  scripts keep the `.pdb` beside their output and fail if it is missing" since
+  the 1.0.22 post-mortem, so the rule was true of the documentation and false of
+  the code, on the vehicle nobody re-read. The reasoning that left it that way —
+  "the beta is the binary testers actually run" — is a reason to cover the beta,
+  never a reason to leave the Store arm uncovered; Microsoft re-signing a package
+  does not change what a crash dump from it needs. It now runs on every arm.
+  The name is versioned, `dist\z80cpmw-<ver>-store.pdb`, because the Store
+  package's own name is not: an unversioned `z80cpmw.pdb` would be overwritten by
+  the next Store build, which is exactly how a shipped version's symbols are lost.
+  **The cost of the gap is already sunk for 1.0.24.** No `.pdb` for it exists
+  anywhere — `dist\` holds only `z80cpmw-1.0.21-beta.pdb` and
+  `z80cpmw-1.0.23-beta.pdb`, and `bin\Release\z80cpmw.pdb` has since been rebuilt
+  at 1.0.25 — so if 1.0.24 is submitted, its crash dumps will be unreadable the
+  way 1.0.22's are. 1.0.23 escapes only by accident: its beta was cut from the
+  same build, so `z80cpmw-1.0.23-beta.pdb` symbolicates the Store binary too.
+- **`Version.h` moves 1.0.24 → 1.0.25**, which is the whole of what a version
+  bump touches: the scripts parse those four `#define`s and the committed
+  `AppxManifest.xml` carries a `0.0.0.0` placeholder.
+
+**What this release does not do**, said here rather than discovered later.
+Nothing acts on `DiskRefreshPlan::RefreshNow` yet - the ledger names the images
+that could be replaced without losing anything, and no caller replaces them,
+because `isMounted` is `MainWindow`'s fact and replacing a file the running
+machine holds in a slot undoes itself on the next flush. And a user who never
+opens Settings is still not told: `downloadAndStartWithDefaults()` loads what
+`diskFileLooksComplete()` finds and never fetches the catalog, so a boot-time
+notice would mean a network fetch at every launch. Both are in `todo.txt`.
+`MainWindow.cpp` and `SettingsDialogWx.cpp` are in no suite and cannot be, so
+the status column compiles and has **not** been seen on a screen - it is in
+`MANUAL_CHECKS.md`.
 
 ## [1.0.24] - 2026-09-03
 

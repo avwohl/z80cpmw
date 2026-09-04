@@ -7,51 +7,41 @@ Related: MANUAL_CHECKS.md (checks needing a person at a keyboard),
 KNOWN_PROBLEMS.md (standing facts that will never be "done"), WIP.md (handoff).
 
 
-1.0.24 IS BUILT AND PUBLISHED ON NEITHER CHANNEL
--------------------------------------------------
+- [RELEASE] dist\z80cpmw.msix is 1.0.25's unsigned Store package and needs a
+Partner Center submission.  That submission is the whole item.  The Store is on
+1.0.23, which serves the v1.4.5 catalog, so every Windows user today runs the R8
+that erases every matching CP/M file when a host filename holds ? or *.
 
-- [RELEASE] 1.0.24 is packaged and awaits a Partner Center submission.  That
-submission is the whole item.  Version.h says 1.0.24 as of 5ee0e5f, RELEASE_TAG
-in DiskCatalog.cpp says v1.4.12, dist\z80cpmw.msix is its unsigned Store package,
-and tools/check-disk-pins.sh was run against that package rather than the tree
-and reported it carries v1.4.12.  The Store is on 1.0.23, which went out carrying
-v1.4.5 - CHANGELOG.md's header says both things.  So every Windows user today
-fetches the v1.4.5 catalog and runs the R8 that hands an unfiltered host basename
-to F_DELETE: importing a host file whose name holds ? or * erases every matching
-CP/M file first and says nothing.
+  Submit 1.0.25, not 1.0.24.  Both carry the v1.4.12 repin and both were
+  verified at the artifact, but 1.0.24 was packaged before build-msix.ps1 kept
+  the Store arm's symbols and no .pdb for it exists anywhere, so its crash dumps
+  would be unreadable the way 1.0.22's are.  1.0.24's package is kept as
+  dist\z80cpmw-1.0.24-store.msix; delete it once 1.0.25 is submitted.
 
-  Do not read shipping state out of this repository.  The Store channel leaves no
-  git tag and no GitHub release behind, so git is evidence of what was built and
-  never of what went out - the newest GitHub release is v1.0.22-beta from
-  2026-08-24 and it is two Store versions behind.  CHANGELOG.md's header is the
-  record.
+- [RELEASE] the GitHub channel has no pin at all and nothing says so.  v1.0.14
+is what GitHub marks Latest; DiskCatalog.cpp at that tag builds both URLs from
+releases/latest/download/, so the stable download floats onto ioscpm's
+releases/latest - today v1.4.11, the pre-fix R8.  The newest thing on that
+channel since is v1.0.22-beta.  Cutting a -beta fixes it.
 
-  If a -Beta package is cut it must come off this same build with -SkipBuild, so
-  both channels carry one binary, and it must not be signed on a published
-  version number.
+  It must come off the same bin\Release the Store package was made from, with
+  -SkipBuild, and must not run on a published version number.  Neither 1.0.24
+  nor 1.0.25 is published, so both are legal; rehearse with -Beta -SkipBuild
+  -SkipSign, which writes a distinct -unsigned name and reaches neither sign.ps1
+  nor the network.
 
-- [RELEASE] the GitHub channel is worse off than the Store one and nothing says
-so.  v1.0.14 is what GitHub marks Latest, and it has no pin at all:
-DiskCatalog.cpp at that tag builds both URLs from
-releases/latest/download/, so anyone who installs the stable download gets a
-client that floats onto ioscpm's releases/latest - today v1.4.11, the pre-fix
-R8.  Pinning arrived after it, and the newest thing on that channel since is
-v1.0.22-beta.  Cutting a -beta off the 1.0.24 build fixes both at once; until
-then the stable GitHub download is the least protected way to install this app.
+- 1.0.25 makes a superseded disk image visible and does not yet make it go away.
+Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:
 
-  Two low ones that ride along and close with the same release.  Both
-  downloadable msix packages carry a disks\ folder with a stale hd1k_combo.img
-  (v1.0.14 c14b9bef..., v1.0.22-beta be19984e...) - inert, since the only reader
-  of that folder was loadDefaultDisks(), which had no caller and wanted
-  filenames that were never staged, and dbd53b1 removed the staging - so it is
-  ~57 MB of dead payload, not a wrong image in use.  And disks/cpm_wbw.img and
-  disks/zsys_wbw.img are still tracked here, 13824 and 10240 bytes, and are what
-  that deleted function wanted; decide whether they go too.
+  * Nothing calls downloadDisk() for a DiskRefreshPlan::RefreshNow.  The caller
+  has to be the UI rather than DiskCatalog, because isMounted is MainWindow's
+  fact - replacing a file the running machine holds in a slot undoes itself on
+  the next flush.  Wants an Update button beside Download and Delete.
 
-- [RELEASE] shipping the repin does not refresh an image already on a machine,
-and the release notes should not claim it does.  disks.xml's version attribute
-is 13 at v1.4.5 and 13 at v1.4.12 alike, deliberately, because changing it wipes
-downloaded disks; hd1k_combo.img is the only one of the twenty whose bytes moved.
-A user who has already downloaded it keeps the old R8 until they delete it by
-hand.  ioscpm and cpmdroid have the identical hole, and whichever port solves it
-first is worth copying rather than re-deriving.
+  * A user who never opens Settings is never told.
+  downloadAndStartWithDefaults() loads what diskFileLooksComplete() finds and
+  never fetches the catalog, so a boot notice means a network fetch at every
+  launch - a real behaviour change, to decide rather than assume.
+
+  MainWindow.cpp and SettingsDialogWx.cpp are in no suite and cannot be, so both
+  are verified by driving the built app.  See WIP.md.
