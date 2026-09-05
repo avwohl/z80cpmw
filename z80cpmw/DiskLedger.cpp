@@ -7,6 +7,7 @@
  */
 
 #include "DiskLedger.h"
+#include "DiskMigrationV0.h"
 #include "include/nlohmann/json.hpp"
 
 #include <algorithm>
@@ -131,6 +132,17 @@ DiskFreshness DiskLedger::freshness(const std::string& filename,
 
     if (haveProvenance) {
         if (provenance == catalog) return DiskFreshness::Current;
+
+        // The one image the v0 migration leaves under a hash that disagrees with
+        // the catalog naming it, because two toolchains built the same disk and
+        // left different slack between the same 94 files. Only the migration can
+        // produce this provenance - a download records the catalog it was fetched
+        // against - so it cannot bless a corrupt or unrelated file, and it stops
+        // applying once this machine fetches the canonical image. The
+        // measurements are on diskv0::isEquivalentPriorImage.
+        if (diskv0::isEquivalentPriorImage(provenance, catalog)) {
+            return DiskFreshness::Current;
+        }
 
         // Superseded. Whether replacing it is lossy depends on a measurement
         // that still applies; with no usable measurement, nothing may be

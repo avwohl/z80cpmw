@@ -46,6 +46,37 @@ therefore not evidence of what has shipped.
 of it. The detail of what 1.0.23 carried is kept under this heading because
 1.0.23's own entry refers back to it.
 
+### The migrated combo is equivalent, so the ledger stops calling it superseded
+
+`hd1k_combo` is the one image of twenty whose bytes differ between ioscpm
+`v1.4.12` and `romwbw_disks`' `catalog-v0-3.5.1.json`, and the migration renames
+rather than re-downloads - so a migrated machine holds it under a hash the
+catalog does not name. `DiskLedger::freshness` called that `SupersededPristine`,
+which `action()` turns into `RefreshAutomatically`; nothing calls `action()`
+today, which was the only reason it was harmless.
+
+It is not superseded. The published `v1.4.12` asset was fetched and compared byte
+for byte against the v0 image: both 51,380,224 bytes, slices 1-5 byte-identical,
+slice 0's directory listing the same 94 files, and all 94 extracting
+byte-identical - `r8.com` and `w8.com` included, at 1,792 bytes each. The 2,342
+bytes that differ are CP/M slack between those files: unallocated blocks still
+holding a deleted file's content, plus a little `0xE5` directory padding.
+
+`diskv0::isEquivalentPriorImage` records that one pair and `freshness` returns
+`Current` for it. So the Settings status column stops saying "Update available"
+for an image whose every file already matches, and an Update button - when one is
+wired - will not offer every user 49 MB for nothing.
+
+Keyed on **provenance**, which is what makes it an exception rather than a hole:
+a download records the catalog it was fetched against, so only the migration can
+put the pre-v0 hash in that field. It cannot bless a corrupt, truncated or
+unrelated image, and it stops applying once a machine fetches the canonical one.
+
+Compiled and run here: `tests/test_catalogv0.cpp` is 113 checks now, six of them
+new and all passing, under `g++ -std=c++17 -Wall -Wextra`; `DiskLedger.cpp` and
+`DiskMigrationV0.cpp` also syntax-check under mingw. `romwbw_disks`
+`docs/FINDINGS.md` section 10 carries the measurements.
+
 ### The disk catalog comes from romwbw_disks, and there is no release tag
 
 **NOT COMPILED** - written on a Linux machine with no MSVC, no wxWidgets and no

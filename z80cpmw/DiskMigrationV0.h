@@ -96,6 +96,30 @@ const std::vector<std::string>& legacyCatalogFilenames();
 // the pass has already run over this name, or the file arrived under a v0 name
 // to begin with. Running the migration twice has to be harmless, and this is
 // the test that makes it so.
+// True when 'provenance' names a pre-v0 image already known to be equivalent to
+// the image 'catalogSha256' names. Both are compared lowercased.
+//
+// There is exactly one such pair, and it exists because two toolchains built the
+// same disk. hd1k_combo is the only one of the twenty images whose bytes differ
+// between ioscpm v1.4.12 and catalog-v0-3.5.1.json, and the difference is not in
+// anything a guest can reach: both are 51,380,224 bytes, slices 1-5 are
+// byte-identical, slice 0's directory lists the same 94 files, and all 94 extract
+// byte-identical - r8.com and w8.com included, at 1,792 bytes each. The 2,342
+// bytes that differ are CP/M slack between those files: unallocated blocks still
+// holding a deleted file's content, plus a little 0xE5 directory padding.
+// Measured, not assumed - romwbw_disks docs/FINDINGS.md section 10 has the ranges.
+//
+// So a migrated machine holds an image whose every file already matches the
+// catalog, under a hash that does not. Refreshing it would spend 49 MB of
+// somebody's connection to replace 2,342 bytes of garbage with different garbage.
+//
+// Keyed on PROVENANCE, which is what makes this an exception rather than a hole:
+// a download records the catalog it was fetched against, so only the migration
+// can put the pre-v0 hash in that field. It cannot bless a corrupt, truncated or
+// unrelated image, and it stops applying once a machine fetches the canonical one.
+bool isEquivalentPriorImage(const std::string& provenance,
+                            const std::string& catalogSha256);
+
 bool looksLikeV0Name(const std::string& filename);
 
 // The v0 filename for a bare pre-v0 one. False - and 'out' untouched - when the

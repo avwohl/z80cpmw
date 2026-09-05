@@ -69,6 +69,25 @@ bool looksLikeV0Name(const std::string& filename) {
     return at != std::string::npos && at + tag.size() < stem.size();
 }
 
+bool isEquivalentPriorImage(const std::string& provenance,
+                            const std::string& catalogSha256) {
+    // hd1k_combo-v0-3.5.1.img, and nothing else. A table rather than a pair of
+    // constants because the shape is what a second entry would need, but there
+    // is deliberately only one: every other published image is byte-identical
+    // across the two catalogs.
+    static const struct { const char* catalog; const char* prior; } kEquivalent[] = {
+        { "0ca4ec60cb8bca71b8f0287c4b634c3126887be483db9b59b41bdff424f89303",
+          "89b8ae1aaa6867dc515c3511b34c4f0c311a77e99ff71066f5a774bef99cde1d" },
+    };
+
+    const std::string cat = DiskLedger::fold(catalogSha256);
+    const std::string prov = DiskLedger::fold(provenance);
+    for (const auto& e : kEquivalent) {
+        if (cat == e.catalog && prov == e.prior) return true;
+    }
+    return false;
+}
+
 bool v0NameFor(const std::string& filename, std::string& out) {
     if (filename.empty()) return false;
     if (looksLikeV0Name(filename)) return false;

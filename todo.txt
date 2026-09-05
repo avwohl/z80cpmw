@@ -48,12 +48,17 @@ Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:
     tests\test_diskledger.cpp.  That is the ONLY reason the verdict is harmless
     today, and it is what an Update button would end.
 
-    So the Update button must not ship until it is decided what that verdict
-    means.  It would offer every user at once a 49 MB re-download of an image
-    whose R8 and W8 are already the fixed ones, on the strength of a hash that
-    moved because the catalog moved rather than because the disk did.  The
-    Settings status column says "Update available" for it in the meantime, which
-    is true and costs nothing.
+    DECIDED 2026-09-05, AND THE VERDICT IS NO LONGER SUPERSEDED.  The two images
+    were compared byte for byte: both 51,380,224 bytes, slices 1-5 identical,
+    slice 0's directory listing the same 94 files, and all 94 extracting
+    byte-identical - r8.com and w8.com included.  The 2,342 bytes that differ are
+    CP/M slack between those files.  diskv0::isEquivalentPriorImage records that
+    one pair and DiskLedger::freshness now returns Current for it, so the
+    Settings column no longer says "Update available" and an Update button, when
+    one is wired, will not offer 49 MB for nothing.  It is keyed on provenance:
+    a download records the catalog it was fetched against, so only the migration
+    can produce it, and it stops applying once this machine fetches the canonical
+    image.  romwbw_disks docs/FINDINGS.md section 10 has the byte ranges.
 
   * A user who never opens Settings is never told.
   downloadAndStartWithDefaults() now fetches the catalog when it has to download

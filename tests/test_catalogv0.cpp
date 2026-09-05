@@ -43,7 +43,9 @@
  */
 
 #include "CatalogV0.h"
+#include "DiskMigrationV0.h"
 
+#include <cctype>
 #include <cstdio>
 #include <string>
 #include <vector>
@@ -657,6 +659,41 @@ static void test_the_url_that_is_compiled_in() {
     checkStr(catalogv0::INTERFACE, "v0", "the interface these documents describe");
 }
 
+static void test_the_one_equivalent_prior_image() {
+    section("the one pre-v0 image accepted as equivalent");
+
+    const std::string v0Combo =
+        "0ca4ec60cb8bca71b8f0287c4b634c3126887be483db9b59b41bdff424f89303";
+    const std::string priorCombo =
+        "89b8ae1aaa6867dc515c3511b34c4f0c311a77e99ff71066f5a774bef99cde1d";
+
+    check(diskv0::isEquivalentPriorImage(priorCombo, v0Combo),
+          "the v1.4.12 combo stands in for the v0 one - same 94 files byte for byte, "
+          "differing only in the CP/M slack between them",
+          "accepted", "accepted");
+
+    std::string upperPrior = priorCombo, upperCat = v0Combo;
+    for (auto& c : upperPrior) c = (char)toupper((unsigned char)c);
+    for (auto& c : upperCat) c = (char)toupper((unsigned char)c);
+    check(diskv0::isEquivalentPriorImage(upperPrior, upperCat),
+          "and the comparison folds case, because nothing guarantees how a hash was stored",
+          "accepted", "accepted");
+
+    check(!diskv0::isEquivalentPriorImage(v0Combo, priorCombo),
+          "the relation is one-way: the v0 image is not a stand-in for the older one",
+          "refused", "refused");
+    check(!diskv0::isEquivalentPriorImage(std::string(64, '0'), v0Combo),
+          "an unrelated hash is refused - this must never become a way to bless a "
+          "corrupt or truncated image",
+          "refused", "refused");
+    check(!diskv0::isEquivalentPriorImage(priorCombo, std::string(64, 'f')),
+          "and it is keyed on the catalog hash too, so it cannot leak onto another image",
+          "refused", "refused");
+    check(!diskv0::isEquivalentPriorImage("", ""),
+          "two empty hashes are not equivalent to each other",
+          "refused", "refused");
+}
+
 int main() {
     printf("=== Interface-v0 catalog suite ===\n");
 
@@ -668,6 +705,7 @@ int main() {
     test_real_catalog();
     test_catalog_tolerance();
     test_the_url_that_is_compiled_in();
+    test_the_one_equivalent_prior_image();
 
     printf("\n===============================\n");
     printf("%d checks, %d failed\n", g_checks, g_failed);
