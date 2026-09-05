@@ -217,6 +217,27 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
     <ClCompile Include="DiskLedger.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <!-- NotUsing for the same reason again, and here it is the difference
+         between a test and no test at all: CatalogV0.cpp reads the two
+         interface-v0 catalog documents, and DiskCatalog.cpp - the only thing
+         that fetches them - owns WinHTTP and a detached thread and can be
+         linked by nothing. Holding no Win32, no WinHTTP and no threads is what
+         lets tests\test_catalogv0.cpp drive it against the real published
+         index and catalog. It is also what makes "the parse cannot throw"
+         checkable, which matters because the parse it replaces called
+         std::stoull on a served value with nothing to catch it. -->
+    <ClCompile Include="CatalogV0.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <!-- NotUsing for exactly the reason above, and it is the same argument one
+         step on: DiskMigrationV0.cpp decides which files the interface-v0
+         migration renames and what every stored path becomes, and getting that
+         wrong loses a user's configured disk. It holds no Win32 and no file
+         system so both tests\test_diskledger.cpp and tests\test_config.cpp can
+         link it and check those decisions; pch.h at the top would end that. -->
+    <ClCompile Include="DiskMigrationV0.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <!-- NotUsing for the same reason, one step weaker: DiskHash.cpp does need
          windows.h and bcrypt.h, but not WinHTTP, not wx and not DiskCatalog.
          That is what lets the disk provenance suite link it and check a hash
@@ -290,6 +311,8 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
     <ClInclude Include="TerminalView.h" />
     <ClInclude Include="EmulatorEngine.h" />
     <ClInclude Include="DiskCatalog.h" />
+    <ClInclude Include="CatalogV0.h" />
+    <ClInclude Include="DiskMigrationV0.h" />
     <ClInclude Include="HelpAssets.h" />
     <ClInclude Include="HelpWindow.h" />
     <ClInclude Include="Dazzler.h" />

@@ -10,9 +10,16 @@
 #include <sstream>
 #include <commctrl.h>
 
-// Remote help intentionally tracks "latest" (unlike the disk catalog, which is
-// pinned in DiskCatalog.cpp): help text is low-risk content with no ROM coupling,
-// so improvements can ship without cutting a new release.
+// Remote help intentionally tracks "latest": help text is low-risk content with
+// no ROM coupling, so improvements can ship without cutting a new release. The
+// disk catalog is the other way round and no longer comparable - it is fetched
+// from an immutable per-release tag in avwohl/romwbw_disks, named by a document
+// rather than by a constant here (see CatalogV0.h).
+//
+// NOTE, and it is the reason this is not a detail: these two URLs are why
+// avwohl/ioscpm's Latest release stays load-bearing after every disk image has
+// moved to romwbw_disks. Migrating the catalog did not free that tag; only this
+// does.
 const std::wstring HelpWindow::INDEX_URL =
     L"https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json";
 const std::wstring HelpWindow::CONTENT_BASE_URL =

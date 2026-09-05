@@ -16,31 +16,71 @@
 // split.
 #include "DiskHash.h"
 
-// Disk images are pinned to one explicit ioscpm release tag (not "latest"), so a
-// new ioscpm release can't silently swap the disk images out from under an
-// installed client and re-introduce an HBIOS/CBIOS version mismatch with the
-// embedded ROM. When you rebuild the ROMs + disks against a new RomWBW version
-// and cut a new ioscpm release, bump RELEASE_TAG here to that new tag (and bump
-// the app version). This is the single source of truth for both URLs below.
-// v1.4.12 (2026-09-01) replaces v1.4.5. The only difference between the two
-// catalogs is hd1k_combo.img: 7042 bytes each, differing on one line, the
-// <sha256> going be19984e... -> 89b8ae1a.... Every other filename, size and
-// hash is identical, and so is the catalog's version attribute - which matters
-// because a moved version attribute is what triggers the disk-wipe on ports
-// that have one (this one does not; nothing here reads that attribute).
+// emu_romwbw_release_supported(), and nothing else from the core.
 //
-// What the new combo image fixes is R8: the old one hands an unfiltered host
-// basename to F_DELETE, so importing a host file whose name contains ? or *
-// erased every matching CP/M file first. It also brings the v1.36 W8 - no
-// truncation of a binary export at the first 1Ah, host paths containing a
-// space, 32-bit byte counts, and no bogus org 0100h padding w8.com with 256
-// leading zero bytes.
-static const std::wstring RELEASE_TAG = L"v1.4.12";
+// Which RomWBW releases to OFFER is the core's answer and not this class's: a
+// client can be built against a newer or an older core than it expects, so a
+// hardcoded list here would be wrong in one direction the day romwbw_disks
+// publishes a release the core has not been checked against, and wrong in the
+// other the day the core gains one. Asking costs one call over an index entry
+// this worker has already fetched, and costs no download at all.
+#include "emu_init.h"
 
-const std::wstring DiskCatalog::CATALOG_URL =
-    L"https://github.com/avwohl/ioscpm/releases/download/" + RELEASE_TAG + L"/disks.xml";
-const std::wstring DiskCatalog::RELEASE_BASE_URL =
-    L"https://github.com/avwohl/ioscpm/releases/download/" + RELEASE_TAG + L"/";
+namespace {
+
+// A URL for WinHTTP, which wants wide characters.
+//
+// This used to be a bare per-byte static_cast<wchar_t>, i.e. a Latin-1 widen,
+// and it was safe only because both halves of the URL were ASCII literals in
+// this file. Now the base comes out of a fetched document, so a byte above 0x7F
+// is refused rather than reinterpreted: a URL that needs one is a URL that has
+// not been percent-encoded, and silently producing a mangled host is a worse
+// answer than saying no.
+bool widenUrl(const std::string& url, std::wstring& out) {
+    std::wstring wide;
+    wide.reserve(url.size());
+    for (unsigned char c : url) {
+        if (c > 0x7F) return false;
+        wide += static_cast<wchar_t>(c);
+    }
+    out = wide;
+    return true;
+}
+
+}  // namespace
+
+// THERE IS NO RELEASE TAG HERE ANY MORE, and that is the whole of this release.
+//
+// What used to be at the top of this file was `RELEASE_TAG = L"v1.4.12"` and two
+// URLs interpolated out of it - one for `disks.xml` and one for the download
+// base - with a comment describing which ioscpm release the disks were pinned to
+// and what had changed in it. Repointing a client at a new set of images meant
+// editing that constant, cutting a release, and hoping every copy of the story
+// in every client's comments stayed true. The tag was also the only thing that
+// said which RomWBW release the images were built for, so nothing could offer
+// two, and a client could not tell a repin from a rebuild.
+//
+// The catalog now lives in `avwohl/romwbw_disks` as two documents, and this
+// application compiles in exactly one URL - catalogv0::INDEX_URL, the index.
+// Everything else is read out of a document that arrived over the network:
+//
+//   index-v0.json         which RomWBW releases exist, and for each, the version
+//                         bytes a core needs to boot it, the absolute URL of its
+//                         catalog, and that catalog's size and sha256
+//   catalog-v0-<ver>.json base_url, roms[] and disks[] for one release
+//
+//   asset URL = base_url + filename          (base_url ends in "/"; nothing is
+//                                             inserted between them)
+//
+// So a URL cannot be assembled here from a version string, which means it cannot
+// be assembled WRONG here from a stale one. CatalogV0.h holds the parse and the
+// choice of release; this file holds the transport, the cache and the ledger.
+//
+// One consequence worth naming because it is invisible from this file:
+// tools/check-disk-pins.sh matched the quoted vX.Y.Z above with a regex, so with
+// the constant gone it prints NO PIN FOUND and exits 1 for a client that is
+// working correctly. It is byte-identical across five repositories and is not
+// this repository's to rewrite alone.
 
 DiskCatalog::DiskCatalog() {
     // m_downloadDir is assigned here without taking m_downloadDirMutex, and
@@ -107,6 +147,98 @@ void DiskCatalog::setDownloadDirectory(const std::string& dir) {
     }
 }
 
+void DiskCatalog::setPreferredRomwbwVersion(const std::string& romwbwVersion) {
+    std::lock_guard<std::mutex> lock(m_indexMutex);
+    m_preferredVersion = romwbwVersion;
+}
+
+std::string DiskCatalog::getPreferredRomwbwVersion() const {
+    std::lock_guard<std::mutex> lock(m_indexMutex);
+    return m_preferredVersion;
+}
+
+std::string DiskCatalog::getSelectedRomwbwVersion() const {
+    std::lock_guard<std::mutex> lock(m_indexMutex);
+    return m_selectedVersion;
+}
+
+std::vector<catalogv0::IndexEntry> DiskCatalog::getRunnableVersions() const {
+    std::lock_guard<std::mutex> lock(m_indexMutex);
+    return m_runnableVersions;
+}
+
+std::vector<catalogv0::RomItem> DiskCatalog::getCatalogRoms() const {
+    std::lock_guard<std::mutex> lock(m_catalogMutex);
+    return m_catalogRoms;
+}
+
+bool DiskCatalog::findDiskById(const std::string& id, DiskEntry& out) const {
+    std::lock_guard<std::mutex> lock(m_catalogMutex);
+    for (const auto& entry : m_catalogEntries) {
+        if (entry.id == id) {
+            out = entry;
+            return true;
+        }
+    }
+    return false;
+}
+
+bool DiskCatalog::fetchIndex(std::vector<catalogv0::IndexEntry>& entries, std::string& error) {
+    std::wstring url;
+    if (!widenUrl(catalogv0::INDEX_URL, url)) {
+        error = "The disk catalog index URL is not a usable URL";
+        return false;
+    }
+
+    std::string text;
+    if (!downloadToString(url, text, error)) return false;
+    return catalogv0::parseIndex(text, entries, error);
+}
+
+bool DiskCatalog::fetchVersionCatalog(const catalogv0::IndexEntry& entry,
+                                      catalogv0::Catalog& catalog, std::string& error) {
+    std::wstring url;
+    if (!widenUrl(entry.catalogUrl, url)) {
+        error = "RomWBW " + entry.romwbwVersion + " lists a catalog URL that cannot be used";
+        return false;
+    }
+
+    std::string text;
+    if (!downloadToString(url, text, error)) return false;
+
+    // Size first, because it is free and because a mismatch here is the ordinary
+    // way a truncated or intercepted response shows up. A zero in the index means
+    // the document did not say, which is not the same as a document of length 0.
+    if (entry.catalogSize > 0 && text.size() != entry.catalogSize) {
+        error = "The RomWBW " + entry.romwbwVersion + " catalog is " +
+                std::to_string(text.size()) + " bytes, not the " +
+                std::to_string(entry.catalogSize) + " the index published";
+        return false;
+    }
+
+    // normalizedHash rather than a string compare, so that "the index carried no
+    // usable hash" and "the hash does not match" are the two different answers
+    // they are - the same single place that decides it for a disk image.
+    std::string wanted;
+    if (DiskLedger::normalizedHash(entry.catalogSha256, wanted)) {
+        std::string actual;
+        if (!diskhash::sha256Bytes(text.data(), text.size(), actual)) {
+            error = "The RomWBW " + entry.romwbwVersion + " catalog could not be checked";
+            return false;
+        }
+        if (actual != wanted) {
+            // Refused, not parsed. This document is what every later download's
+            // URL and checksum come out of, so accepting one the index does not
+            // vouch for would make every one of those checks worth nothing.
+            error = "The RomWBW " + entry.romwbwVersion +
+                    " catalog does not match the checksum the index published";
+            return false;
+        }
+    }
+
+    return catalogv0::parseCatalog(text, catalog, error);
+}
+
 void DiskCatalog::fetchCatalog(CatalogLoadedCallback callback) {
     // Detached, so this returns immediately and nobody can join it. The 'self'
     // capture is what makes 'this' safe to use below: it is a reference to this
@@ -118,40 +250,138 @@ void DiskCatalog::fetchCatalog(CatalogLoadedCallback callback) {
     // the callback closes over - see the contract on fetchCatalog in
     // DiskCatalog.h.
     std::thread([this, self = shared_from_this(), callback]() {
-        std::string xml;
+        // THE CATCH-ALL IS LOAD-BEARING, and it is new with the JSON.
+        //
+        // This worker is detached, so an exception that leaves this lambda is
+        // std::terminate: no dump, no message, no callback, the app simply
+        // gone. That was already true of the XML parser this replaces - it
+        // called std::stoull on a <size> element straight out of the response,
+        // so one malformed catalog ended the process - and a JSON reader has
+        // more ways to throw, not fewer. CatalogV0.cpp is written so that it
+        // cannot throw on any document at all; this is here because "cannot" is
+        // a claim about code that will be edited, and because std::bad_alloc
+        // does not care how carefully the parse was written.
         std::string error;
+        bool ok = false;
+        try {
+            ok = fetchCatalogInto(error);
+        } catch (const std::exception& e) {
+            error = std::string("The disk catalog could not be read: ") + e.what();
+        } catch (...) {
+            error = "The disk catalog could not be read";
+        }
 
-        if (!downloadToString(CATALOG_URL, xml, error)) {
-            if (callback) {
-                callback(false, {}, error);
-            }
+        // Exactly one callback on every path, which is the rule that keeps the
+        // Settings dialog's Refresh button from being disabled for ever.
+        if (!callback) return;
+        if (!ok) {
+            callback(false, {}, error);
             return;
         }
-
-        std::vector<DiskEntry> entries;
-        if (!parseCatalogXML(xml, entries, error)) {
-            if (callback) {
-                callback(false, {}, error);
-            }
-            return;
-        }
-
-        {
-            std::lock_guard<std::mutex> lock(m_catalogMutex);
-            m_catalogEntries = entries;
-        }
-        updateDownloadedStatus();
-        // Worker-thread only, and this is the worker. It reads up to 211MB when
-        // a measurement has gone stale, which is why it is here and not in
-        // updateDownloadedStatus() - that one is also called from
-        // setDownloadDirectory() on the UI thread, and hashing the library
-        // inside the Settings dialog's OK handler would freeze it.
-        updateFreshness();
-
-        if (callback) {
-            callback(true, getCatalogEntries(), "");
-        }
+        callback(true, getCatalogEntries(), "");
     }).detach();
+}
+
+bool DiskCatalog::fetchCatalogInto(std::string& error) {
+    std::vector<catalogv0::IndexEntry> index;
+    if (!fetchIndex(index, error)) return false;
+
+    // Ask the core, do not assume. emu_romwbw_release_supported answers from
+    // ROMWBW_SUPPORTED_RELEASES in the linked romwbw_emu, so this build offers
+    // what it can actually boot rather than what it was written expecting.
+    const std::vector<size_t> runnable = catalogv0::runnableVersions(
+        index, [](unsigned char ver, unsigned char upd) {
+            emu_romwbw_release r;
+            r.ver = ver;
+            r.upd = upd;
+            return emu_romwbw_release_supported(r);
+        });
+
+    if (runnable.empty()) {
+        // A REAL condition and not a network failure, so it is reported as
+        // itself. It means this build's emulator core can boot none of the
+        // releases romwbw_disks publishes - the client is older or newer than
+        // the repository - and the one thing that must not happen is a silent
+        // fallback to some other release's images, which would download disks
+        // this machine cannot boot and print an HBIOS/CBIOS version mismatch at
+        // the user instead of an explanation.
+        std::string offered;
+        for (const auto& e : index) {
+            if (!offered.empty()) offered += ", ";
+            offered += e.romwbwVersion;
+        }
+        error = "This build cannot run any of the RomWBW releases the disk catalog "
+                "offers (" + offered + "). It emulates " +
+                std::string(emu_romwbw_supported_list()) + ".";
+        return false;
+    }
+
+    const size_t chosen = catalogv0::chooseVersion(index, runnable, getPreferredRomwbwVersion());
+    if (chosen >= index.size()) {
+        error = "No usable RomWBW release in the disk catalog index";
+        return false;
+    }
+
+    catalogv0::Catalog catalog;
+    if (!fetchVersionCatalog(index[chosen], catalog, error)) return false;
+
+    std::vector<DiskEntry> entries;
+    entries.reserve(catalog.disks.size());
+    for (const auto& disk : catalog.disks) {
+        DiskEntry entry;
+        entry.id = disk.id;
+        entry.filename = disk.filename;
+        entry.name = disk.name;
+        entry.description = disk.description;
+        entry.license = disk.license;
+        entry.sha256 = disk.sha256;
+        entry.size = static_cast<size_t>(disk.size);
+        // Resolved here, once, from the base_url of the document these entries
+        // came out of - so an entry can never be downloaded from the base of a
+        // catalog it was not in.
+        entry.url = catalogv0::assetUrl(catalog.baseUrl, disk.filename);
+        entries.push_back(entry);
+    }
+
+    if (entries.empty()) {
+        error = "No disk entries found in catalog";
+        return false;
+    }
+
+    // NOTHING IS DELETED OR INVALIDATED HERE, and that is deliberate rather than
+    // unfinished. `generation` is what the interface offers a client for
+    // deciding that a version's artifacts have changed, and on iOS it is wired
+    // to deleting the images the catalog names. This client has never had such a
+    // wipe and must not gain one: DiskLedger answers the same question per file
+    // and with evidence - it knows whether the copy on disk is still the one we
+    // downloaded, and whether the user has since written to it - where a
+    // generation compare knows only that something in the catalog moved. Nor is
+    // there anything to invalidate on a version SWITCH: every v0 filename
+    // carries its release, so 3.5.1 and 3.6.0 images coexist in one folder and
+    // switching back and forth costs nothing. The value is parsed and reaches a
+    // caller on the entries getRunnableVersions() returns; nothing in this
+    // application acts on it, and nothing may be made to delete on it.
+    {
+        std::lock_guard<std::mutex> lock(m_catalogMutex);
+        m_catalogEntries = entries;
+        m_catalogRoms = catalog.roms;
+    }
+    {
+        std::lock_guard<std::mutex> lock(m_indexMutex);
+        m_selectedVersion = index[chosen].romwbwVersion;
+        m_runnableVersions.clear();
+        m_runnableVersions.reserve(runnable.size());
+        for (size_t i : runnable) m_runnableVersions.push_back(index[i]);
+    }
+
+    updateDownloadedStatus();
+    // Worker-thread only, and this is the worker. It reads up to 211MB when
+    // a measurement has gone stale, which is why it is here and not in
+    // updateDownloadedStatus() - that one is also called from
+    // setDownloadDirectory() on the UI thread, and hashing the library
+    // inside the Settings dialog's OK handler would freeze it.
+    updateFreshness();
+    return true;
 }
 
 void DiskCatalog::downloadDisk(const std::string& filename,
@@ -173,6 +403,50 @@ void DiskCatalog::downloadDisk(const std::string& filename,
     // so this worker is reading members continuously for tens of seconds rather
     // than for the few milliseconds a fetch spends outside WinHTTP.
     std::thread([this, self = shared_from_this(), filename, progressCb, completeCb]() {
+        // ONE LOOKUP OF ONE SNAPSHOT, before anything is fetched, and both facts
+        // come out of it: where these bytes live and what they must hash to.
+        //
+        // Splitting those two is what left the first-run path unverified. The
+        // URL used to be built from a compile-time base, so a download could
+        // start with no catalog at all, and the sha256 was looked up separately
+        // AFTERWARDS - in an m_catalogEntries that was still empty, because
+        // MainWindow::downloadAndStartWithDefaults never fetched a catalog. The
+        // lookup found nothing, normalizedHash read the empty string as "this
+        // catalog carries no hash", and two images totalling 57 MB were written
+        // with no check and no ledger record on the most ordinary path in the
+        // application. Now there is no URL without an entry, so there is no
+        // download without the hash that goes with it.
+        DiskEntry wantedEntry;
+        bool haveEntry = false;
+        {
+            std::lock_guard<std::mutex> lock(m_catalogMutex);
+            for (const auto& entry : m_catalogEntries) {
+                if (entry.filename == filename) {
+                    wantedEntry = entry;
+                    haveEntry = true;
+                    break;
+                }
+            }
+        }
+        if (!haveEntry || wantedEntry.url.empty()) {
+            m_downloadState = DownloadState::Failed;
+            if (completeCb) {
+                completeCb(false, "The disk catalog has not been loaded, so there is "
+                                  "nowhere to download " + filename + " from");
+            }
+            return;
+        }
+
+        std::wstring url;
+        if (!widenUrl(wantedEntry.url, url)) {
+            m_downloadState = DownloadState::Failed;
+            if (completeCb) {
+                completeCb(false, "The catalog gives " + filename + " a download "
+                                  "address that cannot be used");
+            }
+            return;
+        }
+
         // One read of the download directory for the whole of this transfer.
         // Taken once rather than twice so the directory that is created and the
         // path the bytes are written to cannot be two different strings if the
@@ -182,13 +456,14 @@ void DiskCatalog::downloadDisk(const std::string& filename,
         // Create download directory if needed
         CreateDirectoryA(downloadDir.c_str(), nullptr);
 
-        // Build URL
-        std::wstring url = RELEASE_BASE_URL;
-        for (char c : filename) {
-            url += static_cast<wchar_t>(c);
-        }
-
-        std::string localPath = downloadDir + "\\" + filename;
+        // getLocalName rather than the catalog's own filename, which is the same
+        // string now that the catalog serves v0 names and was not while the
+        // storage migration had renamed the images and the catalog had not. Kept
+        // as one call so that the path written to and the ledger key recorded
+        // below cannot be derived differently from each other; see the note on
+        // getLocalName for why it now maps nothing.
+        const std::string localName = getLocalName(filename);
+        std::string localPath = downloadDir + "\\" + localName;
         std::string error;
 
         bool success = downloadToFile(url, localPath, progressCb, error);
@@ -201,19 +476,12 @@ void DiskCatalog::downloadDisk(const std::string& filename,
                 completeCb(false, "Download cancelled");
             }
         } else if (success) {
-            // What the catalog says these bytes should be. Empty when the entry
-            // carries no <sha256>, which is a case that has to keep working:
-            // an older catalog than this build expects must still install.
-            std::string catalogHash;
-            for (const auto& entry : getCatalogEntries()) {
-                if (entry.filename == filename) {
-                    catalogHash = entry.sha256;
-                    break;
-                }
-            }
-
+            // What the catalog says these bytes should be, from the SAME entry
+            // the URL came from. Empty when the entry carries no sha256, which
+            // is a case that has to keep working: an older catalog than this
+            // build expects must still install.
             std::string wanted;
-            if (DiskLedger::normalizedHash(catalogHash, wanted)) {
+            if (DiskLedger::normalizedHash(wantedEntry.sha256, wanted)) {
                 std::string actual;
                 if (!diskhash::sha256File(localPath, actual)) {
                     m_downloadState = DownloadState::Failed;
@@ -246,7 +514,9 @@ void DiskCatalog::downloadDisk(const std::string& filename,
                 DiskLedger updated;
                 {
                     std::lock_guard<std::mutex> lock(m_ledgerMutex);
-                    m_ledger.recordInstall(filename, wanted, haveFacts ? &facts : nullptr);
+                    // Keyed on the LOCAL name, like every other ledger key:
+                    // the record describes the file that is there.
+                    m_ledger.recordInstall(localName, wanted, haveFacts ? &facts : nullptr);
                     updated = m_ledger;
                 }
                 saveLedger(updated);
@@ -327,7 +597,7 @@ bool DiskCatalog::deleteDownloadedDisk(const std::string& filename) {
         DiskLedger updated;
         {
             std::lock_guard<std::mutex> lock(m_ledgerMutex);
-            m_ledger.removeRecord(filename);
+            m_ledger.removeRecord(getLocalName(filename));
             updated = m_ledger;
         }
         saveLedger(updated);
@@ -336,11 +606,84 @@ bool DiskCatalog::deleteDownloadedDisk(const std::string& filename) {
     return false;
 }
 
-std::string DiskCatalog::getDiskPath(const std::string& filename) const {
-    return getDownloadDirectory() + "\\" + filename;
+std::string DiskCatalog::getLocalName(const std::string& catalogFilename) const {
+    std::string v0;
+    return diskv0::v0NameFor(catalogFilename, v0) ? v0 : catalogFilename;
 }
 
-bool DiskCatalog::downloadToString(const std::wstring& url, std::string& result, std::string& error) {
+std::string DiskCatalog::getDiskPath(const std::string& filename) const {
+    return getDownloadDirectory() + "\\" + getLocalName(filename);
+}
+
+DiskCatalog::V0FileMigration DiskCatalog::migrateFilesToInterfaceV0() {
+    V0FileMigration result;
+
+    // One read of the folder for the whole pass, and from getDownloadDirectory()
+    // rather than from a fourth construction of %LOCALAPPDATA%\z80cpmw\data:
+    // the folder renamed in has to be the folder the rest of the app reads.
+    //
+    // NOT getDiskPath(), which is the only place in this class that does not
+    // want it. getDiskPath answers "where does this catalog entry live", and
+    // that answer is already the v0 one - getDiskPath(legacy) and
+    // getDiskPath(v0) name the same file, so a rename built from them would be
+    // a no-op. This is the one piece of code that needs the two literal names.
+    const std::string dir = getDownloadDirectory();
+
+    for (const auto& legacy : diskv0::legacyCatalogFilenames()) {
+        std::string v0;
+        if (!diskv0::v0NameFor(legacy, v0)) continue;
+
+        const std::string oldPath = dir + "\\" + legacy;
+        const std::string newPath = dir + "\\" + v0;
+
+        if (GetFileAttributesA(newPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            // Already there - the pass has run before, or the user fetched it
+            // by hand. Keep it, and leave whatever is under the old name
+            // exactly where it is: this migration deletes nothing.
+            result.landed[DiskLedger::fold(legacy)] = v0;
+            continue;
+        }
+        if (GetFileAttributesA(oldPath.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+
+        // MoveFileExA with NO flags, and both halves of that are deliberate.
+        // MOVEFILE_REPLACE_EXISTING would delete a file this code has just
+        // established is not there and, if it appeared in between, is not ours
+        // to remove. MOVEFILE_COPY_ALLOWED would let a failed rename become a
+        // copy, which resets the write time and invalidates the cached
+        // measurement - 211 MB of re-hashing to save one call - and cannot
+        // happen anyway, since both names are in one directory and therefore on
+        // one volume.
+        if (MoveFileExA(oldPath.c_str(), newPath.c_str(), 0)) {
+            result.landed[DiskLedger::fold(legacy)] = v0;
+            result.renamed++;
+        } else {
+            result.failures.push_back(legacy + " (Win32 error " +
+                                      std::to_string(GetLastError()) + ")");
+        }
+    }
+
+    if (result.landed.empty()) return result;
+
+    // The ledger key has to move with the file or the record is left describing
+    // a name nothing will ask about again, and - as deleteDownloadedDisk's
+    // comment says of the same shape - would be claimed by the next file to
+    // take that name. Moving it carries the (size, mtime) the measurement was
+    // taken against, which the rename did not change, so nineteen of the twenty
+    // images come out Current against the v0 catalog instead of being re-hashed.
+    loadLedgerIfNeeded();
+    DiskLedger updated;
+    {
+        std::lock_guard<std::mutex> lock(m_ledgerMutex);
+        result.ledgerKeysMoved = diskv0::migrateLedgerKeys(m_ledger, result.landed);
+        updated = m_ledger;
+    }
+    if (result.ledgerKeysMoved > 0) saveLedger(updated);
+
+    return result;
+}
+
+bool DiskCatalog::downloadToString(const std::wstring& url, std::string& result,
+                                   std::string& error, int redirectsLeft) {
     HINTERNET hSession = nullptr;
     HINTERNET hConnect = nullptr;
     HINTERNET hRequest = nullptr;
@@ -414,11 +757,20 @@ bool DiskCatalog::downloadToString(const std::wstring& url, std::string& result,
             DWORD redirectSize = sizeof(redirectUrl);
             if (WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_LOCATION, nullptr,
                                    redirectUrl, &redirectSize, nullptr)) {
+                // Bounded, because this recursion used to have no bound at all:
+                // a server answering its own URL with a 302 recursed until the
+                // stack ran out, on a worker thread with nothing to catch it.
+                // It never bit while there was one URL and it pointed at GitHub;
+                // this release makes it three, two of them read out of documents.
+                if (redirectsLeft <= 0) {
+                    error = "Too many redirects fetching the disk catalog";
+                    goto cleanup;
+                }
                 // Close current handles and follow redirect
                 WinHttpCloseHandle(hRequest);
                 WinHttpCloseHandle(hConnect);
                 WinHttpCloseHandle(hSession);
-                return downloadToString(redirectUrl, result, error);
+                return downloadToString(redirectUrl, result, error, redirectsLeft - 1);
             }
         }
 
@@ -431,6 +783,7 @@ bool DiskCatalog::downloadToString(const std::wstring& url, std::string& result,
     // Read data
     {
         std::stringstream ss;
+        size_t total = 0;
         DWORD bytesAvailable = 0;
         DWORD bytesRead = 0;
         char buffer[8192];
@@ -447,6 +800,17 @@ bool DiskCatalog::downloadToString(const std::wstring& url, std::string& result,
 
             DWORD toRead = (bytesAvailable < sizeof(buffer)) ? bytesAvailable : (DWORD)sizeof(buffer);
             if (WinHttpReadData(hRequest, buffer, toRead, &bytesRead)) {
+                total += bytesRead;
+                // Capped, because this reads into memory with no idea what it
+                // asked for. The documents it fetches are 3 KB and 15 KB; a URL
+                // that answers with a disk image, or with a stream that does not
+                // end, must cost an error rather than the machine's memory. It
+                // is a refusal and not a truncation - half a catalog parsed as a
+                // whole one is the worst of the three outcomes.
+                if (total > MAX_DOCUMENT_BYTES) {
+                    error = "The disk catalog is far larger than a catalog can be";
+                    goto cleanup;
+                }
                 ss.write(buffer, bytesRead);
             }
         } while (bytesAvailable > 0);
@@ -463,7 +827,8 @@ cleanup:
 }
 
 bool DiskCatalog::downloadToFile(const std::wstring& url, const std::string& localPath,
-                                  DownloadProgressCallback progressCb, std::string& error) {
+                                  DownloadProgressCallback progressCb, std::string& error,
+                                  int redirectsLeft) {
     HINTERNET hSession = nullptr;
     HINTERNET hConnect = nullptr;
     HINTERNET hRequest = nullptr;
@@ -538,10 +903,17 @@ bool DiskCatalog::downloadToFile(const std::wstring& url, const std::string& loc
             DWORD redirectSize = sizeof(redirectUrl);
             if (WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_LOCATION, nullptr,
                                    redirectUrl, &redirectSize, nullptr)) {
+                // Bounded for the same reason downloadToString's is; a release
+                // asset is one hop to objects.githubusercontent.com.
+                if (redirectsLeft <= 0) {
+                    error = "Too many redirects downloading the disk image";
+                    goto cleanup;
+                }
                 WinHttpCloseHandle(hRequest);
                 WinHttpCloseHandle(hConnect);
                 WinHttpCloseHandle(hSession);
-                return downloadToFile(redirectUrl, localPath, progressCb, error);
+                return downloadToFile(redirectUrl, localPath, progressCb, error,
+                                      redirectsLeft - 1);
             }
         }
 
@@ -637,62 +1009,17 @@ cleanup:
     return success;
 }
 
-bool DiskCatalog::parseCatalogXML(const std::string& xml, std::vector<DiskEntry>& entries, std::string& error) {
-    entries.clear();
-
-    // Simple XML parsing (no external dependencies)
-    size_t pos = 0;
-    while (true) {
-        // Find next <disk> element
-        size_t diskStart = xml.find("<disk>", pos);
-        if (diskStart == std::string::npos) break;
-
-        size_t diskEnd = xml.find("</disk>", diskStart);
-        if (diskEnd == std::string::npos) break;
-
-        std::string diskXml = xml.substr(diskStart, diskEnd - diskStart + 7);
-        DiskEntry entry;
-
-        // Extract fields
-        auto extractField = [&diskXml](const std::string& tag) -> std::string {
-            std::string openTag = "<" + tag + ">";
-            std::string closeTag = "</" + tag + ">";
-            size_t start = diskXml.find(openTag);
-            if (start == std::string::npos) return "";
-            start += openTag.length();
-            size_t end = diskXml.find(closeTag, start);
-            if (end == std::string::npos) return "";
-            return diskXml.substr(start, end - start);
-        };
-
-        entry.filename = extractField("filename");
-        entry.name = extractField("name");
-        entry.description = extractField("description");
-        entry.license = extractField("license");
-        // Read but not validated here: an <sha256></sha256> and a missing
-        // element both come back as the empty string, and telling a usable hash
-        // from either is DiskLedger::normalizedHash's job, in one place.
-        entry.sha256 = extractField("sha256");
-
-        std::string sizeStr = extractField("size");
-        if (!sizeStr.empty()) {
-            entry.size = std::stoull(sizeStr);
-        }
-
-        if (!entry.filename.empty()) {
-            entries.push_back(entry);
-        }
-
-        pos = diskEnd + 7;
-    }
-
-    if (entries.empty()) {
-        error = "No disk entries found in catalog";
-        return false;
-    }
-
-    return true;
-}
+// The hand-rolled XML parser that used to be here is gone with the URL it was
+// fed by. It read six elements out of <disk> blocks with substring searches, and
+// its last line was `entry.size = std::stoull(sizeStr)` - an unguarded throw on
+// a detached thread, so a served catalog with a non-numeric <size> ended the
+// process. The interface still publishes disks-v0-<ver>.xml in exactly that
+// shape, precisely so a client could move to the new URLs before learning the
+// JSON; this build does both at once and reads the JSON, which carries the `id`
+// that CATALOG_SCHEMA.md 6.1 asks a client to key on and the roms[] the XML has
+// no room for. The replacement is catalogv0::parseCatalog, in a file with no
+// WinHTTP and no threads so that a test can drive it against the real published
+// documents.
 
 void DiskCatalog::updateDownloadedStatus() {
     // Snapshot the names first: isDiskDownloaded takes the catalog lock
@@ -799,12 +1126,18 @@ void DiskCatalog::updateFreshness() {
     bool ledgerChanged = false;
 
     for (const auto& entry : entries) {
+        // The ledger and the path are about the FILE; the verdict is written
+        // back against the CATALOG entry. They are the same string now that the
+        // catalog serves v0 names, and they were not for one release - mixing
+        // them up then was what would have made a migrated library read as
+        // twenty unmeasured files and re-hash 211 MB.
+        const std::string localName = getLocalName(entry.filename);
         const std::string path = getDiskPath(entry.filename);
 
         DiskFileFacts facts;
         const bool present = diskhash::statFile(path, facts);
 
-        DiskFreshness verdict = ledger.freshness(entry.filename, entry.sha256,
+        DiskFreshness verdict = ledger.freshness(localName, entry.sha256,
                                                  present ? &facts : nullptr);
 
         if (verdict == DiskFreshness::NeedsMeasurement) {
@@ -815,13 +1148,13 @@ void DiskCatalog::updateFreshness() {
             // rather than once per fetch.
             std::string measured;
             if (diskhash::sha256File(path, measured)) {
-                ledger.recordMeasurement(entry.filename, measured, facts);
+                ledger.recordMeasurement(localName, measured, facts);
                 // An image that already hashes to the catalog is current
                 // whoever downloaded it, so it can stop being provenance-less
                 // and never has to be hashed again. Nineteen of the twenty.
-                ledger.adoptProvenanceIfCurrent(entry.filename, entry.sha256);
+                ledger.adoptProvenanceIfCurrent(localName, entry.sha256);
                 ledgerChanged = true;
-                verdict = ledger.freshness(entry.filename, entry.sha256, &facts);
+                verdict = ledger.freshness(localName, entry.sha256, &facts);
             } else {
                 // Unreadable. Say nothing rather than guess; the next fetch
                 // tries again.

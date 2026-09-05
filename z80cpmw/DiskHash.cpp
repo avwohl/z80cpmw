@@ -95,6 +95,27 @@ bool sha256File(const std::string& path, std::string& hexOut) {
     return hasher.finish(hexOut);
 }
 
+bool sha256Bytes(const void* data, size_t size, std::string& hexOut) {
+    Sha256Hasher hasher;
+    if (!hasher.begin()) return false;
+
+    // BCryptHashData takes a ULONG, and a std::string can be longer than one on
+    // a 64-bit build, so it is fed in blocks rather than in one call. No caller
+    // is anywhere near it - the largest published catalog is 14,694 bytes - but
+    // a truncating cast here would hash a PREFIX and report it as the whole,
+    // which is the one failure this file exists to make impossible.
+    const unsigned char* p = static_cast<const unsigned char*>(data);
+    size_t left = size;
+    while (left > 0) {
+        const ULONG chunk = left > 0x10000000u ? 0x10000000u : static_cast<ULONG>(left);
+        if (!hasher.update(p, chunk)) return false;
+        p += chunk;
+        left -= chunk;
+    }
+
+    return hasher.finish(hexOut);
+}
+
 bool statFile(const std::string& path, DiskFileFacts& out) {
     WIN32_FILE_ATTRIBUTE_DATA fad = {};
     if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fad)) return false;

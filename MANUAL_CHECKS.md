@@ -238,3 +238,133 @@ with `SetWindowPos` on a 3840x2160 display at 200%. The clamp itself reads the
 monitor's work area (`wxDisplay(this).GetClientArea()` into
 `placeDialogInWorkArea`), and no real 768-line work area has ever been in front
 of it.
+
+## 9. The interface-v0 storage migration, and what Settings does after it
+
+The catalog moved to `avwohl/romwbw_disks` and every published image gained a
+`-v0-3.5.1` suffix. The first launch of this build renames the images in the
+data folder, moves their ledger records, and rewrites the four disk slots and
+every profile. None of that can be checked here: the renames are `MoveFileExA`,
+and every consequence of them is in `MainWindow.cpp` and `SettingsDialogWx.cpp`,
+which are in no suite. The headless suites cover the decisions
+(`tests\test_diskledger.cpp`, `tests\test_config.cpp`) and nothing else.
+
+Start from a machine that already has disks: at least `hd1k_combo.img` and one
+more in `…\z80cpmw\data`, a `disk_ledger.json` beside them, a slot configured
+for each, and a saved profile that names one.
+
+- [ ] Launch. Right: the data folder now holds `hd1k_combo-v0-3.5.1.img` and
+      **no** `hd1k_combo.img`, and the file's **size and modified time are
+      unchanged** — this is a rename, and the ledger's measurement cache is
+      keyed on exactly those two facts. If the timestamp moved, it was copied,
+      and every user pays a 211 MB re-hash.
+- [ ] The disks are **mounted** and the machine boots. `z80cpmw.json` names the
+      new paths, and `core.interfaceV0Migrated` is `true`.
+- [ ] `data\disk_ledger.json` is keyed on the **new** names and each record kept
+      its `installedCatalogSha256` and its three `measured*` fields.
+- [ ] A disk you imported yourself (`W8` a file into that folder, or copy an
+      image in by hand) is **still there under its own name**. Nothing outside
+      the twenty published filenames may be touched.
+- [ ] Settings → **Disk Images**. Right: the status column says **"Downloaded"**
+      for what you had, not "Available", and the read is quick — the migration
+      carried the measurements, so nothing is re-hashed. This is the check that
+      says the rename and the ledger moved together.
+- [ ] Settings → **Machine**: the four dropdowns show the configured disks
+      selected, under their new `-v0-3.5.1` names. Press **OK**, then reopen
+      Settings. Right: the same four are still selected and the machine is still
+      running them. **This is the check that matters most** — the same four
+      controls used to reset to "(None)" whenever the list did not carry the
+      configured name, and OK then erased all four slots with no confirmation
+      and nothing said.
+- [ ] Repeat that with the **network unplugged**, so the catalog fetch never
+      returns and the dropdowns carry nothing at all. Right: same answer. OK
+      must not erase a slot because a fetch failed.
+- [ ] Configure a slot with File → **Load Disk** from somewhere outside the data
+      folder, then open Settings and press OK. Right: that slot still names your
+      file, and it is still mounted.
+- [ ] In Settings → Disk Images, **Download** any disk while four slots are
+      configured, then press OK. Right: the four slots are unchanged. Then
+      **Delete** a disk that is not in a slot and press OK: still unchanged.
+- [ ] **Load the profile** you saved. Right: it mounts the same disks it always
+      did. Its file under `…\z80cpmw\profiles\` names the `-v0-3.5.1` paths and
+      still holds everything else it held.
+- [ ] Launch a **second** time. Right: nothing is renamed, nothing is written,
+      and everything above is still true. The pass is idempotent and this is the
+      cheapest way to find out that it is not.
+- [ ] On a machine with **no** data folder at all, launch and press **F5**.
+      Right: it downloads the two defaults — under their `-v0-3.5.1` names,
+      because that is where `DiskCatalog::getDiskPath` files them now — and
+      boots. Note that the URL half landed in this same tree, so the bytes come
+      from `romwbw_disks` and not from the ioscpm release area; §10 is the
+      check for that half.
+
+## 10. The catalog itself: the index, the release list, and the ROM
+
+The URL half. `RELEASE_TAG` is gone, and the application now fetches
+`index-v0.json`, picks a RomWBW release, verifies and fetches that release's
+catalog, and builds every asset URL as `base_url + filename`. The parse is
+checked headlessly against the real published documents
+(`tests\test_catalogv0.cpp`, 107 checks) and cannot be checked here; what has to
+be driven is everything either side of it — the transport, the dialog and the
+first-run path — none of which is in any suite.
+
+- [ ] Open Settings → **Disk Images** on a working network. Right: the list
+      fills, the **RomWBW release** control at the top says **RomWBW 3.5.1**,
+      and the filenames in the list end `-v0-3.5.1.img`. Confirm with a packet
+      capture, a proxy or the debug log that the requests went to
+      `github.com/avwohl/romwbw_disks` — `catalog-v0/index-v0.json` and then
+      `v0-romwbw-3.5.1/catalog-v0-3.5.1.json` — and that **nothing** was fetched
+      from `avwohl/ioscpm`.
+- [ ] **Download** one disk you do not have. Right: it lands under its
+      `-v0-<release>` name, the status column reads **Downloaded**, and
+      `disk_ledger.json` gains a record for it *with* an
+      `installedCatalogSha256`. That last part is the check that the hash came
+      from the same catalog entry the URL did.
+- [ ] Open the release control. Right: it offers **RomWBW 3.5.1** and **RomWBW
+      3.6.0 (preview)** — the word *preview* must be on screen — and the note
+      under it says this build boots the ROM it ships with and downloads no
+      ROMs.
+- [ ] Select **3.6.0**. Right: the note changes to say the guest will report an
+      HBIOS/CBIOS version mismatch, the list refills with `-v0-3.6.0.img`
+      names, `hd1k_ws4` is **gone** (3.6.0 does not publish it), and — this is
+      the one that matters — **not one file in the data folder was deleted or
+      renamed**. Check the folder before and after.
+- [ ] Press **OK**, reopen Settings. Right: 3.6.0 is still selected, and
+      `core.romwbwVersion` in `z80cpmw.json` is `"3.6.0"`. Now switch back to
+      3.5.1, OK, reopen. Right: 3.5.1, and **still** nothing deleted. Switching
+      back and forth is the operation that destroyed a library on the iOS port
+      and it must cost only two small HTTP GETs.
+- [ ] With 3.6.0 selected, download one 3.6.0 disk and mount it. Right: both the
+      3.5.1 and the 3.6.0 copies of that image are in the folder, and the guest
+      prints `*** WARNING: HBIOS/CBIOS Version Mismatch ***`, which is what the
+      note said would happen.
+- [ ] Select a release, then press **Cancel**. Right: reopening Settings shows
+      the release you had before, not the one you cancelled.
+- [ ] The failed switch. With 3.5.1 selected, unplug the network, select
+      **3.6.0**, and let the refresh fail. Right: the control goes back to
+      **3.5.1** and the status line says the fetch failed. Now press **OK**,
+      plug the network back in, and reopen Settings. Right: it is still 3.5.1
+      and the list is 3.5.1's. A release that could not be fetched must not
+      become the one the next fetch uses — the control, `core.romwbwVersion` and
+      `DiskCatalog`'s own preference all have to end up saying the same thing.
+- [ ] While a refresh is running, try to change the release again. Right: the
+      control is **disabled** until the fetch comes back, exactly as the Refresh
+      button is.
+- [ ] Unplug the network and open Settings. Right: the release control shows
+      what the configuration says and is **disabled**, the status line reports
+      the fetch failure, and pressing **OK** leaves `core.romwbwVersion`
+      unchanged in the file. A dialog that could not show the list must not be
+      able to forget the choice.
+- [ ] Unplug the network, remove every disk from the four slots, and press
+      **F5** with the two default images still in the data folder. Right: it
+      says nothing about downloading, mounts them and boots. Offline start must
+      not need a catalog.
+- [ ] Now delete `hd1k_games-v0-3.5.1.img`, still offline, and press **F5**.
+      Right: it says it is looking up the catalog, reports the failure in one
+      line, mounts the combo image it still has, and boots. It must not hang and
+      must not sit there with nothing said.
+- [ ] Plug the network back in and repeat with an empty data folder. Right: it
+      fetches the catalog, downloads both defaults, and — check
+      `disk_ledger.json` — records an `installedCatalogSha256` for each. Before
+      this release that path fetched no catalog at all, so both images were
+      written with no checksum check and no ledger record.

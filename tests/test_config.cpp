@@ -90,6 +90,14 @@ Diagnostics inspectDocument(const json& doc, UnreadSections* unread = nullptr);
 // Config.cpp, which can see its own definitions.
 void to_json(json& j, const AppConfig& c);
 void from_json(const json& j, AppConfig& c);
+
+// And the document half of the interface-v0 storage migration, which takes a
+// json for the same reason and is left with external linkage for the same one.
+// It is what rewrites a PROFILE, so it is the function that decides whether a
+// user who loads a profile after the upgrade gets their disks or four empty
+// slots.
+int migrateDocumentToInterfaceV0(json& doc, const std::string& dataDir,
+                                 const diskv0::LandedNames& landed);
 }
 
 //=============================================================================
@@ -1517,6 +1525,250 @@ static std::string flatten(const std::string& block) {
     return tight;
 }
 
+//=============================================================================
+// The interface-v0 storage migration
+//
+// Every published disk filename gained a -v0-<release> suffix, so every stored
+// path that names one has to move with it - in z80cpmw.json AND in every saved
+// profile. What is checked here is the half that decides what a user still has
+// afterwards. Getting it wrong in either direction costs them something: a path
+// left behind names a file that is not there any more, and a path rewritten
+// when it should not have been points their own imported image at a name
+// nothing will ever create.
+//
+// The rename of the FILES is not here - it is Win32 - but this suite is where
+// the decisions about paths can be checked at all.
+//=============================================================================
+
+// The data folder is one level below the config directory, which is what
+// MainWindow::loadSettings builds and hands to both halves of the migration.
+static std::string dataDir() { return g_dir + "\\data"; }
+
+static diskv0::LandedNames landedDefaults() {
+    diskv0::LandedNames landed;
+    landed[DiskLedger::fold("hd1k_combo.img")] = "hd1k_combo-v0-3.5.1.img";
+    landed[DiskLedger::fold("hd1k_games.img")] = "hd1k_games-v0-3.5.1.img";
+    return landed;
+}
+
+static void test_v0_document_paths() {
+    section("which stored paths the v0 migration rewrites");
+
+    const diskv0::LandedNames landed = landedDefaults();
+
+    // Built rather than written as a literal, because two of the four paths have
+    // to be inside the scratch directory this run was given.
+    json doc;
+    doc["version"] = 2;
+    doc["core"] = json{{"rom", "emu_avw.rom"}};
+    doc["disks"] = json::array({
+        json{{"path", dataDir() + "\\hd1k_combo.img"}, {"isManifest", false}},
+        nullptr,
+        json{{"path", "D:\\mine\\myvolume.img"}},
+        json{{"path", dataDir() + "\\hd1k_ws4.img"}}});
+
+    checkInt(migrateDocumentToInterfaceV0(doc, dataDir(), landed), 1,
+             "exactly the one slot naming a landed image is rewritten");
+    checkStr(doc["disks"][0]["path"].get<std::string>(),
+             dataDir() + "\\hd1k_combo-v0-3.5.1.img",
+             "and it names the v0 file");
+    checkTrue(doc["disks"][1].is_null(), "an empty slot stays null");
+    checkStr(doc["disks"][2]["path"].get<std::string>(), "D:\\mine\\myvolume.img",
+             "a disk the user opened from anywhere else is not touched");
+    // hd1k_ws4 is a published name, so it maps - but it is not in 'landed',
+    // which means no file of that name is in the data folder. Rewriting it would
+    // point the slot at a file this pass did not create.
+    checkStr(doc["disks"][3]["path"].get<std::string>(), dataDir() + "\\hd1k_ws4.img",
+             "and neither is a name that maps but whose file did not land");
+    checkTrue(doc["disks"][0]["isManifest"] == false,
+              "nothing else in the entry is disturbed");
+
+    checkInt(migrateDocumentToInterfaceV0(doc, dataDir(), landed), 0,
+             "running it again changes nothing");
+
+    // The carry. from_json skips a "disks" that is not an array without reading
+    // a thing out of it and to_json splices the user's own text back at /disks,
+    // so a slot the application cannot see is one it must not rewrite either.
+    json carried = json::parse(R"({"disks": {"unit0": {"path": "hd1k_combo.img"}}})");
+    checkInt(migrateDocumentToInterfaceV0(carried, dataDir(), landed), 0,
+             "a disks section carried as unreadable text is a no-op");
+    checkStr(carried.dump(), R"({"disks":{"unit0":{"path":"hd1k_combo.img"}}})",
+             "and is left exactly as it arrived");
+
+    json badPath = json::parse(R"({"disks": [{"path": 7}]})");
+    checkInt(migrateDocumentToInterfaceV0(badPath, dataDir(), landed), 0,
+             "so is a path that is not a string");
+}
+
+static void test_v0_migration_end_to_end() {
+    section("the v0 migration, over the config and the profiles");
+
+    ConfigManager& cm = ConfigManager::instance();
+    const diskv0::LandedNames landed = landedDefaults();
+
+    freshManager(cm);
+    resetDir();
+
+    // A configuration from before the migration: one catalog disk, one image the
+    // user opened from somewhere else, and an UNKNOWN member in a profile that
+    // must survive being rewritten.
+    json mainDoc;
+    mainDoc["disks"] = json::array({
+        json{{"path", dataDir() + "\\hd1k_combo.img"}, {"isManifest", true}},
+        json{{"path", "D:\\mine\\myvolume.img"}},
+        nullptr, nullptr});
+    writeFile(configPath(), mainDoc.dump(2));
+
+    json prof;
+    prof["core"] = json{{"rom", "emu_avw.rom"}};
+    prof["disks"] = json::array({
+        json{{"path", dataDir() + "\\hd1k_games.img"}, {"somethingNew", 42}},
+        nullptr, nullptr, nullptr});
+    writeProfile(cm, "gaming", prof.dump(2));
+
+    // A profile that will not parse. It must come back as a failure and be left
+    // ALONE - not quarantined, not rewritten. Merely being migrated is not a
+    // reason to move somebody's file aside.
+    const std::string broken = R"({"disks": [{"path": "x.img",)";
+    writeProfile(cm, "broken", broken);
+
+    checkTrue(cm.load(), "the configuration loads");
+    checkTrue(!cm.get().interfaceV0Migrated,
+              "and a file written before the migration says it has not been migrated");
+
+    V0MigrationReport r = cm.migrateToInterfaceV0(dataDir(), landed, true);
+
+    checkInt(r.slotsRewritten, 1, "one slot in force is rewritten");
+    checkStr(cm.get().disks[0]->path, dataDir() + "\\hd1k_combo-v0-3.5.1.img",
+             "onto the v0 name, so applyConfig mounts the file that is there");
+    checkStr(cm.get().disks[1]->path, "D:\\mine\\myvolume.img",
+             "and the user's own image is where they left it");
+    checkTrue(cm.get().disks[0]->isManifest,
+              "isManifest is not used to decide anything and is not changed");
+
+    checkInt(r.profilesRewritten, 1, "the one profile that named a landed image is rewritten");
+    checkInt(r.profilePathsRewritten, 1, "for one path");
+    checkInt((long)r.profileFailures.size(), 1, "and the profile that will not parse is reported");
+
+    // markedDone is false BECAUSE of that failure, which is the point: a pass
+    // that could not finish must be able to run again.
+    checkTrue(!r.markedDone, "so the migration does not call itself done");
+    checkTrue(!cm.get().interfaceV0Migrated, "and the flag is not set");
+    checkStr(readFile(cm.getProfilePath("broken")), broken,
+             "the unreadable profile is untouched, byte for byte");
+    checkTrue(!fs::exists(cm.getProfilePath("broken") + ".bad"),
+              "and NOT quarantined - reading it was never asked for");
+
+    json rewritten = json::parse(readFile(cm.getProfilePath("gaming")));
+    checkStr(rewritten["disks"][0]["path"].get<std::string>(),
+             dataDir() + "\\hd1k_games-v0-3.5.1.img",
+             "the profile's path is rewritten in the file");
+    checkTrue(rewritten["disks"][0]["somethingNew"] == 42,
+              "a member this application does not know survives the rewrite");
+    checkTrue(rewritten["core"]["interfaceV0Migrated"] == true,
+              "and the profile records that it has been migrated");
+    checkStr(rewritten["core"]["rom"].get<std::string>(), "emu_avw.rom",
+             "without disturbing anything else in core");
+
+    // The manager still holds the configuration in force, not the profile's:
+    // migrating a profile must not load it.
+    checkStr(cm.currentProfileName(), "", "no profile has been made current");
+}
+
+static void test_v0_migration_persistence() {
+    section("what the v0 migration writes down");
+
+    ConfigManager& cm = ConfigManager::instance();
+    const diskv0::LandedNames landed = landedDefaults();
+
+    freshManager(cm);
+    resetDir();
+    json mainDoc;
+    mainDoc["disks"] = json::array({
+        json{{"path", dataDir() + "\\hd1k_combo.img"}}, nullptr, nullptr, nullptr});
+    writeFile(configPath(), mainDoc.dump(2));
+    checkTrue(cm.load(), "a clean configuration loads");
+
+    V0MigrationReport r = cm.migrateToInterfaceV0(dataDir(), landed, true);
+    checkTrue(r.markedDone, "with both halves finished, the migration is done");
+    checkTrue(r.saved, "and the flag reaches the file");
+
+    freshManager(cm);
+    checkTrue(cm.load(), "the file reloads");
+    checkTrue(cm.get().interfaceV0Migrated, "carrying the flag, so the pass is not repeated");
+    checkStr(cm.get().disks[0]->path, dataDir() + "\\hd1k_combo-v0-3.5.1.img",
+             "and the rewritten path");
+
+    // A rename that failed is the other reason not to write the flag down. The
+    // paths still move - the files that DID land are on the machine - but the
+    // pass has to be able to run again for the one that did not.
+    freshManager(cm);
+    resetDir();
+    writeFile(configPath(), mainDoc.dump(2));
+    checkTrue(cm.load(), "a second clean configuration loads");
+    r = cm.migrateToInterfaceV0(dataDir(), landed, false);
+    checkInt(r.slotsRewritten, 1, "a slot whose file landed is still rewritten");
+    checkTrue(!r.markedDone, "but an incomplete file pass is never called done");
+    checkTrue(!r.saved, "and nothing is written");
+
+    // DO NOT SAVE OVER A FILE WE FAILED TO READ - load()'s rule. Here "disks"
+    // is an object, which is a TypeMismatch and a carried section, so there is
+    // no slot to rewrite and no save to make.
+    freshManager(cm);
+    resetDir();
+    const std::string carried = R"({"disks":{"unit0":{"path":"hd1k_combo.img"}}})";
+    writeFile(configPath(), carried);
+    checkTrue(cm.load(), "a config whose disks section is an object still loads");
+    r = cm.migrateToInterfaceV0(dataDir(), landed, true);
+    checkInt(r.slotsRewritten, 0, "there is no slot the application can see to rewrite");
+    checkTrue(!r.saved, "and a file that was only partly read is not written over");
+    checkStr(readFile(configPath()), carried, "so the user's own text is still there");
+}
+
+//=============================================================================
+// Which RomWBW release the disk catalog is fetched for
+//
+// A member of "core" with one job: to survive. It is what the catalog fetch
+// filters index-v0.json down to, and it is the only thing in the configuration
+// that decides which of two sets of disk images the user is offered - so a value
+// silently lost here means a user who chose 3.6.0 gets 3.5.1 the next time they
+// look, without being told.
+//=============================================================================
+
+static void test_romwbw_version_is_persisted() {
+    section("the catalog's RomWBW release");
+
+    ConfigManager& cm = ConfigManager::instance();
+
+    freshManager(cm);
+    resetDir();
+    // Absent, which is what EVERY configuration written before this release
+    // says, and what a fresh install starts as. It has to read back as "no
+    // preference" and NOT as the release this build happens to bundle: pinning
+    // 3.5.1 here would outlive the day the bundled ROM changes, and would turn a
+    // silent default into a stored choice nobody made.
+    writeFile(configPath(), R"({"core": {"rom": "emu_avw.rom"}})");
+    checkTrue(cm.load(), "a configuration written before this release loads");
+    checkStr(cm.get().romwbwVersion, "", "and carries no preference");
+
+    cm.get().romwbwVersion = "3.6.0";
+    checkTrue(cm.save(), "a chosen release saves");
+
+    freshManager(cm);
+    checkTrue(cm.load(), "and reloads");
+    checkStr(cm.get().romwbwVersion, "3.6.0", "as the release string, not an index into the "
+                                              "index - which gains and loses entries");
+
+    // The invariant this file is built on: a member added to AppConfig has to
+    // gain a to_json entry, a from_json entry and a default together. Miss the
+    // to_json half and the reference document does not name the key, so every
+    // file that carries it is reported as holding a member this build cannot
+    // read - and the report is what tells users their file has a mistake in it.
+    json ref = referenceDocument();
+    checkTrue(ref.contains("core") && ref["core"].contains("romwbwVersion"),
+              "and the reference document names core.romwbwVersion");
+}
+
 static void test_render_block() {
     section("report text");
 
@@ -1752,6 +2004,10 @@ int main() {
     test_failed_profile_keeps_the_report();
     test_retrying_a_profile_does_not_double_the_report();
     test_carry_belongs_to_one_file();
+    test_romwbw_version_is_persisted();
+    test_v0_document_paths();
+    test_v0_migration_end_to_end();
+    test_v0_migration_persistence();
     test_render_block();
     test_bell();
 

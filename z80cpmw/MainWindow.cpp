@@ -18,6 +18,10 @@
 // config::renderBlock() for the configuration report. Already reachable through
 // MainWindow.h -> Config.h; named here because this file calls it.
 #include "ConfigReport.h"
+// diskv0:: for the interface-v0 storage migration and the two places this file
+// has to agree with it about a name. Already reachable through DiskCatalog.h;
+// named here for the same reason.
+#include "DiskMigrationV0.h"
 #include "resource.h"
 #include "Version.h"
 #include "CrashHandler.h"
@@ -25,7 +29,12 @@
 // The RomWBW release the shared core emulates, for the About box. Single source
 // of truth in romwbw_emu; DOWNSTREAM asks every port with a version display to
 // show it.
-#include "emu_init.h"   // emu_romwbw_supported_list()
+// emu_romwbw_supported_list() for the About box, and
+// emu_romwbw_release_loaded() / emu_romwbw_release_str() for
+// loadedRomwbwRelease(), which is what tells the Settings dialog whether the
+// RomWBW release the user has selected for the disk catalog is one the ROM in
+// the banks can boot.
+#include "emu_init.h"
 
 // External function to set main window for host file dialogs
 extern "C" void emu_io_set_main_window(HWND hwnd);
@@ -989,26 +998,73 @@ void MainWindow::startEmulator() {
     }
 }
 
+// The two disks a machine with nothing configured is given, BY CATALOG id.
+//
+// By id and not by filename, because the filename is the part that moves:
+// hd1k_combo.img became hd1k_combo-v0-3.5.1.img when the catalog moved to
+// romwbw_disks, and it becomes hd1k_combo-v0-3.6.0.img the moment the user
+// selects another RomWBW release. CATALOG_SCHEMA.md 6.1 asks a client to key on
+// `id` for exactly this reason, and both of these ids exist under both published
+// releases - verified in catalog-v0-3.5.1.json and catalog-v0-3.6.0.json.
+static const char* const DEFAULT_DISK_IDS[2] = { "hd1k_combo", "hd1k_games" };
+
+std::string MainWindow::cachedDefaultDisk(const char* diskId) const {
+    // Three names, oldest last, and each one is a state a real installation can
+    // be in:
+    //
+    //  1. what the catalog in hand calls it. Only available once a catalog has
+    //     been fetched, and it is the only one of the three that is right when
+    //     the user has selected a RomWBW release other than the bundled one.
+    //  2. the interface-v0 name for the release this build bundles, which is
+    //     where the storage migration put the file. Compiled in through
+    //     diskv0::v0NameFor, and note what it is used for here: a CACHE PROBE
+    //     and never a URL. Constructing a name to look for locally is safe in a
+    //     way that constructing one to fetch from is not.
+    //  3. the pre-v0 name, because a rename that FAILED leaves the file under
+    //     it, and finding 49 MB that is already here beats fetching it again.
+    //
+    // Names 2 and 3 both name the BUNDLED release, so a hit on either mounts an
+    // image built for the ROM this build boots - which is the property that
+    // matters. A user who has selected another release in Settings but
+    // downloaded none of its images still gets a machine that boots, rather than
+    // being sent to the network for disks whose ROM this build does not ship.
+    //
+    // The whole point of the list is that F5 must not re-download what the
+    // machine already has. onEmulatorStart lands here whenever no unit is
+    // mounted, which is the ordinary state of a user whose config named no disk,
+    // and the version of this function that built one hardcoded path would have
+    // sent every migrated user back to the network for 57 MB.
+    std::vector<std::string> names;
+
+    DiskEntry entry;
+    if (m_diskCatalog->findDiskById(diskId, entry) && !entry.filename.empty()) {
+        names.push_back(entry.filename);
+    }
+
+    const std::string legacy = std::string(diskId) + ".img";
+    std::string bundled;
+    if (diskv0::v0NameFor(legacy, bundled)) names.push_back(bundled);
+    names.push_back(legacy);
+
+    const std::string dir = m_diskCatalog->getDownloadDirectory();
+    for (const auto& name : names) {
+        const std::string path = dir + "\\" + name;
+        if (diskFileLooksComplete(path)) return path;
+    }
+    return "";
+}
+
 void MainWindow::downloadAndStartWithDefaults() {
-    std::string userDir = EmulatorEngine::getUserDataDirectory();
-    std::string dataDir = userDir + "\\data";
-    std::string combo = dataDir + "\\hd1k_combo.img";
-    std::string games = dataDir + "\\hd1k_games.img";
+    auto termOutput = [this](const std::string& msg) { terminalPrint(msg); };
 
-    // Helper to output string to terminal
-    auto termOutput = [this](const char* msg) {
-        if (m_terminal) {
-            for (const char* p = msg; *p; ++p) {
-                m_terminal->outputChar(*p);
-            }
-        }
-    };
+    const std::string combo = cachedDefaultDisk(DEFAULT_DISK_IDS[0]);
+    const std::string games = cachedDefaultDisk(DEFAULT_DISK_IDS[1]);
 
-    bool comboExists = diskFileLooksComplete(combo);
-    bool gamesExists = diskFileLooksComplete(games);
-
-    if (comboExists && gamesExists) {
-        // Both exist, just load them
+    if (!combo.empty() && !games.empty()) {
+        // Nothing to fetch, so nothing to ask the network about. This is the
+        // path a user with no connection is on, and it has to keep working:
+        // making the catalog a precondition of STARTING - rather than only of
+        // downloading - would have turned an offline launch into a failure.
         auto& cfg = config::ConfigManager::instance().get();
         config::DiskConfig disk0, disk1;
         disk0.path = combo;
@@ -1023,13 +1079,94 @@ void MainWindow::downloadAndStartWithDefaults() {
         return;
     }
 
-    // Need to download at least one disk
-    termOutput("\r\nDownloading default disk images...\r\n");
+    // Something has to be downloaded, and after the interface-v0 switch a
+    // download URL exists only inside a fetched catalog: there is no release tag
+    // to interpolate and no compile-time base to append a filename to. So the
+    // catalog comes first, always - which also closes the hole that made this
+    // the one path in the application where disk images were written with no
+    // checksum check and no ledger record, because it never fetched one and
+    // DiskCatalog::downloadDisk looked the expected hash up in a list that was
+    // therefore empty.
+    termOutput("\r\nLooking up the disk catalog...\r\n");
 
-    bool needComboDownload = !comboExists;
-    bool needGamesDownload = !gamesExists;
+    m_downloadingDisks = true;   // F5 says "please wait" from here until we finish
 
-    // Helper to update config disk entry
+    const HWND uiWindow = m_hwnd;
+    const std::shared_ptr<WorkerPostGate> uiGate = m_uiPostGate;
+
+    m_diskCatalog->fetchCatalog(
+        [this, uiWindow, uiGate](bool ok, const std::vector<DiskEntry>&, const std::string& error) {
+            postToUiThread(uiWindow, uiGate, [this, ok, error]() {
+                startWithDefaultsAfterCatalog(ok, error);
+            });
+        });
+}
+
+void MainWindow::startWithDefaultsAfterCatalog(bool ok, const std::string& error) {
+    auto termOutput = [this](const std::string& msg) { terminalPrint(msg); };
+
+    // When the catalog cannot answer, boot on what the machine already has.
+    // Refusing to start would be the wrong trade in every case that reaches
+    // here: the network is flat, or the catalog does not carry one of the two
+    // ids, and a machine with even one of the default disks still boots. This is
+    // the ONLY thing either failure path does, and it is written once so the two
+    // cannot end differently.
+    auto startOnWhatIsCached = [this, &termOutput]() {
+        m_downloadingDisks = false;
+
+        bool mountedAnything = false;
+        for (int unit = 0; unit < 2; unit++) {
+            const std::string cached = cachedDefaultDisk(DEFAULT_DISK_IDS[unit]);
+            if (cached.empty()) continue;
+            auto& cfg = config::ConfigManager::instance().get();
+            config::DiskConfig disk;
+            disk.path = cached;
+            cfg.disks[unit] = disk;
+            m_emulator->loadDisk(unit, cached);
+            termOutput("Disk " + std::to_string(unit) + ": " +
+                       diskv0::basenameOf(cached) + " loaded\r\n");
+            mountedAnything = true;
+        }
+        if (!mountedAnything) {
+            termOutput("No disk images are available. Check your network connection, "
+                       "or use Settings > Disk Images to download one.\r\n");
+            return;
+        }
+        saveSettings();
+        startEmulator();
+    };
+
+    if (!ok) {
+        termOutput("  " + error + "\r\n");
+        startOnWhatIsCached();
+        return;
+    }
+
+    // Resolved against the catalog that has just landed, so these are the
+    // filenames of the RomWBW release the user actually has selected.
+    DiskEntry entries[2];
+    for (int unit = 0; unit < 2; unit++) {
+        if (m_diskCatalog->findDiskById(DEFAULT_DISK_IDS[unit], entries[unit])) continue;
+        // A catalog that does not carry one of them. Both exist under both
+        // published releases, but an id can be absent from a version - hd1k_ws4
+        // is in 3.5.1 and not in 3.6.0 - so this is a real answer and not an
+        // impossible one.
+        termOutput(std::string("  The catalog for RomWBW ") +
+                   m_diskCatalog->getSelectedRomwbwVersion() + " does not carry " +
+                   DEFAULT_DISK_IDS[unit] + ".\r\n");
+        startOnWhatIsCached();
+        return;
+    }
+
+    // Where each will be once it is here, under the name the catalog gives it.
+    const std::string combo = m_diskCatalog->getDiskPath(entries[0].filename);
+    const std::string games = m_diskCatalog->getDiskPath(entries[1].filename);
+
+    // Re-probed rather than reusing what downloadAndStartWithDefaults found: the
+    // catalog may name a release whose images are not the ones already cached.
+    const bool comboExists = diskFileLooksComplete(combo);
+    const bool gamesExists = diskFileLooksComplete(games);
+
     auto setConfigDisk = [](int unit, const std::string& path) {
         auto& cfg = config::ConfigManager::instance().get();
         config::DiskConfig disk;
@@ -1037,17 +1174,28 @@ void MainWindow::downloadAndStartWithDefaults() {
         cfg.disks[unit] = disk;
     };
 
-    // Load existing disk if present
     if (comboExists) {
         setConfigDisk(0, combo);
         m_emulator->loadDisk(0, combo);
-        termOutput("Disk 0: hd1k_combo.img loaded\r\n");
+        termOutput("Disk 0: " + diskv0::basenameOf(combo) + " loaded\r\n");
     }
     if (gamesExists) {
         setConfigDisk(1, games);
         m_emulator->loadDisk(1, games);
-        termOutput("Disk 1: hd1k_games.img loaded\r\n");
+        termOutput("Disk 1: " + diskv0::basenameOf(games) + " loaded\r\n");
     }
+
+    if (comboExists && gamesExists) {
+        m_downloadingDisks = false;
+        saveSettings();
+        startEmulator();
+        return;
+    }
+
+    termOutput("\r\nDownloading default disk images...\r\n");
+
+    const bool needComboDownload = !comboExists;
+    const bool needGamesDownload = !gamesExists;
 
     // Download missing disks then start. DiskCatalog invokes completion
     // callbacks on a detached worker thread; hop back to the UI thread with
@@ -1056,14 +1204,20 @@ void MainWindow::downloadAndStartWithDefaults() {
     //
     // The two values below are what the worker-side callbacks are allowed to
     // know about this window, and they are copies on purpose. Nothing stops the
-    // user quitting mid-transfer - hd1k_combo.img is 49MB and takes about eight
+    // user quitting mid-transfer - hd1k_combo is 49MB and takes about eight
     // seconds here, and the File menu and the close box stay live throughout -
     // so a callback that read this->m_hwnd would be reading a MainWindow that
     // wWinMain has already taken off its stack. See postToUiThread.
     const HWND uiWindow = m_hwnd;
     const std::shared_ptr<WorkerPostGate> uiGate = m_uiPostGate;
 
-    m_downloadingDisks = true;
+    // The names on the WIRE, which are the catalog's own filenames.
+    // DiskCatalog::downloadDisk looks each of them up in the catalog it has just
+    // fetched and takes BOTH the URL and the expected sha256 out of that one
+    // entry, so there is no longer any way to download one of these without
+    // checking it.
+    const std::string comboName = entries[0].filename;
+    const std::string gamesName = entries[1].filename;
 
     // Runs on the UI thread after the last download finishes (or fails).
     auto finishAndStart = [this]() {
@@ -1072,30 +1226,21 @@ void MainWindow::downloadAndStartWithDefaults() {
         startEmulator();
     };
 
-    auto downloadGames = [this, games, finishAndStart, uiWindow, uiGate]() {
-        m_diskCatalog->downloadDisk("hd1k_games.img",
+    auto downloadGames = [this, games, gamesName, finishAndStart, uiWindow, uiGate]() {
+        m_diskCatalog->downloadDisk(gamesName,
             nullptr,
             [this, games, finishAndStart, uiWindow, uiGate](bool success, const std::string& error) {
                 postToUiThread(uiWindow, uiGate, [this, games, finishAndStart, success, error]() {
-                    auto termOut = [this](const char* msg) {
-                        if (m_terminal) {
-                            for (const char* p = msg; *p; ++p) {
-                                m_terminal->outputChar(*p);
-                            }
-                        }
-                    };
-
                     if (success) {
                         auto& cfg = config::ConfigManager::instance().get();
                         config::DiskConfig disk;
                         disk.path = games;
                         cfg.disks[1] = disk;
                         m_emulator->loadDisk(1, games);
-                        termOut("  Disk 1: hd1k_games.img downloaded and loaded\r\n");
+                        terminalPrint("  Disk 1: " + diskv0::basenameOf(games) +
+                                      " downloaded and loaded\r\n");
                     } else {
-                        termOut("  Disk 1: download failed - ");
-                        termOut(error.c_str());
-                        termOut("\r\n");
+                        terminalPrint("  Disk 1: download failed - " + error + "\r\n");
                     }
                     finishAndStart();
                 });
@@ -1103,29 +1248,20 @@ void MainWindow::downloadAndStartWithDefaults() {
     };
 
     if (needComboDownload) {
-        m_diskCatalog->downloadDisk("hd1k_combo.img",
+        m_diskCatalog->downloadDisk(comboName,
             nullptr,
             [this, combo, needGamesDownload, downloadGames, finishAndStart, uiWindow, uiGate](bool success, const std::string& error) {
                 postToUiThread(uiWindow, uiGate, [this, combo, needGamesDownload, downloadGames, finishAndStart, success, error]() {
-                    auto termOut = [this](const char* msg) {
-                        if (m_terminal) {
-                            for (const char* p = msg; *p; ++p) {
-                                m_terminal->outputChar(*p);
-                            }
-                        }
-                    };
-
                     if (success) {
                         auto& cfg = config::ConfigManager::instance().get();
                         config::DiskConfig disk;
                         disk.path = combo;
                         cfg.disks[0] = disk;
                         m_emulator->loadDisk(0, combo);
-                        termOut("  Disk 0: hd1k_combo.img downloaded and loaded\r\n");
+                        terminalPrint("  Disk 0: " + diskv0::basenameOf(combo) +
+                                      " downloaded and loaded\r\n");
                     } else {
-                        termOut("  Disk 0: download failed - ");
-                        termOut(error.c_str());
-                        termOut("\r\n");
+                        terminalPrint("  Disk 0: download failed - " + error + "\r\n");
                     }
 
                     if (needGamesDownload) {
@@ -1267,17 +1403,31 @@ void MainWindow::onEmulatorSettings() {
     // falls back to its first entry and OK then "changes" the ROM to
     // emu_avw.rom every time, whatever the user had selected.
     settings.romFile = m_emulator->getROMName();
+
+    // The disk catalog's RomWBW release, both halves of it: what the user has
+    // chosen (or has not - empty means "the index's default"), and what the ROM
+    // in the banks actually is. The dialog needs both because they can disagree,
+    // and a user who selects 3.6.0 while booting a 3.5.1 ROM has to be told what
+    // that means before they download 200 MB of disks that will print
+    // "*** WARNING: HBIOS/CBIOS Version Mismatch ***" at them.
+    settings.romwbwVersion = cfg.romwbwVersion;
+    settings.loadedRomwbwRelease = loadedRomwbwRelease();
+
+    // A bare name for a disk in the data folder, the WHOLE path for one
+    // anywhere else, because that is the distinction the write-back below makes
+    // when it reads these values again: it treats a bare name as "in the data
+    // folder" and resolves it through DiskCatalog::getDiskPath. Handing it the
+    // basename of C:\mine\volume.img therefore turned the user's own image into
+    // <dataDir>\volume.img, which is not a file, so the slot was left behind by
+    // the write-back and - with the dropdown carrying no such entry either -
+    // erased by the "(None)" branch instead.
+    const std::string dataDir = m_diskCatalog->getDownloadDirectory();
     for (int i = 0; i < 4; i++) {
-        if (cfg.disks[i].has_value() && !cfg.disks[i]->path.empty()) {
-            // Extract filename from full path
-            const std::string& diskPath = cfg.disks[i]->path;
-            size_t lastSlash = diskPath.find_last_of("\\/");
-            if (lastSlash != std::string::npos) {
-                settings.diskFiles[i] = diskPath.substr(lastSlash + 1);
-            } else {
-                settings.diskFiles[i] = diskPath;
-            }
-        }
+        if (!cfg.disks[i].has_value() || cfg.disks[i]->path.empty()) continue;
+        const std::string& diskPath = cfg.disks[i]->path;
+        settings.diskFiles[i] = diskv0::isDirectlyIn(diskPath, dataDir)
+                                    ? diskv0::basenameOf(diskPath)
+                                    : diskPath;
     }
 
     // .get() rather than the shared_ptr, and that is not a hole: the dialog is
@@ -1304,6 +1454,28 @@ void MainWindow::onEmulatorSettings() {
         // setDebug(), and would show the same stale value in the box.
         cfgMut.debug = settings.debugMode;
         m_emulator->setDebug(settings.debugMode);
+
+        // The catalog's RomWBW release. Written to the config and handed to the
+        // catalog together, so the two cannot disagree about which release the
+        // next fetch is for. Nothing is downloaded, deleted or unmounted here:
+        // the disks in the four slots are absolute paths to files that keep
+        // existing, and the images of both releases live side by side because
+        // every v0 filename carries its own.
+        //
+        // UNCONDITIONAL, and the "if it changed" version of this was wrong. The
+        // dialog tells the catalog its preference the moment the control moves,
+        // because the list underneath has to be refetched to match - so by the
+        // time OK is pressed the catalog may already be holding a preference the
+        // dialog has since backed away from. That is not hypothetical: a switch
+        // to 3.6.0 whose fetch FAILS puts the control back on the release still
+        // in hand, which is usually the one already in the config, so the
+        // comparison found no change, skipped the call, and left the catalog
+        // preferring 3.6.0 while every stored and displayed value said 3.5.1 -
+        // and the next fetch, from F5 or the next Settings open, quietly used
+        // 3.6.0. Setting a preference costs nothing and starts nothing, so
+        // there is no reason to make it conditional.
+        cfgMut.romwbwVersion = settings.romwbwVersion;
+        m_diskCatalog->setPreferredRomwbwVersion(settings.romwbwVersion);
 
         // Load the ROM only if it actually changed, and record the change
         // everywhere the rest of the app reads it. Reloading unconditionally
@@ -1862,6 +2034,23 @@ void MainWindow::reportConfigDiagnostics() {
     }
 }
 
+std::string MainWindow::loadedRomwbwRelease() const {
+    // Asked of the ROM in the banks, not of a constant. There is no compile-time
+    // RomWBW pin left to read: romwbw_emu v1.39 made the version runtime state
+    // derived from whichever image was loaded, which is what lets one binary
+    // boot more than one release. So the honest answer to "which RomWBW is this
+    // machine" is a read of bank 0, and it changes when the user loads another
+    // ROM.
+    if (!m_emulator || !m_emulator->hasROM()) return std::string();
+
+    emu_romwbw_release release;
+    if (!emu_romwbw_release_loaded(m_emulator->getMemory(), &release)) return std::string();
+
+    char buffer[EMU_ROMWBW_STR_MAX] = {};
+    emu_romwbw_release_str(release, buffer, sizeof(buffer));
+    return std::string(buffer);
+}
+
 void MainWindow::loadDefaultROM() {
     std::string romPath = findResourceFile("emu_avw.rom");
 
@@ -1956,6 +2145,11 @@ void MainWindow::loadSettings() {
     auto& cfgMgr = config::ConfigManager::instance();
     cfgMgr.load();
 
+    // Rename the pre-v0 catalog images and everything that points at them, with
+    // the same dataDir setDownloadDirectory() was just given rather than one
+    // worked out again here.
+    migrateStorageToInterfaceV0(dataDir);
+
     // Say what the file contained that nothing read, before applying what it
     // did. load() collected the diagnostics and until now nothing displayed
     // them: a mistyped setting was detected, described, and then thrown away
@@ -1964,6 +2158,55 @@ void MainWindow::loadSettings() {
 
     // Apply the loaded configuration
     applyConfig();
+}
+
+// The interface-v0 storage migration: run once, over the images, the ledger,
+// the four slots and every profile, at the one moment all of them can be moved
+// together. DiskMigrationV0.h holds the reasoning about the names themselves.
+//
+// ORDERING, and both ends of it are load-bearing. AFTER ConfigManager::load(),
+// because load() may still be migrating a z80cpmw.ini whose disk0..disk3 lines
+// become DiskConfig::path and need this pass too. BEFORE applyConfig(), for two
+// reasons: applyConfig mounts the four slots, so a slot rewritten after it is
+// not the disk on the machine, and it also OPENS those files - a rename of a
+// file this process has open fails, and it would fail on exactly the images the
+// user cares most about. It is also before the first fetchCatalog can happen -
+// the Settings dialog's constructor starts that - which matters because
+// isDiskDownloaded(), the dropdowns and the freshness column all ask about v0
+// names from then on.
+//
+// 'dataDir' comes from the caller and is not worked out here. This application
+// already builds %LOCALAPPDATA%\z80cpmw\data in three independent places -
+// DiskCatalog's constructor, EmulatorEngine::getUserDataDirectory and
+// getDataFolder() in emu_io_windows.cpp - and a fourth would let this rename
+// files in a folder nothing else reads. It is also why the migration is here
+// and not in the installer: under MSIX the OS redirects that path per package,
+// so an installer step would find nothing to rename for a Store user.
+void MainWindow::migrateStorageToInterfaceV0(const std::string& dataDir) {
+    auto& cfgMgr = config::ConfigManager::instance();
+    if (cfgMgr.get().interfaceV0Migrated) return;
+
+    // The files first: what the config and the profiles may be rewritten
+    // against is what actually landed, never what could be mapped.
+    DiskCatalog::V0FileMigration files = m_diskCatalog->migrateFilesToInterfaceV0();
+    config::V0MigrationReport stored =
+        cfgMgr.migrateToInterfaceV0(dataDir, files.landed, files.failures.empty());
+
+    if (files.failures.empty() && stored.profileFailures.empty()) return;
+
+    // Only the failures are said, and they are said as a notice rather than a
+    // line of terminal output, because the screen is cleared on the next Start
+    // and this is exactly the sentence that explains why a disk the user
+    // configured is not in the list any more.
+    std::string text = "\r\nSome files could not be renamed for the new disk "
+                       "catalog. The app will try again next time it starts.\r\n";
+    for (const auto& f : files.failures) {
+        text += "  " + f + "\r\n";
+    }
+    for (const auto& f : stored.profileFailures) {
+        text += "  profile " + f + "\r\n";
+    }
+    setNotice(Notice::StorageMigration, text);
 }
 
 void MainWindow::saveSettings() {
@@ -2061,6 +2304,18 @@ void MainWindow::saveSettings() {
 
 void MainWindow::applyConfig() {
     const auto& cfg = config::ConfigManager::instance().get();
+
+    // Which RomWBW release the disk catalog is fetched for. Here rather than in
+    // loadSettings() because this function is what turns a configuration into
+    // the running state, and it has the second caller that matters: loading a
+    // PROFILE replaces the whole configuration, this member included, and a
+    // profile that names 3.6.0 has to move the catalog with it.
+    //
+    // It only sets a preference and starts nothing. The first fetch comes later
+    // - from the Settings dialog's constructor, or from F5 with nothing mounted
+    // - and DiskCatalog falls back to the index's default if this release is one
+    // it cannot boot. Nothing is deleted, unmounted or invalidated by the change.
+    m_diskCatalog->setPreferredRomwbwVersion(cfg.romwbwVersion);
 
     // Apply ROM selection. A config naming SBC_simh_std.rom comes from a build
     // that offered it: it is a stock ROM for real hardware, it has no port 0xEF

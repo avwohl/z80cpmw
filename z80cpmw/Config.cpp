@@ -106,7 +106,9 @@ void to_json(json& j, const AppConfig& c) {
             {"debug", c.debug},
             {"bootString", c.bootString},
             {"warnManifestWrites", c.warnManifestWrites},
-            {"welcomeShown", c.welcomeShown}
+            {"welcomeShown", c.welcomeShown},
+            {"interfaceV0Migrated", c.interfaceV0Migrated},
+            {"romwbwVersion", c.romwbwVersion}
         }},
         {"display", {
             {"fontSize", c.fontSize},
@@ -197,6 +199,14 @@ void from_json(const json& j, AppConfig& c) {
         c.bootString = core.value("bootString", "");
         c.warnManifestWrites = core.value("warnManifestWrites", true);
         c.welcomeShown = core.value("welcomeShown", false);
+        // false when absent, which is what every file written before the
+        // migration existed says about itself. Config.h explains why this is a
+        // member of its own and not a bump of CURRENT_VERSION.
+        c.interfaceV0Migrated = core.value("interfaceV0Migrated", false);
+        // Empty when absent, which is "no preference" and not "3.5.1": pinning
+        // the bundled release here would make a configuration written today
+        // outlive the day this build stops bundling it.
+        c.romwbwVersion = core.value("romwbwVersion", "");
     }
 
     // Display settings
@@ -1039,6 +1049,170 @@ bool ConfigManager::saveToFile(const std::string& path) const {
     } catch (const std::exception&) {
         return false;
     }
+}
+
+//=============================================================================
+// The interface-v0 storage migration
+//
+// DiskMigrationV0.h carries the reasoning about names; what is here is the two
+// places this application writes one down - the four slots in force, and the
+// profile files.
+//=============================================================================
+
+// The disks array of a PARSED configuration document, rewritten in place.
+// Returns how many paths changed.
+//
+// Deliberately not static, and for the same reason referenceDocument() and
+// inspectDocument() are not: tests/test_config.cpp declares and drives it
+// directly, and neither it nor they can be declared in Config.h without
+// dragging json.hpp into MainWindow.h behind it.
+//
+// A "disks" that is not an array is left completely alone. That is not
+// defensive coding, it is the carry: from_json's is_array() guard skips such a
+// section without reading a thing out of it and to_json splices the user's own
+// text back at /disks, so a slot the application cannot see is a slot it must
+// not rewrite either. Same for an element that is not an object, and for a
+// "path" that is not a string - each of those is a document nothing here
+// understands.
+//
+// Every element is walked, not the first four. AppConfig holds four units and a
+// fifth entry is reported as an UnknownMember and dropped at the next save, but
+// until that save it is still the user's text, and a rewrite that migrated four
+// paths and left a fifth naming a file that no longer exists would be a worse
+// document than the one it replaced.
+int migrateDocumentToInterfaceV0(json& doc, const std::string& dataDir,
+                                 const diskv0::LandedNames& landed) {
+    if (!doc.is_object()) return 0;
+
+    auto disks = doc.find("disks");
+    if (disks == doc.end() || !disks->is_array()) return 0;
+
+    int changed = 0;
+    for (auto& slot : *disks) {
+        if (!slot.is_object()) continue;
+        auto path = slot.find("path");
+        if (path == slot.end() || !path->is_string()) continue;
+
+        std::string migrated;
+        if (!diskv0::migratedDiskPath(path->get<std::string>(), dataDir, landed, migrated)) {
+            continue;
+        }
+        *path = migrated;
+        changed++;
+    }
+    return changed;
+}
+
+V0MigrationReport ConfigManager::migrateToInterfaceV0(const std::string& dataDir,
+                                                      const diskv0::LandedNames& landed,
+                                                      bool filesComplete) {
+    V0MigrationReport report;
+
+    // The configuration in force, through the struct rather than the document:
+    // this is the copy MainWindow::applyConfig is about to mount from, and the
+    // save at the end writes it back through the ordinary path, carried section
+    // and all.
+    for (int i = 0; i < 4; i++) {
+        if (!m_config.disks[i].has_value()) continue;
+        std::string migrated;
+        if (!diskv0::migratedDiskPath(m_config.disks[i]->path, dataDir, landed, migrated)) {
+            continue;
+        }
+        m_config.disks[i]->path = migrated;
+        report.slotsRewritten++;
+    }
+
+    // Every profile, now and not lazily: a profile is loaded at a moment of the
+    // user's choosing, and one that still names hd1k_combo.img would arrive with
+    // four empty slots and unmount whatever was running.
+    for (const auto& name : listProfiles()) {
+        const std::string path = getProfilePath(name);
+
+        std::string text;
+        {
+            std::ifstream file(path, std::ios::binary);
+            if (!file.is_open()) {
+                report.profileFailures.push_back(name + " (could not be opened)");
+                continue;
+            }
+            std::ostringstream buffer;
+            buffer << file.rdbuf();
+            text = buffer.str();
+        }
+
+        // The non-throwing parse. A profile that will not parse is left exactly
+        // as it is - not quarantined, not rewritten, not reported to the
+        // diagnostics: this pass was not asked to load it, and loadProfile()
+        // will say all of that properly if the user ever asks for it.
+        json doc = json::parse(text, nullptr, false);
+        if (doc.is_discarded() || !doc.is_object()) {
+            report.profileFailures.push_back(name + " (could not be parsed)");
+            continue;
+        }
+
+        int changed = migrateDocumentToInterfaceV0(doc, dataDir, landed);
+        if (changed == 0) continue;
+
+        // Stamped only on a profile that is being written anyway. The flag in a
+        // profile matters because loadProfile() replaces the whole configuration
+        // with the profile's, this member included; leaving it false in a file
+        // this pass has just corrected would make the next launch after loading
+        // it run the pass again for nothing.
+        //
+        // find() first, because doc["core"] would CREATE a null "core" just by
+        // being asked - and would then have added a member to a document whose
+        // "core" is a section this application could not read.
+        auto core = doc.find("core");
+        if (core == doc.end()) {
+            doc["core"]["interfaceV0Migrated"] = true;
+        } else if (core->is_object()) {
+            (*core)["interfaceV0Migrated"] = true;
+        }
+
+        // The atomic write saveToFile() uses, and not saveToFile() itself: this
+        // writes back the DOCUMENT, so a member this application does not know
+        // and a section it could not read both survive the rewrite untouched.
+        try {
+            const std::string tempPath = path + ".tmp";
+            {
+                std::ofstream out(tempPath);
+                if (!out.is_open()) {
+                    report.profileFailures.push_back(name + " (could not be written)");
+                    continue;
+                }
+                out << doc.dump(2);
+            }
+            fs::rename(tempPath, path);
+        } catch (const std::exception& e) {
+            report.profileFailures.push_back(name + " (" + e.what() + ")");
+            continue;
+        }
+
+        report.profilesRewritten++;
+        report.profilePathsRewritten += changed;
+    }
+
+    // Done means BOTH halves finished. A rename that failed will be retried on
+    // the next launch, and it can only be retried while this is false.
+    report.markedDone = filesComplete && report.profileFailures.empty();
+    if (!report.markedDone) return report;
+
+    m_config.interfaceV0Migrated = true;
+
+    // DO NOT SAVE OVER A FILE WE FAILED TO READ - load()'s rule, and it applies
+    // here for the same reason and with the same test. A launch that could not
+    // read part of z80cpmw.json still gets the migration: the files have been
+    // renamed and the slots in force now point at them, so this session mounts
+    // the right disks. What it does not get is the flag written down, so the
+    // pass runs again next launch, finds nothing left to do, and costs twenty
+    // GetFileAttributes calls.
+    for (const auto& d : m_diagnostics) {
+        if (d.problem == Problem::UnreadableFile || d.problem == Problem::TypeMismatch) {
+            return report;
+        }
+    }
+    report.saved = save();
+    return report;
 }
 
 bool ConfigManager::migrateFromINI() {

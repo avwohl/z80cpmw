@@ -8,6 +8,7 @@
 #pragma once
 
 #include "ConfigReport.h"
+#include "DiskMigrationV0.h"
 
 #include <string>
 #include <vector>
@@ -106,6 +107,42 @@ struct AppConfig {
     bool warnManifestWrites = true;  // Warn when writing to downloaded catalog disks
     bool welcomeShown = false;       // True once the Getting Started help has been auto-shown
 
+    // True once the interface-v0 storage migration has run over this
+    // configuration and the data folder beside it. See DiskMigrationV0.h.
+    //
+    // A flag of its own rather than a bump of CURRENT_VERSION, and the reason is
+    // in from_json: `version` is read as j.value("version", CURRENT_VERSION), so
+    // a document that does not carry the key reads back as ALREADY MIGRATED -
+    // the one direction a migration gate must never fail in. This member reads
+    // back as false when it is absent, which is what an un-migrated file is, and
+    // it is also right for the two documents that carry no history at all: a
+    // fresh install and an INI migration both start from AppConfig{}, run the
+    // pass over an empty or legacy-named data folder, and record that they did.
+    //
+    // It is only a shortcut. The pass is idempotent by construction, so this
+    // being wrong in either direction costs a repeated scan of twenty names and
+    // nothing else - which is what happens after loading a profile written
+    // before the migration, since that profile's copy of this flag becomes the
+    // one in force.
+    bool interfaceV0Migrated = false;
+
+    // Which RomWBW release the disk catalog is fetched for, e.g. "3.5.1".
+    //
+    // Empty means "no preference", which is what every configuration written
+    // before this release says and what a fresh install starts as - the catalog
+    // then takes the index's own `default: true` entry. It is stored as the
+    // release STRING and not as an index position, because the index is a
+    // document that gains and loses entries: a stored position would silently
+    // become a different release the day romwbw_disks publishes 3.7.0.
+    //
+    // Changing it deletes nothing and unmounts nothing. Every interface-v0
+    // filename carries its release - hd1k_combo-v0-3.5.1.img beside
+    // hd1k_combo-v0-3.6.0.img - so the two generations coexist in one data
+    // folder and switching back and forth costs a catalog fetch and no bytes.
+    // That is why this client does not need the per-(interface, version) cache
+    // keys the interface asks of ports that store bare filenames.
+    std::string romwbwVersion;
+
     // Display settings
     int fontSize = 20;
     std::string fontName = "Consolas";
@@ -178,6 +215,24 @@ struct AppConfig {
     std::string unreadSectionsFrom;
 };
 
+// What ConfigManager::migrateToInterfaceV0 did.
+struct V0MigrationReport {
+    int slotsRewritten = 0;      // in the configuration in force
+    int profilesRewritten = 0;   // profile FILES written, not paths
+    int profilePathsRewritten = 0;
+    // Profiles that could not be read, or that could not be written back after
+    // being read. Nothing is quarantined and nothing is overwritten on either
+    // count - loadFromFile's rule, that a file we could not read is a file we do
+    // not write, is the one this pass follows too.
+    std::vector<std::string> profileFailures;
+    // Whether AppConfig::interfaceV0Migrated was set, and whether that reached
+    // the disk. They differ: a launch that could not read part of z80cpmw.json
+    // does not save, so the flag holds for this session and the pass runs again
+    // next time.
+    bool markedDone = false;
+    bool saved = false;
+};
+
 // Singleton configuration manager
 class ConfigManager {
 public:
@@ -189,6 +244,36 @@ public:
 
     // Save current configuration
     bool save();
+
+    // Rewrite every stored disk path that names a pre-v0 catalog image in the
+    // data folder onto its v0 name - in the configuration in force AND in every
+    // saved profile - and record that it has been done.
+    //
+    // 'landed' is what DiskCatalog::migrateFilesToInterfaceV0() actually
+    // achieved, so a path is only ever pointed at a file that is now there.
+    // 'filesComplete' is that pass's verdict on itself; the flag is set only
+    // when both halves finished, because a flag set over a rename that failed
+    // strands the file under its old name for ever.
+    //
+    // Call it BETWEEN load() and the first use of the settings. Ordering, both
+    // ends of it: load() may still be migrating a z80cpmw.ini, whose disk0..disk3
+    // lines land straight in DiskConfig::path and need this pass too; and
+    // MainWindow::applyConfig mounts what is in force, so a slot rewritten after
+    // that would not be the disk the user is running.
+    //
+    // PROFILES ARE REWRITTEN AS DOCUMENTS, never through this class, and that is
+    // not a shortcut - it is the only safe way. loadProfile() REPLACES the whole
+    // configuration in force and sets m_currentProfile, so migrating by loading
+    // each profile would leave the machine running the last one; loadFromFile()
+    // renames an unparseable file to .bad as a side effect of merely reading it,
+    // so a pass that read them all would quarantine every broken profile without
+    // being asked; and saveToFile() drops a carried unreadable section unless it
+    // is writing the exact file the carry came from. Reading the JSON, changing
+    // the paths in it and writing it back has none of those effects and
+    // preserves everything in the file this application does not understand.
+    V0MigrationReport migrateToInterfaceV0(const std::string& dataDir,
+                                           const diskv0::LandedNames& landed,
+                                           bool filesComplete);
 
     // Profile management
     std::vector<std::string> listProfiles() const;

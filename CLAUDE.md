@@ -11,7 +11,7 @@ because `z80cpmw.vcxproj` compiles core sources straight out of them. They are
 not submodules and nothing fetches them.
 
     MSBuild z80cpmw.sln -p:Configuration=Release -p:Platform=x64 -t:Rebuild -m
-    cmd /c tests\run_tests.bat        # seven headless suites, ~1467 checks
+    cmd /c tests\run_tests.bat        # eight headless suites
 
 The suites need no wxWidgets, no vcpkg and no window (except the rendering one,
 which opens its own). They run on any machine with a compiler. wxWidgets comes

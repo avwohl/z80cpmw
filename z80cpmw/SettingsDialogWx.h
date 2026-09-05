@@ -68,6 +68,25 @@ inline WxDialogPlacement placeDialogInWorkArea(int preferredWidth, int preferred
 struct WxEmulatorSettings {
     std::string romFile;
     std::string diskFiles[4];
+
+    // Which RomWBW release the disk catalog is fetched for, e.g. "3.5.1". In
+    // and back out; empty means "no preference", which is what a configuration
+    // written before this release says and what makes the catalog take the
+    // index's own default entry.
+    //
+    // It comes back UNCHANGED when the dialog could not offer a list - a
+    // machine with no network never gets an index, so the choice control holds
+    // one placeholder - and that is the point. A control that could not be
+    // populated must not be allowed to write an emptier value than it was
+    // given; the same rule the four disk dropdowns learned the hard way.
+    std::string romwbwVersion;
+
+    // The RomWBW release the ROM in the banks declares, e.g. "3.5.1", or empty
+    // when there is no ROM or its HCB cannot be read. IN ONLY - the dialog
+    // displays it and never writes it. It is what lets the Disk Images page say
+    // that disks built for another release will not match the ROM this build
+    // boots, which matters because this build ships one ROM and downloads none.
+    std::string loadedRomwbwRelease;
     bool debugMode = false;
     bool warnManifestWrites = true;         // Warn when writing to downloaded catalog disks
     bool clearBootConfigRequested = false;  // Set when user clicks "Clear Boot Config"
@@ -120,6 +139,12 @@ private:
     void buildKeyboardPage();
     void buildDiskImagesPage();
     void populateROMList();
+    // The RomWBW releases the catalog offers that this build's core can boot,
+    // and the sentence underneath saying what the selected one means for a
+    // machine that boots a bundled ROM. Both are refilled whenever a catalog
+    // lands, because until one does there is no list to show.
+    void populateVersionList();
+    void updateRomwbwVersionNote();
     void populateDiskLists();
     void populateCatalog();
     void loadSettings();
@@ -134,6 +159,13 @@ private:
     // over the network and this machine's catalog is already cached, so the
     // race is hard to stage on purpose.
     void loadDiskSelections();
+    // Refill the four dropdowns and put back what was CHOSEN in them, which is
+    // not the same thing as what m_settings arrived holding - the user may have
+    // picked a disk before pressing Download. Every caller that repopulates the
+    // dropdowns has to go through this, because "(None)" is not a neutral state
+    // to be left in: saveSettings() writes "" for it and MainWindow reads "" as
+    // "close this unit and forget it".
+    void repopulateDiskLists();
     void saveSettings();
 
     // Keyboard page. m_keyRows is the model; the wxListCtrl is a view of it,
@@ -163,6 +195,7 @@ private:
     void onDazzlerEnabledChanged(wxCommandEvent& event);
     void onClearBootConfig(wxCommandEvent& event);
     void onRefreshCatalog(wxCommandEvent& event);
+    void onRomwbwVersionChanged(wxCommandEvent& event);
     void onDownloadDisk(wxCommandEvent& event);
     void onDeleteDisk(wxCommandEvent& event);
     void onOpenDataFolder(wxCommandEvent& event);
@@ -256,7 +289,26 @@ private:
     wxSpinCtrl* m_dazzlerScaleSpin;
     wxStaticText* m_dazzlerPortLabel;
     wxStaticText* m_dazzlerScaleLabel;
+    wxChoice* m_romwbwVersionChoice;
+    // choice index -> the `romwbw_version` string that index means, e.g.
+    // "3.5.1". Kept beside the control because what the control DISPLAYS is
+    // catalogv0::displayLabel() - "RomWBW 3.6.0 (preview)" - and the label is
+    // documentation the index may reword at any time, where the version string
+    // is the key the preference is stored under. Empty for the placeholder row
+    // shown before any catalog has been fetched.
+    std::vector<std::string> m_romwbwVersionIds;
+    wxStaticText* m_romwbwVersionNote;
+
     wxListCtrl* m_catalogList;
+    // Row -> the catalog FILENAME that row is about, filled by populateCatalog.
+    //
+    // The two handlers used to take the filename out of the list control's
+    // column 0, which quietly made a display column part of the catalog API:
+    // showing anything friendlier there - the entry's `name`, say, now that a
+    // v0 filename is 23 characters of hd1k_combo-v0-3.5.1.img - would have sent
+    // "Combo (Recommended)" to downloadDisk(). The text on screen and the key
+    // the API is given are now two different things on purpose.
+    std::vector<std::string> m_catalogRowFilenames;
     wxButton* m_refreshBtn;
     wxButton* m_downloadBtn;
     wxButton* m_deleteBtn;
@@ -282,6 +334,7 @@ private:
         ID_DAZZLER_ENABLED,
         ID_CLEAR_BOOT_CONFIG,
         ID_REFRESH_CATALOG,
+        ID_ROMWBW_VERSION,
         ID_DOWNLOAD_DISK,
         ID_DELETE_DISK,
         ID_CATALOG_LOADED,

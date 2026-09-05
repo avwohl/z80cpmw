@@ -29,6 +29,7 @@ wxBEGIN_EVENT_TABLE(SettingsDialogWx, wxDialog)
     EVT_CHECKBOX(ID_DAZZLER_ENABLED, SettingsDialogWx::onDazzlerEnabledChanged)
     EVT_BUTTON(ID_CLEAR_BOOT_CONFIG, SettingsDialogWx::onClearBootConfig)
     EVT_BUTTON(ID_REFRESH_CATALOG, SettingsDialogWx::onRefreshCatalog)
+    EVT_CHOICE(ID_ROMWBW_VERSION, SettingsDialogWx::onRomwbwVersionChanged)
     EVT_BUTTON(ID_DOWNLOAD_DISK, SettingsDialogWx::onDownloadDisk)
     EVT_BUTTON(ID_DELETE_DISK, SettingsDialogWx::onDeleteDisk)
     EVT_BUTTON(ID_OPEN_DATA_FOLDER, SettingsDialogWx::onOpenDataFolder)
@@ -733,6 +734,30 @@ void SettingsDialogWx::buildDiskImagesPage() {
     wxWindow* page = m_diskImagesPage;
     wxBoxSizer* content = new wxBoxSizer(wxVERTICAL);
 
+    // Which RomWBW release the catalog is for, and what that means here.
+    //
+    // It is at the TOP of this page because it decides everything below it: the
+    // list, the filenames, and which images a download puts in the data folder.
+    // The list is not compiled in - it comes from index-v0.json, filtered to the
+    // releases the emulator core says it can boot - so it is empty until a
+    // catalog has been fetched, which is why populateVersionList() leaves a
+    // placeholder rather than an empty control.
+    m_romwbwVersionChoice = new wxChoice(page, ID_ROMWBW_VERSION);
+    wxBoxSizer* versionSizer = new wxBoxSizer(wxHORIZONTAL);
+    versionSizer->Add(new wxStaticText(page, wxID_ANY, "RomWBW release:"), 0,
+                      wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    versionSizer->Add(m_romwbwVersionChoice, 1, wxALIGN_CENTER_VERTICAL);
+    content->Add(versionSizer, 0, wxEXPAND | wxBOTTOM, 4);
+
+    // Created carrying the sentence that is true whatever is selected, rather
+    // than empty, so that the Fit() in the constructor reserves height for it -
+    // this page is laid out before any catalog has been fetched, and a label
+    // that grows from nothing to two lines afterwards grows into a page that was
+    // measured without it. updateRomwbwVersionNote() replaces the text.
+    m_romwbwVersionNote = new wxStaticText(page, wxID_ANY,
+        "z80cpmw boots the ROM it ships with. ROMs in the catalog are not downloaded.");
+    content->Add(m_romwbwVersionNote, 0, wxEXPAND | wxBOTTOM, 10);
+
     // Catalog section header
     m_refreshBtn = new wxButton(page, ID_REFRESH_CATALOG, "Refresh");
     wxBoxSizer* catalogHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -819,16 +844,144 @@ void SettingsDialogWx::populateROMList() {
     m_romChoice->SetSelection(0);
 }
 
+void SettingsDialogWx::populateVersionList() {
+    m_romwbwVersionChoice->Clear();
+    m_romwbwVersionIds.clear();
+
+    const std::vector<catalogv0::IndexEntry> versions =
+        m_catalog ? m_catalog->getRunnableVersions() : std::vector<catalogv0::IndexEntry>();
+
+    if (versions.empty()) {
+        // No index yet - the fetch this dialog's constructor started has not
+        // come back, or it failed, or there is no network. Show what the
+        // configuration says and disable the control rather than showing an
+        // empty one: an empty dropdown invites a click that can only produce a
+        // worse answer than the one already stored.
+        //
+        // The placeholder's id is empty on purpose, and saveSettings() refuses
+        // to write an empty id over a stored one. Otherwise opening Settings on
+        // an offline machine and pressing OK would silently forget which RomWBW
+        // release the user had chosen - the same shape as the "(None)" erasure
+        // the four disk dropdowns had.
+        const std::string configured = m_settings.romwbwVersion;
+        m_romwbwVersionChoice->Append(configured.empty()
+                                          ? wxString("(catalog not loaded)")
+                                          : wxString::FromUTF8("RomWBW " + configured));
+        m_romwbwVersionIds.push_back(std::string());
+        m_romwbwVersionChoice->SetSelection(0);
+        m_romwbwVersionChoice->Enable(false);
+        updateRomwbwVersionNote();
+        return;
+    }
+
+    // catalogv0::displayLabel appends the status for anything that is not
+    // "stable", so 3.6.0 reads "RomWBW 3.6.0 (preview)". That marking is not
+    // decoration: the repository publishes a preview release as not yet
+    // recommended, and a user choosing one is choosing images built for a ROM
+    // this build does not ship.
+    for (const auto& entry : versions) {
+        m_romwbwVersionChoice->Append(wxString::FromUTF8(catalogv0::displayLabel(entry)));
+        m_romwbwVersionIds.push_back(entry.romwbwVersion);
+    }
+    m_romwbwVersionChoice->Enable(true);
+
+    // Selected on the version the catalog in hand was actually FETCHED for,
+    // which is not always the one the user asked for: a preference the index no
+    // longer carries, or that this core cannot boot, falls back to the index's
+    // default. Showing the preference instead would tell the user they are
+    // looking at a catalog they are not.
+    const std::string selected = m_catalog ? m_catalog->getSelectedRomwbwVersion()
+                                           : m_settings.romwbwVersion;
+    int idx = 0;
+    for (size_t i = 0; i < m_romwbwVersionIds.size(); i++) {
+        if (m_romwbwVersionIds[i] == selected) {
+            idx = static_cast<int>(i);
+            break;
+        }
+    }
+    m_romwbwVersionChoice->SetSelection(idx);
+    updateRomwbwVersionNote();
+}
+
+void SettingsDialogWx::updateRomwbwVersionNote() {
+    const int sel = m_romwbwVersionChoice->GetSelection();
+    const std::string chosen =
+        (sel >= 0 && (size_t)sel < m_romwbwVersionIds.size()) ? m_romwbwVersionIds[sel]
+                                                              : std::string();
+
+    // What this build actually boots, read out of the ROM in the banks rather
+    // than from a compile-time pin - there is no pin any more, and the core
+    // derives the release from whichever image is loaded.
+    const std::string running = m_settings.loadedRomwbwRelease;
+
+    std::string note;
+    if (!chosen.empty() && !running.empty()) {
+        if (chosen == running) {
+            note = "Matches the ROM in use (RomWBW " + running + "). ";
+        } else {
+            // THE ONE WARNING ON THIS PAGE THAT IS ABOUT DATA AND NOT TASTE.
+            // RomWBW's CBIOS lives inside the disk image and compares its own
+            // version against what HBF_SYSVER returns, printing
+            // "*** WARNING: HBIOS/CBIOS Version Mismatch ***" when the major or
+            // minor differs. So 3.6.0 disks under a 3.5.1 ROM boot into that
+            // banner, and the fix is a 3.6.0 ROM - which this build neither
+            // ships nor downloads. Saying so here is the alternative to
+            // pretending the choice is free.
+            note = "Disks for RomWBW " + chosen + " expect a RomWBW " + chosen +
+                   " ROM, and this build boots RomWBW " + running +
+                   ", so the guest will report an HBIOS/CBIOS version mismatch. ";
+        }
+    }
+
+    // And the sentence that is true whichever release is selected. The ROMs are
+    // read out of the catalog - the count below is the catalog's own roms[] -
+    // and deliberately not fetched: DiskCatalog's transfers are fire-and-forget
+    // with no wait, which cannot express "this ROM must be on disk before the
+    // emulator starts", and MainWindow::findResourceFile looks for a ROM only
+    // beside the executable and never in the data folder a download lands in.
+    // Two of the four hardcoded ROM names would have to become catalog data with
+    // it. None of that is in this release, so the page says so rather than
+    // offering half of it.
+    const size_t romCount = m_catalog ? m_catalog->getCatalogRoms().size() : 0;
+    if (romCount > 0) {
+        note += "This catalog publishes " + std::to_string(romCount) + " ROM" +
+                (romCount == 1 ? "" : "s") +
+                "; z80cpmw boots the ROM it ships with and downloads none.";
+    } else {
+        note += "z80cpmw boots the ROM it ships with and does not download ROMs.";
+    }
+
+    m_romwbwVersionNote->SetLabel(wxString::FromUTF8(note));
+    // The forms differ by a factor of three in length and a static text in a
+    // sizer does not re-wrap itself. Guarded on a plausible width because Wrap()
+    // with a width of nothing breaks after every word, and this runs once before
+    // the page has ever been laid out.
+    const int wrapWidth = m_romwbwVersionNote->GetSize().GetWidth();
+    if (wrapWidth > 100) m_romwbwVersionNote->Wrap(wrapWidth);
+    if (m_diskImagesPage->GetSizer()) m_diskImagesPage->Layout();
+}
+
 void SettingsDialogWx::populateDiskLists() {
     for (int i = 0; i < 4; i++) {
         m_diskChoices[i]->Clear();
         m_diskChoices[i]->Append("(None)");
 
-        // Add downloaded disks from catalog
+        // Add downloaded disks from the catalog, under the name the FILE has
+        // rather than the name the catalog gives it. The two are the same string
+        // now that the catalog serves interface-v0 names, and they were not for
+        // the one release in which the images had been renamed and the catalog
+        // had not - which is what getLocalName is for. This list has to say the
+        // name of the file either way, because what MainWindow seeds these
+        // controls with is the basename of the configured path and what it reads
+        // back out of them is a filename it resolves through
+        // DiskCatalog::getDiskPath: offering a name the file does not have makes
+        // the seed miss the entry it means and lands a second copy of the same
+        // disk in the list.
         if (m_catalog) {
             for (const auto& entry : m_catalog->getCatalogEntries()) {
                 if (entry.isDownloaded) {
-                    m_diskChoices[i]->Append(wxString::FromUTF8(entry.filename));
+                    m_diskChoices[i]->Append(
+                        wxString::FromUTF8(m_catalog->getLocalName(entry.filename)));
                 }
             }
         }
@@ -839,12 +992,16 @@ void SettingsDialogWx::populateDiskLists() {
 
 void SettingsDialogWx::populateCatalog() {
     m_catalogList->DeleteAllItems();
+    m_catalogRowFilenames.clear();
 
     if (!m_catalog) return;
 
     const auto& entries = m_catalog->getCatalogEntries();
     for (size_t i = 0; i < entries.size(); i++) {
         long idx = m_catalogList->InsertItem(i, wxString::FromUTF8(entries[i].filename));
+        // Recorded beside the row, not read back off it. See the note on
+        // m_catalogRowFilenames.
+        m_catalogRowFilenames.push_back(entries[i].filename);
         m_catalogList->SetItem(idx, 1, wxString::FromUTF8(entries[i].description));
         // The status column answers "have you got it" AND, since 1.0.25,
         // "is it still the one the catalog names" - which the previous line
@@ -878,12 +1035,54 @@ void SettingsDialogWx::setSettings(const WxEmulatorSettings& settings) {
 
 void SettingsDialogWx::loadDiskSelections() {
     for (int i = 0; i < 4; i++) {
-        if (!m_settings.diskFiles[i].empty()) {
-            int idx = m_diskChoices[i]->FindString(wxString::FromUTF8(m_settings.diskFiles[i]));
-            if (idx != wxNOT_FOUND) {
-                m_diskChoices[i]->SetSelection(idx);
-            }
+        if (m_settings.diskFiles[i].empty()) continue;
+
+        const wxString configured = wxString::FromUTF8(m_settings.diskFiles[i]);
+        int idx = m_diskChoices[i]->FindString(configured);
+        if (idx == wxNOT_FOUND) {
+            // APPEND IT AND SELECT IT. Leaving the control where it was - at
+            // index 0, "(None)" - is what erased the user's disk configuration,
+            // and the whole chain is four steps in three files with nothing said
+            // at any of them: this control stays at 0, saveSettings() below
+            // writes "" for a selection of 0, MainWindow::onEmulatorSettings
+            // reads "" as closeDisk(i) and disks[i] = nullopt, and its
+            // saveSettings() persists that. One visit to Settings and one press
+            // of OK, no confirmation, no diagnostic.
+            //
+            // And the list not carrying a configured disk is ordinary, not
+            // exceptional. populateDiskLists() offers only catalog entries whose
+            // isDownloaded is true, so it never carries a disk opened with
+            // File > Load Disk or an image the user put in the data folder by
+            // hand; it carries NOTHING at all until the catalog fetch this
+            // dialog's constructor started comes back, which on a machine with
+            // no network it never does.
+            idx = m_diskChoices[i]->Append(configured);
         }
+        m_diskChoices[i]->SetSelection(idx);
+    }
+}
+
+void SettingsDialogWx::repopulateDiskLists() {
+    // Read the four controls before emptying them. Index 0 is "(None)", which
+    // is a choice in its own right and comes back as the empty string, so a
+    // deliberate "(None)" survives a refill as surely as a chosen disk does.
+    std::string chosen[4];
+    for (int i = 0; i < 4; i++) {
+        int sel = m_diskChoices[i]->GetSelection();
+        if (sel > 0) chosen[i] = m_diskChoices[i]->GetString(sel).ToStdString();
+    }
+
+    populateDiskLists();
+
+    for (int i = 0; i < 4; i++) {
+        if (chosen[i].empty()) continue;
+        const wxString want = wxString::FromUTF8(chosen[i]);
+        int idx = m_diskChoices[i]->FindString(want);
+        // Appended for the same reason loadDiskSelections() appends: the list
+        // carries only downloaded catalog images, and the disk that was chosen
+        // may have just been deleted, or may never have been one of them.
+        if (idx == wxNOT_FOUND) idx = m_diskChoices[i]->Append(want);
+        m_diskChoices[i]->SetSelection(idx);
     }
 }
 
@@ -894,6 +1093,12 @@ void SettingsDialogWx::loadSettings() {
     } else {
         m_romChoice->SetSelection(0);
     }
+
+    // Before any catalog has landed this puts up the placeholder, which is why
+    // it has to run here as well as in onCatalogLoaded: setSettings() is the
+    // first moment the configured release and the running ROM's release are
+    // known, and the note under the control is about both of them.
+    populateVersionList();
 
     loadDiskSelections();
 
@@ -933,6 +1138,19 @@ void SettingsDialogWx::saveSettings() {
     switch (m_romChoice->GetSelection()) {
         case 1: m_settings.romFile = "emu_romwbw.rom"; break;
         default: m_settings.romFile = "emu_avw.rom"; break;
+    }
+
+    // The catalog's RomWBW release, and ONLY when the control is really holding
+    // one. The placeholder row shown before a catalog has been fetched carries
+    // an empty id, and writing that back would turn "I chose 3.6.0" into "no
+    // preference" for anyone who opened Settings with no network - a silent
+    // downgrade of a stored choice by a dialog that could not display it.
+    {
+        const int sel = m_romwbwVersionChoice->GetSelection();
+        if (sel >= 0 && (size_t)sel < m_romwbwVersionIds.size() &&
+            !m_romwbwVersionIds[sel].empty()) {
+            m_settings.romwbwVersion = m_romwbwVersionIds[sel];
+        }
     }
 
     // Disk selections
@@ -1049,6 +1267,18 @@ void SettingsDialogWx::onRefreshCatalog(wxCommandEvent& event) {
 
     m_statusText->SetLabel("Loading disk catalog...");
     m_refreshBtn->Enable(false);
+    // And the release control, which is now the OTHER way a fetch can be
+    // started. Disabling the button was enough while it was the only one;
+    // choosing a release calls straight back into here, so two clicks in a
+    // second would leave two fetches in flight. That matters because
+    // DiskCatalog writes m_catalogEntries under one mutex and m_selectedVersion
+    // under another - deliberately, since neither may be held across the other -
+    // so two overlapping workers can leave the list showing one release's disks
+    // under the other release's name. The downloads themselves stay honest
+    // either way (the URL and the sha256 come out of the entry), but the label
+    // above them would be lying. populateVersionList() re-enables it, and it is
+    // called from onCatalogLoaded on BOTH the success and the failure path.
+    m_romwbwVersionChoice->Enable(false);
 
     // The raw dialog pointer is still what wxPostEvent needs, but it is no
     // longer what the worker is trusted with: the gate copied alongside it is
@@ -1075,17 +1305,56 @@ void SettingsDialogWx::onCatalogLoaded(wxCommandEvent& event) {
     m_refreshBtn->Enable(true);
 
     if (event.GetInt()) {
+        // The version list first: everything below it is about the release it
+        // names, and populateCatalog() has just been handed that release's
+        // entries.
+        populateVersionList();
         populateCatalog();
-        populateDiskLists();
-        // Only the dropdowns, which populateDiskLists() has just emptied. This
-        // used to be loadSettings(), which reset every control on the dialog
-        // from m_settings - so a checkbox ticked before the catalog arrived was
-        // put back without a word.
-        loadDiskSelections();
+        // Only the dropdowns, which have to be emptied and refilled now that
+        // the catalog names some entries. This used to be loadSettings(), which
+        // reset every control on the dialog from m_settings - so a checkbox
+        // ticked before the catalog arrived was put back without a word; the
+        // same is true one level down of a DISK ticked in the meantime, which is
+        // why what goes back is what is chosen and not what was seeded.
+        repopulateDiskLists();
         m_statusText->SetLabel("Catalog loaded");
     } else {
         m_statusText->SetLabel("Failed to load catalog: " + event.GetString());
+        // Refilled on the failure path too, and it does two things here.
+        // getRunnableVersions() is only ever written by a fetch that SUCCEEDED,
+        // so the list itself comes back unchanged - what moves is the
+        // SELECTION, which is put back onto getSelectedRomwbwVersion(), the
+        // release whose entries are actually in hand. So a switch to 3.6.0 that
+        // could not be fetched snaps the control back to 3.5.1, and OK then
+        // writes 3.5.1 rather than storing a preference the user never got. It
+        // is also what re-enables the control after onRefreshCatalog disabled
+        // it; without this call a failed fetch would leave it dead for the rest
+        // of the dialog's life.
+        populateVersionList();
     }
+}
+
+// The user picked another RomWBW release. Tell the catalog and re-fetch, so the
+// list below the choice is the one they just asked for.
+//
+// NOTHING IS DELETED, DOWNLOADED OR UNMOUNTED HERE, and nothing may ever be: a
+// version switch is the exact operation that destroyed a library on the iOS
+// port, which keyed its "delete the images the catalog names" behaviour on one
+// global catalog version. Here there is nothing to invalidate - every v0
+// filename carries its release, so 3.5.1 and 3.6.0 images sit side by side in
+// one folder - and switching back and forth costs two small HTTP GETs.
+//
+// The choice is written back to the configuration only by OK, through
+// saveSettings(). Cancel puts the catalog's preference back to what it was.
+void SettingsDialogWx::onRomwbwVersionChanged(wxCommandEvent& event) {
+    if (!m_catalog) return;
+    const int sel = m_romwbwVersionChoice->GetSelection();
+    if (sel < 0 || (size_t)sel >= m_romwbwVersionIds.size()) return;
+    if (m_romwbwVersionIds[sel].empty()) return;   // the placeholder row
+
+    m_catalog->setPreferredRomwbwVersion(m_romwbwVersionIds[sel]);
+    updateRomwbwVersionNote();
+    onRefreshCatalog(event);
 }
 
 void SettingsDialogWx::onDownloadDisk(wxCommandEvent& event) {
@@ -1097,8 +1366,9 @@ void SettingsDialogWx::onDownloadDisk(wxCommandEvent& event) {
         return;
     }
 
-    wxString filename = m_catalogList->GetItemText(sel);
-    std::string filenameStr = filename.ToStdString();
+    if ((size_t)sel >= m_catalogRowFilenames.size()) return;
+    const std::string filenameStr = m_catalogRowFilenames[sel];
+    const wxString filename = wxString::FromUTF8(filenameStr);
 
     if (m_catalog->isDiskDownloaded(filenameStr)) {
         wxMessageBox("This disk is already downloaded", "Info", wxOK | wxICON_INFORMATION);
@@ -1149,7 +1419,12 @@ void SettingsDialogWx::onDownloadComplete(wxCommandEvent& event) {
     if (event.GetInt()) {
         m_statusText->SetLabel("Download complete");
         populateCatalog();
-        populateDiskLists();
+        // NOT populateDiskLists() on its own, which empties the four dropdowns
+        // and puts every one of them back on "(None)". That is what made
+        // downloading a disk and then pressing OK write "" for all four slots
+        // and unmount the running disks - the same erasure onCatalogLoaded
+        // guards against, reached by the most ordinary path in this dialog.
+        repopulateDiskLists();
     } else {
         m_statusText->SetLabel("Download failed: " + event.GetString());
     }
@@ -1164,8 +1439,9 @@ void SettingsDialogWx::onDeleteDisk(wxCommandEvent& event) {
         return;
     }
 
-    wxString filename = m_catalogList->GetItemText(sel);
-    std::string filenameStr = filename.ToStdString();
+    if ((size_t)sel >= m_catalogRowFilenames.size()) return;
+    const std::string filenameStr = m_catalogRowFilenames[sel];
+    const wxString filename = wxString::FromUTF8(filenameStr);
 
     if (!m_catalog->isDiskDownloaded(filenameStr)) {
         wxMessageBox("This disk is not downloaded", "Info", wxOK | wxICON_INFORMATION);
@@ -1178,7 +1454,12 @@ void SettingsDialogWx::onDeleteDisk(wxCommandEvent& event) {
         if (m_catalog->deleteDownloadedDisk(filenameStr)) {
             m_statusText->SetLabel("Disk deleted");
             populateCatalog();
-            populateDiskLists();
+            // Same reason as onDownloadComplete. The deleted image has just
+            // dropped out of the list, so a slot that named it keeps naming it
+            // rather than being blanked - the mounting loop skips a path that is
+            // not there and says nothing was lost, where the alternative erased
+            // the other three slots as a side effect of deleting a fourth.
+            repopulateDiskLists();
         } else {
             wxMessageBox("Failed to delete disk", "Error", wxOK | wxICON_ERROR);
         }
@@ -1280,6 +1561,16 @@ void SettingsDialogWx::onOK(wxCommandEvent& event) {
 }
 
 void SettingsDialogWx::onCancel(wxCommandEvent& event) {
+    // Put back the RomWBW release the catalog had when this dialog opened.
+    // Choosing one in the control tells the catalog immediately, because the
+    // list underneath has to change with it; Cancel means that never happened.
+    //
+    // The entries already fetched for the other release are left in the catalog
+    // rather than re-fetched here - a network round trip on Cancel would be a
+    // surprise, and nothing reads them without fetching first: this dialog
+    // refetches from its constructor, and MainWindow's F5 default-disk path now
+    // fetches before it downloads anything.
+    if (m_catalog) m_catalog->setPreferredRomwbwVersion(m_settings.romwbwVersion);
     EndModal(wxID_CANCEL);
 }
 

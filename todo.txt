@@ -38,10 +38,105 @@ Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:
   fact - replacing a file the running machine holds in a slot undoes itself on
   the next flush.  Wants an Update button beside Download and Delete.
 
+    THE URL SWITCH HAS LANDED, SO THIS IS NOW LIVE RATHER THAN HYPOTHETICAL.
+    The v0 catalog gives hd1k_combo the hash 0ca4ec60... where v1.4.12 gives it
+    89b8ae1a..., so the first fetch against the new catalog makes every migrated
+    combo read SupersededPristine - which action() turns into
+    RefreshAutomatically and plan() into RefreshNow.  Nothing calls either:
+    grepping the tree, action, plan, RefreshNow, RefreshAutomatically and
+    allowsUserRequestedUpdate appear only in DiskLedger and in
+    tests\test_diskledger.cpp.  That is the ONLY reason the verdict is harmless
+    today, and it is what an Update button would end.
+
+    So the Update button must not ship until it is decided what that verdict
+    means.  It would offer every user at once a 49 MB re-download of an image
+    whose R8 and W8 are already the fixed ones, on the strength of a hash that
+    moved because the catalog moved rather than because the disk did.  The
+    Settings status column says "Update available" for it in the meantime, which
+    is true and costs nothing.
+
   * A user who never opens Settings is never told.
-  downloadAndStartWithDefaults() loads what diskFileLooksComplete() finds and
-  never fetches the catalog, so a boot notice means a network fetch at every
-  launch - a real behaviour change, to decide rather than assume.
+  downloadAndStartWithDefaults() now fetches the catalog when it has to download
+  something, but not when both default images are already there - which is the
+  case this item is about - so a boot notice still means a network fetch at
+  every launch: a real behaviour change, to decide rather than assume.
 
   MainWindow.cpp and SettingsDialogWx.cpp are in no suite and cannot be, so both
   are verified by driving the built app.  See WIP.md.
+
+- tools\check-disk-pins.sh no longer answers its question, in both directions.
+DiskCatalog.cpp holds no quoted vX.Y.Z any more, so pin_of() (:90-96) returns
+nothing and the tree check prints NO PIN FOUND and exits 1 for a client that is
+working correctly; and the artifact scan looks for v1\.[0-9]+\.[0-9]+ (:119-120),
+which matches neither "v0" nor "3.5.1", so a scan that finds nothing lands in the
+"  " case at :232-233 and is read as no evidence either way - a migrated build is
+never checked and never complained about.  It also still hardcodes
+CATALOG_REPO="avwohl/ioscpm" (:34) and hd1k_combo.img as its canary (:66).
+
+  Rewrite it or retire it.  Not from this repository alone: the file is
+  byte-identical across all five (md5 47b7437050018c7cb4f7687d09909dc6), and
+  half a rewrite is worse than none.  What it would have to check now is a
+  romwbw_disks release tag, an <id>-v0-<ver> filename, and a client whose only
+  compiled-in URL is the index.
+
+- HelpWindow.cpp still keeps ioscpm's Latest release load-bearing.  INDEX_URL
+(:23-24) and CONTENT_BASE_URL (:25-26) fetch help_index.json and every help asset
+from avwohl/ioscpm/releases/latest/download/, and the comment above them says the
+float onto Latest is deliberate.  Moving every disk to romwbw_disks therefore does NOT
+free that tag, which is the half of CLIENT_MIGRATION.md's "what must never
+happen" that only this client can answer.
+
+  The help TEXT has gone stale with the catalog too.  HelpWindow.cpp:37 names
+  hd1k_combo.img's sha256 as 89b8ae1a..., which is the v1.4.12 image; the v0 one
+  is 0ca4ec60....  The sentence at :46 about hd1k_games carrying neither R8 nor
+  W8 is still true - verify-disk-assets.sh confirms it against
+  hd1k_games-v0-3.5.1.img.
+
+- ROMs come from the catalog but are not downloaded, and four places still name
+one by hand.  DiskCatalog parses roms[] and getCatalogRoms() returns it; nothing
+fetches one, because DiskCatalog's transfers are fire-and-forget with no wait and
+cannot express "this ROM must be on disk before the emulator can start".  The
+Settings page says so out loud rather than half-offering it.
+
+  Downloading one needs several things together, or the menu, the dialog and the
+  config will disagree about which ROM is loaded.  findResourceFile()
+  (MainWindow.cpp:1887) searches only <app>\roms, <app> and <app>\..\roms and
+  cannot see the data folder a download lands in.  diskFileLooksComplete()'s 1 MB
+  floor (:920, the return at :926) cannot see a truncated 512 KB ROM, where
+  emu_validate_rom_hcb catches a corrupt HCB but not a short tail - the catalog
+  publishes each ROM's size and sha256, and hcb.version / hcb.update besides, so
+  an image can be refused before it is fetched.  And the two ROM names are
+  written out by hand in EIGHT places that must move together:
+  MainWindow.cpp:851-856 (onSelectROM, menu id -> filename), :1487-1489 (the
+  Settings write-back, filename -> menu id), :2044 (loadDefaultROM, which names
+  emu_avw.rom outright), :2355-2359 (applyConfig, filename -> check mark) and
+  :2497-2503 (updateConfigFromState, id -> filename); and
+  SettingsDialogWx.cpp:841-843 (populateROMList's two labels), :1091 (loadSettings,
+  filename -> selection) and :1139-1140 (saveSettings, selection -> filename).
+  Note that roms\emu_avw.rom and roms\emu_romwbw.rom are byte-identical to each
+  other and to the catalog's emu_avw-v0-3.5.1.rom (all three c7abc580...), so the
+  second menu entry is a second name for the same 512 KB - and
+  SettingsDialogWx.cpp:1139-1140 does not round-trip an unknown romFile, so any
+  third name silently becomes emu_avw.rom on OK.
+
+  Keep a bundled ROM whatever else changes.  A first launch with no bootable ROM
+  is not a state this application may be shipped in.
+
+- z80cpmw\SettingsDialog.cpp and SettingsDialog.h are dead and misleading.
+Neither is in the vcxproj ClCompile list, so nothing has compiled them for a
+long time; SettingsDialog.cpp:398-412 carries a hardcoded ROM list that is not
+shipped and that reads, to anyone grepping for where ROM names live, like a
+ninth place to keep in step.  Delete both.
+
+- DiskCatalog::getLocalName() maps nothing any more and can go.  It was the
+scaffolding that let the storage migration rename the images in a release whose
+catalog still called them hd1k_combo.img; the catalog now serves the v0 names and
+v0NameFor() refuses those, so it is the identity function for every filename that
+reaches it from a catalog entry.  Its five call sites - DiskCatalog.cpp:465
+(downloadDisk's local path, which is also the recordInstall key), :600
+(deleteDownloadedDisk's removeRecord), :615 (getDiskPath), :1134
+(updateFreshness) and SettingsDialogWx.cpp:984 (populateDiskLists) - all become
+one line shorter.  Leave it until a release that can be built and driven: the one caller
+that can still hand it a bare pre-v0 name is MainWindow's Settings write-back,
+against a configuration whose rename did not complete, and that path is in no
+suite.

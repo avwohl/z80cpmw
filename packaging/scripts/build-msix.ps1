@@ -160,9 +160,10 @@ New-Item -ItemType Directory -Path (Join-Path $stagingDir "Assets") -Force | Out
 New-Item -ItemType Directory -Path (Join-Path $stagingDir "roms") -Force | Out-Null
 
 # No disks\ directory, and that is the design rather than an omission: every
-# port gets its disk images from the ioscpm release area, through the catalog
-# pinned in DiskCatalog.cpp's RELEASE_TAG. Nothing is bundled, so nothing can
-# go stale in a package or disagree with what the catalog serves.
+# port gets its disk images from the interface-v0 catalog in
+# avwohl/romwbw_disks, reached through the one URL compiled into CatalogV0.cpp -
+# there is no release tag in this application any more. Nothing is bundled, so
+# nothing can go stale in a package or disagree with what the catalog serves.
 
 # Copy application files
 Copy-Item (Join-Path $BinDir "z80cpmw.exe") $stagingDir

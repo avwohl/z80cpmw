@@ -120,8 +120,9 @@ Section "Main Application" SecMain
     File "..\..\bin\Release\roms\emu_romwbw.rom"
 
     ; No disk images are installed, and that is the design rather than an
-    ; omission: every port gets its disk images from the ioscpm release area,
-    ; through the catalog pinned in DiskCatalog.cpp's RELEASE_TAG. The two that
+    ; omission: every port gets its disk images from the catalog, which is now
+    ; two documents in avwohl/romwbw_disks reached from the one URL compiled into
+    ; CatalogV0.cpp - there is no release tag in this application any more. The two that
     ; used to be installed here were never read - the only function that looked
     ; in $INSTDIR\disks was loadDefaultDisks(), which had no caller and wanted
     ; cpm_wbw.img and zsys_wbw.img, filenames this installer never staged - so

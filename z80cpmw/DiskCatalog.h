@@ -6,7 +6,9 @@
 
 #pragma once
 
+#include "CatalogV0.h"
 #include "DiskLedger.h"
+#include "DiskMigrationV0.h"
 
 #include <windows.h>
 #include <winhttp.h>
@@ -21,7 +23,28 @@
 
 // Disk entry from catalog
 struct DiskEntry {
+    // The catalog's stable key, e.g. "hd1k_combo". CATALOG_SCHEMA.md 6.1 asks
+    // that a client key on this and not on the filename or the array position,
+    // and the reason is exactly this migration: the FILENAME changed under every
+    // entry when the catalog moved to romwbw_disks, and it changes again for
+    // every RomWBW release, while the id did not move at all. Empty only for a
+    // catalog document that carried no id, which the parser drops.
+    std::string id;
     std::string filename;
+    // Where these bytes come from: base_url + filename, resolved when the
+    // catalog was parsed.
+    //
+    // A resolved URL stored per entry, rather than a base URL member the
+    // download worker re-reads. That is not tidiness. RELEASE_BASE_URL used to
+    // be a compile-time constant and is now text out of a fetched document, so
+    // the obvious translation - one std::string member written by the fetch
+    // worker and read by the download worker - recreates precisely the
+    // unsynchronised cross-thread string that m_downloadDir had to be fixed for
+    // (see the note on m_downloadDirMutex). Here the URL travels inside
+    // m_catalogEntries, which already has a mutex and is already copied out
+    // whole before use, so the URL and the sha256 a download is checked against
+    // come from ONE snapshot of ONE document and cannot be from two.
+    std::string url;
     std::string name;
     std::string description;
     size_t size = 0;
@@ -245,13 +268,86 @@ public:
     // DiskCatalog has to carry its own proof that it is still alive at the
     // instant it is touched. WorkerPostGate is that proof; a bare raw pointer,
     // or a weak_ptr locked before the post rather than around it, is not.
+    // WHAT IT FETCHES, WHICH IS NOW TWO DOCUMENTS AND NOT ONE. There is no
+    // release tag in this class any more. The worker gets index-v0.json from
+    // the single compiled-in catalogv0::INDEX_URL, keeps the RomWBW releases
+    // this build's core says it can boot, picks one (see
+    // setPreferredRomwbwVersion), verifies that entry's catalog against the
+    // catalog_sha256 and catalog_size the index published for it, and reads
+    // base_url, roms[] and disks[] out of it. Two round trips where there was
+    // one, and three new ways to fail - each of which still ends in exactly one
+    // callback(false, ...).
     void fetchCatalog(CatalogLoadedCallback callback);
+
+    // Which RomWBW release to fetch the catalog for, e.g. "3.5.1".
+    //
+    // UI THREAD, and a PREFERENCE rather than a command: the next fetch honours
+    // it only if the index still carries that version AND this build's core can
+    // boot it, and otherwise falls back to the index's own default. So a user
+    // who chose a release that has since been retired, or who downgraded the
+    // app, gets a working catalog rather than none - and nothing is deleted
+    // over it either way. Empty means "no preference", which is what a fresh
+    // install and every configuration written before this release say.
+    //
+    // Changing it does NOT invalidate, delete or unmount anything. Switching
+    // 3.5.1 -> 3.6.0 -> 3.5.1 must cost nothing, which is why the per-version
+    // scoping the interface asks for lives in the FILENAMES here rather than in
+    // a cache key: hd1k_combo-v0-3.5.1.img and hd1k_combo-v0-3.6.0.img are two
+    // files that coexist in one folder, so there is never anything to throw
+    // away when the choice moves.
+    void setPreferredRomwbwVersion(const std::string& romwbwVersion);
+    std::string getPreferredRomwbwVersion() const;
+
+    // The RomWBW release the entries currently in hand were fetched for, or
+    // empty before any successful fetch. This is the answer to "what am I
+    // looking at", which the preference above is not: the two differ whenever
+    // the preference could not be honoured.
+    std::string getSelectedRomwbwVersion() const;
+
+    // The index entries this build can actually boot, in index order, as of the
+    // last successful fetch. Empty before one, and empty is also the real answer
+    // when this core can run no release the repo publishes - fetchCatalog reports
+    // that case as an error rather than quietly fetching something.
+    std::vector<catalogv0::IndexEntry> getRunnableVersions() const;
+
+    // The ROMs the selected catalog publishes.
+    //
+    // PARSED, AND NOT DOWNLOADED, and that is a decision rather than an
+    // omission. Downloading a ROM means "this file must be on disk before the
+    // emulator can start", and this class cannot express that: fetchCatalog and
+    // downloadDisk are documented above as fire-and-forget on a detached thread
+    // with no cancel and no wait, and the only must-land-first dependency in the
+    // application - MainWindow::downloadAndStartWithDefaults - is built by
+    // chaining callbacks through postToUiThread rather than by waiting. Two more
+    // things would have to change with it: MainWindow::findResourceFile searches
+    // only <app>\roms, <app> and <app>\..\roms and cannot see a file this class
+    // downloads into the data folder, and the 1 MB completeness floor that
+    // guards a cached disk cannot see a truncated 512 KB ROM. So this build
+    // keeps its bundled ROM and offers no ROM download at all; what these
+    // entries are for is saying that out loud in the Settings dialog, beside a
+    // release the user may have selected but cannot boot.
+    std::vector<catalogv0::RomItem> getCatalogRoms() const;
+
+    // The catalog entry with this id, e.g. "hd1k_combo". False when no catalog
+    // has been fetched or no entry carries the id - a version can publish an id
+    // another does not (hd1k_ws4 is in 3.5.1 and not in 3.6.0), so a caller has
+    // to be able to be told no.
+    bool findDiskById(const std::string& id, DiskEntry& out) const;
 
     // Download a disk image (async). Same contract as fetchCatalog, and it
     // binds harder: progressCb is called once per read block - at most one
     // 64KB buffer each - for the whole transfer, so a stale capture here is
     // touched over and over for as long as the download runs, where
     // fetchCatalog's is touched once at the end.
+    //
+    // A CATALOG MUST HAVE BEEN FETCHED FIRST, and that is now enforced rather
+    // than assumed. The URL and the expected sha256 both come out of the entry
+    // this filename names, in one lookup of one snapshot, so a filename the
+    // catalog does not carry fails immediately with a message saying so. It used
+    // to build a URL from a compile-time base and look the hash up separately,
+    // which meant the ordinary first-run path - MainWindow's
+    // downloadAndStartWithDefaults, which never fetched a catalog - wrote two
+    // 8-to-49 MB images with no hash check and no ledger record at all.
     void downloadDisk(const std::string& filename,
                       DownloadProgressCallback progressCb,
                       DownloadCompleteCallback completeCb);
@@ -299,8 +395,61 @@ public:
     // Delete a downloaded disk
     bool deleteDownloadedDisk(const std::string& filename);
 
+    // The name a catalog entry's file has IN THE DATA FOLDER, which was not
+    // always the name the catalog gave it.
+    //
+    // IT IS NOW THE IDENTITY FUNCTION FOR EVERYTHING THE CATALOG SERVES, and
+    // that is by design rather than by accident: it exists because the storage
+    // migration renamed the images to their interface-v0 names in a release
+    // where the catalog still called them hd1k_combo.img, so for one release
+    // "hd1k_combo.img" and "hd1k_combo-v0-3.5.1.img" were two names for one
+    // file. Everything local went through here - the path, the ledger key, the
+    // stat behind isDiskDownloaded - so that the two could not drift apart and
+    // report a library that was all missing. The catalog now serves v0 names and
+    // v0NameFor() refuses a name that already carries the suffix, so it maps
+    // nothing.
+    //
+    // What still reaches it with a pre-v0 name is MainWindow's Settings
+    // write-back, which resolves a BARE NAME out of the dialog and can be handed
+    // one from a configuration whose rename did not complete. It answers with
+    // the v0 name there, finds no file, and leaves the slot alone - which is the
+    // safe outcome and the same one it had before. It can be deleted; todo.txt
+    // carries that.
+    std::string getLocalName(const std::string& catalogFilename) const;
+
     // Get path to downloaded disk
     std::string getDiskPath(const std::string& filename) const;
+
+    // What migrateFilesToInterfaceV0() did to the data folder.
+    struct V0FileMigration {
+        // What the config and the profiles may now be rewritten against - see
+        // diskv0::LandedNames, which is where the rule lives.
+        diskv0::LandedNames landed;
+        int renamed = 0;
+        int ledgerKeysMoved = 0;
+        // One entry per image that should have been renamed and was not, with
+        // the Win32 error, for a caller that wants to say so. A non-empty list
+        // means the pass must run again on the next launch: it is idempotent, so
+        // re-running costs nothing, and marking it done would strand the file
+        // under its old name for ever.
+        std::vector<std::string> failures;
+    };
+
+    // Rename every pre-v0 catalog image in the data folder onto its v0 name and
+    // move its ledger record with it.
+    //
+    // UI THREAD, at startup, before the first fetchCatalog. That is not a
+    // preference: the first fetch is started by the Settings dialog's
+    // constructor, and by then isDiskDownloaded() and updateFreshness() are both
+    // asking about v0 names. The cost is twenty GetFileAttributes calls and, if
+    // anything moved, one read and one write of disk_ledger.json - which is what
+    // loadLedgerIfNeeded() already does on the fetch worker, on a file of a few
+    // hundred bytes.
+    //
+    // It renames only the twenty names diskv0::legacyCatalogFilenames() carries,
+    // never the contents of the folder: R8 and W8 put the user's own host files
+    // in there while the app runs.
+    V0FileMigration migrateFilesToInterfaceV0();
 
     // Get current download state
     DownloadState getDownloadState() const { return m_downloadState; }
@@ -318,6 +467,17 @@ public:
     DiskFreshness getFreshness(const std::string& filename) const;
 
 private:
+    // How many 3xx hops to follow. A GitHub release asset is one redirect to
+    // objects.githubusercontent.com, so five is four more than anything here
+    // has ever needed; what it rules out is the loop.
+    static const int MAX_REDIRECTS = 5;
+
+    // The ceiling on a document read into memory by downloadToString. The
+    // largest published catalog is 14,694 bytes, so this is three orders of
+    // magnitude of headroom - it is not a size check, it is the difference
+    // between a wrong URL costing an error and costing the process.
+    static const size_t MAX_DOCUMENT_BYTES = 4 * 1024 * 1024;
+
     // MUST RUN ON A WORKER THREAD, for the same reason diskhash::sha256File
     // does: this is what calls it, once per downloaded image whose measurement
     // has gone stale. Takes no lock across any other lock - it works on copies and
@@ -330,15 +490,42 @@ private:
     void loadLedgerIfNeeded();
     void saveLedger(const DiskLedger& ledger) const;
 
-    // Download a URL to a string (blocking)
-    bool downloadToString(const std::wstring& url, std::string& result, std::string& error);
+    // Download a URL to a string (blocking).
+    //
+    // 'redirectsLeft' bounds the Location chase, which used to be an unbounded
+    // recursion: a server answering 302 with its own URL was a stack overflow,
+    // and this is now the transport for three URLs rather than one. The response
+    // is capped too - see MAX_DOCUMENT_BYTES.
+    bool downloadToString(const std::wstring& url, std::string& result, std::string& error,
+                          int redirectsLeft = MAX_REDIRECTS);
 
-    // Download a URL to a file (blocking, with progress)
+    // Download a URL to a file (blocking, with progress). Same redirect bound,
+    // for the same reason; no size cap, because the caller is asking for a file
+    // whose size the catalog states and downloadToFile checks against
+    // Content-Length.
     bool downloadToFile(const std::wstring& url, const std::string& localPath,
-                        DownloadProgressCallback progressCb, std::string& error);
+                        DownloadProgressCallback progressCb, std::string& error,
+                        int redirectsLeft = MAX_REDIRECTS);
 
-    // Parse catalog XML
-    bool parseCatalogXML(const std::string& xml, std::vector<DiskEntry>& entries, std::string& error);
+    // The whole of a catalog refresh - index, choice, catalog, cache, ledger -
+    // as a function that can FAIL rather than a lambda body that can throw.
+    // WORKER THREAD, called once by fetchCatalog inside its catch-all, so that
+    // every early return there is an ordinary `return false` with an error
+    // string and there is exactly one place the callback is invoked.
+    bool fetchCatalogInto(std::string& error);
+
+    // Fetch and parse index-v0.json. WORKER THREAD.
+    bool fetchIndex(std::vector<catalogv0::IndexEntry>& entries, std::string& error);
+
+    // Fetch, VERIFY and parse one version's catalog. WORKER THREAD.
+    //
+    // Verified before it is parsed, against the catalog_size and catalog_sha256
+    // the index carries for it, which is the whole reason those two fields are
+    // in the index. A catalog is small - 11,826 bytes for 3.5.1 - and it is the
+    // document that decides which 211 MB of images this app will fetch and what
+    // it will check them against, so it is the one worth checking hardest.
+    bool fetchVersionCatalog(const catalogv0::IndexEntry& entry,
+                             catalogv0::Catalog& catalog, std::string& error);
 
     // Update downloaded status for all entries
     void updateDownloadedStatus();
@@ -358,6 +545,11 @@ private:
     // and read from the UI thread and the download worker.
     mutable std::mutex m_catalogMutex;
     std::vector<DiskEntry> m_catalogEntries;
+    // Under m_catalogMutex with m_catalogEntries, and assigned in the same
+    // critical section, because the two are one document: a caller that saw the
+    // disks of 3.6.0 beside the ROMs of 3.5.1 would be reading a catalog that
+    // never existed.
+    std::vector<catalogv0::RomItem> m_catalogRoms;
     std::atomic<DownloadState> m_downloadState{DownloadState::Idle};
     std::atomic<bool> m_cancelRequested{false};
 
@@ -371,6 +563,12 @@ private:
     DiskLedger m_ledger;
     bool m_ledgerLoaded = false;
 
-    static const std::wstring CATALOG_URL;
-    static const std::wstring RELEASE_BASE_URL;
+    // Guards the three things the index decides. Its own mutex, and never held
+    // across either of the others, for the reason m_downloadDirMutex is its own:
+    // m_preferredVersion is written on the UI thread when the user chooses a
+    // release, and all three are read and written by the fetch worker.
+    mutable std::mutex m_indexMutex;
+    std::string m_preferredVersion;
+    std::string m_selectedVersion;
+    std::vector<catalogv0::IndexEntry> m_runnableVersions;
 };

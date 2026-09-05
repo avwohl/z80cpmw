@@ -65,7 +65,23 @@ private:
     void onEmulatorReset();
     void onEmulatorSettings();
     void startEmulator();
+    // F5 with nothing mounted. Two halves now, because after the URL switch
+    // there is no download without a catalog: this one probes the data folder
+    // and starts straight away if both default images are already there, and
+    // otherwise fetches the catalog and hands over to the second.
     void downloadAndStartWithDefaults();
+    // UI THREAD, from the catalog callback posted by the above. 'ok' and 'error'
+    // are that fetch's verdict.
+    void startWithDefaultsAfterCatalog(bool ok, const std::string& error);
+    // Where a default image would be if it is already here, tried under every
+    // name this application has ever given it. Empty when none of them is a
+    // complete file. See the definition for the three names and why each is
+    // still worth a look.
+    std::string cachedDefaultDisk(const char* diskId) const;
+    // The RomWBW release the ROM in the banks declares, as "3.5.1", or empty
+    // when no ROM is loaded or its HCB cannot be read. Read from the loaded
+    // image rather than from a constant - there is no compile-time pin any more.
+    std::string loadedRomwbwRelease() const;
     void onViewFontSize(int size);
     void onViewDazzler();
 
@@ -140,6 +156,7 @@ private:
         ConfigUnreadableFile,
         DefaultRom,   // loadDefaultROM(): no usable emu_avw.rom
         SavedRom,     // applyConfig(): the ROM named by the config is not the one running
+        StorageMigration,  // migrateStorageToInterfaceV0(): a file it could not rename
     };
 
     // Raise a notice AND print it now. Notices are raised where nothing is
@@ -167,6 +184,11 @@ private:
     // Settings persistence (via ConfigManager)
     void loadSettings();
     void saveSettings();
+    // Renames the pre-v0 catalog images and rewrites everything that names one.
+    // Called from loadSettings() only, and only between the config load and
+    // applyConfig(); see the comment on the definition for why that window and
+    // why it is handed the data folder rather than finding it.
+    void migrateStorageToInterfaceV0(const std::string& dataDir);
     void applyConfig();           // Apply loaded config to emulator state
     void updateConfigFromState(); // Capture current state to config
 

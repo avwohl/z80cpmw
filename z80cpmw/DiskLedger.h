@@ -21,8 +21,10 @@
  * because moving it wipes every downloaded disk. So when `hd1k_combo.img` was
  * republished with the fixed `R8.COM` - the one that no longer hands an
  * unfiltered host basename to F_DELETE - nothing reached a machine that already
- * had the old one. Repinning RELEASE_TAG changes what a NEW download gets and
- * nothing else. That is the gap.
+ * had the old one. Repointing the catalog changes what a NEW download gets and
+ * nothing else - that was true of the `RELEASE_TAG` constant this application
+ * used to carry, and it is equally true of the interface-v0 index that replaced
+ * it. That is the gap.
  *
  * ## Why the obvious fix destroys user data
  *

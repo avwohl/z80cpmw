@@ -34,6 +34,7 @@
 
 #include "DiskLedger.h"
 #include "DiskHash.h"
+#include "DiskMigrationV0.h"
 
 #include <windows.h>
 #include <bcrypt.h>
@@ -148,7 +149,25 @@ static const char* CATALOG_OLD =
 static const char* USER_WRITTEN =
     "1111111111111111111111111111111111111111111111111111111111111111";
 
+// The v0 catalog's hash for the same image, read out of
+// romwbw_disks/catalog/v0/3.5.1/catalog.json. hd1k_combo is the ONE entry of
+// the twenty whose bytes moved between the two catalogs; the other nineteen are
+// byte-identical, which is what decides whether carrying the ledger across the
+// rename is worth doing.
+static const char* CATALOG_V0_COMBO =
+    "0ca4ec60cb8bca71b8f0287c4b634c3126887be483db9b59b41bdff424f89303";
+
+// hd1k_games in BOTH catalogs - the same 64 characters in ioscpm's
+// release_assets/disks.xml and in catalog-v0-3.5.1.json. It stands here for the
+// nineteen, and the point of it is that its verdict after the rename must be
+// Current and not a re-measure.
+static const char* CATALOG_GAMES =
+    "7f33738c4c8be0655ee9452370fe450146492e9174347c22b3300ac2377d0abd";
+
 static const char* COMBO = "hd1k_combo.img";
+static const char* GAMES = "hd1k_games.img";
+static const char* COMBO_V0 = "hd1k_combo-v0-3.5.1.img";
+static const char* GAMES_V0 = "hd1k_games-v0-3.5.1.img";
 
 static DiskFileFacts facts(uint64_t size, int64_t modified) {
     DiskFileFacts f;
@@ -159,6 +178,8 @@ static DiskFileFacts facts(uint64_t size, int64_t modified) {
 
 // The real size of hd1k_combo.img, and an arbitrary write time.
 static const uint64_t COMBO_SIZE = 51380224;
+// One hd1k slice, which is what hd1k_games.img is.
+static const uint64_t GAMES_SIZE = 8388608;
 static const int64_t  T0 = 133000000000000000LL;
 static const int64_t  T1 = 133000000000000001LL;
 
@@ -633,6 +654,123 @@ static void test_the_repin_scenario() {
               "and no automatic replacement, because it might be their work");
 }
 
+//=============================================================================
+// The interface-v0 rename
+//
+// The catalog moved to romwbw_disks and every published filename gained a
+// -v0-<release> suffix. Two things can go wrong with that and both of them cost
+// the user something real: renaming a name the catalog never published throws
+// away somebody's imported image, and renaming the FILE without moving its
+// LEDGER KEY throws away the provenance and the cached measurement, which is
+// 210,763,776 bytes of re-hashing and nineteen images that used to read Current
+// reading as unmeasured.
+//=============================================================================
+
+static void test_v0_names() {
+    section("what a pre-v0 name becomes");
+
+    std::string out;
+    checkTrue(diskv0::v0NameFor(COMBO, out), "a published name maps");
+    checkStr(out, COMBO_V0, "to <stem>-v0-<release>.<ext>");
+    checkTrue(diskv0::v0NameFor(GAMES, out), "and so does the other default");
+    checkStr(out, GAMES_V0, "the same way");
+
+    // Windows kept whatever case the file was created with, and the ledger has
+    // always answered case-insensitively (see the case-insensitive section
+    // above). The rename target is the CATALOG's spelling either way, because
+    // that is the string the Settings dropdown and isDiskDownloaded will be
+    // asking about afterwards.
+    checkTrue(diskv0::v0NameFor("HD1K_COMBO.IMG", out), "a differently-cased name still maps");
+    checkStr(out, COMBO_V0, "onto the catalog's own spelling");
+
+    // Refusing an already-migrated name is what makes the whole thing
+    // idempotent, and it is also what retires DiskCatalog::getLocalName: that
+    // function is v0NameFor-or-the-name-itself, so the moment the catalog
+    // serves v0 filenames it becomes the identity and can be deleted.
+    checkFalse(diskv0::v0NameFor(COMBO_V0, out),
+               "a name that has already been migrated is left alone");
+    checkTrue(diskv0::looksLikeV0Name("hd1k_games-v0-3.6.0.img"),
+              "and so is one built for another release");
+    checkFalse(diskv0::looksLikeV0Name("hd1k_games-v0-.img"),
+               "but -v0- naming no release is not a name this scheme produced");
+
+    // The rule that keeps the user's own files. R8 and W8 write host files into
+    // the same folder and people drop images in it by hand, so anything the old
+    // catalog never published is untouchable.
+    checkFalse(diskv0::v0NameFor("myvolume.img", out), "an imported image is not touched");
+    checkFalse(diskv0::v0NameFor("hd1k_infocom.img", out),
+               "nor is a 3.6.0-only id the pre-v0 catalog never carried");
+    checkFalse(diskv0::v0NameFor("TEST.TXT", out), "nor is a file W8 wrote there");
+    checkFalse(diskv0::v0NameFor(".hidden", out), "and a name that is all extension has no stem");
+
+    check(diskv0::legacyCatalogFilenames().size() == 20,
+          "the published list is the twenty entries of the v1.4.12 catalog",
+          std::to_string(diskv0::legacyCatalogFilenames().size()), "20");
+}
+
+static void test_v0_ledger_rename() {
+    section("the interface-v0 rename, as a user meets it");
+
+    // 1. A user on 1.0.25 has both default images, downloaded and verified, so
+    //    the ledger holds provenance AND the measurement it got for free.
+    DiskLedger ledger;
+    DiskFileFacts comboFacts = facts(COMBO_SIZE, T0);
+    DiskFileFacts gamesFacts = facts(GAMES_SIZE, T0);
+    ledger.recordInstall(COMBO, CATALOG_V1412, &comboFacts);
+    ledger.recordInstall(GAMES, CATALOG_GAMES, &gamesFacts);
+
+    // 2. The migration renames both files. MoveFileEx inside one directory
+    //    changes neither the size nor the write time, which is why the facts
+    //    below are the SAME values - and why a copy-then-delete here would cost
+    //    every user a re-hash of the whole library.
+    diskv0::LandedNames landed;
+    landed[DiskLedger::fold(COMBO)] = COMBO_V0;
+    landed[DiskLedger::fold(GAMES)] = GAMES_V0;
+    check(diskv0::migrateLedgerKeys(ledger, landed) == 2, "both records move with their files",
+          std::to_string(ledger.records().size()), "2");
+
+    checkTrue(ledger.record(COMBO) == nullptr, "nothing is left under the pre-v0 name");
+    checkTrue(ledger.record(COMBO_V0) != nullptr, "and everything is under the new one");
+
+    // 3. The verdicts, which are the whole point. Nineteen of the twenty images
+    //    are byte-identical between the two catalogs, so they come out Current;
+    //    hd1k_combo is the one whose bytes moved.
+    checkFreshness(ledger.freshness(GAMES_V0, CATALOG_GAMES, &gamesFacts),
+                   DiskFreshness::Current,
+                   "an image the v0 catalog names identically is current, unread");
+    checkFreshness(ledger.freshness(COMBO_V0, CATALOG_V0_COMBO, &comboFacts),
+                   DiskFreshness::SupersededPristine,
+                   "and the one image whose bytes moved is superseded, not re-measured");
+
+    // 4. What it costs to skip step 2. This is the version of the migration
+    //    that renames files and leaves the ledger behind: every entry falls to
+    //    NeedsMeasurement, and the first catalog fetch after the upgrade reads
+    //    ~211 MB to learn what the ledger already knew.
+    DiskLedger abandoned;
+    abandoned.recordInstall(COMBO, CATALOG_V1412, &comboFacts);
+    abandoned.recordInstall(GAMES, CATALOG_GAMES, &gamesFacts);
+    checkFreshness(abandoned.freshness(GAMES_V0, CATALOG_GAMES, &gamesFacts),
+                   DiskFreshness::NeedsMeasurement,
+                   "a record left under the old key describes nothing the app will ask about");
+
+    // 5. Running it twice is harmless, which is what lets the pass be re-run
+    //    after a rename that failed.
+    check(diskv0::migrateLedgerKeys(ledger, landed) == 0, "a second pass moves nothing",
+          std::to_string(ledger.records().size()), "2");
+
+    // 6. A record already stored under the v0 name wins, and the pre-v0 one is
+    //    kept rather than dropped: there is no evidence here about which of the
+    //    two describes the file on disk, and provenance cannot be recomputed.
+    DiskLedger both;
+    both.recordInstall(COMBO, CATALOG_V1412, &comboFacts);
+    both.recordInstall(COMBO_V0, CATALOG_V0_COMBO, &comboFacts);
+    check(diskv0::migrateLedgerKeys(both, landed) == 0, "an occupied new key is not overwritten",
+          std::to_string(both.records().size()), "2");
+    checkTrue(both.record(COMBO) != nullptr, "and the old record is not thrown away either");
+    checkStr(both.record(COMBO_V0)->installedCatalogSha256, CATALOG_V0_COMBO,
+             "the provenance under the new key is the one that was already there");
+}
+
 static void test_describe() {
     section("what the status column says");
 
@@ -847,6 +985,8 @@ int main() {
     test_adopt_provenance();
     test_serialization();
     test_the_repin_scenario();
+    test_v0_names();
+    test_v0_ledger_rename();
     test_describe();
     test_sha256_file();
     test_stat_file();

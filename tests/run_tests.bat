@@ -179,6 +179,7 @@ cl /nologo /EHsc /W3 /O2 /std:c++17 ^
     tests\test_diskledger.cpp ^
     z80cpmw\DiskLedger.cpp ^
     z80cpmw\DiskHash.cpp ^
+    z80cpmw\DiskMigrationV0.cpp ^
     /Fo:obj\tests\ledger\ ^
     /Fe:obj\tests\ledger\test_diskledger.exe ^
     /link /SUBSYSTEM:CONSOLE
@@ -192,6 +193,35 @@ obj\tests\ledger\test_diskledger.exe
 if errorlevel 1 (
     echo.
     echo DISK PROVENANCE SUITE FAILED
+    exit /b 1
+)
+REM The interface-v0 catalog suite needs no sibling either: CatalogV0.cpp holds
+REM no Win32, no WinHTTP and no threads, which is the whole reason a suite can
+REM drive it at all - DiskCatalog.cpp, which fetches these documents, cannot be
+REM linked by anything.  So it sits above the sibling guards with the other two
+REM that only need this repository.
+if not exist "obj\tests\catalog" mkdir "obj\tests\catalog"
+
+echo.
+echo === Building the interface-v0 catalog suite ===
+cl /nologo /EHsc /W3 /O2 /std:c++17 ^
+    /D _CRT_SECURE_NO_WARNINGS ^
+    /I z80cpmw ^
+    tests\test_catalogv0.cpp ^
+    z80cpmw\CatalogV0.cpp ^
+    /Fo:obj\tests\catalog\ ^
+    /Fe:obj\tests\catalog\test_catalogv0.exe ^
+    /link /SUBSYSTEM:CONSOLE
+if errorlevel 1 (
+    echo Build failed.
+    exit /b 1
+)
+
+echo.
+obj\tests\catalog\test_catalogv0.exe
+if errorlevel 1 (
+    echo.
+    echo INTERFACE-V0 CATALOG SUITE FAILED
     exit /b 1
 )
 if not exist "..\romwbw_emu\src\emu_io.h" (
@@ -289,6 +319,11 @@ REM Config.cpp includes EmulatorEngine.h, which includes hbios_cpu.h, which
 REM includes qkz80.h.  Nothing from either sibling is linked - the suite stubs
 REM EmulatorEngine::getUserDataDirectory() to point at %TEMP% and never builds
 REM an engine - but the headers still have to be findable.
+REM
+REM DiskMigrationV0.cpp is linked because Config.cpp's interface-v0 migration
+REM calls it, and DiskLedger.cpp because DiskMigrationV0.cpp folds names with
+REM DiskLedger::fold - the same fold the ledger keys are stored under, so that
+REM "the same file" means one thing in both halves of the migration.
 if not exist "obj\tests\config" mkdir "obj\tests\config"
 
 echo.
@@ -298,6 +333,8 @@ cl /nologo /EHsc /W3 /O2 /std:c++17 ^
     /I z80cpmw /I ..\cpmemu\src /I ..\romwbw_emu\src ^
     tests\test_config.cpp ^
     z80cpmw\Config.cpp ^
+    z80cpmw\DiskLedger.cpp ^
+    z80cpmw\DiskMigrationV0.cpp ^
     /Fo:obj\tests\config\ ^
     /Fe:obj\tests\config\test_config.exe ^
     /link /SUBSYSTEM:CONSOLE user32.lib shell32.lib ole32.lib

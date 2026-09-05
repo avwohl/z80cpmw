@@ -46,6 +46,325 @@ therefore not evidence of what has shipped.
 of it. The detail of what 1.0.23 carried is kept under this heading because
 1.0.23's own entry refers back to it.
 
+### The disk catalog comes from romwbw_disks, and there is no release tag
+
+**NOT COMPILED** - written on a Linux machine with no MSVC, no wxWidgets and no
+Windows, so nothing here has been built, packaged or launched.
+
+What *was* run on this machine is the part deliberately made runnable:
+`CatalogV0.cpp` compiles with `g++ -std=c++17 -Wall -Wextra` and
+`tests/test_catalogv0.cpp` passes **107 checks** against the real published
+`index.json` and `catalog.json` from `romwbw_disks/catalog/v0/`.
+
+What was only *syntax-checked*, with `x86_64-w64-mingw32-g++ -std=c++17
+-fsyntax-only` - a different compiler, no link, and not a build:
+`DiskCatalog.cpp`, `Config.cpp`, `DiskHash.cpp`, `DiskLedger.cpp`,
+`DiskMigrationV0.cpp`, `HelpWindow.cpp`, `tests/test_diskledger.cpp` and
+`tests/test_config.cpp`.
+
+What could not be checked at all, by any means available here:
+**`MainWindow.cpp` and `SettingsDialogWx.cpp`**, because both reach `wx/wx.h`
+and there is no wxWidgets on this machine. They are also the two files in no
+test suite, so nothing but driving the built app touches them - and the F5
+default-disk path, the Settings write-back and the release control all live in
+them. `MANUAL_CHECKS.md` §9 and §10 are the list.
+
+`RELEASE_TAG = L"v1.4.12"` is **deleted, not repointed**, and with it both URLs
+it was interpolated into. There is now exactly one URL in the binary -
+`index-v0.json` on the `catalog-v0` tag - and every other URL is read out of a
+document that arrived over the network:
+
+    index-v0.json          which RomWBW releases exist; for each, the two HBIOS
+                           version bytes, the absolute catalog_url, and that
+                           catalog's size and sha256
+    catalog-v0-<ver>.json  base_url, roms[] and disks[] for one release
+    asset URL              base_url + filename, with nothing inserted between
+
+So a stale constant can no longer fetch the wrong disks quietly: it can only
+fail to fetch at all, which is the failure worth having.
+
+`CatalogV0.h`/`.cpp` hold the parse and the choice of release, with no Win32, no
+WinHTTP and no threads - the same discipline as `DiskLedger.cpp` and
+`DiskMigrationV0.cpp`, and for a sharper reason here. **The parse must not
+throw.** `DiskCatalog` fetches on a *detached* thread and the file holds no
+`try`/`catch`, so the XML parser this replaces - whose last act was
+`entry.size = std::stoull(sizeStr)` on a value straight out of the HTTP
+response - ended the process on one malformed catalog, with no dump, no message
+and no callback. Every accessor in `CatalogV0.cpp` is non-throwing by
+construction: a value of the wrong JSON type reads exactly as an absent one. The
+worker is wrapped in a catch-all as well, because "cannot throw" is a claim
+about code that will be edited.
+
+`CATALOG_SCHEMA.md` §6.1 is implemented rather than assumed, and the suite checks
+each rule against the real documents: unknown fields ignored at every level;
+keyed on `id` and never on array position; entries appearing and disappearing
+(`hd1k_ws4` is in 3.5.1 and not 3.6.0); `roms[]` possibly empty and `emu_avw`
+never assumed present; `slices`, `defaultSlot` and `cbios` optional; unknown
+`status` and `license` values displayed rather than refused; `generation`
+compared and never computed on; `base_url` concatenated with **no** separator,
+which is the client-side fixup v0 exists to delete.
+
+Two verifications happen that could not before. The catalog document is checked
+against the `catalog_size` and `catalog_sha256` the index publishes *before* it
+is parsed - it is the document every later download's URL and checksum come out
+of, so accepting one the index does not vouch for would make those checks worth
+nothing. And `downloadDisk` now resolves the URL and the expected hash from
+**one lookup of one catalog entry**, so there is no URL without the hash that
+goes with it.
+
+That closes a hole that was live on the most ordinary path in the application.
+`downloadAndStartWithDefaults` - reached by **F5** whenever no disk is mounted -
+never called `fetchCatalog`, so `m_catalogEntries` was empty, the sha256 lookup
+found nothing, `normalizedHash` read the empty string as "this catalog carries
+no hash", and two images totalling 57 MB were written **with no checksum check
+and no ledger record at all**. It now fetches the catalog before it can build a
+URL, and starts offline without one when both default images are already on the
+machine.
+
+Also fixed while in the transport, both of which now apply to three URLs rather
+than one: the `Location` chase was an unbounded recursion, so a server answering
+its own URL with a 302 was a stack overflow on a worker thread; and
+`downloadToString` read a response into memory with no ceiling. Both are bounded
+now.
+
+### The RomWBW release is a choice, and the preview one says so
+
+**NOT COMPILED**, same pass. The Disk Images page gains a **RomWBW release**
+list at the top of it, because everything below it - the catalog, the filenames,
+and which images a download puts in the data folder - is about the release it
+names.
+
+The list is not compiled in and is not "everything the index offers". It is what
+the emulator core says it can boot: each index entry's `hbios.ver_byte` /
+`upd_byte` are put to `emu_romwbw_release_supported()` from `emu_init.h`.
+Asking, rather than assuming, is the point - the client and the core are
+separate repositories and either can be ahead of the other, so a hardcoded list
+is wrong in one direction the day this repository publishes a release the core
+has not been checked against, and wrong in the other the day the core gains one.
+When **nothing** survives, that is reported as itself - "this build cannot run
+any of the RomWBW releases the disk catalog offers" - rather than falling back
+to something unbootable.
+
+`3.6.0` is published `"status": "preview"` and reads **"RomWBW 3.6.0
+(preview)"** in the list. The status is appended for anything that is not
+`"stable"`, not only for the one value `"preview"`, because it is free text and
+a value this build has never heard of still has to reach the user's eyes.
+
+The choice is stored as `core.romwbwVersion`, as the release *string* and not as
+a position in the index - the index gains and loses entries, and a stored
+position would silently become a different release the day 3.7.0 is published.
+Absent means "no preference", which is what every configuration written before
+this release says; the catalog then takes the index's own `default: true` entry.
+A preference the index no longer carries, or that this core cannot boot, falls
+back to the default rather than leaving the user with no catalog at all.
+
+**Switching releases deletes nothing, unmounts nothing and downloads nothing.**
+There is nothing to invalidate: every interface-v0 filename carries its release,
+so `hd1k_combo-v0-3.5.1.img` and `hd1k_combo-v0-3.6.0.img` are two files that
+coexist in one folder, and 3.5.1 → 3.6.0 → 3.5.1 costs two small HTTP GETs. The
+`generation` field is read and carried and drives **no deletion**: `DiskLedger`
+already answers the same question per file and with evidence, where a generation
+compare knows only that something in the catalog moved. That is deliberate - a
+version switch keyed to one global catalog version is what destroyed a library
+on the iOS port.
+
+**ROMs are read out of the catalog and are not downloaded**, and the page says
+so rather than offering half of it. Downloading a ROM means "this file must be
+on disk before the emulator can start", and `DiskCatalog` cannot express that:
+its transfers are documented as fire-and-forget on a detached thread with no
+cancel and no wait. Two other things would have to change with it -
+`MainWindow::findResourceFile` searches only `<app>\roms`, `<app>` and
+`<app>\..\roms` and cannot see a file downloaded into the data folder, and the
+1 MB completeness floor that guards a cached disk cannot see a truncated 512 KB
+ROM - besides the eight places a ROM name is written out by hand, which have to
+move together or the menu, the dialog and the config disagree about which ROM is
+loaded (`todo.txt` lists all eight). None of that is in this release. The bundled ROM stays bundled; `roms/`, the two `PostBuildEvent`
+xcopies, the three `<None Include>` entries and the NSIS `File` lines are
+untouched.
+
+So the page states the consequence instead. Selecting a release the ROM in the
+banks cannot boot says: *"Disks for RomWBW 3.6.0 expect a RomWBW 3.6.0 ROM, and
+this build boots RomWBW 3.5.1, so the guest will report an HBIOS/CBIOS version
+mismatch."* The release it compares against is read out of the loaded ROM with
+`emu_romwbw_release_loaded()`, not from a constant - there is no compile-time
+pin left to read.
+
+Four smaller things go with it, and the first two are about the choice not being
+quietly lost or quietly kept.
+
+The release control refuses to write an **empty** choice over a stored one: on a
+machine with no network the list is a single placeholder, and pressing **OK**
+would otherwise turn "I chose 3.6.0" into "no preference" - the same shape as
+the `"(None)"` erasure the four disk dropdowns had.
+
+And **OK** now hands the release to the catalog unconditionally rather than only
+when it differs from the stored one. Choosing a release tells the catalog
+immediately, because the list underneath has to be refetched to match, so by OK
+time the catalog can be holding a preference the dialog has since backed away
+from - which is exactly what a switch to 3.6.0 whose fetch *fails* produces: the
+control goes back to the release still in hand, that is usually the release
+already in the config, the comparison found no change, and the catalog was left
+preferring 3.6.0 while every stored and displayed value said 3.5.1. The next
+fetch then used 3.6.0. Setting a preference downloads nothing and deletes
+nothing, so there was never anything to be saved by making it conditional.
+
+The release control is also **disabled while a fetch is in flight**, as the
+Refresh button already was. It became a second way to start one, and two
+overlapping workers can pair one release's entries with the other's name -
+`DiskCatalog` writes `m_catalogEntries` and `m_selectedVersion` under two
+different mutexes, deliberately, because neither may be held across the other.
+
+And the catalog list's **Download** and **Delete** buttons stop reading the
+filename back out of the list control's column 0, which had quietly made a
+display column part of the catalog API: the row's filename is now recorded
+beside the list, so what is on screen and what the API is given are two
+different things.
+
+### `tools/check-disk-pins.sh` no longer answers its question here
+
+Not changed, and it cannot be changed from this repository alone: the script is
+byte-identical across five repositories (md5 `47b7437050018c7cb4f7687d09909dc6`).
+With `RELEASE_TAG` gone from `DiskCatalog.cpp`, its `pin_of` finds no quoted
+`vX.Y.Z`, prints `NO PIN FOUND` and exits 1 for a client that is working
+correctly; and its artifact scan looks for `v1\.[0-9]+\.[0-9]+`, which matches
+neither `v0` nor `3.5.1`, so a migrated build is never checked and never
+complained about either. It has to be rewritten or retired across the family.
+
+### The interface-v0 storage migration
+
+**NOT COMPILED**, same pass and the same machine. `DiskMigrationV0.cpp` and
+`DiskLedger.cpp` compile with `g++ -std=c++17`, and every decision this section
+describes - the name mapping, the case folding, the refusal of an already-v0
+name, the directory predicate, and the ledger-key move with its
+Current/Superseded verdicts - was driven against a throwaway harness here, using
+the same hashes and sizes `tests/test_diskledger.cpp` uses.
+
+What was NOT run: the two new suite sections themselves (`test_diskledger.cpp`
+and `test_config.cpp` both reach `windows.h`, and `tests\run_tests.bat` needs
+`cl.exe`), the renames (`MoveFileExA`), `ConfigManager::migrateToInterfaceV0`,
+and everything in `MainWindow.cpp` and `SettingsDialogWx.cpp`. The suite
+sections and `migrateDocumentToInterfaceV0` were syntax-checked only.
+
+The disk catalog is moving to `avwohl/romwbw_disks`, where every published image
+carries the interface and the RomWBW release in its name:
+`hd1k_combo-v0-3.5.1.img`, not `hd1k_combo.img`. That is what lets a 3.5.1 and a
+3.6.0 library sit in one data folder without one overwriting the other - a 3.5.1
+disk booted against a 3.6.0 ROM makes the guest CBIOS print
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***`. This is the rename half:
+everything a user already has on disk moves to the new names, and the section
+above is the half that changes where new bytes come from.
+
+`romwbw_disks/docs/CLIENT_MIGRATION.md` asks for those two halves in separate
+releases, so that a build which both renames every stored file and changes where
+files come from leaves some way to tell which half broke it. **They are in this
+tree together**, which was a deliberate choice and costs something: if the first
+launch after this build goes wrong there are two candidates rather than one. It
+was taken because splitting them here is not free either - `F5` with nothing
+mounted reaches `downloadAndStartWithDefaults`, which knew two pre-v0 filenames
+by hand, so a rename-only release would have had to teach that path the new
+names anyway, and a URL-only release would have had it fetching pre-v0 names
+from a base that no longer serves them. `MANUAL_CHECKS.md` §9 and §10 are split
+along the same line so the two can at least be *checked* apart.
+
+`DiskMigrationV0.h`/`.cpp` hold the whole of the decision and no Win32, no file
+system and no JSON, for the same reason `DiskLedger.cpp` holds none - it is the
+only way a suite can check it. `DiskCatalog::migrateFilesToInterfaceV0` does the
+renames and moves the ledger keys; `ConfigManager::migrateToInterfaceV0` does
+the four slots and every profile; `MainWindow::loadSettings` runs both, once,
+between `ConfigManager::load()` and `applyConfig()`.
+
+Four decisions are the substance of it, and each is a way this could have
+destroyed something:
+
+- **Rename, never copy.** `DiskLedger::measurementApplies` is exactly
+  `measuredSize == f.size && measuredModified == f.modified`, so `MoveFileExA`
+  within one directory keeps every cached measurement while a copy-then-delete
+  resets the write time and re-hashes 210,763,776 bytes. Nineteen of the twenty
+  images are byte-identical between the v1.4.12 catalog and the v0 one - only
+  `hd1k_combo` moved, `89b8ae1a…` to `0ca4ec60…` - so carrying the ledger key
+  across the rename leaves nineteen entries reading **Current** and one reading
+  superseded, rather than twenty reading unmeasured.
+- **Only the twenty names the catalog published**, from a fixed list, never from
+  a directory scan. `R8` and `W8` write the user's own host files into that same
+  folder and people drop images in it by hand; a pattern match renames those.
+- **Never delete.** A file already sitting under the v0 name is kept and the
+  pre-v0 one is left exactly where it is.
+- **Profiles are rewritten as documents**, not through `ConfigManager`.
+  `loadProfile()` replaces the whole configuration in force and sets
+  `m_currentProfile`; `loadFromFile()` renames an unparseable file to `.bad` as
+  a side effect of merely reading it; `saveToFile()` drops a carried unreadable
+  section unless it is writing the exact file the carry came from. Reading the
+  JSON, changing the paths and writing it back has none of those effects, and
+  preserves every member of the file this application does not understand.
+
+The one-shot flag is `core.interfaceV0Migrated` and **not** a bump of
+`CURRENT_VERSION`, because `from_json` reads `version` as
+`j.value("version", CURRENT_VERSION)` - a document with no `version` key reads
+back as *already migrated*, which is the one direction a migration gate must
+never fail in. The new member reads back `false` when absent, and it is written
+down only when both halves finished, so a rename that failed is retried on the
+next launch. The pass is idempotent anyway; the flag only saves twenty
+`GetFileAttributes` calls.
+
+`DiskCatalog::getLocalName()` is the catalog's filename mapped to the name the
+file has on disk, and everything local goes through it: the path, the ledger
+key, the stat behind `isDiskDownloaded`. It was written for the rename-only
+release the two halves were meant to ship as, where the images would have
+carried v0 names while the catalog being fetched still called them
+`hd1k_combo.img` - without it that release would have told every user their
+entire library was missing and offered to fetch 211 MB of it again. Because both
+halves are here, **it is already the identity function** for everything the
+catalog serves: `v0NameFor()` refuses a name that carries the suffix. It is left
+in rather than removed because the one caller that can still hand it a bare
+pre-v0 name is the Settings write-back, against a configuration whose rename did
+not finish, and that path is in no suite. `todo.txt` carries its removal.
+
+`MainWindow::downloadAndStartWithDefaults` stops building
+`dataDir + "\\hd1k_combo.img"` by hand. It keys on the catalog **ids**
+`hd1k_combo` and `hd1k_games` - both published under 3.5.1 and 3.6.0 alike - and
+looks for the file under three names before fetching anything: what the catalog
+in hand calls it, the interface-v0 name for the bundled release, and the pre-v0
+name a failed rename would have left. That is what stops `F5` on a migrated
+machine re-downloading 57 MB it already has, and it is also what lets the app
+start offline: the catalog is a precondition of *downloading*, never of
+*starting*.
+
+### The Settings dialog stops erasing the disk configuration
+
+**NOT COMPILED**, same pass. Four steps in three files, with nothing said at any
+of them: `MainWindow::onEmulatorSettings` seeds the dialog with a disk's
+basename, `populateDiskLists()` offers only catalog entries whose `isDownloaded`
+is true, `loadDiskSelections()` left the control at index 0 - `"(None)"` - when
+`FindString` did not match, `saveSettings()` writes `""` for index 0, and
+`onEmulatorSettings` reads `""` as `closeDisk(i)` plus `disks[i] = nullopt`. One
+visit to Settings and one press of **OK** erased all four disk slots and
+unmounted the running disks, with no confirmation and no diagnostic.
+
+It was never only a migration problem, which is why it is fixed rather than
+avoided. The list carries no disk opened with **File > Load Disk**, none the
+user put in the data folder by hand, and **nothing at all** until the catalog
+fetch the dialog's constructor started comes back - which on a machine with no
+network it never does.
+
+- `loadDiskSelections()` now **appends the configured name and selects it** when
+  the list does not carry it, so OK writes back what was already configured.
+- `onDownloadComplete` and `onDeleteDisk` called `populateDiskLists()` and not
+  `loadDiskSelections()`, so downloading a disk and pressing OK erased all four
+  slots by the most ordinary path in the dialog. Both now go through a new
+  `repopulateDiskLists()`, which puts back what is **chosen** rather than what
+  was seeded - the user may have picked a disk before pressing Download - and
+  `onCatalogLoaded` uses it too, for the same reason its own comment already
+  gives about the other controls.
+- `onEmulatorSettings` seeds a bare name only for a disk **in the data folder**
+  and the whole path for one anywhere else, because the write-back reads a bare
+  name as "in the data folder" and resolves it through `getDiskPath()`. Seeding
+  the basename of `C:\mine\volume.img` turned it into `<dataDir>\volume.img`,
+  which is not a file.
+
+`MainWindow.cpp` and `SettingsDialogWx.cpp` are in no suite and cannot be, so
+all of this is verified by driving the built app. `MANUAL_CHECKS.md` §9 is the
+list, and its Settings-then-OK check is the one that matters most.
+
 ### The About box shows the RomWBW releases the core can run, not a pin
 
 **NOT COMPILED** - written on a Linux machine with no MSVC, no wxWidgets and no

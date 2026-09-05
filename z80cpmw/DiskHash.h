@@ -18,6 +18,7 @@
 
 #include "DiskLedger.h"
 
+#include <cstddef>
 #include <string>
 
 namespace diskhash {
@@ -32,6 +33,16 @@ namespace diskhash {
 // as the file's hash, which is the one failure mode that writes a confident
 // wrong answer instead of no answer.
 bool sha256File(const std::string& path, std::string& hexOut);
+
+// SHA-256 of bytes already in memory, as 64 lowercase hex characters.
+//
+// For the catalog documents, which are fetched into a std::string and have to be
+// checked against the catalog_sha256 the index publishes BEFORE they are parsed.
+// Writing them to a file first so that sha256File could be used would mean the
+// document that decides what to download is checked from a copy on disk rather
+// than from the bytes that arrived. Returns false only when the OS refuses to
+// give us a hash provider.
+bool sha256Bytes(const void* data, size_t size, std::string& hexOut);
 
 // Size and last-write time, which are the two facts that decide whether a
 // stored measurement still describes the file. False when there is no file, or
