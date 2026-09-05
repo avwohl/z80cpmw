@@ -25,7 +25,7 @@
 // The RomWBW release the shared core emulates, for the About box. Single source
 // of truth in romwbw_emu; DOWNSTREAM asks every port with a version display to
 // show it.
-#include "romwbw_pin.h"
+#include "emu_init.h"   // emu_romwbw_supported_list()
 
 // External function to set main window for host file dialogs
 extern "C" void emu_io_set_main_window(HWND hwnd);
@@ -1625,15 +1625,22 @@ void MainWindow::onHelpAbout() {
     std::string verStr = VERSION_STRING;
     std::wstring verStrW(verStr.begin(), verStr.end());
 
+    // The RomWBW releases this build can run.  Not a compile-time constant any
+    // more: the core reads the version out of whichever ROM it loads, so there
+    // is a list rather than a pin.  ASCII digits and dots, so the same
+    // byte-wise widen the two strings above use is correct here too.
+    std::string romwbwRel = emu_romwbw_supported_list();
+    std::wstring romwbwRelW(romwbwRel.begin(), romwbwRel.end());
+
     std::wstring aboutText =
         L"z80cpmw - Z80 CP/M Emulator\n"
         L"Version " + verStrW + L"\n\n"
         L"A RomWBW/HBIOS emulator for Windows.\n"
-        // The RomWBW release the core is pinned to. A user who hits the
+        // The RomWBW releases the core can run. A user who hits the
         // "HBIOS/CBIOS Version Mismatch" banner is being told their disk images
-        // were built by a different release than this HBIOS emulates, and until
-        // now the app displayed nothing they could compare against.
-        L"Emulates RomWBW " _VER_WIDEN(ROMWBW_PIN_STR) L" (pinned).\n\n"
+        // were built by a different release than the ROM they loaded, and the
+        // app displayed nothing they could compare against before this.
+        L"Emulates RomWBW " + romwbwRelW + L" (from the loaded ROM).\n\n"
         L"Data Folder (disks and R8/W8 transfers):\n" + dataDirW + L"\n\n"
         L"License: GPL v3\n"
         L"CP/M OS licensed by Lineo for non-commercial use.\n\n"

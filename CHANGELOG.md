@@ -42,9 +42,46 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
-Nothing. `Version.h` says 1.0.25 and that release's entry is below; the detail
-of what 1.0.23 carried is kept under this heading because 1.0.23's own entry
-refers back to it.
+`Version.h` still says 1.0.25; the entry below is unreleased work sitting on top
+of it. The detail of what 1.0.23 carried is kept under this heading because
+1.0.23's own entry refers back to it.
+
+### The About box shows the RomWBW releases the core can run, not a pin
+
+**NOT COMPILED** - written on a Linux machine with no MSVC, no wxWidgets and no
+Windows. `emu_romwbw_supported_list()` is declared in `emu_init.h`, which this
+project already compiles (`emu_init.cc` is in the vcxproj), and the symbol is
+exported from that translation unit - but this file has not been built.
+
+`romwbw_emu` v1.39 deleted `ROMWBW_PIN_STR`, so
+`L"Emulates RomWBW " _VER_WIDEN(ROMWBW_PIN_STR)` stopped compiling. The include
+of `romwbw_pin.h` in `MainWindow.cpp` is replaced by `emu_init.h`, and the About
+text is built at run time from `emu_romwbw_supported_list()` - "3.5.1, 3.6.0"
+today - rather than pasted in by the preprocessor.
+
+That is a string concatenation now instead of a literal, because the value is no
+longer known at compile time. The list is ASCII digits, dots and commas, so the
+same byte-wise `std::wstring(s.begin(), s.end())` widen used for `VERSION_STRING`
+two lines above is correct for it too. `_VER_WIDEN` stays in `Version.h`, still
+used by `VERSION_STRING_W`. `romwbw_pin.h` stays in the vcxproj's `ClInclude`
+list: the file still exists and `emu_init.cc` includes it, it just no longer
+carries a version.
+
+The reason it is a list is the point. The core reads the RomWBW version out of
+whichever ROM it loads, so one binary boots any release on that list - there is
+no single release this build "is". The About box is read before a ROM is
+necessarily loaded, so the list is the honest answer there.
+
+The mismatch banner this display was added to explain still fires, but now means
+"your disk was built by a release other than the ROM you loaded" rather than
+"...other than the one this binary is pinned to". Since the core stopped
+refusing a ROM for being the wrong release, that banner is the only thing left
+enforcing the ROM/disk pairing.
+
+This does not change what the app ships or downloads. It still carries one ROM
+and fetches its catalog from a pinned `RELEASE_TAG`; letting the user pick a
+RomWBW version is separate work, described in
+`romwbw_disks/docs/CLIENT_MIGRATION.md`.
 
 ### Released as 1.0.23
 
