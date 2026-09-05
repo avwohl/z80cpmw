@@ -1,21 +1,25 @@
-BLOCKER BEFORE ANY STORE BUILD: THE BUNDLED ROM IS 3.5.1, THE CATALOG DEFAULT IS 3.6.0
+FETCH THE ROM FROM THE CATALOG - THE LAST VERSION-COUPLED THING IN THIS APP
 -------------------------------------------------------------------------------
 
-- [ANY] romwbw_disks moved index-v0.json's default to RomWBW 3.6.0 on
-2026-09-05, and this app bundles a 3.5.1 ROM (roms/emu_avw.rom, found by findResourceFile())
-and downloads no ROM at all.  So a build shipped as it stands would preselect
-3.6.0 disks and boot them against a 3.5.1 ROM, and the guest answers with
-*** WARNING: HBIOS/CBIOS Version Mismatch *** - the exact failure the ROM/disk
-pairing rule exists to prevent.  Nothing is broken today: no released build reads
-that index, and a pre-v1.39 core filters 3.6.0 out by hbios.ver_byte before
-status or default is read.
-  Discharge it one of two ways before a store build, not after: bundle the 3.6.0
-ROM (the code already reads which release a ROM declares, so this is a matter of
-shipping the other file plus whatever the packaging names it), or ask
-romwbw_disks to move default back to 3.5.1.  Downloading ROMs is a third option
-and is deliberately not implemented.
+- [ANY] this app bundles a 3.5.1 ROM (roms/emu_avw.rom, located by findResourceFile()) and
+downloads no ROM at all.  romwbw_disks published RomWBW 3.6.0 as stable and
+default on 2026-09-05, so a build shipped as it stands would preselect 3.6.0
+disks and boot them against a 3.5.1 ROM -> *** WARNING: HBIOS/CBIOS Version
+Mismatch ***.  Nothing is broken today: no released build reads that index, and a
+pre-v1.39 core filters 3.6.0 out by hbios.ver_byte before default is ever read.
+  The fix is to fetch the ROM from the catalog the way disks are fetched.  It is
+NOT to bundle a 3.6.0 ROM instead: that would put a store release for this app on
+the critical path for every RomWBW version, which is the whole cost romwbw_disks
+was created to remove.  Every catalog already carries roms[] with emu_avw flagged
+default, a sha256 and a size, under the same base_url as the disks.
+  Two things here rather than one.  findResourceFile() searches <app>\roms, <app>
+and <app>\..\roms only, so a downloaded ROM in <dataDir>\data is invisible to
+every ROM caller - that lookup has to learn the data folder.  And DiskCatalog's
+fetch contract is documented as fire-and-forget with no cancel and no wait, which
+does not model "this ROM must land before the emulator can start".  Keep a
+bundled ROM as the first-launch fallback.
   romwbw_disks/docs/ROMWBW_VERSIONS.md "Why 3.6.0 is stable and default" has the
-reasoning and the same gate written down at the publishing end.
+same gate written down at the publishing end.
 
 Todo list.  Open items for this project only - the rules that govern this file
 are in CLAUDE.md, finished work is in CHANGELOG.md, and a closed item is deleted
