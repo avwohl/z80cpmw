@@ -42,8 +42,10 @@
  *   key on `id`, never on position       DiskItem::id / RomItem::id; nothing
  *                                        here indexes roms[] or disks[]
  *   entries appearing and disappearing   hd1k_ws4 is in 3.5.1 and not in 3.6.0,
- *                                        and roms[] may be empty
- *   do not assume `emu_avw` is present   nothing looks for it by name
+ *                                        and roms[] may be absent or empty -
+ *                                        chooseRom() answers "none" for both
+ *   do not assume `emu_avw` is present   nothing looks for it by name,
+ *                                        chooseRom() included
  *   optional/nullable fields             `slices`, `defaultSlot`, `cbios`,
  *                                        `released`, `package_sha256`
  *   new `status` / `license` values      free text, displayed, never switched on
@@ -97,10 +99,12 @@ struct IndexEntry {
 
 // One entry of a catalog's `roms[]`.
 //
-// Parsed, and deliberately not downloaded - see DiskCatalog::getCatalogRoms()
-// for why this build still boots its bundled ROM. Reading them costs nothing and
-// is what lets the Settings dialog say so out loud rather than leaving the user
-// to wonder why the catalog's ROMs never appear.
+// Parsed AND fetched, which it was not before: a release's ROM is the last
+// version-coupled thing in this application, and while the ROM came only from
+// the package, a new RomWBW release could not reach a user without a store
+// submission. `size` and `sha256` are what a fetched ROM is checked against -
+// every time it is loaded, not only when it is downloaded - and `default` is
+// what chooseRom() reads. See DiskCatalog::getRomRequirement().
 struct RomItem {
     std::string id;              // "emu_avw". The key. Never assumed present.
     std::string filename;        // append to base_url
@@ -217,6 +221,29 @@ std::vector<size_t> runnableVersions(const std::vector<IndexEntry>& entries,
 size_t chooseVersion(const std::vector<IndexEntry>& entries,
                      const std::vector<size_t>& runnable,
                      const std::string& preferredVersion);
+
+// Which of a catalog's `roms[]` a machine on that release boots: the entry
+// flagged `default: true`, else the first.
+//
+// Returns npos when `roms` is empty, which is the answer for a catalog that
+// carried no `roms[]` at all as well as for one that carried an empty array -
+// parseCatalog cannot tell those two apart and neither can this, because there
+// is nothing a client would do differently. It is a REPORTABLE condition and
+// not a reason to boot something else: the release has no ROM this build could
+// fetch, so a machine can only be started on it if the bundled ROM already is
+// that release.
+//
+// THE THREE THINGS 6.1 FORBIDS, and they are all forbidden here rather than
+// left to a caller. Never by array position: `roms[0]` is the default today and
+// the schema promises nothing about order. Never by hardcoding `emu_avw`:
+// "do not assume emu_avw is present" is written into the compatibility rules,
+// and a future catalog may publish a different set entirely - so nothing here
+// looks at an id. And never assume the array exists or is non-empty, which is
+// what the npos return is for. The `default` flag is the only thing this reads,
+// and taking the FIRST entry flagged is deliberate: two flagged entries is a
+// broken document a client should route around rather than refuse, exactly as
+// chooseVersion does with two `default: true` index entries.
+size_t chooseRom(const std::vector<RomItem>& roms);
 
 // The label a picker shows: "RomWBW 3.6.0 (preview)".
 //

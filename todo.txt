@@ -1,26 +1,3 @@
-FETCH THE ROM FROM THE CATALOG - THE LAST VERSION-COUPLED THING IN THIS APP
--------------------------------------------------------------------------------
-
-- [ANY] this app bundles a 3.5.1 ROM (roms/emu_avw.rom, located by findResourceFile()) and
-downloads no ROM at all.  romwbw_disks published RomWBW 3.6.0 as stable and
-default on 2026-09-05, so a build shipped as it stands would preselect 3.6.0
-disks and boot them against a 3.5.1 ROM -> *** WARNING: HBIOS/CBIOS Version
-Mismatch ***.  Nothing is broken today: no released build reads that index, and a
-pre-v1.39 core filters 3.6.0 out by hbios.ver_byte before default is ever read.
-  The fix is to fetch the ROM from the catalog the way disks are fetched.  It is
-NOT to bundle a 3.6.0 ROM instead: that would put a store release for this app on
-the critical path for every RomWBW version, which is the whole cost romwbw_disks
-was created to remove.  Every catalog already carries roms[] with emu_avw flagged
-default, a sha256 and a size, under the same base_url as the disks.
-  Two things here rather than one.  findResourceFile() searches <app>\roms, <app>
-and <app>\..\roms only, so a downloaded ROM in <dataDir>\data is invisible to
-every ROM caller - that lookup has to learn the data folder.  And DiskCatalog's
-fetch contract is documented as fire-and-forget with no cancel and no wait, which
-does not model "this ROM must land before the emulator can start".  Keep a
-bundled ROM as the first-launch fallback.
-  romwbw_disks/docs/ROMWBW_VERSIONS.md "Why 3.6.0 is stable and default" has the
-same gate written down at the publishing end.
-
 Todo list.  Open items for this project only - the rules that govern this file
 are in CLAUDE.md, finished work is in CHANGELOG.md, and a closed item is deleted
 rather than annotated.  Notes about what another repository ought to do do not
@@ -120,35 +97,29 @@ happen" that only this client can answer.
   W8 is still true, and the v0 catalog says so as data rather than leaving it to
   be inferred: the hd1k_games entry carries host_transfer: false.
 
-- ROMs come from the catalog but are not downloaded, and four places still name
-one by hand.  DiskCatalog parses roms[] and getCatalogRoms() returns it; nothing
-fetches one, because DiskCatalog's transfers are fire-and-forget with no wait and
-cannot express "this ROM must be on disk before the emulator can start".  The
-Settings page says so out loud rather than half-offering it.
+- The ROM gate cannot be checked by any suite, and the offline case it costs is
+open.  romReadyToStart() and everything under it live in MainWindow.cpp, which
+needs a real window and is in no suite; MANUAL_CHECKS.md "The ROM gate" is the
+whole of the verification and none of it has been run.
 
-  Downloading one needs several things together, or the menu, the dialog and the
-  config will disagree about which ROM is loaded.  findResourceFile()
-  (MainWindow.cpp:1887) searches only <app>\roms, <app> and <app>\..\roms and
-  cannot see the data folder a download lands in.  diskFileLooksComplete()'s 1 MB
-  floor (:920, the return at :926) cannot see a truncated 512 KB ROM, where
-  emu_validate_rom_hcb catches a corrupt HCB but not a short tail - the catalog
-  publishes each ROM's size and sha256, and hcb.version / hcb.update besides, so
-  an image can be refused before it is fetched.  And the two ROM names are
-  written out by hand in EIGHT places that must move together:
-  MainWindow.cpp:851-856 (onSelectROM, menu id -> filename), :1487-1489 (the
-  Settings write-back, filename -> menu id), :2044 (loadDefaultROM, which names
-  emu_avw.rom outright), :2355-2359 (applyConfig, filename -> check mark) and
-  :2497-2503 (updateConfigFromState, id -> filename); and
-  SettingsDialogWx.cpp:841-843 (populateROMList's two labels), :1091 (loadSettings,
-  filename -> selection) and :1139-1140 (saveSettings, selection -> filename).
-  Note that roms\emu_avw.rom and roms\emu_romwbw.rom are byte-identical to each
-  other and to the catalog's emu_avw-v0-3.5.1.rom (all three c7abc580...), so the
-  second menu entry is a second name for the same 512 KB - and
-  SettingsDialogWx.cpp:1139-1140 does not round-trip an unknown romFile, so any
-  third name silently becomes emu_avw.rom on OK.
+  The open behaviour, not a defect: a machine set to a release other than the
+  bundled one cannot start with no network even when that release's ROM is
+  already in its data folder, because the published size and sha256 exist only in
+  the catalog and this build will not load a ROM it cannot check.  The offer that
+  follows the failed lookup gives the user a machine that boots, on the bundled
+  release.  Doing better means remembering a ROM's published hash locally - a
+  second provenance store beside DiskLedger's, keyed on a filename the config
+  would also have to carry - and that is a design, not a tweak.
 
-  Keep a bundled ROM whatever else changes.  A first launch with no bootable ROM
-  is not a state this application may be shipped in.
+  Two smaller things the gate left behind.  The two bundled ROM names are still
+  written out by hand in six places that must move together: MainWindow.cpp's
+  onSelectROM (menu id -> filename), the Settings write-back (filename -> menu
+  id), loadDefaultROM (emu_avw.rom outright), loadPackagedRom (the same choice
+  again), applyConfig (filename -> check mark) and updateConfigFromState (id ->
+  filename), plus SettingsDialogWx::populateROMList's two labels.  And
+  roms\emu_avw.rom and roms\emu_romwbw.rom are byte-identical to each other and
+  to the catalog's emu_avw-v0-3.5.1.rom (all three c7abc580...), so the second
+  menu entry is a second name for the same 512 KB.
 
 - z80cpmw\SettingsDialog.cpp and SettingsDialog.h are dead and misleading.
 Neither is in the vcxproj ClCompile list, so nothing has compiled them for a

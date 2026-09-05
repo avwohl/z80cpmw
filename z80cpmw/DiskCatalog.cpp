@@ -172,6 +172,210 @@ std::vector<catalogv0::RomItem> DiskCatalog::getCatalogRoms() const {
     return m_catalogRoms;
 }
 
+DiskCatalog::RomRequirement DiskCatalog::getRomRequirement() const {
+    RomRequirement req;
+    std::string filename;
+    {
+        std::lock_guard<std::mutex> lock(m_catalogMutex);
+        // The base URL is what says a catalog has been fetched: parseCatalog
+        // refuses a document without one, so a non-empty base is proof that a
+        // whole catalog landed and not that some field happened to be set.
+        req.haveCatalog = !m_catalogBaseUrl.empty();
+        req.romwbwVersion = m_catalogRomwbwVersion;
+        const size_t pick = catalogv0::chooseRom(m_catalogRoms);
+        if (req.haveCatalog && pick < m_catalogRoms.size()) {
+            req.haveRom = true;
+            req.rom = m_catalogRoms[pick];
+            req.url = catalogv0::assetUrl(m_catalogBaseUrl, req.rom.filename);
+            filename = req.rom.filename;
+        }
+    }
+    // Outside the lock: getDownloadDirectory takes m_downloadDirMutex, and no
+    // path in this class holds two of its three locks at once.
+    if (!filename.empty()) req.localPath = getDownloadDirectory() + "\\" + filename;
+    return req;
+}
+
+bool DiskCatalog::verifyRom(const std::string& path, const catalogv0::RomItem& rom,
+                            std::string& reason) {
+    DiskFileFacts facts;
+    if (!diskhash::statFile(path, facts)) {
+        reason = rom.filename + " is not in the data folder";
+        return false;
+    }
+
+    // EXACT, not "at least", which is where this differs from a disk. A cached
+    // image from an older release may legitimately be longer than the catalog
+    // says and isDiskDownloaded settles for >=; a ROM is a fixed-size image
+    // copied into fifteen banks and a byte either way is the wrong file. It is
+    // also the check that catches the truncation the 1 MB completeness floor
+    // guarding a cached disk cannot see - every published ROM is 512 KB, well
+    // under it.
+    if (rom.size > 0 && facts.size != rom.size) {
+        reason = rom.filename + " is " + std::to_string(facts.size) +
+                 " bytes, not the " + std::to_string(rom.size) +
+                 " the catalog publishes";
+        return false;
+    }
+
+    // normalizedHash rather than a string compare, so "the catalog carries no
+    // usable hash" and "the hash does not match" stay the two different answers
+    // they are - the single place that decides it for a disk image and for a
+    // catalog document alike.
+    std::string wanted;
+    if (!DiskLedger::normalizedHash(rom.sha256, wanted)) {
+        // REFUSED, where a disk in the same position is accepted. The two are
+        // not the same risk: an unverifiable disk is a volume that may be
+        // stale, and the ledger goes on to say so per file, while an
+        // unverifiable ROM is fifteen banks of unknown bytes under a CPU. It
+        // also cannot happen with any catalog this repository publishes -
+        // tools/gen_catalog.py computes every sha256 from the built file - so
+        // what this refuses is a document that has been tampered with or
+        // truncated between the index's checksum check and here.
+        reason = "the catalog publishes no checksum for " + rom.filename +
+                 ", so it cannot be checked";
+        return false;
+    }
+    std::string actual;
+    if (!diskhash::sha256File(path, actual)) {
+        reason = rom.filename + " could not be read back to check it";
+        return false;
+    }
+    if (actual != wanted) {
+        reason = rom.filename + " does not match the checksum the catalog publishes";
+        return false;
+    }
+    return true;
+}
+
+void DiskCatalog::downloadRom(DownloadProgressCallback progressCb,
+                              DownloadCompleteCallback completeCb) {
+    // The same one-transfer-at-a-time guard downloadDisk uses, and the same
+    // reason: two WinHTTP transfers writing the data folder at once is a
+    // combination nothing here has ever been built for. The ROM fetch and the
+    // disk fetches are chained through the UI thread by their callbacks, so in
+    // ordinary use this never fires.
+    if (m_downloadState == DownloadState::Downloading) {
+        if (completeCb) completeCb(false, "Download already in progress");
+        return;
+    }
+
+    m_downloadState = DownloadState::Downloading;
+    m_cancelRequested = false;
+
+    // THE SPAWN IS A PATH TOO, and this is the one transfer in the class where
+    // that has to be said out loud. std::thread's constructor throws
+    // std::system_error when the OS will not give it a thread, and here the
+    // exception would leave a UI thread that is waiting to start the machine
+    // holding a callback that can never arrive - and m_downloadState stuck at
+    // Downloading, so every later transfer would be refused with "Download
+    // already in progress". fetchCatalog and downloadDisk can let it propagate
+    // because nothing is gated on them; the header promises completeCb exactly
+    // once on every path, and this is the path that promise would otherwise
+    // miss.
+    try {
+        std::thread([this, self = shared_from_this(), progressCb, completeCb]() {
+            // The catch-all is here for the reason it is in fetchCatalog: this
+            // is a DETACHED thread, so an exception leaving this lambda is
+            // std::terminate with no dump, no message and no callback - and a
+            // caller that is GATING THE START OF THE MACHINE on completeCb
+            // would be left waiting for a callback that can never come. Every
+            // failure below is an ordinary early return that calls completeCb
+            // once.
+            std::string error;
+            bool ok = false;
+            try {
+                ok = downloadRomInto(progressCb, error);
+            } catch (const std::exception& e) {
+                error = std::string("The ROM could not be downloaded: ") + e.what();
+            } catch (...) {
+                error = "The ROM could not be downloaded";
+            }
+
+            // Cancelled is told apart from Failed for the reason downloadDisk
+            // tells them apart: the flag is set by MainWindow::onDestroy and
+            // nothing else, so "the app is closing" is not a transfer that went
+            // wrong.
+            m_downloadState = ok ? DownloadState::Completed
+                                 : (m_cancelRequested ? DownloadState::Cancelled
+                                                      : DownloadState::Failed);
+            if (completeCb) completeCb(ok, ok ? std::string() : error);
+        }).detach();
+    } catch (const std::exception& e) {
+        // No worker, so nothing else will ever answer for this call. Put the
+        // state back first - a Downloading that no thread is going to clear
+        // would lock out every later transfer for the life of the process.
+        m_downloadState = DownloadState::Failed;
+        if (completeCb) {
+            completeCb(false, std::string("The ROM download could not be started: ") +
+                              e.what());
+        }
+    }
+}
+
+bool DiskCatalog::downloadRomInto(DownloadProgressCallback progressCb, std::string& error) {
+    const RomRequirement req = getRomRequirement();
+    if (!req.haveCatalog) {
+        error = "The disk catalog has not been loaded, so there is nowhere to "
+                "download a ROM from";
+        return false;
+    }
+    if (!req.haveRom) {
+        error = "The catalog for RomWBW " + req.romwbwVersion + " publishes no ROM";
+        return false;
+    }
+
+    std::wstring url;
+    if (!widenUrl(req.url, url)) {
+        error = "The catalog gives " + req.rom.filename +
+                " a download address that cannot be used";
+        return false;
+    }
+
+    const std::string downloadDir = getDownloadDirectory();
+    CreateDirectoryA(downloadDir.c_str(), nullptr);
+
+    // Downloaded beside the real name and moved onto it only after both checks
+    // pass. Written this way round because the file it may be replacing is not
+    // always ours: a ROM that fails verification is re-fetched once, and if the
+    // fetch or the checks fail the copy already in the folder has to be exactly
+    // where it was. It is also the shape saveLedger already uses for the same
+    // reason - write beside, then one atomic rename.
+    const std::string finalPath = req.localPath;
+    const std::string tempPath = finalPath + ".new";
+
+    if (!downloadToFile(url, tempPath, progressCb, error)) {
+        DeleteFileA(tempPath.c_str());
+        if (m_cancelRequested) error = "Download cancelled";
+        return false;
+    }
+    if (m_cancelRequested) {
+        DeleteFileA(tempPath.c_str());
+        error = "Download cancelled";
+        return false;
+    }
+
+    std::string reason;
+    if (!verifyRom(tempPath, req.rom, reason)) {
+        DeleteFileA(tempPath.c_str());
+        // Named as what it is - the file that arrived, not the file that was
+        // asked for - because the two are different objects here and the user's
+        // copy is still on disk.
+        error = "The downloaded " + req.rom.filename + " is not the published "
+                "ROM: " + reason;
+        return false;
+    }
+
+    if (!MoveFileExA(tempPath.c_str(), finalPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        const DWORD err = GetLastError();
+        DeleteFileA(tempPath.c_str());
+        error = "Could not put " + req.rom.filename + " into the data folder (error " +
+                std::to_string(err) + ")";
+        return false;
+    }
+    return true;
+}
+
 bool DiskCatalog::findDiskById(const std::string& id, DiskEntry& out) const {
     std::lock_guard<std::mutex> lock(m_catalogMutex);
     for (const auto& entry : m_catalogEntries) {
@@ -365,6 +569,19 @@ bool DiskCatalog::fetchCatalogInto(std::string& error) {
         std::lock_guard<std::mutex> lock(m_catalogMutex);
         m_catalogEntries = entries;
         m_catalogRoms = catalog.roms;
+        // In the same critical section as the two above, because the ROM's URL
+        // is built from this base and checked against a hash out of these
+        // roms[]: three facts about one document that must never be readable in
+        // a mixture from two.
+        m_catalogBaseUrl = catalog.baseUrl;
+        // The INDEX entry's version, not the catalog document's own, though
+        // tools/verify_catalog.py fails a release where the two disagree. Two
+        // reasons to prefer it: parseIndex refuses an entry without one, so it
+        // cannot be empty, and it is the same string assigned to
+        // m_selectedVersion below - which makes "the release the catalog in
+        // hand is for" one answer rather than two that could be compared
+        // against each other and found different.
+        m_catalogRomwbwVersion = index[chosen].romwbwVersion;
     }
     {
         std::lock_guard<std::mutex> lock(m_indexMutex);

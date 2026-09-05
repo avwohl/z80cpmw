@@ -322,22 +322,26 @@ first-run path — none of which is in any suite.
       from the same catalog entry the URL did.
 - [ ] Open the release control. Right: it offers **RomWBW 3.5.1** and **RomWBW
       3.6.0 (preview)** — the word *preview* must be on screen — and the note
-      under it says this build boots the ROM it ships with and downloads no
-      ROMs.
-- [ ] Select **3.6.0**. Right: the note changes to say the guest will report an
-      HBIOS/CBIOS version mismatch, the list refills with `-v0-3.6.0.img`
-      names, `hd1k_ws4` is **gone** (3.6.0 does not publish it), and — this is
-      the one that matters — **not one file in the data folder was deleted or
+      under it says how many ROMs the catalog publishes and that the default one
+      is fetched and checked before the machine starts.
+- [ ] Select **3.6.0**. Right: the note changes to say that starting will offer
+      to fetch the 3.6.0 ROM, the list refills with `-v0-3.6.0.img` names,
+      `hd1k_ws4` is **gone** (3.6.0 does not publish it), and — this is the one
+      that matters — **not one file in the data folder was deleted or
       renamed**. Check the folder before and after.
 - [ ] Press **OK**, reopen Settings. Right: 3.6.0 is still selected, and
       `core.romwbwVersion` in `z80cpmw.json` is `"3.6.0"`. Now switch back to
       3.5.1, OK, reopen. Right: 3.5.1, and **still** nothing deleted. Switching
       back and forth is the operation that destroyed a library on the iOS port
       and it must cost only two small HTTP GETs.
-- [ ] With 3.6.0 selected, download one 3.6.0 disk and mount it. Right: both the
-      3.5.1 and the 3.6.0 copies of that image are in the folder, and the guest
-      prints `*** WARNING: HBIOS/CBIOS Version Mismatch ***`, which is what the
-      note said would happen.
+- [ ] With 3.6.0 selected, download one 3.6.0 disk and mount it, then press
+      **F5**. Right: the machine does **not** start on the bundled ROM. A box
+      names RomWBW 3.6.0, names `emu_avw-v0-3.6.0.rom`, says why it is not
+      ready, and offers three answers. Answer **Yes**: the status bar counts a
+      512 KB download, the ROM lands in the data folder under that name, and the
+      guest boots with **no** `*** WARNING: HBIOS/CBIOS Version Mismatch ***`
+      line. That banner appearing is the whole failure this release exists to
+      remove — if you see it, the ROM in the banks is not 3.6.0's.
 - [ ] Select a release, then press **Cancel**. Right: reopening Settings shows
       the release you had before, not the one you cancelled.
 - [ ] The failed switch. With 3.5.1 selected, unplug the network, select
@@ -368,3 +372,59 @@ first-run path — none of which is in any suite.
       `disk_ledger.json` — records an `installedCatalogSha256` for each. Before
       this release that path fetched no catalog at all, so both images were
       written with no checksum check and no ledger record.
+
+### The ROM gate
+
+`MainWindow.cpp` and `SettingsDialogWx.cpp` are in no suite and cannot be, so
+every line of this is a check a person has to make. The rule being checked is
+one sentence: **starting a machine on RomWBW X requires X's ROM, verified, and
+there is no path that falls back to the bundled one.**
+
+- [ ] Fresh profile, network up, empty data folder, **F5** with nothing mounted.
+      Right: catalog, then the two default images, then a box offering the
+      3.6.0 ROM (3.6.0 is the index's `default: true`), then a boot with no
+      mismatch banner. `core.romwbwVersion` in `z80cpmw.json` is now `"3.6.0"` —
+      written by the ROM load, so the next launch does not fall back to 3.5.1
+      with 3.6.0 disks still in its slots.
+- [ ] Quit and relaunch that machine, network up, and press **F5**. Right: one
+      small catalog GET, no box, no download, and it boots. The ROM was already
+      there and verified, so nothing is fetched.
+- [ ] Same machine, network **down**, **F5**. Right: it says it is looking up
+      the catalog, fails, and offers to go back to RomWBW 3.5.1 rather than
+      starting. This is deliberate and is the one place the rule costs
+      something: the published size and sha256 live only in the catalog, so an
+      unreachable catalog is an unverifiable ROM. Answer **No** and nothing
+      starts; answer **Yes** and it boots on 3.5.1 with `core.romwbwVersion`
+      back to `"3.5.1"` — and, as the box said, the 3.6.0 disks still mounted
+      may report a mismatch.
+- [ ] Corrupt the downloaded ROM: with 3.6.0 selected and the network up,
+      flip one byte in `emu_avw-v0-3.6.0.rom`, then **F5**. Right: it is
+      refused as not matching the published checksum, offered, and one
+      re-download fixes it. Truncate it instead and the size check must catch it
+      first — the 1 MB completeness floor that guards a cached disk cannot see a
+      512 KB file at all.
+- [ ] Break it so the retry fails too — corrupt it and pull the network after
+      the catalog is in hand. Right: the failure message names the release, the
+      file and the reason, and the machine does not start. Exactly one
+      re-download is spent, not a loop.
+- [ ] Interrupt the ROM download (pull the network mid-transfer). Right: no
+      `.rom` is left half-written in the data folder, and any `.rom.new`
+      is gone. A previously good copy of that ROM must still be there and
+      unchanged — the transfer writes beside the real name and moves onto it
+      only after both checks pass.
+- [ ] With a catalog ROM running, open Settings and press **OK** without
+      touching the ROM control. Right: the machine keeps running the catalog
+      ROM. The control shows `emu_avw-v0-3.6.0.rom`, not "EMU AVW (Default)" —
+      if it shows the latter, OK has just replaced the release's ROM with the
+      bundled 3.5.1 image and the next boot is a mismatch.
+- [ ] Now pick **EMU AVW (Default)** in Settings and press OK, then **F5**.
+      Right: the bundled ROM is loaded on OK, and the next start puts the 3.6.0
+      ROM back — the gate is what decides which ROM boots, and the menu is not.
+- [ ] Delete the `roms` folder from an installed copy and start it. Right: the
+      usual "ROM file not found" notice, and **F5** then offers to fetch the
+      selected release's ROM from the catalog instead of dying. The bundled ROM
+      is the offline fallback, not the only source.
+- [ ] Check the package still contains `roms\emu_avw.rom`. It is the
+      first-launch fallback and nothing in this release removes it; a packaging
+      script that stopped copying it would leave a fresh offline install with no
+      ROM at all.

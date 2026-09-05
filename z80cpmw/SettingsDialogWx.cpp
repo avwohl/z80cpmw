@@ -839,8 +839,23 @@ void SettingsDialogWx::layoutControls() {
 
 void SettingsDialogWx::populateROMList() {
     m_romChoice->Clear();
+    m_romFileIds.clear();
+
+    // The two ROMs the package ships, and a parallel list of the FILENAMES they
+    // stand for. The names used to live in a switch on the selection index in
+    // saveSettings(), which meant the control could only ever produce one of
+    // them: any other ROM name went in and came out as emu_avw.rom.
+    //
+    // This list is deliberately NOT the catalog's roms[]. A catalog ROM is not a
+    // stored preference - it is chosen by the RomWBW release the machine is set
+    // to and verified against the catalog's own sha256 on every start - so
+    // offering one here as a peer of these two would invite a choice that the
+    // release, not this control, decides. loadSettings() appends the one in use
+    // when it is neither of these, purely so that OK writes it back unchanged.
     m_romChoice->Append("EMU AVW (Default)");
+    m_romFileIds.push_back("emu_avw.rom");
     m_romChoice->Append("EMU RomWBW");
+    m_romFileIds.push_back("emu_romwbw.rom");
     m_romChoice->SetSelection(0);
 }
 
@@ -919,36 +934,37 @@ void SettingsDialogWx::updateRomwbwVersionNote() {
         if (chosen == running) {
             note = "Matches the ROM in use (RomWBW " + running + "). ";
         } else {
-            // THE ONE WARNING ON THIS PAGE THAT IS ABOUT DATA AND NOT TASTE.
-            // RomWBW's CBIOS lives inside the disk image and compares its own
-            // version against what HBF_SYSVER returns, printing
+            // THE ONE WARNING ON THIS PAGE THAT IS ABOUT DATA AND NOT TASTE,
+            // and it is now a statement of what will HAPPEN rather than of what
+            // cannot be fixed. RomWBW's CBIOS lives inside the disk image and
+            // compares its own version against what HBF_SYSVER returns, printing
             // "*** WARNING: HBIOS/CBIOS Version Mismatch ***" when the major or
-            // minor differs. So 3.6.0 disks under a 3.5.1 ROM boot into that
-            // banner, and the fix is a 3.6.0 ROM - which this build neither
-            // ships nor downloads. Saying so here is the alternative to
-            // pretending the choice is free.
-            note = "Disks for RomWBW " + chosen + " expect a RomWBW " + chosen +
-                   " ROM, and this build boots RomWBW " + running +
-                   ", so the guest will report an HBIOS/CBIOS version mismatch. ";
+            // minor differs - so 3.6.0 disks under a 3.5.1 ROM boot into that
+            // banner. The release's own ROM is what removes it, and since it is
+            // fetched from the same catalog as the disks, the next start is
+            // where that happens. Said here so the offer at Start is not the
+            // first the user hears of it.
+            note = "Disks for RomWBW " + chosen + " need a RomWBW " + chosen +
+                   " ROM, and the machine is running RomWBW " + running +
+                   ". Starting will offer to fetch it; without it the guest "
+                   "would report an HBIOS/CBIOS version mismatch. ";
         }
     }
 
-    // And the sentence that is true whichever release is selected. The ROMs are
-    // read out of the catalog - the count below is the catalog's own roms[] -
-    // and deliberately not fetched: DiskCatalog's transfers are fire-and-forget
-    // with no wait, which cannot express "this ROM must be on disk before the
-    // emulator starts", and MainWindow::findResourceFile looks for a ROM only
-    // beside the executable and never in the data folder a download lands in.
-    // Two of the four hardcoded ROM names would have to become catalog data with
-    // it. None of that is in this release, so the page says so rather than
-    // offering half of it.
+    // And the sentence that is true whichever release is selected. The count is
+    // the catalog's own roms[], which may be absent or empty for a release -
+    // that is a real answer and the reason this is phrased as a count rather
+    // than as a promise.
     const size_t romCount = m_catalog ? m_catalog->getCatalogRoms().size() : 0;
     if (romCount > 0) {
         note += "This catalog publishes " + std::to_string(romCount) + " ROM" +
                 (romCount == 1 ? "" : "s") +
-                "; z80cpmw boots the ROM it ships with and downloads none.";
+                "; the one it marks default is fetched and checked against its "
+                "published size and checksum before the machine starts. The ROM "
+                "in the app is kept as the offline fallback.";
     } else {
-        note += "z80cpmw boots the ROM it ships with and does not download ROMs.";
+        note += "This catalog publishes no ROM, so this release can only be "
+                "started with the ROM the app ships.";
     }
 
     m_romwbwVersionNote->SetLabel(wxString::FromUTF8(note));
@@ -1087,11 +1103,37 @@ void SettingsDialogWx::repopulateDiskLists() {
 }
 
 void SettingsDialogWx::loadSettings() {
-    // ROM selection
-    if (m_settings.romFile == "emu_romwbw.rom") {
-        m_romChoice->SetSelection(1);
-    } else {
-        m_romChoice->SetSelection(0);
+    // ROM selection, round-tripped rather than snapped to the first entry.
+    //
+    // Rebuilt here as well as in the constructor so that this is idempotent:
+    // the append below must not stack up a second copy if this ever runs twice.
+    populateROMList();
+    {
+        int idx = -1;
+        for (size_t i = 0; i < m_romFileIds.size(); i++) {
+            if (m_romFileIds[i] == m_settings.romFile) {
+                idx = static_cast<int>(i);
+                break;
+            }
+        }
+        if (idx < 0 && !m_settings.romFile.empty()) {
+            // The ROM in the banks is neither of the packaged two, which now
+            // happens whenever the machine is set to a RomWBW release this
+            // build does not ship a ROM for: it is running the catalog's
+            // <id>-v0-<ver>.rom. Appended and selected so OK writes back the ROM
+            // that is really loaded.
+            //
+            // Without it the control fell to index 0 and saveSettings' switch
+            // wrote "emu_avw.rom", so MainWindow's write-back saw a change,
+            // loaded the BUNDLED 3.5.1 image over the release's ROM, and one
+            // visit to Settings silently undid the pairing this whole mechanism
+            // exists to hold. Same shape as loadDiskSelections' append, for the
+            // same reason: a control that cannot show a value must not be
+            // allowed to erase it.
+            idx = m_romChoice->Append(wxString::FromUTF8(m_settings.romFile));
+            m_romFileIds.push_back(m_settings.romFile);
+        }
+        m_romChoice->SetSelection(idx < 0 ? 0 : idx);
     }
 
     // Before any catalog has landed this puts up the placeholder, which is why
@@ -1134,10 +1176,16 @@ void SettingsDialogWx::loadSettings() {
 }
 
 void SettingsDialogWx::saveSettings() {
-    // ROM selection
-    switch (m_romChoice->GetSelection()) {
-        case 1: m_settings.romFile = "emu_romwbw.rom"; break;
-        default: m_settings.romFile = "emu_avw.rom"; break;
+    // ROM selection, read out of the id list rather than out of a switch on the
+    // index. An unrecognised selection leaves the seeded value alone instead of
+    // falling through to emu_avw.rom: writing a ROM name the user never chose is
+    // how the running ROM got replaced by the bundled one, and "the control said
+    // something I cannot map" is not a reason to change the machine.
+    {
+        const int sel = m_romChoice->GetSelection();
+        if (sel >= 0 && (size_t)sel < m_romFileIds.size()) {
+            m_settings.romFile = m_romFileIds[sel];
+        }
     }
 
     // The catalog's RomWBW release, and ONLY when the control is really holding

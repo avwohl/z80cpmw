@@ -200,6 +200,12 @@ REM no Win32, no WinHTTP and no threads, which is the whole reason a suite can
 REM drive it at all - DiskCatalog.cpp, which fetches these documents, cannot be
 REM linked by anything.  So it sits above the sibling guards with the other two
 REM that only need this repository.
+REM
+REM DiskMigrationV0.cpp is linked because test_the_one_equivalent_prior_image
+REM calls diskv0::isEquivalentPriorImage, and DiskLedger.cpp because that folds
+REM names through DiskLedger::fold.  Both are as free of Win32 as CatalogV0.cpp
+REM is, which is why they can be here.  Without them the suite does not LINK -
+REM every check in it is unreachable, not merely unrun.
 if not exist "obj\tests\catalog" mkdir "obj\tests\catalog"
 
 echo.
@@ -209,6 +215,8 @@ cl /nologo /EHsc /W3 /O2 /std:c++17 ^
     /I z80cpmw ^
     tests\test_catalogv0.cpp ^
     z80cpmw\CatalogV0.cpp ^
+    z80cpmw\DiskLedger.cpp ^
+    z80cpmw\DiskMigrationV0.cpp ^
     /Fo:obj\tests\catalog\ ^
     /Fe:obj\tests\catalog\test_catalogv0.exe ^
     /link /SUBSYSTEM:CONSOLE

@@ -82,6 +82,96 @@ private:
     // when no ROM is loaded or its HCB cannot be read. Read from the loaded
     // image rather than from a constant - there is no compile-time pin any more.
     std::string loadedRomwbwRelease() const;
+
+    // The RomWBW release the ROM this build SHIPS declares, as "3.5.1".
+    //
+    // Read out of roms\emu_avw.rom itself rather than written down, which is
+    // the whole difference between this and diskv0::BUNDLED_ROMWBW next door.
+    // That constant governs a rename of the user's files and must not vary with
+    // what is loaded; this one is the identity of a packaged asset, and reading
+    // it means a build that ships a different ROM cannot end up claiming the
+    // old release in the one place that decides whether a download is needed.
+    // Empty when there is no bundled ROM to read, which is a real state - the
+    // three lookup directories are not guaranteed to hold one.
+    //
+    // Cached because it cannot change while the app runs: it is a property of a
+    // file inside the package.
+    std::string bundledRomwbwRelease() const;
+
+    // The RomWBW release this machine is being STARTED on, which is the release
+    // its ROM has to be.
+    //
+    //  1. what the user chose, when they chose one. It is a preference for the
+    //     catalog and a requirement for the ROM: someone who selected 3.6.0 is
+    //     asking for a 3.6.0 machine, and booting them on the bundled 3.5.1
+    //     because a fetch fell back is exactly the silent substitution the ROM
+    //     work exists to end.
+    //  2. otherwise the release the catalog in hand was fetched for, which is
+    //     what the disks about to be mounted were built for. This is the case
+    //     that matters today: with no stored preference the index's own
+    //     `default: true` selects 3.6.0, so the disks are 3.6.0's and the ROM
+    //     must be too.
+    //  3. otherwise the bundled ROM's release. A first launch with no network
+    //     and no configuration, which has to keep working offline.
+    std::string startRomwbwRelease() const;
+
+    // THE ROM GATE. True when the machine may start; false when it may not, in
+    // which case this has already told the user what is missing and offered the
+    // two honest choices - fetch it, or move back to the release the bundled
+    // ROM is.
+    //
+    // Called from startEmulator(), which is the single funnel every start goes
+    // through, so there is no path that reaches the CPU around it. What it
+    // refuses is starting on release X with a ROM that is not X's: a mismatched
+    // ROM makes the guest's own CBIOS print
+    // "*** WARNING: HBIOS/CBIOS Version Mismatch ***" and then misbehave, and
+    // falling back to the bundled ROM would produce precisely that, invisibly.
+    bool romReadyToStart();
+
+    // Verify the selected release's catalog ROM and put it in the banks.
+    // False with 'reason' set when it is not in the data folder, does not match
+    // the size and sha256 the catalog publishes, or the core refuses it.
+    bool loadCatalogRomForStart(std::string& reason);
+
+    // Put the ROM the PACKAGE ships into the banks - the configured one when
+    // that is one of the two packaged names, emu_avw.rom otherwise. True only
+    // when the banks then hold the bundled release, which is asked of the image
+    // rather than assumed. No catalog, no network: this is the offline path.
+    bool loadPackagedRom();
+
+    // Say what is missing and act on the answer. 'why' names the reason.
+    // canFetch offers "download it now" as the first choice; where the reason
+    // is that a fetch has just failed, the only choice left is whether to move
+    // back to the bundled release.
+    //
+    // Returns whether the banks now hold the release the machine is set to, so
+    // that a caller inside the gate can carry on rather than calling
+    // startEmulator() again underneath itself.
+    bool offerRomChoice(const std::string& want, const std::string& why, bool canFetch);
+
+    // Move the disk catalog back to the release the bundled ROM is, save that
+    // choice, and load that ROM. The honest half of the offer above: it changes
+    // what the machine is set to rather than quietly running the wrong pair, and
+    // it deletes and unmounts nothing.
+    bool switchToBundledRelease(const std::string& bundled);
+
+    // The catalog and then the ROM, chained through the UI thread, with the
+    // start re-attempted once the ROM is in and verified. Four functions rather
+    // than one because DiskCatalog's transfers run on detached workers and hand
+    // their verdict back through a callback; postToUiThread is how this
+    // application has always expressed a must-land-first dependency, and it is
+    // the only shape available - fetchCatalog and downloadRom cannot be waited
+    // on, and a timer would only be a guess about when they finished.
+    //
+    // The two steps are separate functions on purpose. Fetching the catalog is
+    // not offered to the user (it is kilobytes, and the app already does it on
+    // F5 and on opening Settings); fetching the ROM is (it is 512 KB, and 5
+    // says to offer it). Keeping them apart is also what makes the offer
+    // non-circular: the "download it" answer can only reach the second.
+    void fetchRomCatalog(const std::string& want);
+    void romCatalogArrived(bool ok, const std::string& error);
+    void downloadRomThenStart(const std::string& want);
+    void romDownloadFinished(bool ok, const std::string& error);
     void onViewFontSize(int size);
     void onViewDazzler();
 
@@ -255,4 +345,19 @@ private:
 
     // Track if initial disk downloads are in progress
     bool m_downloadingDisks = false;
+
+    // Track if the selected release's ROM is being fetched. Separate from the
+    // flag above rather than folded into it: the two guard different things -
+    // that one is what makes F5 say "please wait" while 57 MB of images arrive,
+    // this one is what stops the gate asking the user the same question again
+    // while the answer to it is already in flight.
+    bool m_fetchingRom = false;
+
+    // bundledRomwbwRelease()'s cache. mutable because that accessor is const
+    // and reads a file the first time it is asked; the answer is a property of
+    // a packaged asset and cannot change while the process runs. The flag is
+    // separate from the string because "there is no bundled ROM" is a real
+    // answer that must not be re-read on every start.
+    mutable std::string m_bundledRomwbwRelease;
+    mutable bool m_bundledRomwbwReleaseRead = false;
 };

@@ -895,6 +895,15 @@ void MainWindow::onEmulatorStart() {
         return;
     }
 
+    // Same for the ROM, which is a separate flag because it is a separate
+    // wait: this one is already going to start the machine when it lands, so a
+    // second F5 must not put a second question in front of the user or a second
+    // transfer on the wire.
+    if (m_fetchingRom) {
+        terminalPrint("\r\nPlease wait for the ROM to arrive...\r\n");
+        return;
+    }
+
     // Check if any disks are loaded - if not, download and load defaults first
     bool anyDiskLoaded = false;
     for (int i = 0; i < 4; i++) {
@@ -963,6 +972,18 @@ static void postToUiThread(HWND hwnd, const std::shared_ptr<WorkerPostGate>& gat
 }
 
 void MainWindow::startEmulator() {
+    // THE ROM GATE, first, and before the terminal is cleared for the same
+    // reason the no-ROM guard below is: what it prints has to stay on screen.
+    //
+    // Here rather than in onEmulatorStart() because this is the funnel. Five
+    // paths reach a running machine - F5 with disks mounted, F5 with both
+    // default images already cached, and the three tails of
+    // startWithDefaultsAfterCatalog - and a gate on any one of them is a gate
+    // the other four go round. It returns false having already said what is
+    // wrong and offered the choice, and the paths that fetch a ROM come back
+    // through here when it lands.
+    if (!romReadyToStart()) return;
+
     // Refuse before clearing the terminal, which would erase the load error
     // that explains why there is no ROM. Starting anyway runs a CPU over an
     // erased ROM bank: no output, no boot menu, and the status bar claiming
@@ -1905,6 +1926,35 @@ std::string MainWindow::findResourceFile(const std::string& filename) {
         appDir + "\\..\\roms\\" + filename,
     };
 
+    // AND THE DATA FOLDER, which is where a ROM fetched from the catalog lands.
+    //
+    // Every ROM in this application is opened through this function - the
+    // default at startup, the Emulator > ROM menu, the Settings write-back and
+    // the configured ROM in applyConfig() - so while it looked only beside the
+    // executable, a downloaded ROM was invisible to all four of them. The three
+    // directories above are inside the installation and are read-only under the
+    // Store, which is why nothing could ever be added to them at run time.
+    //
+    // Asked of DiskCatalog rather than rebuilt here, and that is the point: the
+    // literal "%LOCALAPPDATA%\z80cpmw\data" already exists three times in this
+    // tree - DiskCatalog's constructor, EmulatorEngine::getUserDataDirectory
+    // plus "\data", and getDataFolder in emu_io_windows.cpp - and a fourth copy
+    // would be a fourth thing to keep in step. This one is also the only
+    // correct one for the job: loadSettings() points the catalog at the folder
+    // it will actually download into, and under MSIX the OS redirects that path
+    // per package, so a hand-built path can name a directory the running app
+    // never writes.
+    //
+    // Appended last so the three existing lookups answer exactly as they did.
+    // Nothing can collide anyway - a catalog ROM is <id>-v0-<ver>.rom and a
+    // bundled one is emu_avw.rom - but a ROM the user dropped into the app
+    // directory keeps winning, which is the behaviour that was there before.
+    const std::string dataDir = m_diskCatalog ? m_diskCatalog->getDownloadDirectory()
+                                              : std::string();
+    if (!dataDir.empty()) {
+        paths.push_back(dataDir + "\\" + filename);
+    }
+
     for (const auto& path : paths) {
         if (GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
             return path;
@@ -2049,6 +2099,450 @@ std::string MainWindow::loadedRomwbwRelease() const {
     char buffer[EMU_ROMWBW_STR_MAX] = {};
     emu_romwbw_release_str(release, buffer, sizeof(buffer));
     return std::string(buffer);
+}
+
+std::string MainWindow::bundledRomwbwRelease() const {
+    if (m_bundledRomwbwReleaseRead) return m_bundledRomwbwRelease;
+    m_bundledRomwbwReleaseRead = true;
+
+    // findResourceFile is not const and this is, and making it const would put
+    // the data folder in the search for a name that must never be answered from
+    // there: the bundled ROM's identity is a fact about the PACKAGE, and a
+    // downloaded emu_avw.rom in the data folder answering this question would
+    // move the release the app claims to ship without anything changing in the
+    // package. So the installation directories are searched directly.
+    //
+    // ALL THREE OF THEM, in findResourceFile's own order and minus only the
+    // data folder it now appends. Dropping "..\\roms" would not merely miss a
+    // developer layout: it is where the ROM sits when the exe is run out of
+    // x64\\Debug or x64\\Release, so this would answer "no bundled ROM" on
+    // exactly the build a person runs MANUAL_CHECKS.md against - and an empty
+    // answer here disables the whole of 4. The release would never equal the
+    // bundled one, so the offline path would never be taken, and the box put up
+    // when a fetch fails would say "another release" and offer no way back.
+    const std::string appDir = EmulatorEngine::getAppDirectory();
+    const std::string candidates[] = {
+        appDir + "\\roms\\emu_avw.rom",
+        appDir + "\\emu_avw.rom",
+        appDir + "\\..\\roms\\emu_avw.rom",
+    };
+
+    for (const auto& path : candidates) {
+        std::vector<uint8_t> image;
+        if (!emu_file_load(path, image)) continue;
+        emu_romwbw_release release;
+        // Read out of the image's own HCB at 0x105/0x106 rather than assumed.
+        // The whole ROM/disk pairing rule turns on these two bytes, and a build
+        // that started shipping another ROM would otherwise keep claiming the
+        // release its predecessor shipped - which decides, silently and wrongly,
+        // that no download is needed.
+        if (!emu_romwbw_release_of_image(image.data(), image.size(), &release)) continue;
+        char buffer[EMU_ROMWBW_STR_MAX] = {};
+        emu_romwbw_release_str(release, buffer, sizeof(buffer));
+        m_bundledRomwbwRelease = buffer;
+        break;
+    }
+    return m_bundledRomwbwRelease;
+}
+
+std::string MainWindow::startRomwbwRelease() const {
+    const auto& cfg = config::ConfigManager::instance().get();
+    if (!cfg.romwbwVersion.empty()) return cfg.romwbwVersion;
+
+    const std::string selected = m_diskCatalog ? m_diskCatalog->getSelectedRomwbwVersion()
+                                               : std::string();
+    if (!selected.empty()) return selected;
+
+    return bundledRomwbwRelease();
+}
+
+bool MainWindow::romReadyToStart() {
+    const std::string want = startRomwbwRelease();
+
+    // Nothing knows which release this is: no stored preference, no catalog
+    // fetched, and no readable bundled ROM to ask. There is no claim to check
+    // the ROM in the banks against, so there is nothing to refuse over - and
+    // refusing here would break the offline first launch that has no way to
+    // learn any of it.
+    if (want.empty()) return true;
+
+    // The banks already hold that release. Verification happens where a ROM is
+    // LOADED, which is the only moment its bytes are used; re-hashing a file
+    // whose contents are already copied into fifteen banks would check a copy
+    // nothing reads.
+    if (loadedRomwbwRelease() == want) return true;
+
+    // A fetch this gate started is already running. Say nothing rather than
+    // asking the same question twice: onEmulatorStart's own guard covers F5,
+    // and this covers a start arriving from a disk-download callback.
+    if (m_fetchingRom) return false;
+
+    // THE RELEASE THIS BUILD SHIPS A ROM FOR. No catalog, no network, no
+    // download - which is what keeps a first launch working with no connection,
+    // and what makes the bundled ROM a fallback rather than a fifth wheel. The
+    // banks are holding something else only because a previous start put
+    // another release's ROM there, or because the user moved back to this one.
+    if (want == bundledRomwbwRelease() && loadPackagedRom()) return true;
+
+    // From here the ROM in the banks is for another release, so this start is
+    // refused unless the right ROM can be put in first. Note what is NOT an
+    // option: booting on what is loaded. That is the mismatch this whole
+    // mechanism removes, and doing it here would do it invisibly.
+    const DiskCatalog::RomRequirement req = m_diskCatalog->getRomRequirement();
+    if (!req.haveCatalog || req.romwbwVersion != want) {
+        // No catalog for this release yet. Fetched WITHOUT asking, and that is
+        // the distinction worth drawing: a catalog is a few kilobytes and this
+        // application already fetches one on F5 and on opening Settings, while
+        // a ROM is 512 KB of somebody's connection and is offered. It is also
+        // the step that makes the second launch of a machine already carrying
+        // the right ROM cost nothing but a small GET - without the catalog
+        // there is no published size or sha256 to check that ROM against, and
+        // this build will not load one it cannot check.
+        //
+        // THE COST OF THAT, NAMED: a machine set to a release other than the
+        // bundled one cannot start with no network, even with the release's ROM
+        // already in its data folder, because the expected hash lives only in
+        // the catalog. That is 6 as written - a ROM that cannot be verified is
+        // a machine that does not start on that release - and the offer that
+        // follows a failed lookup gives the user a machine that does boot. It
+        // would take remembering a ROM's published hash locally to do better,
+        // which is a second provenance store beside DiskLedger's.
+        fetchRomCatalog(want);
+        return false;
+    }
+
+    std::string reason;
+    if (loadCatalogRomForStart(reason)) return true;
+
+    // Returns true only when the user's answer left the right ROM in the banks,
+    // which is why this is a return value and not a call back into
+    // startEmulator(): the offer is made from INSIDE the gate, and a switch-back
+    // that restarted the start would re-enter this function underneath itself.
+    return offerRomChoice(want, reason, req.haveRom);
+}
+
+bool MainWindow::loadPackagedRom() {
+    // The ROM the configuration names, when it names one of the packaged pair,
+    // and emu_avw.rom otherwise. applyConfig() makes the same choice at startup
+    // and for the same reason - SBC_simh_std.rom is a stock hardware ROM this
+    // emulator cannot run, so a configuration naming it falls back to the
+    // default rather than being honoured.
+    const auto& cfg = config::ConfigManager::instance().get();
+    std::string name = cfg.rom;
+    if (name.empty() || name == "SBC_simh_std.rom") name = "emu_avw.rom";
+
+    const std::string path = findResourceFile(name);
+    if (path.empty() || !m_emulator->loadROM(path)) {
+        // Left to the caller to report. Every caller either falls through to the
+        // catalog - which can fetch this release's ROM even though the package
+        // was meant to have one - or is about to put a message box up anyway.
+        return false;
+    }
+
+    m_emulator->setROMName(name);
+    m_currentRomId = (name == "emu_romwbw.rom") ? ID_ROM_EMU_ROMWBW : ID_ROM_EMU_AVW;
+    checkROMMenuItem(m_currentRomId);
+    clearNotice(Notice::DefaultRom);
+    clearNotice(Notice::SavedRom);
+    m_statusText = "Loaded ROM: " + name;
+    updateStatusBar();
+
+    // Asked of the image rather than assumed, the same way bundledRomwbwRelease
+    // reads it: a packaged ROM that loads is not automatically the release the
+    // caller wanted, and answering "yes" without checking is how a gate stops
+    // being one.
+    return loadedRomwbwRelease() == bundledRomwbwRelease();
+}
+
+bool MainWindow::loadCatalogRomForStart(std::string& reason) {
+    const std::string want = startRomwbwRelease();
+    const DiskCatalog::RomRequirement req = m_diskCatalog->getRomRequirement();
+
+    if (!req.haveCatalog || req.romwbwVersion != want) {
+        // The catalog in hand is for another release, or there is none. Either
+        // way the ROM's filename, size and sha256 are not known, and this build
+        // will not load a ROM it cannot check.
+        reason = "the disk catalog for RomWBW " + want + " has not been read yet";
+        return false;
+    }
+    if (!req.haveRom) {
+        // roms[] absent or empty, which CATALOG_SCHEMA 6.1 allows. A real
+        // answer, and one no fetch will change.
+        reason = "the catalog for RomWBW " + want + " publishes no ROM";
+        return false;
+    }
+
+    // Through findResourceFile, like every other ROM in the application, which
+    // now searches the data folder as well - so a ROM the user placed beside
+    // the executable by hand still wins, exactly as it did for the bundled
+    // names.
+    const std::string path = findResourceFile(req.rom.filename);
+    if (path.empty()) {
+        reason = req.rom.filename + " is not on this machine";
+        return false;
+    }
+
+    // Size and sha256, every time, and before the bytes reach the core. Not
+    // only after a download: a ROM sitting in the data folder from a previous
+    // run is the ordinary case, and it is the one where nothing else would ever
+    // notice a truncated or half-overwritten file.
+    if (!DiskCatalog::verifyRom(path, req.rom, reason)) return false;
+
+    if (!m_emulator->loadROM(path)) {
+        // emu_validate_rom_hcb, still the last line of defence and not made
+        // redundant by the hash: a file can be the published bytes and still be
+        // a release this core has never been run against.
+        reason = m_emulator->getROMError();
+        return false;
+    }
+
+    m_emulator->setROMName(req.rom.filename);
+    // The ROM menu tracks the two ROMs in the package and this is neither, so
+    // both check marks come off. m_currentRomId going to 0 also keeps
+    // updateConfigFromState() from writing this filename into cfg.rom, which is
+    // deliberate: cfg.rom is loaded at startup by applyConfig(), where no
+    // catalog has been fetched and therefore no size or sha256 exists to check
+    // it against. A catalog ROM is chosen by the release, verified, and loaded
+    // here on every start - it is not a stored preference.
+    m_currentRomId = 0;
+    checkROMMenuItem(m_currentRomId);
+    // A ROM loaded is the answer to every ROM notice, the same rule
+    // loadDefaultROM() and onSelectROM() follow.
+    clearNotice(Notice::DefaultRom);
+    clearNotice(Notice::SavedRom);
+    m_statusText = "Loaded ROM: " + req.rom.filename;
+    updateStatusBar();
+
+    // WRITE THE RELEASE DOWN, because from this moment the machine is one.
+    //
+    // Only reached where the release came from the catalog rather than from the
+    // configuration - the index's own `default: true`, which is 3.6.0 today -
+    // and it is what stops the next launch from being a mismatch. Without it:
+    // this session downloads the release's disks and its ROM, the next one
+    // starts with no preference and no catalog, startRomwbwRelease() falls back
+    // to the bundled 3.5.1, and the machine boots a 3.5.1 ROM against the 3.6.0
+    // images still in its slots - the exact pairing the gate exists to refuse,
+    // arrived at by the gate itself.
+    //
+    // A preference rather than a pin: the Settings dialog can move it, and
+    // DiskCatalog falls back to the index's default if this release is ever one
+    // it cannot boot. Nothing is deleted or unmounted by writing it. Note the
+    // order - m_currentRomId went to 0 above, so updateConfigFromState() inside
+    // saveSettings() leaves cfg.rom naming whichever PACKAGED ROM was last
+    // chosen, which is what applyConfig() should still load at the next start.
+    auto& cfgMut = config::ConfigManager::instance().get();
+    if (cfgMut.romwbwVersion != req.romwbwVersion) {
+        cfgMut.romwbwVersion = req.romwbwVersion;
+        m_diskCatalog->setPreferredRomwbwVersion(req.romwbwVersion);
+        saveSettings();
+    }
+    return true;
+}
+
+bool MainWindow::offerRomChoice(const std::string& want, const std::string& why,
+                                bool canFetch) {
+    const std::string bundled = bundledRomwbwRelease();
+
+    std::string msg = "This machine is set to RomWBW " + want +
+                      ", and the ROM for RomWBW " + want + " is not ready:\n\n    " +
+                      why + "\n\n";
+    msg += "Starting on the ROM this app ships with would run RomWBW " +
+           (bundled.empty() ? std::string("another release") : bundled) +
+           " against RomWBW " + want + " disks, and the guest would print\n"
+           "*** WARNING: HBIOS/CBIOS Version Mismatch ***\n"
+           "and misbehave, so the machine is not started.\n\n";
+
+    // What going back COSTS, said before the choice is made rather than after
+    // it. Nothing here unmounts or deletes a disk - this application has never
+    // had a catalog-driven delete and must not gain one - so images already
+    // downloaded for the other release stay in their slots, and those are the
+    // disks whose CBIOS would print the banner above. It has to be in this box
+    // because there is nowhere else the user would see it: startEmulator()
+    // clears the terminal, so anything printed on the way to a start is gone
+    // before the machine boots.
+    const std::string goBack =
+        "go back to RomWBW " + bundled + ", the release this app ships a ROM for.\n" +
+        "\tDisks already downloaded for RomWBW " + want + " stay mounted and may\n"
+        "\tstill report a mismatch; replace them from Settings > Disk Images.";
+
+    if (canFetch) {
+        msg += "Download the RomWBW " + want + " ROM now (about 512 KB)?\n\n"
+               "Yes\tdownload it and start\n";
+        msg += bundled.empty() ? std::string("No\tdo not start\n")
+                               : ("No\t" + goBack + "\n");
+        msg += "Cancel\tdo nothing";
+
+        const int answer = MessageBoxA(m_hwnd, msg.c_str(), "ROM needed",
+                                       MB_YESNOCANCEL | MB_ICONWARNING);
+        if (answer == IDYES) {
+            // Comes back through startEmulator() when the ROM lands, so this
+            // start does not continue. The transfer, not the catalog: this
+            // branch is only offered when the catalog in hand already names the
+            // ROM, which is what keeps the two steps from calling each other.
+            downloadRomThenStart(want);
+            return false;
+        }
+        if (answer == IDNO && !bundled.empty()) {
+            return switchToBundledRelease(bundled);
+        }
+        return false;
+    }
+
+    // No fetch left to offer - one has just failed. The only honest question
+    // remaining is whether to move the machine back to the release this build
+    // does ship a ROM for.
+    if (bundled.empty()) {
+        MessageBoxA(m_hwnd, msg.c_str(), "Cannot start", MB_OK | MB_ICONERROR);
+        return false;
+    }
+    msg += "Yes\t" + goBack + "\nNo\tdo not start";
+    if (MessageBoxA(m_hwnd, msg.c_str(), "Cannot start",
+                    MB_YESNO | MB_ICONWARNING) == IDYES) {
+        return switchToBundledRelease(bundled);
+    }
+    return false;
+}
+
+bool MainWindow::switchToBundledRelease(const std::string& bundled) {
+    auto& cfg = config::ConfigManager::instance().get();
+    cfg.romwbwVersion = bundled;
+    // Both halves together, so the stored choice and the catalog cannot
+    // disagree about which release the next fetch is for - the same pairing
+    // onEmulatorSettings' OK path makes.
+    m_diskCatalog->setPreferredRomwbwVersion(bundled);
+    saveSettings();
+
+    // Nothing is unmounted, deleted or invalidated by this. The consequence -
+    // that images downloaded for the other release are still in their slots -
+    // was in the message box the user just answered, because it is the only
+    // place they would read it: startEmulator() clears the terminal.
+
+    // The banks are still holding the other release's ROM, so the switch is not
+    // finished until this one is in. Returning its verdict rather than calling
+    // startEmulator() is what keeps the gate from re-entering itself: the caller
+    // is inside romReadyToStart(), and this answer IS that function's answer.
+    return loadPackagedRom();
+}
+
+void MainWindow::fetchRomCatalog(const std::string& want) {
+    m_fetchingRom = true;
+
+    terminalPrint("\r\nLooking up the disk catalog for the RomWBW " + want + " ROM...\r\n");
+
+    // Chained through postToUiThread, not waited on, and that is how this
+    // application has always expressed a must-land-first dependency:
+    // DiskCatalog's workers are detached and nothing joins them, so a caller
+    // that blocked would block inside WinHTTP with no timeout set anywhere in
+    // that file. What makes this a GATE rather than fire-and-forget is that the
+    // start does not continue here - it is re-attempted by the callback, and
+    // only after the ROM has been verified.
+    const HWND uiWindow = m_hwnd;
+    const std::shared_ptr<WorkerPostGate> uiGate = m_uiPostGate;
+    m_diskCatalog->fetchCatalog(
+        [this, uiWindow, uiGate](bool ok, const std::vector<DiskEntry>&, const std::string& error) {
+            postToUiThread(uiWindow, uiGate, [this, ok, error]() {
+                romCatalogArrived(ok, error);
+            });
+        });
+}
+
+void MainWindow::romCatalogArrived(bool ok, const std::string& error) {
+    // The lookup is over whichever way it went. Cleared before anything below
+    // can put a modal message box up, so that F5 behind it is not told to wait
+    // for a fetch that has finished.
+    m_fetchingRom = false;
+    const std::string want = startRomwbwRelease();
+
+    if (!ok) {
+        // Not inside the gate here - this is a posted callback - so a
+        // switch-back really does have to start the machine itself.
+        if (offerRomChoice(want, error, false)) startEmulator();
+        return;
+    }
+
+    // Already present and verifying: use it, download nothing. This is the
+    // ordinary second-launch path for a machine that already has the release's
+    // ROM, and it costs one small GET and one 512 KB hash.
+    std::string reason;
+    if (loadCatalogRomForStart(reason)) {
+        startEmulator();
+        return;
+    }
+
+    // Otherwise ask. haveRom decides whether "download it" is even one of the
+    // answers: a release whose catalog publishes no roms[] has nothing to fetch,
+    // and offering it would be offering something that cannot happen.
+    const DiskCatalog::RomRequirement req = m_diskCatalog->getRomRequirement();
+    const bool fetchable = req.haveCatalog && req.romwbwVersion == want && req.haveRom;
+    if (offerRomChoice(want, reason, fetchable)) startEmulator();
+}
+
+void MainWindow::downloadRomThenStart(const std::string& want) {
+    const DiskCatalog::RomRequirement req = m_diskCatalog->getRomRequirement();
+    if (!req.haveCatalog || req.romwbwVersion != want || !req.haveRom) {
+        // Only reachable if the catalog moved under us between the offer and
+        // the answer. Nothing to fetch, and nothing to be silent about.
+        if (offerRomChoice(want, "the catalog for RomWBW " + want +
+                                     " is no longer the one in hand", false)) {
+            startEmulator();
+        }
+        return;
+    }
+
+    m_fetchingRom = true;
+    terminalPrint("Downloading " + req.rom.filename + " (" +
+                  std::to_string(req.rom.size / 1024) + " KB)...\r\n");
+
+    const HWND uiWindow = m_hwnd;
+    const std::shared_ptr<WorkerPostGate> uiGate = m_uiPostGate;
+    const std::string romName = req.rom.filename;
+
+    m_diskCatalog->downloadRom(
+        // Progress, per 64 KB block, the way a disk download reports it. Eight
+        // posts for a whole ROM - it is a small transfer, but on a bad
+        // connection it is the thing standing between the user and a booting
+        // machine, and it must not look like a hang. The status bar rather than
+        // the terminal, because the terminal is about to be cleared by the
+        // start this is leading to.
+        [this, uiWindow, uiGate, romName](size_t got, size_t total) {
+            const int percent = total > 0 ? (int)((got * 100) / total) : 0;
+            postToUiThread(uiWindow, uiGate, [this, romName, percent]() {
+                m_statusText = "Downloading " + romName + ": " +
+                               std::to_string(percent) + "%";
+                updateStatusBar();
+            });
+        },
+        [this, uiWindow, uiGate](bool success, const std::string& err) {
+            postToUiThread(uiWindow, uiGate, [this, success, err]() {
+                romDownloadFinished(success, err);
+            });
+        });
+}
+
+void MainWindow::romDownloadFinished(bool ok, const std::string& error) {
+    m_fetchingRom = false;
+    const std::string want = startRomwbwRelease();
+
+    if (!ok) {
+        if (offerRomChoice(want, error, false)) startEmulator();
+        return;
+    }
+
+    // Verified by downloadRom before it was moved into place, and verified
+    // again here before it is used. Not a duplicate: this is the check every
+    // load makes, and having it run on the download path too is what keeps
+    // "a downloaded ROM" and "a ROM that was already here" one case.
+    std::string reason;
+    if (!loadCatalogRomForStart(reason)) {
+        // The re-download has been spent. Reportable, and not another attempt.
+        if (offerRomChoice(want, reason, false)) startEmulator();
+        return;
+    }
+
+    // The status bar rather than the terminal: startEmulator() is about to
+    // clear the screen, and loadCatalogRomForStart has already put
+    // "Loaded ROM: <filename>" there, which is the more useful of the two.
+    startEmulator();
 }
 
 void MainWindow::loadDefaultROM() {

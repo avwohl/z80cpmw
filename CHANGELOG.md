@@ -46,6 +46,141 @@ therefore not evidence of what has shipped.
 of it. The detail of what 1.0.23 carried is kept under this heading because
 1.0.23's own entry refers back to it.
 
+### The ROM comes from the catalog too, and a mismatched one no longer boots
+
+**NOT COMPILED** - written on a Linux machine with no MSVC, no wxWidgets and no
+Windows, so nothing here has been built, packaged or launched.
+
+What *was* run on this machine: `tests/test_catalogv0.cpp` passes **130 checks**
+(113 before this work) with `g++ -std=c++17 -Wall -Wextra`, seventeen of them
+new and all about `catalogv0::chooseRom` - the flag rather than the position,
+the flag rather than the id, no flag at all, two flags, an absent `roms[]`, an
+empty one, and a catalog publishing a ROM set this build has never heard of.
+What was *syntax-checked* with `x86_64-w64-mingw32-g++ -std=c++17 -Wall -Wextra
+-fsyntax-only` - a different compiler, no link, not a build: `DiskCatalog.cpp`,
+and the 444 new lines of `MainWindow.cpp` extracted into a scratch translation
+unit that includes the real `MainWindow.h`, `DiskCatalog.h` and
+`EmulatorEngine.h`. What could not be checked at all: `MainWindow.cpp` and
+`SettingsDialogWx.cpp` as whole files, because both reach `wx/wx.h`.
+`MANUAL_CHECKS.md` gains a **"The ROM gate"** section and none of it has been
+run.
+
+`tests/run_tests.bat` is also repaired, and the repair is older than this work:
+the catalog suite's `cl` line has linked `CatalogV0.cpp` alone since
+`test_the_one_equivalent_prior_image` was added, and that check calls
+`diskv0::isEquivalentPriorImage`, which folds names through `DiskLedger::fold`.
+The suite therefore did not LINK on Windows - `LNK2019`, no executable, every
+check in it unreachable rather than merely unrun, including the seventeen new
+ones. `DiskLedger.cpp` and `DiskMigrationV0.cpp` are now on that line, which is
+what the provenance suite two blocks above already does with the same two files.
+
+This is the last version-coupled thing in the application. Disks, the catalog
+URL and the release choice already came from the published index; the ROM did
+not, so a new RomWBW release still could not reach a user without a store
+submission - which is the whole cost `romwbw_disks` exists to remove. RomWBW
+3.6.0 is published stable and `default: true`, every client bundles a 3.5.1 ROM,
+so a build shipped as the tree stood would have paired 3.6.0 disks with a 3.5.1
+ROM and the guest would have printed
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***`.
+
+**Which ROM.** `catalogv0::chooseRom()` takes the `roms[]` entry flagged
+`default: true`, and the first entry when none is - which is treated as normal,
+not as an error. Never by array position, never by looking for `emu_avw`, and
+never assuming `roms[]` is there at all: `CATALOG_SCHEMA.md` 6.1 forbids all
+three, and an absent or empty `roms[]` answers "no ROM for this release", which
+is reportable and never a reason to boot another release's. It is in
+`CatalogV0.cpp` with the rest of the parse, which is the file with no Win32, no
+WinHTTP and no threads, so the rule is the one part of this that a suite can
+check.
+
+**Where it goes, and what it is checked against.** The data folder, beside the
+disks, under the catalog's own filename - `emu_avw-v0-3.6.0.rom` - so two
+releases' ROMs coexist exactly as their disks do. `DiskCatalog::verifyRom()`
+checks the **size and the sha256 before every load**, not only after a download:
+a ROM is 512 KB, hashing it costs milliseconds, and it is the one file whose
+corruption produces a machine that boots to nothing with the status bar saying
+"Running". The size check is *exact* rather than the `>=` a cached disk gets,
+and it is also what catches the truncation `diskFileLooksComplete`'s 1 MB floor
+cannot see. `emu_validate_rom_hcb` still runs over the bytes on the way in: a
+hash says these are the published bytes, the HCB check says the core can run
+them, and neither answers the other's question.
+
+**`findResourceFile()` searches the data folder.** It looked only in
+`<app>\roms`, `<app>` and `<app>\..\roms`, so a downloaded ROM was invisible to
+all four ROM callers. The data folder is *asked of `DiskCatalog`* rather than
+rebuilt: the literal `%LOCALAPPDATA%\z80cpmw\data` already exists three times in
+this tree, and that one is also the only correct one, because under MSIX the OS
+redirects the path per package and a hand-built one can name a directory the
+running app never writes. Appended last, so the three existing lookups answer
+exactly as they did.
+
+**The ROM must land before the machine starts, and that is a gate rather than a
+hope.** `DiskCatalog`'s fetch contract is fire-and-forget with no cancel and no
+wait, which does not model this, so `downloadRom()` is given the stricter
+contract instead: `completeCb` is called **exactly once on every path**,
+including the ones that never open a socket, and it is the thing the start is
+gated on. `MainWindow::romReadyToStart()` runs at the top of `startEmulator()` -
+the single funnel all five start paths go through - and the chain is
+catalog -> ROM -> verify -> start, hopped through `postToUiThread` the way
+`downloadAndStartWithDefaults` already expressed a must-land-first dependency.
+No timer anywhere. The worker is wrapped in a catch-all for the reason
+`fetchCatalog`'s is: it is detached, so an exception leaving it is
+`std::terminate` - and here it would leave a caller waiting forever for a
+callback that can never come.
+
+**Failure is not a fallback.** If the release's ROM is missing or does not
+verify, the machine does not start on that release. It says which release, which
+file and why, and offers the two honest answers: fetch it (about 512 KB, with
+per-block progress in the status bar), or go back to the release the bundled ROM
+is. It never starts on the bundled ROM instead - that is precisely the mismatch
+this removes, and doing it quietly would be doing it invisibly. A file that
+fails verification is re-downloaded **once**; failing again is reported, not
+retried.
+
+**The bundled ROM is the first-launch fallback and stays.** Its release is read
+out of the image with `emu_romwbw_release_of_image()` rather than written down,
+so a build that started shipping a different ROM cannot go on claiming the old
+one - which is the fact that decides whether a download is needed at all. When
+the selected release *is* the bundled one, that ROM is used: no catalog, no
+network, and a first launch with no connection still boots. The image is looked
+for in all three of `findResourceFile()`'s installation directories - `<app>\roms`,
+`<app>` and `<app>\..\roms` - and in none of them is it looked for in the data
+folder, so a downloaded `emu_avw.rom` could never move the release the app claims
+to ship. Missing `..\roms` would have disabled the whole of this on any build run
+out of `x64\Debug` or `x64\Release`, which is the build MANUAL_CHECKS.md is run
+against: an empty answer means the selected release never equals the bundled one,
+so the offline path is never taken and the box put up when a fetch fails says
+"another release" and offers no way back.
+
+**Nothing is deleted.** The transfer writes `<filename>.rom.new` and moves it
+onto the real name only after both checks pass, so a failed or corrupt fetch
+leaves whatever was there untouched; no path here removes a ROM a user put in
+that folder themselves, and no path unmounts or deletes a disk.
+
+Three smaller things go with it.
+
+The release is **written to `core.romwbwVersion` once a catalog ROM has been
+verified and loaded**. Without that the machine would download a release's disks
+and its ROM in one session and, in the next - no preference stored, no catalog
+fetched yet - fall back to the bundled release and boot a 3.5.1 ROM against the
+3.6.0 images still in its slots. The gate would have produced the pairing it
+exists to refuse.
+
+The Settings **ROM control round-trips a name it does not know**. It carried two
+hardcoded labels and a `switch` on the selection index, so any third ROM name
+went in and came out as `emu_avw.rom` - which, with a catalog ROM running, meant
+one visit to Settings silently replaced the release's ROM with the bundled 3.5.1
+image. The control now keeps a filename per row and appends the running ROM when
+it is neither of the packaged two, the same shape `loadDiskSelections()` already
+uses, and an unmappable selection leaves the stored value alone.
+
+**A cost, named rather than hidden.** A machine set to a release other than the
+bundled one cannot start with **no network**, even with that release's ROM
+already in its data folder, because the published size and sha256 live only in
+the catalog and this build will not load a ROM it cannot check. That is the rule
+as written; the offer that follows the failed lookup still gives the user a
+machine that boots. `todo.txt` carries what doing better would take.
+
 ### `packaging/scripts/verify-disk-assets.sh` is deleted
 
 It checked a staging directory of `hd1k_*.img` release candidates before NSIS or
@@ -230,26 +365,21 @@ compare knows only that something in the catalog moved. That is deliberate - a
 version switch keyed to one global catalog version is what destroyed a library
 on the iOS port.
 
-**ROMs are read out of the catalog and are not downloaded**, and the page says
-so rather than offering half of it. Downloading a ROM means "this file must be
-on disk before the emulator can start", and `DiskCatalog` cannot express that:
-its transfers are documented as fire-and-forget on a detached thread with no
-cancel and no wait. Two other things would have to change with it -
-`MainWindow::findResourceFile` searches only `<app>\roms`, `<app>` and
-`<app>\..\roms` and cannot see a file downloaded into the data folder, and the
-1 MB completeness floor that guards a cached disk cannot see a truncated 512 KB
-ROM - besides the eight places a ROM name is written out by hand, which have to
-move together or the menu, the dialog and the config disagree about which ROM is
-loaded (`todo.txt` lists all eight). None of that is in this release. The bundled ROM stays bundled; `roms/`, the two `PostBuildEvent`
-xcopies, the three `<None Include>` entries and the NSIS `File` lines are
-untouched.
-
-So the page states the consequence instead. Selecting a release the ROM in the
+**ROMs are read out of the catalog and, in this release, are not downloaded** -
+the page states the consequence instead. Selecting a release the ROM in the
 banks cannot boot says: *"Disks for RomWBW 3.6.0 expect a RomWBW 3.6.0 ROM, and
 this build boots RomWBW 3.5.1, so the guest will report an HBIOS/CBIOS version
 mismatch."* The release it compares against is read out of the loaded ROM with
 `emu_romwbw_release_loaded()`, not from a constant - there is no compile-time
-pin left to read.
+pin left to read. The bundled ROM stays bundled; `roms/`, the two
+`PostBuildEvent` xcopies, the three `<None Include>` entries and the NSIS `File`
+lines are untouched.
+
+(Superseded later in this same **Unreleased** block - see *"The ROM comes from
+the catalog too"*, which fetches it and makes that warning a thing the next
+Start offers to fix. The sentence above is kept because the sections in this
+block are in the order they were written and this one explains what the release
+control meant when it landed.)
 
 Four smaller things go with it, and the first two are about the choice not being
 quietly lost or quietly kept.

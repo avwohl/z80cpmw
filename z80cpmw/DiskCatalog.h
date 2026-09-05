@@ -310,23 +310,97 @@ public:
     // that case as an error rather than quietly fetching something.
     std::vector<catalogv0::IndexEntry> getRunnableVersions() const;
 
-    // The ROMs the selected catalog publishes.
+    // The ROMs the selected catalog publishes, in document order.
     //
-    // PARSED, AND NOT DOWNLOADED, and that is a decision rather than an
-    // omission. Downloading a ROM means "this file must be on disk before the
-    // emulator can start", and this class cannot express that: fetchCatalog and
-    // downloadDisk are documented above as fire-and-forget on a detached thread
-    // with no cancel and no wait, and the only must-land-first dependency in the
-    // application - MainWindow::downloadAndStartWithDefaults - is built by
-    // chaining callbacks through postToUiThread rather than by waiting. Two more
-    // things would have to change with it: MainWindow::findResourceFile searches
-    // only <app>\roms, <app> and <app>\..\roms and cannot see a file this class
-    // downloads into the data folder, and the 1 MB completeness floor that
-    // guards a cached disk cannot see a truncated 512 KB ROM. So this build
-    // keeps its bundled ROM and offers no ROM download at all; what these
-    // entries are for is saying that out loud in the Settings dialog, beside a
-    // release the user may have selected but cannot boot.
+    // For a caller that wants to SAY something about them - the Settings dialog
+    // names the count. A caller that wants the one to boot asks
+    // getRomRequirement(), which applies catalogv0::chooseRom's rule rather than
+    // taking an element of this.
     std::vector<catalogv0::RomItem> getCatalogRoms() const;
+
+    // The ROM a machine on the selected release must boot, and everything
+    // needed to get it and to check it.
+    //
+    // WHY THIS IS ONE STRUCT FROM ONE LOCK. The URL, the size and the sha256
+    // are three facts about one file and they must come from one snapshot of
+    // one document, for the reason DiskEntry::url is resolved when the catalog
+    // is parsed rather than re-derived at download time: base_url stopped being
+    // a compile-time constant and became text out of a fetched document, so
+    // reading it separately from the entry it belongs to would let a ROM be
+    // fetched from the base of a catalog it was not in - and then checked
+    // against the hash of a third. Every field below is filled in a single
+    // critical section.
+    struct RomRequirement {
+        // Whether a catalog has been fetched at all. False on a fresh launch,
+        // and false is not an error: it means nothing has yet said which
+        // release this machine is for, and the bundled ROM is what there is.
+        bool haveCatalog = false;
+        // Whether that catalog names a ROM. False when roms[] was absent or
+        // empty - CATALOG_SCHEMA 6.1 allows both - which is a REPORTABLE
+        // condition and not a reason to boot another release's ROM.
+        bool haveRom = false;
+        // The release the catalog in hand is for. This is the release the ROM
+        // belongs to, taken from the same document, and not the user's
+        // preference: the two differ whenever the preference could not be
+        // honoured.
+        std::string romwbwVersion;
+        catalogv0::RomItem rom;
+        // base_url + filename, resolved here so it cannot be built from
+        // another catalog's base.
+        std::string url;
+        // Where it goes in the data folder, under the catalog's own filename -
+        // which carries the interface and the release, so 3.5.1's ROM and
+        // 3.6.0's coexist there exactly as their disks do.
+        std::string localPath;
+    };
+    RomRequirement getRomRequirement() const;
+
+    // Is the file at 'path' the ROM this entry describes? Size first, then
+    // sha256; 'reason' names the failure in a sentence a user can act on.
+    //
+    // CALLED BEFORE EVERY LOAD, not only after a download, which is the whole
+    // point of it being a separate function. A ROM is 512 KB and hashing it
+    // costs a few milliseconds, and it is the one file in the data folder whose
+    // corruption produces a machine that boots to nothing at all: no error, no
+    // banner, a black screen and a status bar saying "Running". The disks get
+    // the same treatment through DiskLedger, which can afford to remember a
+    // measurement because a 49 MB image is expensive to re-read; this is cheap
+    // enough that there is nothing to remember.
+    //
+    // It does NOT replace emu_validate_rom_hcb, which the load still runs over
+    // the bytes it is given. A hash says these are the published bytes; the HCB
+    // check says the core can run them. Neither answers the other's question.
+    //
+    // A catalog entry carrying no usable sha256 is REFUSED here, where a disk
+    // in the same position is accepted: an unverifiable disk is a volume that
+    // may be stale and the ledger goes on to say so per file, an unverifiable
+    // ROM is fifteen banks of unknown bytes under a CPU.
+    static bool verifyRom(const std::string& path, const catalogv0::RomItem& rom,
+                          std::string& reason);
+
+    // Fetch the selected release's ROM into the data folder (async).
+    //
+    // THE ONE TRANSFER IN THIS CLASS THAT SOMETHING WAITS ON, and the contract
+    // is therefore stricter than fetchCatalog's and downloadDisk's. Those two
+    // are documented above as fire-and-forget: nobody is blocked on them, a
+    // disk that does not arrive is an empty drive. A ROM that does not arrive
+    // is a machine that must not start, so completeCb is the thing a caller
+    // gates the start on - it is called EXACTLY ONCE on every path, including
+    // the paths that never open a socket, and it carries a sentence naming the
+    // release, the file and the reason whenever it fails.
+    //
+    // Everything else about the worker is the same as downloadDisk's, and
+    // deliberately so: a detached thread holding shared_from_this(), one
+    // transfer at a time through m_downloadState, and a caller whose captures
+    // are its own to keep alive (WorkerPostGate).
+    //
+    // IT NEVER OVERWRITES A FILE IT HAS NOT VERIFIED. The bytes land in
+    // "<filename>.new" and are moved over the real name only once the size and
+    // the sha256 both match, so a failed or corrupt transfer leaves whatever
+    // was already there untouched - and this class gains no way to delete a
+    // ROM a user put in that folder themselves.
+    void downloadRom(DownloadProgressCallback progressCb,
+                     DownloadCompleteCallback completeCb);
 
     // The catalog entry with this id, e.g. "hd1k_combo". False when no catalog
     // has been fetched or no entry carries the id - a version can publish an id
@@ -514,6 +588,13 @@ private:
     // string and there is exactly one place the callback is invoked.
     bool fetchCatalogInto(std::string& error);
 
+    // The whole of a ROM fetch, as a function that can FAIL rather than a
+    // lambda body that can throw - the same split fetchCatalogInto exists for,
+    // and it matters more here because a caller is gating the start of the
+    // machine on the callback this wraps. WORKER THREAD, called once by
+    // downloadRom inside its catch-all.
+    bool downloadRomInto(DownloadProgressCallback progressCb, std::string& error);
+
     // Fetch and parse index-v0.json. WORKER THREAD.
     bool fetchIndex(std::vector<catalogv0::IndexEntry>& entries, std::string& error);
 
@@ -550,6 +631,15 @@ private:
     // disks of 3.6.0 beside the ROMs of 3.5.1 would be reading a catalog that
     // never existed.
     std::vector<catalogv0::RomItem> m_catalogRoms;
+    // The base_url and the romwbw_version of that same document, in that same
+    // critical section, and for that same reason. A ROM entry carries no URL of
+    // its own the way DiskEntry does - it is catalogv0::RomItem, the parser's
+    // own type, shared with the Settings dialog - so the base it is joined to
+    // has to travel beside it rather than being re-read from a member a later
+    // fetch may already have replaced. getRomRequirement() does the join under
+    // the lock and hands out the result.
+    std::string m_catalogBaseUrl;
+    std::string m_catalogRomwbwVersion;
     std::atomic<DownloadState> m_downloadState{DownloadState::Idle};
     std::atomic<bool> m_cancelRequested{false};
 

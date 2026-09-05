@@ -20,8 +20,8 @@
  * THE SECOND IS CATALOG_SCHEMA.md's compatibility rules, which are promises this
  * client has to keep rather than checks it may skip: ignore unknown fields at
  * every level, key on id, tolerate entries appearing and disappearing, tolerate
- * a roms[] this build never looks at, display an unknown status rather than
- * failing on it.
+ * a roms[] that is absent, empty, reordered or carries nothing this build has
+ * heard of, display an unknown status rather than failing on it.
  *
  * THE THIRD IS WHICH RELEASE GETS OFFERED, which is the one decision here that a
  * user can see. A build must offer what its own core says it can boot - not a
@@ -513,7 +513,7 @@ static void test_real_catalog() {
              "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.5.1/",
              "with a base_url that ends in a slash");
 
-    checkNum(catalog.roms.size(), 2, "two ROMs, which this build reads and does not fetch");
+    checkNum(catalog.roms.size(), 2, "two ROMs, either of which this build can fetch and boot");
     if (catalog.roms.size() == 2) {
         checkStr(catalog.roms[0].id, "emu_avw", "the default ROM's id");
         checkTrue(catalog.roms[0].isDefault, "and it is the default");
@@ -568,6 +568,99 @@ static void test_real_catalog() {
         if (d.id == "hd1k_ws4") sawWs4 = true;
     }
     checkTrue(sawWs4, "hd1k_ws4 is in 3.5.1 - and it is NOT in 3.6.0");
+}
+
+static void test_which_rom_boots() {
+    section("which ROM of a release this build boots");
+
+    // The published shape, out of the real 3.5.1 catalog: two ROMs, the first
+    // flagged. The flag is what is read - not the position, and not the id.
+    catalogv0::Catalog real;
+    std::string error;
+    checkTrue(catalogv0::parseCatalog(REAL_CATALOG_351, real, error),
+              "the real catalog parses");
+    size_t pick = catalogv0::chooseRom(real.roms);
+    checkTrue(pick < real.roms.size(), "the published catalog names a ROM to boot");
+    if (pick < real.roms.size()) {
+        checkStr(real.roms[pick].id, "emu_avw", "and it is the entry flagged default");
+        checkStr(real.roms[pick].filename, "emu_avw-v0-3.5.1.rom",
+                 "whose filename carries the interface and the release, so two "
+                 "releases' ROMs coexist in one data folder exactly as their disks do");
+    }
+
+    // THE FLAG, NOT THE POSITION. Same two ROMs with the flag moved to the
+    // second: a client that took roms[0] would boot the wrong image, and the
+    // guest would say nothing about it - both ROMs carry the same HCB bytes, so
+    // emu_validate_rom_hcb accepts either.
+    std::vector<catalogv0::RomItem> reordered = real.roms;
+    checkNum(reordered.size(), 2, "two to reorder");
+    if (reordered.size() == 2) {
+        reordered[0].isDefault = false;
+        reordered[1].isDefault = true;
+        pick = catalogv0::chooseRom(reordered);
+        checkStr(pick < reordered.size() ? reordered[pick].id : std::string(""),
+                 "emu_rcz80",
+                 "the flagged entry wins wherever it sits in the array");
+    }
+
+    // NO ENTRY FLAGGED. Nothing in CATALOG_SCHEMA promises one, so this is a
+    // fallback and not an error path: take the first and carry on.
+    std::vector<catalogv0::RomItem> unflagged = real.roms;
+    for (auto& r : unflagged) r.isDefault = false;
+    pick = catalogv0::chooseRom(unflagged);
+    checkStr(pick < unflagged.size() ? unflagged[pick].id : std::string(""), "emu_avw",
+             "with nothing flagged the first entry is taken, and that is normal");
+
+    // TWO FLAGGED, which the index-side rule (verify_catalog.py) forbids and a
+    // hand-edited document could still produce. Route around it; do not refuse.
+    std::vector<catalogv0::RomItem> both = real.roms;
+    for (auto& r : both) r.isDefault = true;
+    pick = catalogv0::chooseRom(both);
+    checkStr(pick < both.size() ? both[pick].id : std::string(""), "emu_avw",
+             "two flagged entries take the first flagged, not a refusal");
+
+    // ABSENT roms[]. 6.1 says a client must not assume the array is there, and
+    // "no ROM for this release" has to be a value a caller can act on rather
+    // than a crash or a silent substitution.
+    catalogv0::Catalog noRoms;
+    checkTrue(catalogv0::parseCatalog(R"JSON({"base_url":"https://x/","disks":[]})JSON",
+                                      noRoms, error),
+              "a catalog with no roms[] at all is a catalog");
+    checkNum(noRoms.roms.size(), 0, "and carries no ROMs");
+    checkTrue(catalogv0::chooseRom(noRoms.roms) == (size_t)-1,
+              "so there is no ROM to boot - reportable, never a fallback to another release's");
+
+    // EMPTY roms[]. Indistinguishable from absent after the parse, and it must
+    // stay indistinguishable: a caller that treated them differently would be
+    // acting on a difference the schema does not make.
+    catalogv0::Catalog emptyRoms;
+    checkTrue(catalogv0::parseCatalog(R"JSON({"base_url":"https://x/","roms":[],"disks":[]})JSON",
+                                      emptyRoms, error),
+              "an empty roms[] is a catalog too");
+    checkTrue(catalogv0::chooseRom(emptyRoms.roms) == (size_t)-1,
+              "and answers the same as an absent one");
+
+    // A CATALOG WITH NO emu_avw IN IT. The one name a client is most likely to
+    // have hardcoded; nothing here looks for it.
+    catalogv0::Catalog future;
+    checkTrue(catalogv0::parseCatalog(
+        R"JSON({"base_url":"https://x/","roms":[
+            {"id":"emu_future","filename":"emu_future-v0-9.9.9.rom","size":262144,
+             "sha256":"aa","default":true}]})JSON", future, error),
+        "a catalog publishing a ROM set this build has never heard of");
+    pick = catalogv0::chooseRom(future.roms);
+    checkStr(pick < future.roms.size() ? future.roms[pick].id : std::string(""),
+             "emu_future", "is followed, because the flag is all that is read");
+    checkNum(pick < future.roms.size() ? future.roms[pick].size : 0, 262144,
+             "and its size is taken from the document - nothing here promises 512 KB, "
+             "and upstream v3.6.0 already ships ROM images that are not");
+
+    // The URL a ROM is fetched from is the same concatenation a disk's is, which
+    // is the point of assetUrl having one home.
+    checkStr(catalogv0::assetUrl(real.baseUrl, "emu_avw-v0-3.5.1.rom"),
+             "https://github.com/avwohl/romwbw_disks/releases/download/"
+             "v0-romwbw-3.5.1/emu_avw-v0-3.5.1.rom",
+             "a ROM URL is base_url + filename, with nothing inserted");
 }
 
 static void test_catalog_tolerance() {
@@ -703,6 +796,7 @@ int main() {
     test_which_releases_are_offered();
     test_index_tolerance();
     test_real_catalog();
+    test_which_rom_boots();
     test_catalog_tolerance();
     test_the_url_that_is_compiled_in();
     test_the_one_equivalent_prior_image();

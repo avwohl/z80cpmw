@@ -333,6 +333,26 @@ size_t chooseVersion(const std::vector<IndexEntry>& entries,
     return runnable.front();
 }
 
+size_t chooseRom(const std::vector<RomItem>& roms) {
+    // Empty covers both "the document had no roms[]" and "it had an empty one".
+    // parseCatalog produces the same vector for either, and there is nothing a
+    // caller would do differently: the release publishes no ROM this build can
+    // fetch.
+    if (roms.empty()) return static_cast<size_t>(-1);
+
+    for (size_t i = 0; i < roms.size(); i++) {
+        if (roms[i].isDefault) return i;
+    }
+
+    // No entry flagged. Both published catalogs flag exactly one, and nothing
+    // in the schema promises it - `default` is documented as "whether this is
+    // the ROM to offer first", not as a field that must appear - so the first
+    // entry is taken and that is treated as normal rather than as an error. The
+    // alternative, refusing, would strand a whole release over a missing
+    // boolean in a document whose ROM list is otherwise complete.
+    return 0;
+}
+
 std::string displayLabel(const IndexEntry& entry) {
     std::string label = entry.label.empty() ? ("RomWBW " + entry.romwbwVersion) : entry.label;
     if (!entry.status.empty() && entry.status != "stable") {

@@ -84,8 +84,9 @@ struct WxEmulatorSettings {
     // The RomWBW release the ROM in the banks declares, e.g. "3.5.1", or empty
     // when there is no ROM or its HCB cannot be read. IN ONLY - the dialog
     // displays it and never writes it. It is what lets the Disk Images page say
-    // that disks built for another release will not match the ROM this build
-    // boots, which matters because this build ships one ROM and downloads none.
+    // that disks built for another release do not match the ROM in the banks -
+    // and, since the release's own ROM is now fetched from the same catalog as
+    // its disks, what the next Start will offer to do about it.
     std::string loadedRomwbwRelease;
     bool debugMode = false;
     bool warnManifestWrites = true;         // Warn when writing to downloaded catalog disks
@@ -140,9 +141,9 @@ private:
     void buildDiskImagesPage();
     void populateROMList();
     // The RomWBW releases the catalog offers that this build's core can boot,
-    // and the sentence underneath saying what the selected one means for a
-    // machine that boots a bundled ROM. Both are refilled whenever a catalog
-    // lands, because until one does there is no list to show.
+    // and the sentence underneath saying what the selected one means for the
+    // ROM in the banks. Both are refilled whenever a catalog lands, because
+    // until one does there is no list to show.
     void populateVersionList();
     void updateRomwbwVersionNote();
     void populateDiskLists();
@@ -298,6 +299,15 @@ private:
     // shown before any catalog has been fetched.
     std::vector<std::string> m_romwbwVersionIds;
     wxStaticText* m_romwbwVersionNote;
+
+    // Row -> the ROM FILENAME that row stands for, kept beside m_romChoice for
+    // the same reason as the list above: what the control displays is a label
+    // ("EMU AVW (Default)") and what the configuration stores is a filename.
+    // The two packaged ROMs plus, when the machine is running one, the catalog
+    // ROM for the RomWBW release it is set to - appended by loadSettings() so
+    // that OK writes back the ROM in the banks instead of replacing it with the
+    // first entry.
+    std::vector<std::string> m_romFileIds;
 
     wxListCtrl* m_catalogList;
     // Row -> the catalog FILENAME that row is about, filled by populateCatalog.
