@@ -94,8 +94,8 @@ happen" that only this client can answer.
   The help TEXT has gone stale with the catalog too.  HelpWindow.cpp:37 names
   hd1k_combo.img's sha256 as 89b8ae1a..., which is the v1.4.12 image; the v0 one
   is 0ca4ec60....  The sentence at :46 about hd1k_games carrying neither R8 nor
-  W8 is still true - verify-disk-assets.sh confirms it against
-  hd1k_games-v0-3.5.1.img.
+  W8 is still true, and the v0 catalog says so as data rather than leaving it to
+  be inferred: the hd1k_games entry carries host_transfer: false.
 
 - ROMs come from the catalog but are not downloaded, and four places still name
 one by hand.  DiskCatalog parses roms[] and getCatalogRoms() returns it; nothing

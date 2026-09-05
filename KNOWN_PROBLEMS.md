@@ -67,18 +67,52 @@ so one test does not catch both. Measured 2026-08-27 against
 So the first case is indistinguishable from "that utility is not on the image"
 unless you count what was listed, and the second is indistinguishable from a
 directory full of files unless you check the names are legal CP/M names.
-`packaging/scripts/verify-disk-assets.sh` handles both: it picks the diskdef
-from each image's own geometry, and then refuses a listing with no names in it
-*or* with any name that is not printable ASCII, before it goes looking for a
-filename — 233 of those 312 garbage names are not. Anyone checking an image **by
-hand** has to do the same by eye. The rule:
-`hd1k_combo.img` is `wbw_hd1k_0` because of its 1 MB MBR prefix, a plain 8 MB
-image is `wbw_hd1k`.
+Both are caught by picking the diskdef from each image's own geometry and then
+refusing a listing with no names in it *or* with any name that is not printable
+ASCII, before going looking for a filename — 233 of those 312 garbage names are
+not. `packaging/scripts/verify-disk-assets.sh` used to do that here and was
+deleted on 2026-09-05; the check now lives upstream in `romwbw_disks`, which
+verifies every image it publishes. Anyone checking an image **by hand** has to do
+it by eye. The rule: `hd1k_combo.img` is `wbw_hd1k_0` because of its 1 MB MBR
+prefix, a plain 8 MB image is `wbw_hd1k`, and any other size is not a guess to
+take — it means the geometry is not one of these.
 
 A `./diskdefs` in the current directory also shadows the system file completely
 rather than adding to it, so a partial local copy makes every other format
-"unknown". The script sidesteps that by copying `romwbw_emu/disks/diskdefs`
-whole into its work directory.
+"unknown". Copy `romwbw_emu/disks/diskdefs` whole — it carries the entire
+`wbw_hd1k` family and is the definition of record — rather than writing out the
+one definition you think you need.
+
+## An unarmed W8 cannot be told from an armed one by its usage string
+
+Worth keeping because the obvious check is the wrong one, and it was the check
+used by hand before any script existed.
+
+`W8` gained `W8 <cpmname> [hostpath]` in `romwbw_emu` 98eb6a1, and then in
+a4d3db8 gained an interlock: before handing a host path to the emulator it asks
+`HBF_HOST_CAPS` (`0xE9`) whether that emulator promises not to use the path
+destructively, and refuses if the answer is no or if the call does not exist.
+That interlock is why an old emulator cannot be talked into deleting a user's
+disk library by a new `W8`.
+
+The usage string does not discriminate the two. A `w8.com` built between those
+two commits prints exactly the same `Usage: W8 <cpmname> [hostpath]` and issues
+no probe at all: it takes host paths and asks nobody. Grepping an image for the
+usage text passes the very binary the interlock was written to replace.
+
+So it has to be checked as machine code. In `w8.asm`:
+
+    ld    b,H_CAPS      ; 06 E9
+    rst   8             ; CF
+
+Three bytes, `06 E9 CF`, at a byte boundary in the extracted `w8.com`. Their
+presence is the difference between an armed `W8` and an unarmed one.
+
+This is now asserted upstream, on every image before it is published:
+`romwbw_disks` `tools/build_utils.sh` checks it at build time and
+`tools/verify_catalog.py` checks it against every published image carrying
+`w8.com`. Nothing in this repository needs to re-check it, because this
+repository no longer ships an image.
 
 ## Nothing transfers from the games disk, and the gate will never say so
 
@@ -90,14 +124,16 @@ occurs **zero** times in it and `W8      COM` zero times, against one of each in
 `hd1k_combo.img` — so the search finds them where they exist, and the answer for
 the games disk is really nothing rather than a bad search.
 
-The half that will not change is the gate.
-`packaging/scripts/verify-disk-assets.sh` is severity-split by image: only an
-image larger than 8 MB carrying a `55 AA` MBR signature reaches `bad()` for a
-missing utility, while a plain 8 MB image gets an `info` line and never touches
-the failure count — on that script's own stated reasoning that a secondary data
-disk carrying neither utility is a choice and not a fault. `hd1k_games.img` is
-exactly 8,388,608 bytes, so it takes the info branch every time. **A PASS from
-that script is compatible with the games disk having no R8 and no W8**, and is
+The half that will not change is the gate. The check that used to run here,
+`packaging/scripts/verify-disk-assets.sh` (deleted 2026-09-05), was
+severity-split by image: only an image larger than 8 MB carrying a `55 AA` MBR
+signature reached `bad()` for a missing utility, while a plain 8 MB image got an
+`info` line and never touched the failure count — on the reasoning that a
+secondary data disk carrying neither utility is a choice and not a fault.
+`hd1k_games.img` is exactly 8,388,608 bytes, so it took the info branch every
+time. The v0 catalog states the same thing as data rather than inferring it from
+geometry: the `hd1k_games` entry carries `host_transfer: false`. **A PASS is
+compatible with the games disk having no R8 and no W8**, and is
 meant to be. Anyone refreshing the images who wants this closed has to check
 that image by hand and put the utilities on it deliberately; nothing will go red
 if they forget, and the sentence about it in the in-app File Transfer topic is

@@ -46,6 +46,37 @@ therefore not evidence of what has shipped.
 of it. The detail of what 1.0.23 carried is kept under this heading because
 1.0.23's own entry refers back to it.
 
+### `packaging/scripts/verify-disk-assets.sh` is deleted
+
+It checked a staging directory of `hd1k_*.img` release candidates before NSIS or
+MSIX packaged them. This package has no images to package: the disks are build
+output, they were never tracked here, and since the v0 migration they come from
+`romwbw_disks` with a `sha256` per entry. It was also the last thing in this
+repository that needed `um80`.
+
+What it knew is kept, because the script header was the only written record of
+two things. Both are now in `KNOWN_PROBLEMS.md`:
+
+- **An unarmed `W8` cannot be told from an armed one by its usage string.** A
+  `w8.com` built between `romwbw_emu` 98eb6a1 and a4d3db8 prints exactly the same
+  `Usage: W8 <cpmname> [hostpath]` and issues no `HBF_HOST_CAPS` probe at all, so
+  grepping an image for the usage text passes the very binary the interlock was
+  written to replace. It has to be checked as machine code - `06 E9 CF` at a byte
+  boundary in the extracted `w8.com`.
+- **The diskdef selection rule and the `./diskdefs` shadowing trap**, which were
+  already documented there but leaned on the script for the how.
+
+The probe is not lost, it moved upstream to where the images are now built:
+`romwbw_disks` `tools/build_utils.sh` asserts it at build time and
+`tools/verify_catalog.py` asserts it against every published image carrying
+`w8.com`. `sh tools/verify_release.sh` was run before deleting this and passes
+for both published releases and the index.
+
+`packaging/STORE_SUBMISSION.md` now points at that instead, and its directory
+tree no longer lists the script. The `hd1k_games` note in `todo.txt` is
+re-sourced to the catalog's `host_transfer: false` rather than to a script that
+no longer exists.
+
 ### The migrated combo is equivalent, so the ledger stops calling it superseded
 
 `hd1k_combo` is the one image of twenty whose bytes differ between ioscpm

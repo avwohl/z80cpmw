@@ -278,11 +278,12 @@ The Store carried 1.0.14, then 1.0.19, and now **1.0.22**, published 2026-08-23.
    - The image the user actually runs is therefore governed by `RELEASE_TAG`,
      not by this build. Changing which images users get is a **code change**
      with its own release, not a packaging step. See `CLAUDE.md`.
-   - `packaging/scripts/verify-disk-assets.sh` is still the right tool for
-     checking a set of images before they are published, and
-     `romwbw_emu/disks/verify_disk_utils.sh` is its upstream twin — but neither
-     is a gate on *this* package any more, because this package has no images
-     to check.
+   - Images are verified where they are published: `romwbw_disks`
+     `tools/verify_release.sh` checks every ROM's HCB, every bootable image's
+     CBIOS banner and the `06 E9 CF` `HBF_HOST_CAPS` probe in every `w8.com`,
+     against the catalog that names them. `packaging/scripts/verify-disk-assets.sh`
+     did that here and was deleted on 2026-09-05: this package has no images to
+     check, and had none for some time before that.
 
 4. **Build the package**
    - `cd packaging\scripts` then `.\build-msix.ps1 -Configuration Release`,
@@ -362,7 +363,6 @@ packaging/
 │   ├── create-ico.ps1       # Placeholder .ico (superseded by convert-icons.ps1)
 │   ├── build-msix.ps1       # Build MSIX package
 │   ├── build-nsis.ps1       # Build NSIS installer
-│   └── verify-disk-assets.sh # Check bin/Release/disks before packaging (sh)
 └── STORE_SUBMISSION.md      # This file
 ```
 
