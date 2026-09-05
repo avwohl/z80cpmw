@@ -1,3 +1,22 @@
+BLOCKER BEFORE ANY STORE BUILD: THE BUNDLED ROM IS 3.5.1, THE CATALOG DEFAULT IS 3.6.0
+-------------------------------------------------------------------------------
+
+- [ANY] romwbw_disks moved index-v0.json's default to RomWBW 3.6.0 on
+2026-09-05, and this app bundles a 3.5.1 ROM (roms/emu_avw.rom, found by findResourceFile())
+and downloads no ROM at all.  So a build shipped as it stands would preselect
+3.6.0 disks and boot them against a 3.5.1 ROM, and the guest answers with
+*** WARNING: HBIOS/CBIOS Version Mismatch *** - the exact failure the ROM/disk
+pairing rule exists to prevent.  Nothing is broken today: no released build reads
+that index, and a pre-v1.39 core filters 3.6.0 out by hbios.ver_byte before
+status or default is read.
+  Discharge it one of two ways before a store build, not after: bundle the 3.6.0
+ROM (the code already reads which release a ROM declares, so this is a matter of
+shipping the other file plus whatever the packaging names it), or ask
+romwbw_disks to move default back to 3.5.1.  Downloading ROMs is a third option
+and is deliberately not implemented.
+  romwbw_disks/docs/ROMWBW_VERSIONS.md "Why 3.6.0 is stable and default" has the
+reasoning and the same gate written down at the publishing end.
+
 Todo list.  Open items for this project only - the rules that govern this file
 are in CLAUDE.md, finished work is in CHANGELOG.md, and a closed item is deleted
 rather than annotated.  Notes about what another repository ought to do do not
