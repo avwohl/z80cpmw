@@ -224,16 +224,26 @@ written as termcap-style escape strings.
   **The full, copy-pasteable spec is `docs/CONFIGURATION.md`** (and the in-app
   Configuration help).
 <!-- cites: z80cpmw -->
-- **Where:** `z80cpmw/Keymap.h` (`keyIdForName`, `nameForKeyId`,
-  `validateSequence`, `reservedKeys`), `TerminalView.cpp` (`setKeyBindings`,
-  `handleKeyDown`), `Config.h` (`KeyboardConfig`: `f1ToCpm`,`f5ToCpm`,
-  `ctrlRToCpm`,`keys`), `MainWindow.cpp` (`rebuildAccelerators`,
-  `updateMenuAccelHints`), `SettingsDialogWx.cpp` (`buildKeyboardPage`).
+- **Where:** `z80cpmw/Keymap.h` (`decode`, `validateSequence`, `keyIdForName`,
+  `nameForKeyId`, `defaultBindings`, `reservedKeys`, and `find` vs `findExact` —
+  the fallback and the no-fallback lookup), `TerminalView.h` (`setKeyBindings`,
+  inline; it is not in the .cpp, which is what this line used to say),
+  `TerminalView.cpp` (`handleKeyDown` and the `WM_SYSKEYDOWN` arm where
+  `findExact` keeps Alt on the menu unless that exact combination is bound),
+  `Config.h` (`KeyboardConfig`: `f1ToCpm`,`f5ToCpm`,`ctrlRToCpm`,`keys`),
+  `MainWindow.cpp` (`rebuildAccelerators`, `updateMenuAccelHints`),
+  `SettingsDialogWx.cpp` (`buildKeyboardPage`, `rebuildKeyRows` for the
+  resolved-id keying and `m_keyCarry`, `commitPendingKeySequence` for the
+  commit-on-row-change rule).
 <!-- /cites -->
-- **Config:** *(re-read 2026-09-06 at `dbd53b1`, the 1.0.23 build)* the
+- **Config:** *(re-read 2026-09-06 at `211488b`, the 1.0.25 build the Store
+  serves — an earlier read the same day was taken at `dbd53b1` on the CHANGELOG's
+  word that 1.0.23 was current, and this bullet is what it got wrong)* the
   `keyboard` block in the JSON config — **or Settings →
-  Keyboard**, which reads and writes that same block (2026-08-28; not in a
-  shipped build yet). Every bindable key with what it sends and a status, a box
+  Keyboard**, which reads and writes that same block. **That page is in the
+  shipped build**, and this bullet said the opposite for nine days:
+  `buildKeyboardPage` landed on 2026-08-28 in `7109716`, an ancestor of
+  `211488b`, so a Store install gets the editor and not only the file. Every bindable key with what it sends and a status, a box
   to edit the sequence, Default and Unbind, and the three app-shortcut switches.
   Two details a port copying this should copy too. The list is keyed by
   **resolved id**, so `"Control+Left"` and `"Ctrl+Left"` are one row rather than
@@ -523,17 +533,20 @@ to find them on every platform.
   sync, **to the guest itself**: `emu_host_file_get_write_name()` reports the
   *effective* destination rather than the requested name, so `W8` prints the data
   folder for a bare name and the redirected `LocalCache` path in an installed MSIX
-  build. That reaches users only when the disk images carry the `w8.com` that asks
-  (`HBF_HOST_GETNAME`, `0xE8`) — **and the shipped 1.0.23 does not deliver one.**
-  The package carries no images at all, by design, so `RELEASE_TAG` alone decides
-  which combo a user downloads, and at `dbd53b1` it still reads `v1.4.5`, whose
-  `hd1k_combo.img` carries neither the host-path usage line nor the `0xE9`
-  capability probe. The repin to `v1.4.12` landed after the package was built and
-  is delivered by 1.0.24, which is **built and verified at the artifact but never
-  submitted**. The read twin is unreachable the same way. So this half of the row
-  is true of the tree and of no installed Windows user, which matters because the
-  ioscpm cell is docked for the same pin while its shipped build is the one that
-  HAS `v1.4.12`. This port also defines
+  build. The read twin answers too: `emu_host_file_get_read_name()` returns the
+  path `emu_host_file_open_read()` really opened, resolved through the same
+  redirection, so `R8` reports the case the directory holds rather than the case
+  the CCP shouted. **Both halves reach a Windows user, and this paragraph said
+  the exact opposite until 2026-09-06** — it was written at `dbd53b1`, three
+  commits behind the build the Store actually serves. They need images carrying
+  the `w8.com` and `r8.com` that ask (`HBF_HOST_GETNAME` `0xE8`,
+  `HBF_HOST_GETRNAME` `0xEA`); the package carries no images at all, by design,
+  so `RELEASE_TAG` alone decides which combo a download gets — and at `211488b`,
+  the Store's 1.0.25, it reads **`v1.4.12`**, whose `hd1k_combo.img` was measured
+  in `032b1cf` to carry the host-path usage line and the capability probe. So
+  this port is **level with ioscpm's shipped build on this row's pin**, not
+  behind it: the sentence that stood here docked ioscpm for a pin its shipped
+  build has and this one supposedly lacked, when both are on `v1.4.12`. This port also defines
   `emu_host_path_caps()` and sets `EMU_HOST_CAP_SAFE_PATHS` — honestly, since the
   bit means a guest path is never used *destructively*, not that it is confined to
   one directory, and open-write here is a plain create-or-replace with no delete
@@ -832,19 +845,32 @@ copyrighted content.
   from under an installed client and re-introduce an HBIOS/CBIOS version mismatch.
   *Cancel is in the spec because the ports need it, not because this port has it.*
 <!-- cites: z80cpmw -->
-- **Where:** `z80cpmw/DiskCatalog.{h,cpp}` — note the single `RELEASE_TAG` constant.
-- **z80cpmw itself, re-read 2026-09-06 at `dbd53b1`** — the commit the Store's
-  1.0.23 was built from, and not at HEAD, where the constant is gone entirely in
-  favour of a two-document catalog that has never been built. **Pinned — to
-  `v1.4.5`, the OLD pin.** `RELEASE_TAG = L"v1.4.5"` at `DiskCatalog.cpp:17` is
-  the single source of both URLs, with the HBIOS/CBIOS-mismatch reason in the
-  comment above it. The repin to `v1.4.12` landed in `032b1cf`, **after** the
-  packages were built — that commit says so in as many words, "none of this is in
-  the 1.0.23 packages … they carry RELEASE_TAG v1.4.5" — and 1.0.24 was cut to
-  deliver it and never submitted. So on the installable Windows build this port
-  fetches the same `v1.4.5` images cpmdroid is marked down for, and is behind
-  ioscpm's shipped build 61 on precisely the axis this row scores. Cancel is the
-  same shape as cpmdroid's ◐: it happens when the window dies, not from a button.
+- **Where:** `z80cpmw/DiskCatalog.{h,cpp}` for the pin and the transfer — note
+  the single `RELEASE_TAG` constant — and, since 1.0.25,
+  `z80cpmw/DiskLedger.{h,cpp}` and `z80cpmw/DiskHash.{h,cpp}` for whether the
+  image already on the machine is still the one the catalog names.
+- **z80cpmw itself, re-read 2026-09-06 at `211488b`** — the commit the Store's
+  **1.0.25** was built from, measured with `tools/check-store-version.sh` rather
+  than taken from this repository's own prose. An earlier entry here was written
+  the same day at `dbd53b1`, on the CHANGELOG's word that 1.0.23 was released;
+  that is three source commits and the whole provenance ledger too early, and
+  everything it said about this row was wrong in the same direction. Not at HEAD
+  either, where `f91c3a3` deletes the constant in favour of a two-document
+  catalog no Windows user has.
+  **Pinned — to `v1.4.12`, the current pin.** `RELEASE_TAG = L"v1.4.12"` at
+  `DiskCatalog.cpp:38` is the single source of both URLs, with the
+  HBIOS/CBIOS-mismatch reason in the comment above it. `032b1cf` repinned,
+  `5ee0e5f` cut 1.0.24 to carry it, and `211488b` cut 1.0.25 — which is the one
+  that was submitted and is being served. So **this port is level with ioscpm's
+  shipped build 61 on this row's own axis, not behind it**, and `cpmdroid` is now
+  the only port whose installed clients still fetch `v1.4.5`. The sentence that
+  stood here — that the Windows build fetches the same `v1.4.5` images cpmdroid
+  is marked down for — was true of 1.0.23 and false of what shipped.
+  **The library has provenance since 1.0.25.** `DiskLedger` and `DiskHash` are
+  what `211488b` added, and they are the reason this row's ◐ needs re-examining
+  rather than restating: the shipped build can say whether the image on the
+  machine is still the one the catalog names. Cancel remains the shape cpmdroid's
+  ◐ describes — it happens when the window dies, not from a button.
 <!-- /cites -->
 - **Shared concern:** all ports download from `ioscpm` releases. **Every port should
   pin to an explicit tag matching the RomWBW version its embedded ROM was built
@@ -949,17 +975,31 @@ In-app help fetched from GitHub, with offline bundled topics.
   small markdown→text renderer (headers, tables, lists, inline code).
 <!-- cites: z80cpmw -->
 - **Where:** `z80cpmw/HelpWindow.{h,cpp}` and `HelpAssets.{h,cpp}` — the
-  state-free half (index parsing, the markdown→text renderer, and the cache)
-  was split out on 2026-08-28 so it could be put under test, and is **353**
-  checks in the shipped 1.0.23 — 244 was the figure before the bundled-asset
-  section existed, and it stood here until 2026-09-06.
-  (ioscpm and cpmdroid already have help — align the topic set and the local
-  fallback.) **The on-disk cache is here now**, and `help_assets::resolveTopic`
-  is the one place the order lives: download, then cache, then the copy in the
-  binary — the same order as `ioscpm`'s below. The third step is written and
-  reaches nothing: this repo still bundles only its own two topics. Bundling the
-  seven published ones is blocked on a decision rather than on work, since three
-  of them are worded for iOS; `todo.txt` carries it.
+  state-free half (index parsing, the markdown→text renderer, and the cache) was
+  split out on 2026-08-28 in `392df97` so it could be put under test, and is
+  **355** checks in the shipped 1.0.25, one of the seven suites making 1467. 244
+  was the figure before the bundled-asset section existed; **353 was 1.0.23's,
+  and this row carried it until 2026-09-06 because 1.0.23 had been taken for the
+  shipped build.** `help_assets::resolveTopic` is the one place the topic order
+  lives — download, then the on-disk cache, then the copy in the binary, the same
+  order as `ioscpm`'s below — and **all three steps reach real bytes.** The cache
+  is wired rather than merely present: `MainWindow::onCreate` calls
+  `help_assets::setCacheRoot`. The third step is **not** empty, which is the
+  other thing this row got wrong: `694fdef` compiles the published
+  `help_index.json` and all seven topics into the exe as RCDATA — the
+  name-to-id table is `kBundledTopics` in `HelpAssets.cpp`, read back by
+  `bundledIndexJson` and `bundledTopic` — so an offline reader gets **nine**
+  topics, this port's own `gettingStartedMarkdown` and `configurationMarkdown`
+  plus the seven. The iOS-wording objection that was holding it was closed
+  upstream rather than forked, and `bcda185` retired the `[DECISION]` with it.
+  All three commits are ancestors of `211488b`, so this shipped.
+  Two differences from the other two ports are real and should not be scored
+  away: bundling is **optional at build time** (`z80cpmw.rc` guards it with
+  `NO_BUNDLED_HELP_ASSETS`, so a checkout without the optional sibling still
+  builds and simply behaves as every build did before bundling), and the
+  **index is deliberately not cached on disk** — `HelpWindow::fetchIndex` is
+  network then compiled-in copy, with no cache step, so a stale list cannot name
+  a topic neither the release nor this binary carries.
 <!-- /cites -->
 - **Why the fallback is not optional — a trap every port shares.** cpmdroid
   fetched its index from `releases/latest/download/help_index.json` with **no**
@@ -1467,14 +1507,20 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     landed in `tests/`. It drives the terminal through the public interface
     only: cursor state is read back with `ESC [ 6 n`, which puts the answerback
     under test rather than assuming it, and screen content through `cellAt()`.
-    `tests\run_tests.bat` runs it first of **six suites, 1323 checks** — the
-    figure for `dbd53b1`, the 1.0.23 build, and the one that build's
-    own CHANGELOG entry records. The **seven suites, 1467 checks** that stood
-    here is 1.0.25's: its seventh suite is disk provenance
-    (`tests/test_diskledger.cpp`), added after the shipped build, and 1467
-    appears nowhere in the 1.0.23 tree. Every capability this row claims IS in
-    the shipped build; only the evidence figure was borrowed from an unbuilt
-    version. The
+    `tests\run_tests.bat` runs it first of **seven suites, 1467 checks** — the
+    figure the shipped build's own `[1.0.25]` entry records: terminal
+    conformance 516, help renderer and assets 355, configuration diagnostics
+    302, disk provenance 142, host file transfer 66, rendering conformance 50,
+    HBIOS host file extension 36. The seventh suite, `tests/test_diskledger.cpp`,
+    was added **by** `211488b` — the 1.0.25 the Store serves — not after the
+    shipped build, which is what this paragraph said on 2026-09-06 when it was
+    written at `dbd53b1` under the belief that 1.0.23 was released. "Six suites,
+    1323 checks" is 1.0.23's figure. Nothing in this row's parser claims turned
+    on the mistake: `TerminalView.cpp`, `TerminalView.h`, `tests/test_vt52.cpp`
+    and `tests/test_render.cpp` are byte-identical at both commits, so only the
+    evidence figure moved — and it moved up. The tree has since grown an eighth
+    suite, the interface-v0 catalog one, which has shipped nowhere and is not
+    counted here. The
     one beside it is not a model check at all — `tests/test_render.cpp` opens a
     real window, drives it with real bytes, asks the DWM for it with
     `PrintWindow(PW_RENDERFULLCONTENT)` and reads the pixels, 50 checks over the
@@ -1632,7 +1678,7 @@ when that was; `--fetch` updates them first and is the only thing the script
 does that writes to a sibling.
 
 ```sibling-readings
-z80cpmw    dbd53b1  2026-09-06  shipped:1.0.25
+z80cpmw    211488b  2026-09-06  shipped:1.0.25
 ioscpm     af0b9b2  2026-09-06  shipped:61
 cpmdroid   35873d0  2026-09-06  shipped:27
 romwbw_emu 8bd38cd  2026-09-06  shipped:1.38
@@ -1657,18 +1703,21 @@ thing:
   document's oldest unexamined assumption: the reference column was "maintained
   in place", edited in the same commit as the code it describes, so it always
   described the TREE. The tree is not what anyone runs. All thirteen rows were
-  re-read on 2026-09-06 at `dbd53b1`, **and that was the wrong commit.** It was
-  chosen as the build behind Store 1.0.23, on this repository's own written word
-  that 1.0.23 was the released version. `tools/check-store-version.sh`, added
-  later the same day, measured the Store instead of trusting that sentence and
-  found **1.0.25** — built at `211488b`, three source commits ahead of `dbd53b1`.
-  Eight rows moved in that re-read and it has to be done again at `211488b`;
-  rows 4 and 5 are already known wrong, both resting on a `RELEASE_TAG` that
-  reads `v1.4.5` at `dbd53b1` and `v1.4.12` at the build that ships. From here
-  this column carries a reading like the other three and has to be re-read when
-  the Store moves. Its shipped figure is no longer the weakest of the four - it
-  is now the only one taken from a live query rather than a hand-maintained
-  number.
+  read TWICE on 2026-09-06, and the first read was at the wrong commit. It was
+  taken at `dbd53b1`, chosen as the build behind Store 1.0.23 on this
+  repository's own written word. `tools/check-store-version.sh`, added later the
+  same day, measured DisplayCatalog instead of trusting that sentence and found
+  the Store serving **1.0.25**, built at `211488b` — three source commits and
+  1,105 inserted lines further on, including the whole `DiskLedger`/`DiskHash`
+  provenance feature. The column was then re-read at `211488b`, and five rows
+  moved AGAIN: 1, 4, 5, 6 and 13, every one of them because the first read had
+  been taken at a build older than the one users have. All five moved UPWARD -
+  the wrong read had understated this port, and since every other column is
+  scored against this one, it had been widening the gaps reported against all
+  three of them. From here this column carries a reading like the other three and
+  has to be re-read when the Store moves. Its shipped figure is no longer the
+  weakest of the four: it is the only one taken from a live query rather than a
+  hand-maintained number.
 - **`cpmdroid` `35873d0`** - a full re-read of all thirteen rows on 2026-09-06,
   taken at the SHIPPED bundle rather than at a tree: versionCode 27 is what Play
   serves, and `a24ca9a` records that 35873d0 is what was uploaded. It stacks on
