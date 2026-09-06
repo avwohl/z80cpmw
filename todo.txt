@@ -118,7 +118,8 @@ whole of the verification and none of it has been run.
   again), applyConfig (filename -> check mark) and updateConfigFromState (id ->
   filename), plus SettingsDialogWx::populateROMList's two labels.  And
   roms\emu_avw.rom and roms\emu_romwbw.rom are byte-identical to each other and
-  to the catalog's emu_avw-v0-3.5.1.rom (all three c7abc580...), so the second
+  to the catalog's emu_avw-v0-3.5.1.rom (all three 4b11402a... as of
+  2026-09-06, c7abc580... before the HB_BNKCALL fix), so the second
   menu entry is a second name for the same 512 KB.
 
 - z80cpmw\SettingsDialog.cpp and SettingsDialog.h are dead and misleading.
