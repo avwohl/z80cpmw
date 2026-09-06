@@ -9,8 +9,17 @@ KNOWN_PROBLEMS.md (standing facts that will never be "done"), WIP.md (handoff).
 
 - [RELEASE] dist\z80cpmw.msix is 1.0.25's unsigned Store package and needs a
 Partner Center submission.  That submission is the whole item.  The Store is on
-1.0.23, which serves the v1.4.5 catalog, so every Windows user today runs the R8
+1.0.23, which serves the v1.4.5 catalog, so every Store user today runs the R8
 that erases every matching CP/M file when a host filename holds ? or *.
+
+  THE PACKAGE PREDATES THE MIGRATION AND THE VERSION NUMBER DOES NOT SAY SO.
+  It was built at 211488b, where DiskCatalog.cpp still compiled in RELEASE_TAG =
+  L"v1.4.12" and the ioscpm download URLs; f91c3a3 (the romwbw_disks index),
+  17c72fa (the ROM gate) and cd1fb2b (the 4b11402a ROM) all landed after it, and
+  Version.h still says 25.  So 1.0.25 names two different builds, which is the
+  one thing CHANGELOG.md forbids outright.  Decide before submitting: send the
+  package as it stands and the migration waits for its own number, or bump
+  Version.h and rebuild - but not both under 1.0.25.
 
   Submit 1.0.25, not 1.0.24.  Both carry the v1.4.12 repin and both were
   verified at the artifact, but 1.0.24 was packaged before build-msix.ps1 kept
@@ -21,8 +30,10 @@ that erases every matching CP/M file when a host filename holds ? or *.
 - [RELEASE] the GitHub channel has no pin at all and nothing says so.  v1.0.14
 is what GitHub marks Latest; DiskCatalog.cpp at that tag builds both URLs from
 releases/latest/download/, so the stable download floats onto ioscpm's
-releases/latest - today v1.4.11, the pre-fix R8.  The newest thing on that
-channel since is v1.0.22-beta.  Cutting a -beta fixes it.
+releases/latest - today v1.4.12, which by luck carries the FIXED R8 and not the
+pre-fix one.  The float is the defect either way: nothing stops whatever ioscpm
+marks Latest next from moving it again.  The newest thing on z80cpmw's own
+GitHub channel since v1.0.14 is v1.0.22-beta.  Cutting a -beta fixes it.
 
   It must come off the same bin\Release the Store package was made from, with
   -SkipBuild, and must not run on a published version number.  Neither 1.0.24
@@ -40,13 +51,14 @@ Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:
 
     THE URL SWITCH HAS LANDED, SO THIS IS NOW LIVE RATHER THAN HYPOTHETICAL.
     The v0 catalog gives hd1k_combo the hash 0ca4ec60... where v1.4.12 gives it
-    89b8ae1a..., so the first fetch against the new catalog makes every migrated
-    combo read SupersededPristine - which action() turns into
-    RefreshAutomatically and plan() into RefreshNow.  Nothing calls either:
+    89b8ae1a..., which would have made every migrated combo read
+    SupersededPristine - action() turns that into RefreshAutomatically and
+    plan() into RefreshNow - had the equivalence below not been recorded first.
+    Nothing calls either:
     grepping the tree, action, plan, RefreshNow, RefreshAutomatically and
     allowsUserRequestedUpdate appear only in DiskLedger and in
-    tests\test_diskledger.cpp.  That is the ONLY reason the verdict is harmless
-    today, and it is what an Update button would end.
+    tests\test_diskledger.cpp.  That wiring is what an Update button would
+    supply.
 
     DECIDED 2026-09-05, AND THE VERDICT IS NO LONGER SUPERSEDED.  The two images
     were compared byte for byte: both 51,380,224 bytes, slices 1-5 identical,
@@ -78,9 +90,12 @@ which matches neither "v0" nor "3.5.1", so a scan that finds nothing lands in th
 never checked and never complained about.  It also still hardcodes
 CATALOG_REPO="avwohl/ioscpm" (:34) and hd1k_combo.img as its canary (:66).
 
-  Rewrite it or retire it.  Not from this repository alone: the file is
-  byte-identical across all five (md5 47b7437050018c7cb4f7687d09909dc6), and
-  half a rewrite is worse than none.  What it would have to check now is a
+  Rewrite it or retire it, and it is no longer one file to rewrite: ioscpm's
+  copy (3b914238) already detects a migrated port and reports CANNOT VERIFY,
+  and cpmdroid's (f8ba1d5c) gave migrated ports their own row and says in its
+  own header that the other four need the same edit.  Only z80cpmw, cpmemu and
+  romwbw_emu still hold 47b7437050018c7cb4f7687d09909dc6, so this is the stale
+  half of the rewrite rather than the whole file.  What it would have to check now is a
   romwbw_disks release tag, an <id>-v0-<ver> filename, and a client whose only
   compiled-in URL is the index.
 
@@ -112,15 +127,24 @@ whole of the verification and none of it has been run.
   would also have to carry - and that is a design, not a tweak.
 
   Two smaller things the gate left behind.  The two bundled ROM names are still
-  written out by hand in six places that must move together: MainWindow.cpp's
+  written out by hand in seven places that must move together: MainWindow.cpp's
   onSelectROM (menu id -> filename), the Settings write-back (filename -> menu
   id), loadDefaultROM (emu_avw.rom outright), loadPackagedRom (the same choice
-  again), applyConfig (filename -> check mark) and updateConfigFromState (id ->
-  filename), plus SettingsDialogWx::populateROMList's two labels.  And
+  again), applyConfig (filename -> check mark), updateConfigFromState (id ->
+  filename) and bundledRomwbwRelease (:2125-2127, which the gate itself added -
+  three more emu_avw.rom paths, and deliberately not routed through
+  findResourceFile), plus SettingsDialogWx::populateROMList's two labels.  And
   roms\emu_avw.rom and roms\emu_romwbw.rom are byte-identical to each other and
   to the catalog's emu_avw-v0-3.5.1.rom (all three 4b11402a... as of
   2026-09-06, c7abc580... before the HB_BNKCALL fix), so the second
   menu entry is a second name for the same 512 KB.
+
+  The ROM refresh missed the suite.  tests\test_catalogv0.cpp's 3.5.1 fixture
+  (:206) still publishes emu_avw as c7abc580, and the check at :521-523 reads
+  "and the hash the bundled roms/emu_avw.rom already has", which stopped being
+  true on 2026-09-06.  All 130 checks still pass, because the fixture is
+  self-contained and nothing compares it to anything real - so the suite now
+  asserts a hash no catalog serves, against a bundled ROM that does not have it.
 
 - z80cpmw\SettingsDialog.cpp and SettingsDialog.h are dead and misleading.
 Neither is in the vcxproj ClCompile list, so nothing has compiled them for a
@@ -132,10 +156,10 @@ ninth place to keep in step.  Delete both.
 scaffolding that let the storage migration rename the images in a release whose
 catalog still called them hd1k_combo.img; the catalog now serves the v0 names and
 v0NameFor() refuses those, so it is the identity function for every filename that
-reaches it from a catalog entry.  Its five call sites - DiskCatalog.cpp:465
-(downloadDisk's local path, which is also the recordInstall key), :600
-(deleteDownloadedDisk's removeRecord), :615 (getDiskPath), :1134
-(updateFreshness) and SettingsDialogWx.cpp:984 (populateDiskLists) - all become
+reaches it from a catalog entry.  Its five call sites - DiskCatalog.cpp:682
+(downloadDisk's local path, which is also the recordInstall key), :817
+(deleteDownloadedDisk's removeRecord), :832 (getDiskPath), :1351
+(updateFreshness) and SettingsDialogWx.cpp:1000 (populateDiskLists) - all become
 one line shorter.  Leave it until a release that can be built and driven: the one caller
 that can still hand it a bare pre-v0 name is MainWindow's Settings write-back,
 against a configuration whose rename did not complete, and that path is in no

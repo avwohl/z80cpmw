@@ -32,6 +32,14 @@
 # no tree knows what a store is serving; what the script does is compare it to
 # the build in the tree and say so.  shipped:unknown is a failure, not a pass -
 # an unmeasured claim about what ships is the thing this is here to stop.
+#   The comparison runs BOTH WAYS, which it did not until 2026-09-06.  A reading
+# AHEAD of what ships is the fault above: ticks over software nobody can install.
+# A reading BEHIND what ships is a different fault with the same cause - the
+# column was read at an older build than users are running, so its ticks are all
+# true and its GAPS are stale, understating the port.  Until 2026-09-06 the test
+# was a bare string inequality that printed the ahead message for both, so
+# correcting ioscpm's shipped: from 37 to 61 - a build the column was BEHIND -
+# produced a true failure with a false explanation.
 #
 # Citations.  On 2026-09-02 the block describing Android cited NINE symbols that
 # existed nowhere in cpmdroid, in its tree or anywhere in its history, and four
@@ -304,6 +312,26 @@ tree_build() {
 	esac
 }
 
+# Compare two build identifiers.  Prints -1, 0 or 1 for a<b, a==b, a>b.
+# These are not all the same shape - ioscpm's CURRENT_PROJECT_VERSION and
+# cpmdroid's versionCode are plain integers, romwbw_emu's VERSION is "1.38" and
+# z80cpmw's is "1.0.25" - so compare component by component.  A plain numeric
+# test would fail on the dotted ones and a string test would put 1.0.9 above
+# 1.0.22.
+ver_cmp() {
+	awk -v a="$1" -v b="$2" 'BEGIN {
+		n = split(a, x, "."); m = split(b, y, ".")
+		k = (n > m ? n : m)
+		for (i = 1; i <= k; i++) {
+			p = (i <= n ? x[i] + 0 : 0)
+			q = (i <= m ? y[i] + 0 : 0)
+			if (p < q) { print -1; exit }
+			if (p > q) { print  1; exit }
+		}
+		print 0
+	}'
+}
+
 status=0
 
 # The citation loop runs in a pipeline, hence a subshell, so it cannot set
@@ -427,8 +455,18 @@ while read -r repo sha date shipped rest; do
 	elif [ -z "$built" ]; then
 		echo "$repo	CANNOT READ THE BUILD NUMBER at $sha - tree_build() has no rule for this port, or its file moved"
 		status=1
-	elif [ "$built" != "$ship" ]; then
+	elif [ "$(ver_cmp "$built" "$ship")" = 1 ]; then
 		echo "$repo	READ AT BUILD $built, SHIPS $ship - every tick in this column describes software no user has"
+		status=1
+	elif [ "$built" != "$ship" ]; then
+		# The other direction, and it is not the same fault.  The reading is
+		# BEHIND what ships, so every tick describes software users do have
+		# and nothing here overstates the product.  What is wrong is the
+		# absences: the column has never been read against the builds that
+		# shipped since, so whatever those gained is recorded as a gap that
+		# is no longer there.  Same remedy - re-read the column - but do not
+		# report it as ticks over software nobody has, because it is not.
+		echo "$repo	READ AT BUILD $built, SHIPS $ship - the reading is BEHIND what ships, so this column's GAPS are stale"
 		status=1
 	else
 		# Same number is not the same software.  Say how much has landed since

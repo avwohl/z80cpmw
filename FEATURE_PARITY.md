@@ -20,20 +20,29 @@ and the answerbacks; what still differs is the per-port detail listed in item
 one thing item 13 still named — no per-cell attribute beyond the packed CGA
 byte — landed in two commits, `480edcb` for the parser's flags byte and
 `29d3438` for the multi-`HFONT` paint path, so row 13 is **✅** here now.
-**It is not in a shipped build, and by now it is far from the only thing.**
-Store **1.0.22** (confirmed 2026-09-03 as 1.0.22.0) and sideload
-**1.0.22-beta** are the 1.0.20 parser.  This sentence used to name two
-unreleased things - the attribute work and the bright half of the palette -
-and that was true when it was written on 2026-08-28.  Twenty-three commits have
-touched `z80cpmw/` since the build those packages came from, and they include a
-download thread that outlived its dialog, the catalog's shutdown ownership, a
-Keyboard page in Settings, three Settings controls that read and wrote nothing,
-a downloader hidden at 200% DPI, a Reset confirmation, the seven help topics
-bundled into the binary and a refusal to keep a truncated download.  The
-honest statement is not a list: the Store build predates two dozen source
-commits, several of them lifetime and crash fixes.  `Version.h` reads 1.0.22
-in the tree as well, so the numbers agree and mean nothing on their own -
-`tools/check-sibling-drift.sh` measures from `v1.0.22-beta` and says so.
+**It IS in a shipped build now, and this paragraph said otherwise until
+2026-09-06.**  Both commits are ancestors of `dbd53b1`, the 1.0.23 build, so
+the attribute work reached the Store and row 13's tick describes software a
+user can install.  The sideload channel is a different answer: **1.0.22-beta**
+is still the 1.0.20 parser, and no `-beta` has been cut since.
+
+**The tree is still ahead of the Store, by much less than this paragraph used
+to say.**  `Version.h` reads **1.0.25**, 1.0.24 is packaged and unsubmitted, and
+**seven** commits have touched `z80cpmw/` since `dbd53b1`.  The enumeration that
+stood here - a download thread that outlived its dialog, the catalog's shutdown
+ownership, a Keyboard page in Settings, three Settings controls that read and
+wrote nothing, a downloader hidden at 200% DPI, a Reset confirmation, the seven
+help topics bundled into the binary and a refusal to keep a truncated download -
+was measured from the 1.0.22 build, which is **31** commits back, and most of it
+shipped in 1.0.23.  It is not repeated, because repeating it would assert the
+same gap from a baseline two releases stale.  What is needed is a re-read of
+this column, which `tools/check-sibling-drift.sh` has been asking for.
+
+**And note how that Store number is known.** Unlike `ioscpm`, which has
+`tools/check-store-version.sh` and measures the Microsoft equivalent of it,
+nothing here queries the Store: **1.0.23** is this repository's own record
+(`CHANGELOG.md`, `211488b`, 2026-09-04), which is an assertion rather than a
+measurement.  `shipped:1.0.23` in the block below is only as good as that.
 
 **The Android (`cpmdroid`) column was rewritten from source on 2026-08-25**, at
 `origin/master` — every row, because the branch the previous review described
@@ -1455,9 +1464,9 @@ when that was; `--fetch` updates them first and is the only thing the script
 does that writes to a sibling.
 
 ```sibling-readings
-z80cpmw    HEAD     2026-09-03  shipped:1.0.22
-ioscpm     e33beea  2026-09-02  shipped:37
-cpmdroid   e9436a5  2026-09-02  shipped:25
+z80cpmw    HEAD     2026-09-03  shipped:1.0.23
+ioscpm     e33beea  2026-09-02  shipped:61
+cpmdroid   e9436a5  2026-09-02  shipped:27
 romwbw_emu fce8f87  2026-09-02  shipped:1.38
 ```
 

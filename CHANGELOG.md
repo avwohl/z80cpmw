@@ -46,6 +46,63 @@ therefore not evidence of what has shipped.
 of it. The detail of what 1.0.23 carried is kept under this heading because
 1.0.23's own entry refers back to it.
 
+### `check-sibling-drift.sh` compared the shipped build in one direction only
+
+**This one WAS run** - it is `/bin/sh` and `awk`, not C++, and the gate was
+executed against the real sibling checkouts before and after.
+
+`FEATURE_PARITY.md`'s `sibling-readings` block carries a hand-maintained
+`shipped:<build>` per port, and the script compared it to the build in the tree
+at the recorded commit with a bare string inequality, then printed one message:
+*every tick in this column describes software no user has*. That sentence is
+only true when the reading is AHEAD of what ships. It was written when that was
+the only case anyone had seen - ioscpm read at build 57 while the Store served
+37 - and it hardcoded that direction into the diagnosis.
+
+The ioscpm line said `shipped:37` while the App Store serves 1.5.1, which is
+build 61 (`ioscpm/tools/check-store-version.sh`, itself corrected the same day,
+now measures this instead of guessing it). Setting the field to the measured 61
+flipped that row into the other direction - read at 58, ships 61 - and the
+script reported a true failure with a false explanation: those ticks describe
+build 58, which every user has. What is actually wrong is the opposite, and it
+is the half this document exists for: the column has never been read against
+builds 59 to 61, so its recorded GAPS are stale and understate the port.
+
+There is now a `ver_cmp()` and two branches. Ahead keeps the original message;
+behind gets its own. The comparison is component-by-component because these
+build identifiers are not one shape - ioscpm's `CURRENT_PROJECT_VERSION` and
+cpmdroid's `versionCode` are plain integers, `romwbw_emu`'s `VERSION` is `1.38`
+and this repository's is `1.0.25` - so a numeric test would fail on the dotted
+ones and a string test would sort `1.0.9` above `1.0.22`. Both are covered.
+**All three `shipped:` values in the block were wrong, and two of them were
+wrong in ways nothing could report.** They now read `ioscpm:61`,
+`cpmdroid:27`, `z80cpmw:1.0.23`.
+
+- `ioscpm` said 37 while the App Store serves build 61.
+- `cpmdroid` said 25, which is a **versionName** (Play serves 1.25) while
+  `tree_build()` returns a **versionCode**. The two are different numbers and
+  the row passed only because they happened to collide: versionCode at the
+  recorded commit `e9436a5` is also 25, with versionName 1.24. Play's 1.25 is
+  versionCode **27** - `app/build.gradle.kts:90` says so outright, "27 / 1.25
+  are spent: Play has seen them". With the units fixed the row correctly
+  reports a reading two builds behind what ships.
+- This repository said 1.0.22 while its own `CHANGELOG.md` has said since
+  `211488b` (2026-09-04) that the released Store version is **1.0.23**. Its row
+  still reports ahead, as it should - read at 1.0.25, ships 1.0.23 - but from a
+  true number.
+
+That last one is worth naming as a gap rather than a fix: unlike `ioscpm`,
+nothing in this repository queries the Microsoft Store, so `shipped:1.0.23` is
+an assertion copied from our own changelog, not a measurement. `FEATURE_PARITY.md`
+now says so at the block.
+
+The paragraph above the block claimed the row 13 attribute work "is not in a
+shipped build". It is: `480edcb` and `29d3438` are both ancestors of `dbd53b1`,
+the 1.0.23 build. It shipped, and the enumeration of unshipped work beside it
+was measured from the 1.0.22 build - 31 commits back, against 7 since 1.0.23 -
+so most of that list shipped too. The list is removed rather than restated; what
+it needs is the column re-read the drift script keeps asking for.
+
 ### The ROM comes from the catalog too, and a mismatched one no longer boots
 
 **NOT COMPILED** - written on a Linux machine with no MSVC, no wxWidgets and no

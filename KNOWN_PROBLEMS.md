@@ -138,3 +138,28 @@ meant to be. Anyone refreshing the images who wants this closed has to check
 that image by hand and put the utilities on it deliberately; nothing will go red
 if they forget, and the sentence about it in the in-app File Transfer topic is
 the only place a user is told.
+
+## The first shipped build to read the romwbw_disks index spends its respin
+
+`romwbw_disks` corrects an already-published RomWBW version by **overwriting the
+assets in place and bumping a content-derived `generation`**, never by renaming
+them — its `docs/RELEASING.md` section 5 records why: all three clients key
+saved state on the filename, so a `-r2` name would strand every user's
+downloaded library under a name nothing fetches.
+
+That was exercised once, on 2026-09-06: generation 2, four rebuilt ROMs, both
+releases. It was safe only because no shipped client could see those URLs — the
+migration to the index (`f91c3a3`) has never been in a released build, and
+Store 1.0.23 still fetches `avwohl/ioscpm/releases/download/v1.4.5/disks.xml`.
+
+**Do not check that with `git tag --contains`.** This family releases without
+tagging: ioscpm 1.5.1 went live on 2026-09-05 and has no `v1.5.1` tag at all, so
+an empty `git tag --contains` proves nothing about what users have. The question
+is what the *shipped source* fetches — `git show <shipped-commit>:z80cpmw/DiskCatalog.cpp`,
+or the `RELEASE_TAG` string in the artifact, where it is UTF-16LE.
+
+Whichever release first carries `f91c3a3` ends this. From then on a correction
+upstream is a new RomWBW version entry, not a quiet re-upload, and a user who
+already verified a SHA-256 would otherwise get different bytes at the same URL.
+This is not an action for this repository; it is a cost that this repository's
+next release imposes on another, and worth knowing before spending it.
