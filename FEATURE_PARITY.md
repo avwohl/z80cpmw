@@ -221,7 +221,8 @@ written as termcap-style escape strings.
   `handleKeyDown`), `Config.h` (`KeyboardConfig`: `f1ToCpm`,`f5ToCpm`,
   `ctrlRToCpm`,`keys`), `MainWindow.cpp` (`rebuildAccelerators`,
   `updateMenuAccelHints`), `SettingsDialogWx.cpp` (`buildKeyboardPage`).
-- **Config:** the `keyboard` block in the JSON config — **or Settings →
+- **Config:** *(re-read 2026-09-06 at `dbd53b1`, the 1.0.23 build)* the
+  `keyboard` block in the JSON config — **or Settings →
   Keyboard**, which reads and writes that same block (2026-08-28; not in a
   shipped build yet). Every bindable key with what it sends and a status, a box
   to edit the sequence, Default and Unbind, and the three app-shortcut switches.
@@ -512,7 +513,16 @@ to find them on every platform.
   *effective* destination rather than the requested name, so `W8` prints the data
   folder for a bare name and the redirected `LocalCache` path in an installed MSIX
   build. That reaches users only when the disk images carry the `w8.com` that asks
-  (`HBF_HOST_GETNAME`, `0xE8`); see `todo.txt`. This port also defines
+  (`HBF_HOST_GETNAME`, `0xE8`) — **and the shipped 1.0.23 does not deliver one.**
+  The package carries no images at all, by design, so `RELEASE_TAG` alone decides
+  which combo a user downloads, and at `dbd53b1` it still reads `v1.4.5`, whose
+  `hd1k_combo.img` carries neither the host-path usage line nor the `0xE9`
+  capability probe. The repin to `v1.4.12` landed after the package was built and
+  is delivered by 1.0.24, which is **built and verified at the artifact but never
+  submitted**. The read twin is unreachable the same way. So this half of the row
+  is true of the tree and of no installed Windows user, which matters because the
+  ioscpm cell is docked for the same pin while its shipped build is the one that
+  HAS `v1.4.12`. This port also defines
   `emu_host_path_caps()` and sets `EMU_HOST_CAP_SAFE_PATHS` — honestly, since the
   bit means a guest path is never used *destructively*, not that it is confined to
   one directory, and open-write here is a plain create-or-replace with no delete
@@ -804,10 +814,23 @@ to find them on every platform.
 Download prebuilt disk images from the shared release host instead of bundling
 copyrighted content.
 - **Behaviour/spec:** fetch `disks.xml`, list catalog (name/desc/status), download
-  with progress + cancel, track downloaded state, delete. **Pinned to one explicit
+  with progress, track downloaded state, delete. **Pinned to one explicit
   release tag** (not `latest`) so a new release can't silently swap disk images out
   from under an installed client and re-introduce an HBIOS/CBIOS version mismatch.
+  *Cancel is in the spec because the ports need it, not because this port has it.*
 - **Where:** `z80cpmw/DiskCatalog.{h,cpp}` — note the single `RELEASE_TAG` constant.
+- **z80cpmw itself, re-read 2026-09-06 at `dbd53b1`** — the commit the Store's
+  1.0.23 was built from, and not at HEAD, where the constant is gone entirely in
+  favour of a two-document catalog that has never been built. **Pinned — to
+  `v1.4.5`, the OLD pin.** `RELEASE_TAG = L"v1.4.5"` at `DiskCatalog.cpp:17` is
+  the single source of both URLs, with the HBIOS/CBIOS-mismatch reason in the
+  comment above it. The repin to `v1.4.12` landed in `032b1cf`, **after** the
+  packages were built — that commit says so in as many words, "none of this is in
+  the 1.0.23 packages … they carry RELEASE_TAG v1.4.5" — and 1.0.24 was cut to
+  deliver it and never submitted. So on the installable Windows build this port
+  fetches the same `v1.4.5` images cpmdroid is marked down for, and is behind
+  ioscpm's shipped build 61 on precisely the axis this row scores. Cancel is the
+  same shape as cpmdroid's ◐: it happens when the window dies, not from a button.
 - **Shared concern:** all ports download from `ioscpm` releases. **Every port should
   pin to an explicit tag matching the RomWBW version its embedded ROM was built
   from.** See this repo's `WIP`/parity notes on the version-skew problem.
@@ -911,7 +934,9 @@ In-app help fetched from GitHub, with offline bundled topics.
   small markdown→text renderer (headers, tables, lists, inline code).
 - **Where:** `z80cpmw/HelpWindow.{h,cpp}` and `HelpAssets.{h,cpp}` — the
   state-free half (index parsing, the markdown→text renderer, and the cache)
-  was split out on 2026-08-28 so it could be put under test, and is 244 checks.
+  was split out on 2026-08-28 so it could be put under test, and is **353**
+  checks in the shipped 1.0.23 — 244 was the figure before the bundled-asset
+  section existed, and it stood here until 2026-09-06.
   (ioscpm and cpmdroid already have help — align the topic set and the local
   fallback.) **The on-disk cache is here now**, and `help_assets::resolveTopic`
   is the one place the order lives: download, then cache, then the copy in the
@@ -996,9 +1021,20 @@ In-app help fetched from GitHub, with offline bundled topics.
 
 <!-- /cites -->
 ### 7. NVRAM / autoboot / boot string
-- **Behaviour/spec:** RomWBW autoboot config via `W` at the boot menu persists;
-  "Clear Boot Config" resets it; an optional `bootString` is auto-typed at the boot
-  menu. **Note the boot-unit numbering:** with the EMU AVW ROM the on-board RAM/ROM
+- **Behaviour/spec:** RomWBW autoboot config via `W` at the boot menu persists
+  and "Clear Boot Config" resets it. **The setting travels in the emulated RTC's
+  NVRAM switches; nothing is typed at the boot menu.** `EmulatorEngine::start`
+  calls `setNvramSetting(m_bootString)` under the comment "Configure boot option
+  via NVRAM switches (not character queueing)", and `sendString` — the only
+  character-queueing entry point on the engine — has no caller anywhere in
+  `z80cpmw/`, only its definition and its declaration.
+  This row said "an optional `bootString` is auto-typed at the boot menu" until
+  2026-09-06, and that described **1.0.7**: `eb97c64` ("v1.0.8: Fix boot option
+  using NVRAM switches") deleted the `emu_console_queue_char` loop as broken on
+  2026-01-08, fifteen releases before the build the Store serves. **No port has
+  the auto-type, this one included**, so the ⬜ it was creating in the other
+  three columns was scored against software that has not existed since 1.0.8.
+  **Note the boot-unit numbering:** with the EMU AVW ROM the on-board RAM/ROM
   disks are units 0 and 1, so the first hard disk is unit **2** — see this repo's
   Getting Started help for the user-facing wording.
 - **Where:** `z80cpmw/EmulatorEngine.cpp` (`clearNvramSetting`) and
@@ -1046,9 +1082,26 @@ In-app help fetched from GitHub, with offline bundled topics.
 - **Behaviour/spec:** remember main-window position/size across runs with
   monitor-change / off-screen reset; auto-size the window to the exact 80×25 grid on
   font change; per-monitor DPI-v2 font scaling.
-- **Where:** `z80cpmw/MainWindow.cpp` (`WindowConfig`, `resizeWindowToTerminal`),
-  `TerminalView::createFont`; config `window` block. **N/A to mobile** — but not
-  to Mac Catalyst, which is a resizable desktop window.
+- **Where:** `z80cpmw/MainWindow.cpp` (`WindowConfig`, `restoreWindowPlacement`,
+  `saveWindowPlacement`, `resizeWindowToTerminal`), `TerminalView::createFont`;
+  config `window` block. **N/A to mobile** — but not to Mac Catalyst, which is a
+  resizable desktop window.
+- **Verified z80cpmw behaviour (2026-09-06, at `dbd53b1` — the 1.0.23 build):**
+  all three clauses of the spec ship. Placement: `saveWindowPlacement` writes the
+  rectangle, the maximized flag and the monitor bounds into the config `window`
+  block on close and on end-of-session; `restoreWindowPlacement`, called from
+  `MainWindow::show` ahead of the `resizeWindowToTerminal` fallback, discards a
+  saved rectangle no monitor covers. Auto-size: `resizeWindowToTerminal` runs
+  after every View-menu font change and expands the frame with
+  `AdjustWindowRectExForDpi`. DPI: the app really is per-monitor v2 —
+  `z80cpmw.manifest` declares `PerMonitorV2`, and `TerminalView::createFont`
+  scales the height by `GetDpiForWindow` through `MulDiv(m_fontSize, dpi, 96)`.
+  The one gap is narrower than "no DPI support": there is **no `WM_DPICHANGED`
+  handler**, so the font is scaled when it is created and dragging the window to
+  a monitor at a different scale does not re-create it. That distinction matters
+  outside this row — the ioscpm cell is docked for having no per-monitor DPI
+  scaling, and that dock is correct precisely because the Windows reference does
+  have it.
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: af0b9b2 -->
 <!-- cites-withdrawn: NSUserActivity -->
@@ -1170,8 +1223,21 @@ Emulated retro graphics card in a separate window.
 ### 12. Manifest-disk write warning
 - **Behaviour/spec:** warn before writing to a downloaded catalog ("manifest") disk,
   since a re-download would overwrite local changes. Suppressible.
-- **Where:** config `core.warnManifestWrites`; `SettingsDialogWx.cpp`,
-  `EmulatorEngine` disk-warning hooks.
+- **Where:** config `core.warnManifestWrites` (default `true`); the *Warn on
+  Downloaded Disk Writes* checkbox on `SettingsDialogWx.cpp`'s Disk Images page;
+  `EmulatorEngine::setDiskIsManifest`, `setDiskWarningSuppressed` and
+  `pollManifestWriteWarning`, which forward to the shared core this project
+  compiles directly — the same `hbios_dispatch.cc` the two mobile ports build.
+- **Verified z80cpmw behaviour (2026-09-06, at `dbd53b1` — the 1.0.23 build, and
+  unchanged at HEAD):** **present and suppressible.** `MainWindow.cpp`'s 500 ms
+  status tick polls `pollManifestWriteWarning()` and raises a *Disk Write
+  Warning* box pointing at File → Save Disk; like ioscpm's it is informational,
+  the write having already happened, and it fires **once per session** for the
+  same reason as on the other two ports — the latch is a static in that shared
+  core file and the core's `reset()` leaves it alone. Settings OK pushes the
+  checkbox both ways across all four units, so re-ticking clears the
+  suppression. No column is over-scored by this row: ioscpm and cpmdroid are
+  both already ✅ here, so correcting the reference inflates nothing.
 <!-- cites: cpmdroid -->
 - **Verified Android behaviour (2026-09-02):** **present and suppressible.**
   Downloaded (catalog) disks are flagged per unit through
@@ -1373,7 +1439,14 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     landed in `tests/`. It drives the terminal through the public interface
     only: cursor state is read back with `ESC [ 6 n`, which puts the answerback
     under test rather than assuming it, and screen content through `cellAt()`.
-    `tests\run_tests.bat` runs it first of **seven suites, 1467 checks**, and the
+    `tests\run_tests.bat` runs it first of **six suites, 1323 checks** — the
+    figure for `dbd53b1`, the 1.0.23 the Store serves, and the one that build's
+    own CHANGELOG entry records. The **seven suites, 1467 checks** that stood
+    here is 1.0.25's: its seventh suite is disk provenance
+    (`tests/test_diskledger.cpp`), added after the shipped build, and 1467
+    appears nowhere in the 1.0.23 tree. Every capability this row claims IS in
+    the shipped build; only the evidence figure was borrowed from an unbuilt
+    version. The
     one beside it is not a model check at all — `tests/test_render.cpp` opens a
     real window, drives it with real bytes, asks the DWM for it with
     `PrintWindow(PW_RENDERFULLCONTENT)` and reads the pixels, 50 checks over the
@@ -1531,7 +1604,7 @@ when that was; `--fetch` updates them first and is the only thing the script
 does that writes to a sibling.
 
 ```sibling-readings
-z80cpmw    HEAD     2026-09-03  shipped:1.0.23
+z80cpmw    dbd53b1  2026-09-06  shipped:1.0.23
 ioscpm     af0b9b2  2026-09-06  shipped:61
 cpmdroid   35873d0  2026-09-06  shipped:27
 romwbw_emu fce8f87  2026-09-02  shipped:1.38
@@ -1552,6 +1625,18 @@ thing:
   measured rather than asserted: `ioscpm/tools/check-store-version.sh` queries
   the iTunes lookup, and it reports "at most build 61" because builds 62-65 each
   carry a `**NOT COMPILED` marker.
+- **`z80cpmw` `dbd53b1`** - this line used to read `HEAD`, and that was the
+  document's oldest unexamined assumption: the reference column was "maintained
+  in place", edited in the same commit as the code it describes, so it always
+  described the TREE. The tree is not what anyone runs. All thirteen rows were
+  re-read on 2026-09-06 at `dbd53b1`, the commit the Store's 1.0.23 was built
+  from - not at HEAD (1.0.25, never built) and not at the newest commit numbered
+  1.0.23 (`032b1cf` changed five source files after the package was already made
+  from `bin\Release`). Eight rows moved. From here this column carries a reading
+  like the other three and has to be re-read when the Store moves, rather than
+  drifting forward with the tree. Its shipped figure is still the weakest of the
+  four: nothing in this family queries the Microsoft Store, so `shipped:1.0.23`
+  is this repository's own CHANGELOG assertion, not a measurement.
 - **`cpmdroid` `35873d0`** - a full re-read of all thirteen rows on 2026-09-06,
   taken at the SHIPPED bundle rather than at a tree: versionCode 27 is what Play
   serves, and `a24ca9a` records that 35873d0 is what was uploaded. It stacks on
