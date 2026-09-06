@@ -77,17 +77,26 @@ paragraphs down: reading three rows is not reading a column, and that line is
 what certifies one. Rows 1, 2, 3, 5, 7, 8, 9, 10, 11 and 12 have not been
 re-read since 2026-08-27.
 
-**The iOS/macOS column was re-read from `ioscpm` source on 2026-08-26**, at
-**build 52** (`49851aa`), and for the first time from a checkout on this machine
-rather than at a distance. It supersedes the 2026-08-24 reading at build 50,
-which was right when it was written and went stale within the day: build 51
-(`4deea96`) landed that afternoon and build 52 (`bb5543f`) the next morning.
+**The iOS/macOS column was re-read in full on 2026-09-06, at `af0b9b2` —
+build 61, the commit the App Store's 1.5.1 was built from.** Reading it at a
+SHIPPED commit rather than at the tree tip is the point: builds 62-65 exist in
+`ioscpm` and none has ever been compiled, so a tick taken from HEAD would
+describe software nobody can install. Seven of the thirteen rows changed and
+every one in the same direction — the column understated what ships. Six of them
+had gone unrecorded because the work landed in `8e7587f`, which is still stamped
+build 58, the same number as the commit the previous reading was taken at, so no
+version number said the tree had moved; row 5 was simply wrong, still naming a
+`v1.4.5` pin that build 59 had moved to `v1.4.12`.
+
+It supersedes the 2026-08-26 reading at build 52 (`49851aa`), which superseded
+2026-08-24 at build 50 — right when written and stale within the day, build 51
+(`4deea96`) landing that afternoon and build 52 (`bb5543f`) the next morning.
 
 What the 2026-08-24 pass corrected stands. Item 5 said the disk catalog was
 unpinned when it has been pinned to `v1.4.5` since build 42; item 6 claimed the
 help system outright when the offline fallback that item exists for was absent;
-items 8, 9 and 12 were unverified `❓` when window state is missing and font size
-and the manifest warning are both present; item 13 gained the parser bounds
+items 8, 9 and 12 were unverified `❓` when window state was missing (it is not
+any more — see item 8) and font size and the manifest warning are both present; item 13 gained the parser bounds
 build 49 added.
 
 **Build 51 closed the three complaints this document still had against that
@@ -261,7 +270,8 @@ written as termcap-style escape strings.
     to compete with `^R`, which `setupToolbar` now carries a comment to protect.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-  - **ioscpm (iOS/macOS)** *(2026-08-26, build 52)* — ◐, and closer than it was.
+<!-- cites-elsewhere: af0b9b2 -->
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ◐, and closer than it was.
     The map moved out to `iOSCPM/Views/KeyMap.swift` in build 51 and it has the
     same termcap escape schema (`KeyMap.expand`; it has no explicit `\^` case but
     its default arm emits the same literal `^`, so every documented escape
@@ -294,10 +304,16 @@ written as termcap-style escape strings.
     `VT100/ANSI`, `VT52`, `Custom`) whose default is still the **WordStar
     diamond** (`^E`/`^X`/`^S`/`^D`), not the VT220 table, and its `VT100/ANSI`
     profile still binds Delete to `\E[3~` where z80cpmw and cpmdroid send `^?`.
-    And there is still no on-screen way to press any of them: all twenty-six
-    bindable slots need a hardware keyboard. `ioscpm`'s `todo.txt` calls that its
-    largest remaining gap, and `4deea96`'s own message notes that build 51 made
-    it larger rather than smaller.
+    There IS now an on-screen way to press them, which is what this entry
+    said there was not: `8e7587f` added `KeyRowLayout` and `SpecialKeyRow`, three
+    pages (Nav, Fn, Ctrl) under the terminal reaching all twenty-six bindable
+    slots with no hardware keyboard, suppressible from Settings → Preferences and
+    carried in a saved profile. It presses through `sendSpecialKey` → the same
+    `KeyMap.bytes(for:)` the hardware path uses, so the map still means one thing,
+    and `KeyMapTests` asserts the row offers every real key and nothing else. It
+    is in the shipped build 61. On Catalyst it is the ONLY way to send Ctrl+arrow,
+    which WindowServer takes before the app sees it. What remains ◐ is the map
+    itself, not the reach: no modifier bindings beyond the four Ctrl arrows.
 
 <!-- /cites -->
 ### 2. Scrollback history  — *new in Windows; iOS/macOS reached it at ioscpm build 57 (2026-09-02), not build 43; Android reached it the same day in `e9436a5`, and keeps history across a cold boot on purpose*
@@ -431,12 +447,20 @@ Drag to select terminal text, right-click for Copy/Paste.
   strip" Copy/Paste (cpmdroid already has this); Linux CLI = host terminal.
 - **Verified port behaviour:**
 <!-- cites: ioscpm -->
-  - **ioscpm (iOS/macOS)** *(2026-09-02, build 58)* — ✅ on Mac Catalyst, ◐ on iOS,
-    and no selection at all before build 57 - Copy All, ⌘C and ⌘V were all there,
+<!-- cites-elsewhere: af0b9b2 -->
+<!-- cites-withdrawn: selectionSpan -->
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ✅ on both now: the Mac
+    pointer drag arrived in build 57 and iOS press-and-hold-then-drag in build
+    61, which is what this entry used to record as the ◐. Before build 57 there
+    was no selection at all - Copy All, ⌘C and ⌘V were all there,
     but `copyText` was the whole-screen copy and there was nothing to select.  A
     pointer drag now runs `handleSelectPan`, which sets an anchor cell and a focus
-    cell; `selectionSpan` orders them whichever way the drag went and `isSelected`
-    tests membership, so the span is **linear** - anchor cell to focus cell,
+    cell.  Build 61 moved the state machine both platforms share into
+    `driveSelection`, so the Mac's pointer drag and the iOS press-and-drag decide
+    the same states once instead of twice: a `TerminalSelection` holds the anchor,
+    `visibleSpan` orders it against the focus whichever way the drag went, and
+    `isSelected` tests membership.  (Read at build 58 this said `selectionSpan`,
+    which is the name build 61 retired.)  The span is **linear** - anchor cell to focus cell,
     wrapping at the row end - rather than rectangular, which is what makes copying
     a wrapped line give you the line.  The highlight is drawn over the cell's own
     background and under its glyph, as a translucent fill rather than this repo's
@@ -544,9 +568,8 @@ to find them on every platform.
     picks it precisely because `_` is a CCP filename delimiter.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-<!-- cites-elsewhere: emu_io_windows.cpp w8.com -->
-  - **ioscpm (iOS/macOS)** *(2026-08-26 at build 52, re-read 2026-09-02 at
-    build 58)* — `W8` always writes `Documents/Exports`, `R8` always reads
+<!-- cites-elsewhere: emu_io_windows.cpp w8.com af0b9b2 -->
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — `W8` always writes `Documents/Exports`, `R8` always reads
     `Documents/Imports` (no per-transfer dialog). As of **v1.4.11 / build 41** an **Import File…** picker (enabled on
     iOS *and* Mac Catalyst) stages an arbitrary-location file into `Imports` for a
     later `R8`; the old opt-in per-transfer picker was removed. So arbitrary-path
@@ -614,7 +637,8 @@ to find them on every platform.
     same divergence `cpmdroid` closed in `c06fa58` and the browser backend
     closed in v1.36, so all four ports now create the empty file that this one
     and the CLI always created. **The read side of that same hole stayed open**
-    until build 55: `baseAddress` is nil for an empty `Data` and the hand-off
+    until build 55: a `Data` value's base address is nil when it is empty, and
+    the hand-off
     sat inside the binding that unwrapped it, so an empty file in `Imports` left
     the backend parked in `WAITING_READ`. This paragraph ended "neither change
     has been compiled — that repo records it as NOT COMPILED, for want of
@@ -792,10 +816,12 @@ copyrighted content.
     item 6 for why that choice is only safe with a bundled fallback.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-  - **ioscpm (iOS/macOS)** *(re-verified 2026-09-02, at build 58)* — **pinned**,
-    since build 42. `EmulatorViewModel.swift` holds a single
-    `releaseTag = "v1.4.5"` from which both `catalogURL` and `releaseBaseURL`
-    are built, with the reason in a comment (the core reports RomWBW v3.5.1;
+<!-- cites-elsewhere: af0b9b2 -->
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — **pinned**,
+    since build 42 — but the value is **`v1.4.12`**, repinned by `0010591` in
+    build 59 and shipped in 61; this entry read `v1.4.5` when it was taken at
+    build 58. `EmulatorViewModel.swift:162` holds the single `releaseTag` from
+    which both `catalogURL` and `releaseBaseURL` are built, with the reason in a comment (the core reports RomWBW v3.5.1;
     slices from another release print an HBIOS/CBIOS mismatch). Like cpmdroid,
     help deliberately stays on `releases/latest`, which item 6 explains is only
     safe behind a bundled fallback — and both ports now have one, `ioscpm` since
@@ -1018,13 +1044,20 @@ In-app help fetched from GitHub, with offline bundled topics.
   `TerminalView::createFont`; config `window` block. **N/A to mobile** — but not
   to Mac Catalyst, which is a resizable desktop window.
 <!-- cites: ioscpm -->
+<!-- cites-elsewhere: af0b9b2 -->
 <!-- cites-withdrawn: NSUserActivity -->
-- **Verified ioscpm behaviour (2026-08-24):** **absent.** Nothing in the app
-  persists or restores window frame or scene state (no `NSUserActivity`, no
-  state-restoration hooks, no stored frame), so a Catalyst window opens at the
-  system default every launch. Font size is a menu rather than a grid-derived
-  size, so there is no auto-size-to-80×25 either. Tracked in `ioscpm/todo.txt`
-  alongside the missing Emulator menu.
+- **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ◐ on Catalyst, no
+  longer absent. `8e7587f` added `WindowFrame` and `CatalystWindow`: four numbers
+  under a `catalystWindowFrame` default, saved when the scene deactivates and
+  restored a runloop turn after `onAppear`, with a restored frame clamped to the
+  display, an off-screen one dragged back on, and a 640×480 floor held through
+  `sizeRestrictions`. Placement needs iOS 16's `requestGeometryUpdate` and
+  `IPHONEOS_DEPLOYMENT_TARGET` is 15.0, so below that only the minimum applies.
+  Tested only where it can be: `WindowFrame` has 34 checks, `CatalystWindow` has
+  none, and MANUAL_CHECKS §10's window boxes are unticked — it has never been
+  driven on a Mac. Font size is still a menu rather than a grid-derived size, so
+  there is no auto-size-to-80×25, and there is no per-monitor DPI scaling.
+  *(Superseding the 2026-08-24 reading, which found no stored frame at all.)*
 
 <!-- /cites -->
 ### 9. Configurable font size
@@ -1107,9 +1140,26 @@ Emulated retro graphics card in a separate window.
   no Settings → Configuration Profiles. `SettingsRepository` is a flat
   `SharedPreferences` wrapper over one current setting each (ROM, four disk
   slots, font size, wrap, scrollback, sound, manifest warning, NVRAM). That is
-  the same shape as the `romwbw_emu` CLI's single settings file, so this row is
-  ◐-at-best on three of the four ports and ✅ only here.
+  the same shape as the `romwbw_emu` CLI's single settings file.
 
+<!-- /cites -->
+<!-- cites: ioscpm -->
+<!-- cites-elsewhere: af0b9b2 -->
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ✅, and this row was
+    ⬜ for it until the re-read. `ProfileSection` in Settings is ungated, so iOS
+    and Catalyst both have it: named `EmulatorProfile`s carrying ROM, four disk
+    slots, boot string, key profile with its custom bindings, scrollback
+    capacity, bell, manifest warning, key row and new-disk size, with save,
+    tap-to-apply, swipe-to-delete and update-in-place, the whole `ProfileStore`
+    persisted as one JSON value under the `emulatorProfiles` default, and 66
+    checks in `EmulatorProfileTests`. It landed in `8e7587f`, which is still
+    stamped build 58 — the same number as the commit the previous reading was
+    taken at — which is how it went unrecorded. Font size is the one setting a
+    profile does not carry, living alone in `@AppStorage("terminalFontSize")`;
+    file-backed local disks are stored empty on purpose, a bookmark being a token
+    and not a name, at the cost that applying a profile can never detach one; and
+    `renameProfile` exists with no UI reaching it. So this row is ✅ on two of the
+    four ports, not one.
 <!-- /cites -->
 ### 12. Manifest-disk write warning
 - **Behaviour/spec:** warn before writing to a downloaded catalog ("manifest") disk,
@@ -1169,8 +1219,8 @@ extending it; that port's parser turned out to be the thinnest of the four.)
   8-column stop.
 - **Where (per port):**
 <!-- cites: ioscpm -->
-<!-- cites-elsewhere: cpmdroid TerminalView.kt c0b3bf7 -->
-  - **ioscpm** *(re-read 2026-09-02, build 58)* — `iOSCPM/Views/EmulatorViewModel.swift`, with the whole of SGR now in `TerminalRendition.swift`.
+<!-- cites-elsewhere: cpmdroid TerminalView.kt c0b3bf7 af0b9b2 -->
+  - **ioscpm** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — `iOSCPM/Views/TerminalScreen.swift` since `8e7587f`, with the whole of SGR now in `TerminalRendition.swift`.
     The origin of the parser: full VT52, scrolling region, answerbacks, deferred
     autowrap, charset consumption. **Build 51 closed the gap this entry used to
     name.** `@` (ICH), `P` (DCH), `X` (ECH), `S` (SU) and `T` (SD) are all
@@ -1430,12 +1480,18 @@ re-read on 2026-08-29 and all three changed**; the other ten rows are still the
 2026-08-25 reading, which is why the `sibling-readings` line below stays where
 it is and this column still reports as drifted. See the note at the head of this
 file.
-The **iOS/macOS column was re-read from `ioscpm` source on 2026-08-26**, at
-**build 52** (`49851aa`), from a checkout on this machine — every row, not only
-the ones that changed — and carried forward to **`15f48e9`** on 2026-08-27,
-which adds two facts to row 4 and falsifies nothing. Builds 51 and 52 both
-landed after the 2026-08-24 reading this replaces; see the note at the head of
-this file.
+The **iOS/macOS column was re-read from `ioscpm` source on 2026-09-06**, at
+**`af0b9b2`, build 61** — deliberately not at HEAD, because build 61 is the
+commit the App Store's 1.5.1 was built from and builds 62-65 have never been
+compiled. Every row was re-derived. **Seven of the thirteen changed and all
+seven in the same direction: the column understated what ships.** Six of those
+had gone unrecorded because the work landed in `8e7587f`, which is still stamped
+build 58 — the same number as `e33beea`, the commit the previous reading was
+taken at, so nothing about the version numbers said the tree had moved. Row 5
+was the exception and was simply wrong: it said the pin was `v1.4.5` when build
+59 had repinned to `v1.4.12`. Nothing in the column credited ioscpm with
+anything absent from the shipped build, which is the error this file exists to
+catch; the whole of it ran the other way.
 The **Linux/Web `romwbw_emu` column was re-read row by row at `a95db9f`** on
 2026-08-27, its first recorded reading; the 2026-08-24 sweep it replaces wrote
 down no commit. Twelve of its thirteen cells stood as written and row 5 did not
@@ -1465,7 +1521,7 @@ does that writes to a sibling.
 
 ```sibling-readings
 z80cpmw    HEAD     2026-09-03  shipped:1.0.23
-ioscpm     e33beea  2026-09-02  shipped:61
+ioscpm     af0b9b2  2026-09-06  shipped:61
 cpmdroid   e9436a5  2026-09-02  shipped:27
 romwbw_emu fce8f87  2026-09-02  shipped:1.38
 ```
@@ -1473,14 +1529,18 @@ romwbw_emu fce8f87  2026-09-02  shipped:1.38
 What each of those three readings is, because they are not the same kind of
 thing:
 
-- **`ioscpm` `15f48e9`** - a delta check, not a re-read. Build 52's full reading
-  (`49851aa`, 2026-08-26) still stands underneath it; `6b1b731` changes no
-  source at all, and `15f48e9` changes two things in row 4, both recorded there.
-  Two commits past it, `0165dac` and `0dbab43`, were read on 2026-08-28 for
-  **row 13 alone** - the erase family and `applySGR`, nothing else - and both
-  are recorded in that row. The tip above deliberately stays at `15f48e9` so the
-  drift script keeps reporting that column as moved: reading one function is not
-  reading a column, and this line is what certifies one.
+- **`ioscpm` `af0b9b2`** - a full re-read of all thirteen rows on 2026-09-06,
+  and the first one taken at a SHIPPED commit rather than at whatever the tree
+  happened to be. That is the point: `af0b9b2` is build 61, which is the 1.5.1
+  the App Store serves, so every tick in this column now describes software a
+  user can install. The tip is no longer frozen for effect - the previous line
+  held `15f48e9` on purpose so the drift script would keep reporting the column
+  as moved, and the earlier readings it stacked on (`49851aa` at build 52,
+  2026-08-26; `0165dac` and `0dbab43` read for row 13 alone on 2026-08-28) are
+  superseded by this one. This is also the only column whose shipped build is
+  measured rather than asserted: `ioscpm/tools/check-store-version.sh` queries
+  the iTunes lookup, and it reports "at most build 61" because builds 62-65 each
+  carry a `**NOT COMPILED` marker.
 - **`cpmdroid` `c6756af`** - the 2026-08-25 full reading (`9b68ab1`) plus a
   re-verification: every *absence* claim in the Android column was re-checked
   against the tree at `c6756af` and every one stands. `c6756af` is documentation
@@ -1493,19 +1553,19 @@ thing:
 
 | Feature | iOS/macOS `ioscpm` | Android `cpmdroid` | Linux/Web `romwbw_emu` |
 | --- | :---: | :---: | :---: |
-| 1. Configurable keymap (termcap) | ◐ (26 keys: F1–F12 since build 51, the four Ctrl+arrows since `0165dac`; no other modifier bindings, lower-camel names, WordStar default, no on-screen key row) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12, the nav cluster and Ctrl+arrow since `c0b3bf7`) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
+| 1. Configurable keymap (termcap) | ◐ (26 keys: F1–F12 since build 51, the four Ctrl+arrows since `0165dac`, and all 26 reachable without a hardware keyboard from a three-page on-screen key row since `8e7587f` — shipped in build 61, suppressible in Settings, and on Catalyst the only way to send Ctrl+arrow at all; no other modifier bindings, lower-camel names, WordStar default) | ⬜ (no map at all; fixed table, now VT220 incl. F1–F12, the nav cluster and Ctrl+arrow since `c0b3bf7`) | ➖ CLI (host terminal) · ◐ web (xterm.js fixed map, not configurable) |
 | 2. Scrollback | ✅ since ioscpm build 57 (2026-09-02), cleared at both fresh-session paths since build 58 (⬜ before 57: the LF path called `scrollRegion`, which does not capture, so no line ever entered the buffer from build 42 on) | ✅ since `e9436a5` (2026-09-02) (capacity choices incl. Off, capture at `scrollUp`, both chord pairs, the view anchors, the cursor hides, and history draws with the soft keyboard up; keeping history across a cold boot is deliberate there, not a defect) | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
-| 3. Mouse/native Copy-Paste | ✅ Mac Catalyst since ioscpm build 57 (2026-09-02) (pointer drag selects a linear span incl. scrollback, Cmd+C takes the selection; ⬜ before it — `copyText` copied the whole visible screen and nothing less) · ◐ iOS (no drag selection there: a finger drag scrolls, and the long-press menu offers Copy All alone) | ◐ (control strip; `copyScreenToClipboard` takes history and screen, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
-| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52) | ✅ (File transfer screen, save-as, share sheet, import picker and an inbound share target since `71465cb`; folders still fixed, import capped at 16 MiB) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
-| 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.5`) | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
+| 3. Mouse/native Copy-Paste | ✅ iOS + Mac Catalyst in the shipped build 61 (`af0b9b2`, 1.5.1) — Mac pointer drag since build 57, iOS press-and-hold-then-drag since 61 (before it `handleSelectPan`'s sole call site sat inside `#if targetEnvironment(macCatalyst)`, so no iOS gesture could set an anchor and the menu's Copy silently took the whole screen). Linear span incl. scrollback, ⌘C and the menu's Copy take the selection, Copy All is the no-selection fallback; 61 also made the span inclusive (57–60 copied one character short of the drag) and put Paste in the long-press menu, gated on `hasStrings`. Two gaps on both platforms: paste is not gated on the emulator running, and a pasted CRLF never becomes Enter — `pasteText` maps a bare LF to CR, but Swift iterates CRLF as ONE `Character` matching neither branch, so `sendKey`'s `asciiValue` folds it to 10 (LF), not the CR CP/M needs. The iOS gesture has never met a real finger: synthetic simulator events only, `MANUAL_CHECKS.md` §17 unticked, no grab handles and no autoscroll past an edge, so one gesture never selects more than a screen | ◐ (control strip; `copyScreenToClipboard` takes history and screen, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
+| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52; build 61 made `emu_host_file_open_read()` synchronous and moved the case-insensitive scan into it, so R8's `Reading:` line can at last carry the absolute path in the file's own spelling — but only for a disk carrying the `r8.com` that asks `0xEA`, which is the `v1.4.12` combo build 59 repinned to and **not** the `v1.4.5` one every earlier build shipped; an installed v1.4.5 image with no ledger entry is offered a lossy Update rather than refreshed, so an upgrading user still sees the shouted name. Same edit: a missing name or a directory now fails the open instead of leaving a zero-byte CP/M file, and a new 8 MiB cap refuses an import build 58 took in full. Unrun either way — `MANUAL_CHECKS.md` §14/§15 unticked, and the core checks use their own fake backends) | ✅ (File transfer screen, save-as, share sheet, import picker and an inbound share target since `71465cb`; folders still fixed, import capped at 16 MiB) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
+| 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.12` since build 59 — **not** `v1.4.5`, which is what this cell said when it was read at build 58; one `releaseTag` at `EmulatorViewModel.swift:162` still builds both `catalogURL` and `releaseBaseURL`). Shipped build 61 = 1.5.1 carries the repin, so an installed client fetches the fixed-R8 catalog, and the builds 55/56 work is live rather than queued: every download hashed against the catalog inside `downloadDiskFromSettings` before it replaces anything and refused outright when an entry carries no `<sha256>` (all 20 do), the cache stamped with `catalogCacheTagKey` and salvaged down to already-installed entries on a pin mismatch, and `checkCatalogVersionAndInvalidate` → `deleteCatalogDisks` clearing only what the new catalog can give back. Build 60's `DiskLedger` adds per-file provenance and acts on it two ways: an Update control, allowed on any network but refused while the emulator holds the disk, and an automatic refresh of superseded images that additionally defers off Wi-Fi, on a constrained link, or while that disk is mounted. Help still floats on `releases/latest`, behind the bundled fallback of build 51 | ✅ / ✅ pinned (`v1.4.5`) | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
 | 6. Help system + offline fallback | ✅ / ✅ bundled since build 51 (download, cache, then the shipped copy) | ✅ / ✅ bundled since `1f70c6b` (download, cache, then the shipped copy; all eight files in `assets/help/`) | ◐ both (usage text / static panel, no topics — so no `releases/latest` trap either) |
 | 7. NVRAM autoboot / bootString | ✅ NVRAM / ⬜ bootString (`setBootString` is in the vendored core and on the bridge; no Swift caller ever passes it a value, and there is no setting for one) | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
-| 8. Window state / DPI | ⬜ (Mac Catalyst) | ➖ | ➖ |
+| 8. Window state / DPI | ◐ Mac Catalyst (position and size remembered across quits since build 61, landed in `8e7587f`: `WindowFrame`/`CatalystWindow` keep four numbers under `catalystWindowFrame`, clamp a restored frame to the display, drag an off-screen one back on and hold a 640×480 minimum through `sizeRestrictions`; saved on `scenePhase` deactivate, restored a turn after `onAppear`. Placement needs iOS 16's `requestGeometryUpdate` and `IPHONEOS_DEPLOYMENT_TARGET` is 15.0, below which neither position nor size comes back and only the minimum applies. Only the testable half is tested: `WindowFrame` has 34 checks, `CatalystWindow` none, and MANUAL_CHECKS §10's move/quit/relaunch and off-screen-restore boxes are both unticked — compiled for Catalyst, never driven on a Mac. Still no auto-size to the 80×25 grid on a font change, font size being a fixed 14–28 pt menu, and no per-monitor DPI scaling) · ➖ iPhone/iPad | ➖ | ➖ |
 | 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt; the range is enforced on the slider only, and API 24–25 ignore `android:min`) | ➖ CLI (host terminal; no font flag and no font config key) · ◐ web (fixed `fontSize: 16` in the `new Terminal` options, no control on the page and no font key among the six it persists, so only browser zoom moves it) |
 | 10. Dazzler | ⬜ | ⬜ (explicit no-op stubs) | ⬜ (no Dazzler code; the core only offers the hooks this repo uses) |
-| 11. Config profiles | ⬜ | ⬜ (flat SharedPreferences, no named profiles) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
+| 11. Config profiles | ✅ since build 61 (`ProfileSection` in Settings, ungated so iOS and Catalyst alike: named `EmulatorProfile`s carrying ROM, four disk slots, boot string, key profile plus custom bindings, scrollback capacity, bell, manifest warning, key row and new-disk size; save, tap-to-apply, swipe-to-delete and update-in-place, the whole `ProfileStore` as one JSON value under the `emulatorProfiles` default, 66 checks in `EmulatorProfileTests`. ⬜ before 61 — the code landed in `8e7587f`, still stamped build 58, the same number as the `e33beea` reading that missed it, and the two builds that then carried it, 59 and 60, never became a binary anybody could install, so the changelog renumbers the entry to 61. Font size is the one setting a profile does not carry, living alone in `@AppStorage("terminalFontSize")`; file-backed local disks are recorded empty on purpose, a bookmark being a token and not a name, at the cost that an empty slot clears only the catalog selection so applying a profile can never detach a local disk; and `renameProfile` exists with no UI to reach it) | ⬜ (flat SharedPreferences, no named profiles) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
 | 12. Manifest write warning | ✅ (suppressible, once per session) | ✅ (suppressible, once per session) | ➖ CLI · ✅ web (*Don't warn* kept across a reload since `108856c`) |
-| 13. Terminal emulation (VT100 + VT52) | ✅ | ✅ (VT52, DECSTBM, DECSC/DECRC, `@ P X L M S T`, the query replies, per-cell bold/underline/blink/reverse — written 2026-08-29, compiled but never run) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ◐ web (page filter fixed in `2dbf6f2`; the wasm backend drops CR and masks to 0x7F the same way) |
+| 13. Terminal emulation (VT100 + VT52) | ✅ the origin of the parser (full VT52, DECSTBM, DECSC/DECRC, `@ P X L M S T`, the answerbacks, deferred autowrap, charset consumption, per-cell bold/underline/blink and the bright SGR halves since build 55) — and since build 61 the best-evidenced *shipped* parser of the four: at `af0b9b2`, the commit the App Store's 1.5.1 was built from, the whole parser has moved out of `EmulatorViewModel.swift` into a Foundation-only `TerminalScreen.swift` (`8e7587f`) with no final byte, mode or dispatch arm changed, and `TerminalScreenTests.swift` drives it headlessly in 262 checks, almost all through `receive(_:)`, the one door a guest has. CP/M 2.2 booted through the view on the simulator; nothing on hardware, and `MANUAL_CHECKS.md` §4's per-cell-face boxes are still unticked | ✅ (VT52, DECSTBM, DECSC/DECRC, `@ P X L M S T`, the query replies, per-cell bold/underline/blink/reverse — written 2026-08-29, compiled but never run) | ➖ CLI (host terminal; output drops CR, masks to 0x7F) · ◐ web (page filter fixed in `2dbf6f2`; the wasm backend drops CR and masks to 0x7F the same way) |
 
 **z80cpmw's own row 13 became ✅ on 2026-08-28**, which makes every row in this
 document ✅ for z80cpmw — the other twelve by construction, this one on the
