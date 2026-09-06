@@ -51,7 +51,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Check out z80cpmw
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: z80cpmw
 
