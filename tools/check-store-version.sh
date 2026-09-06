@@ -11,7 +11,7 @@
 # script disagreed with that changelog, which is the whole argument for having
 # it.
 #
-# It is the companion to check-disk-pins.sh and check-sibling-drift.sh: those ask
+# It is the companion to check-shipped-disks.sh and check-sibling-drift.sh: those ask
 # what the tree and the images say, this one asks the store.  Like them it goes
 # out to the network, and like them it exits 2 rather than 0 when it cannot.
 #

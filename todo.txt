@@ -81,7 +81,7 @@ Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:
   MainWindow.cpp and SettingsDialogWx.cpp are in no suite and cannot be, so both
   are verified by driving the built app.  See WIP.md.
 
-- tools\check-disk-pins.sh no longer answers its question, in both directions.
+- tools\check-shipped-disks.sh no longer answers its question, in both directions.
 DiskCatalog.cpp holds no quoted vX.Y.Z any more, so pin_of() (:90-96) returns
 nothing and the tree check prints NO PIN FOUND and exits 1 for a client that is
 working correctly; and the artifact scan looks for v1\.[0-9]+\.[0-9]+ (:119-120),

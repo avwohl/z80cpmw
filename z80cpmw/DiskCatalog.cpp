@@ -77,7 +77,7 @@ bool widenUrl(const std::string& url, std::wstring& out) {
 // choice of release; this file holds the transport, the cache and the ledger.
 //
 // One consequence worth naming because it is invisible from this file:
-// tools/check-disk-pins.sh matched the quoted vX.Y.Z above with a regex, so with
+// tools/check-shipped-disks.sh matched the quoted vX.Y.Z above with a regex, so with
 // the constant gone it prints NO PIN FOUND and exits 1 for a client that is
 // working correctly. It is byte-identical across five repositories and is not
 // this repository's to rewrite alone.
