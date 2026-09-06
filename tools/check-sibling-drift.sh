@@ -45,19 +45,30 @@
 # existed nowhere in cpmdroid, in its tree or anywhere in its history, and four
 # of the claims resting on them asserted the opposite of what that code does.
 # They were written from a paraphrase of a commit message.  So: prose about a
-# sibling is delimited with
+# PORT - any port, this one included - is delimited with
 #
 #     <!-- cites: <repo> -->  ...  <!-- /cites -->
 #
 # and every `backticked` identifier inside that region must resolve, with
-# git grep, in that sibling at the recorded sha.  A deliberate cross-port
-# reference - naming z80cpmw's own function while describing how it differs -
-# is declared with
+# git grep, in that port at the recorded sha.  A reference that is deliberately
+# not a symbol of that port - another port's function named while describing how
+# it differs, or a commit sha - is declared with
 #
 #     <!-- cites-elsewhere: symA symB -->
 #
-# inside the region, so the exception is visible in the document rather than
-# silent in the checker.  This rule alone would have caught all nine.
+# and a symbol the document asserts is ABSENT with
+#
+#     <!-- cites-withdrawn: symA symB -->
+#
+# which fails in the opposite direction: if a withdrawn symbol starts resolving,
+# the document's absence claim has gone stale and the gate says so.  Both keep
+# the exception visible in the document rather than silent in the checker.  This
+# rule alone would have caught all nine.
+#
+# Until 2026-09-06 it covered only the three siblings.  z80cpmw's own claims -
+# the column every other column is scored against - had no regions at all, so the
+# reference was the one thing this check exempted.  It is covered now, at the sha
+# the sibling-readings block records for it, like everybody else.
 #
 # Drift is measured against origin, not against the local checkout.  It used to
 # be measured against local HEAD, and that let a stale checkout certify a column

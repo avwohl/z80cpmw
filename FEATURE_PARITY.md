@@ -216,11 +216,13 @@ written as termcap-style escape strings.
   Emulator menu.
   **The full, copy-pasteable spec is `docs/CONFIGURATION.md`** (and the in-app
   Configuration help).
+<!-- cites: z80cpmw -->
 - **Where:** `z80cpmw/Keymap.h` (`keyIdForName`, `nameForKeyId`,
   `validateSequence`, `reservedKeys`), `TerminalView.cpp` (`setKeyBindings`,
   `handleKeyDown`), `Config.h` (`KeyboardConfig`: `f1ToCpm`,`f5ToCpm`,
   `ctrlRToCpm`,`keys`), `MainWindow.cpp` (`rebuildAccelerators`,
   `updateMenuAccelHints`), `SettingsDialogWx.cpp` (`buildKeyboardPage`).
+<!-- /cites -->
 - **Config:** *(re-read 2026-09-06 at `dbd53b1`, the 1.0.23 build)* the
   `keyboard` block in the JSON config — **or Settings →
   Keyboard**, which reads and writes that same block (2026-08-28; not in a
@@ -332,8 +334,10 @@ long `DIR` listings).
   a paste snaps back to live; cursor hidden while viewing history; the view stays
   anchored as new output arrives; history cleared on emulator start/reset; **plain**
   PageUp/PageDown still go to CP/M. Capacity configurable; 0 disables.
+<!-- cites: z80cpmw -->
 - **Where:** `z80cpmw/TerminalView.{h,cpp}` (`m_scrollback`, `scrollUp` capture hook,
   `visibleCell`, `scrollByLines`, `WM_MOUSEWHEEL`, `handleKeyDown`).
+<!-- /cites -->
 - **Config:** `display.scrollbackLines` (default **1000**) + a Settings field.
 - **Platform mapping:** GUI ports (iOS/macOS/Android) should implement an in-app
   buffer like this. The **Linux CLI can rely on the host terminal's scrollback** —
@@ -448,8 +452,10 @@ Drag to select terminal text, right-click for Copy/Paste.
   trailing-space trim; non-ASCII filtered; CRLF normalised to CR for CP/M on paste;
   Ctrl+C/Ctrl+V left untouched so they reach CP/M as ^C/^V; paste gated on emulator
   running.
+<!-- cites: z80cpmw -->
 - **Where:** `z80cpmw/TerminalView.cpp` (`handleLButtonDown/MouseMove/LButtonUp`,
   `showContextMenu`, `copySelectionToClipboard`, `pasteFromClipboard`).
+<!-- /cites -->
 - **Platform mapping:** macOS = native selection + ⌘C/⌘V; Android = the "control
   strip" Copy/Paste (cpmdroid already has this); Linux CLI = host terminal.
 - **Verified port behaviour:**
@@ -528,11 +534,13 @@ to find them on every platform.
   one directory, and open-write here is a plain create-or-replace with no delete
   and no substitution. The core declares that function and does not define it, so
   the assertion can only be made by the backend it is about.
+<!-- cites: z80cpmw -->
 - **Where:** `z80cpmw/emu_io_windows.cpp` (`resolveHostPath`, `isAbsolutePath`,
   `emu_host_file_close_write`, `emu_host_file_get_write_name` /
   `resolveRealPathForDisplay`, `emu_host_path_caps`,
   `emu_io_get_data_folder_display` / `resolveRealPath`). Covered by
   `tests/test_hostfile.cpp` and `tests/test_hbios_hostfile.cpp`, 102 checks.
+<!-- /cites -->
 - **Verified port behaviour:**
 <!-- cites: romwbw_emu -->
   - **romwbw_emu (CLI)** *(2026-09-02, at `fce8f87`)* — **both halves, since `98eb6a1`.** `R8`
@@ -818,6 +826,8 @@ copyrighted content.
   release tag** (not `latest`) so a new release can't silently swap disk images out
   from under an installed client and re-introduce an HBIOS/CBIOS version mismatch.
   *Cancel is in the spec because the ports need it, not because this port has it.*
+<!-- cites: z80cpmw -->
+<!-- cites-elsewhere: dbd53b1 -->
 - **Where:** `z80cpmw/DiskCatalog.{h,cpp}` — note the single `RELEASE_TAG` constant.
 - **z80cpmw itself, re-read 2026-09-06 at `dbd53b1`** — the commit the Store's
   1.0.23 was built from, and not at HEAD, where the constant is gone entirely in
@@ -831,6 +841,7 @@ copyrighted content.
   fetches the same `v1.4.5` images cpmdroid is marked down for, and is behind
   ioscpm's shipped build 61 on precisely the axis this row scores. Cancel is the
   same shape as cpmdroid's ◐: it happens when the window dies, not from a button.
+<!-- /cites -->
 - **Shared concern:** all ports download from `ioscpm` releases. **Every port should
   pin to an explicit tag matching the RomWBW version its embedded ROM was built
   from.** See this repo's `WIP`/parity notes on the version-skew problem.
@@ -932,6 +943,7 @@ In-app help fetched from GitHub, with offline bundled topics.
 - **Behaviour/spec:** `help_index.json` + markdown topics downloaded and cached;
   bundled "Getting Started" and "Configuration" topics always available offline; a
   small markdown→text renderer (headers, tables, lists, inline code).
+<!-- cites: z80cpmw -->
 - **Where:** `z80cpmw/HelpWindow.{h,cpp}` and `HelpAssets.{h,cpp}` — the
   state-free half (index parsing, the markdown→text renderer, and the cache)
   was split out on 2026-08-28 so it could be put under test, and is **353**
@@ -944,6 +956,7 @@ In-app help fetched from GitHub, with offline bundled topics.
   reaches nothing: this repo still bundles only its own two topics. Bundling the
   seven published ones is blocked on a decision rather than on work, since three
   of them are worded for iOS; `todo.txt` carries it.
+<!-- /cites -->
 - **Why the fallback is not optional — a trap every port shares.** cpmdroid
   fetched its index from `releases/latest/download/help_index.json` with **no**
   bundled copy. GitHub serves that URL from whatever the newest release is, and
@@ -1037,9 +1050,11 @@ In-app help fetched from GitHub, with offline bundled topics.
   **Note the boot-unit numbering:** with the EMU AVW ROM the on-board RAM/ROM
   disks are units 0 and 1, so the first hard disk is unit **2** — see this repo's
   Getting Started help for the user-facing wording.
+<!-- cites: z80cpmw -->
 - **Where:** `z80cpmw/EmulatorEngine.cpp` (`clearNvramSetting`) and
   `z80cpmw/EmulatorEngine.h` (`setBootString`, inline),
   config `core.bootString`. (ioscpm already has NVRAM boot config.)
+<!-- /cites -->
 <!-- cites: cpmdroid -->
 <!-- cites-withdrawn: bootString -->
 - **Verified Android behaviour (2026-08-07):** NVRAM persistence is **present**.
@@ -1082,6 +1097,9 @@ In-app help fetched from GitHub, with offline bundled topics.
 - **Behaviour/spec:** remember main-window position/size across runs with
   monitor-change / off-screen reset; auto-size the window to the exact 80×25 grid on
   font change; per-monitor DPI-v2 font scaling.
+<!-- cites: z80cpmw -->
+<!-- cites-elsewhere: dbd53b1 -->
+<!-- cites-withdrawn: WM_DPICHANGED -->
 - **Where:** `z80cpmw/MainWindow.cpp` (`WindowConfig`, `restoreWindowPlacement`,
   `saveWindowPlacement`, `resizeWindowToTerminal`), `TerminalView::createFont`;
   config `window` block. **N/A to mobile** — but not to Mac Catalyst, which is a
@@ -1102,6 +1120,7 @@ In-app help fetched from GitHub, with offline bundled topics.
   outside this row — the ioscpm cell is docked for having no per-monitor DPI
   scaling, and that dock is correct precisely because the Windows reference does
   have it.
+<!-- /cites -->
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: af0b9b2 -->
 <!-- cites-withdrawn: NSUserActivity -->
@@ -1120,8 +1139,10 @@ In-app help fetched from GitHub, with offline bundled topics.
 
 <!-- /cites -->
 ### 9. Configurable font size
+<!-- cites: z80cpmw -->
 - **Where:** config `display.fontSize`, View menu (`MainWindow::onViewFontSize`).
   All GUI ports should expose this; mobile typically pinch-to-zoom.
+<!-- /cites -->
 <!-- cites: cpmdroid -->
 <!-- cites-elsewhere: Int.MAX_VALUE -->
 - **Verified Android behaviour - re-read 2026-09-02:** **present** - a slider in
@@ -1174,7 +1195,9 @@ Emulated retro graphics card in a separate window.
   dead wiring above survived unnoticed for so long.
 <!-- /cites -->
 - **Behaviour/spec:** enable + base I/O port + scale, rendered in its own window.
+<!-- cites: z80cpmw -->
 - **Where:** `z80cpmw/Dazzler.cpp`, `DazzlerWindow.cpp`; config `hardware.dazzler`.
+<!-- /cites -->
 <!-- cites: cpmdroid -->
 - **Status:** absent in iOS. **Android is not partial — it is stubbed out on
   purpose** (verified 2026-08-07): `app/src/main/cpp/emu_io_android.cpp` defines
@@ -1189,8 +1212,10 @@ Emulated retro graphics card in a separate window.
 ### 11. Config profiles & JSON config
 - **Behaviour/spec:** named config profiles (save/load/delete); single JSON config
   file with migration from the legacy INI format.
+<!-- cites: z80cpmw -->
 - **Where:** `z80cpmw/Config.{h,cpp}` (`ConfigManager`). Each port keeps its own
   config format; parity is the *set of settings*, not the file format.
+<!-- /cites -->
 <!-- cites: cpmdroid -->
 <!-- cites-elsewhere: romwbw_emu -->
 <!-- cites-withdrawn: saveProfile loadProfile listProfiles deleteProfile -->
@@ -1223,6 +1248,8 @@ Emulated retro graphics card in a separate window.
 ### 12. Manifest-disk write warning
 - **Behaviour/spec:** warn before writing to a downloaded catalog ("manifest") disk,
   since a re-download would overwrite local changes. Suppressible.
+<!-- cites: z80cpmw -->
+<!-- cites-elsewhere: dbd53b1 -->
 - **Where:** config `core.warnManifestWrites` (default `true`); the *Warn on
   Downloaded Disk Writes* checkbox on `SettingsDialogWx.cpp`'s Disk Images page;
   `EmulatorEngine::setDiskIsManifest`, `setDiskWarningSuppressed` and
@@ -1238,6 +1265,7 @@ Emulated retro graphics card in a separate window.
   checkbox both ways across all four units, so re-ticking clears the
   suppression. No column is over-scored by this row: ioscpm and cpmdroid are
   both already ✅ here, so correcting the reference inflates nothing.
+<!-- /cites -->
 <!-- cites: cpmdroid -->
 - **Verified Android behaviour (2026-09-02):** **present and suppressible.**
   Downloaded (catalog) disks are flagged per unit through
