@@ -279,7 +279,6 @@ written as termcap-style escape strings.
     to compete with `^R`, which `setupToolbar` now carries a comment to protect.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-<!-- cites-elsewhere: af0b9b2 -->
   - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ◐, and closer than it was.
     The map moved out to `iOSCPM/Views/KeyMap.swift` in build 51 and it has the
     same termcap escape schema (`KeyMap.expand`; it has no explicit `\^` case but
@@ -460,7 +459,6 @@ Drag to select terminal text, right-click for Copy/Paste.
   strip" Copy/Paste (cpmdroid already has this); Linux CLI = host terminal.
 - **Verified port behaviour:**
 <!-- cites: ioscpm -->
-<!-- cites-elsewhere: af0b9b2 -->
 <!-- cites-withdrawn: selectionSpan -->
   - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ✅ on both now: the Mac
     pointer drag arrived in build 57 and iOS press-and-hold-then-drag in build
@@ -592,7 +590,7 @@ to find them on every platform.
     picks it precisely because `_` is a CCP filename delimiter.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-<!-- cites-elsewhere: emu_io_windows.cpp w8.com af0b9b2 -->
+<!-- cites-elsewhere: emu_io_windows.cpp w8.com 98eb6a1 -->
   - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — `W8` always writes `Documents/Exports`, `R8` always reads
     `Documents/Imports` (no per-transfer dialog). As of **v1.4.11 / build 41** an **Import File…** picker (enabled on
     iOS *and* Mac Catalyst) stages an arbitrary-location file into `Imports` for a
@@ -674,7 +672,7 @@ to find them on every platform.
     58 for Catalyst, those two launched and driven rather than merely built.
 <!-- /cites -->
 <!-- cites: cpmdroid -->
-<!-- cites-elsewhere: c06fa58 -->
+<!-- cites-elsewhere: 15f48e9 -->
 <!-- cites-withdrawn: OpenDocument -->
   - **cpmdroid (Android)** *(2026-08-25, from `origin/master`; this supersedes
     the 2026-08-07 reading, which described a Files button, an Import File…
@@ -790,7 +788,7 @@ to find them on every platform.
   accepts `WM_DROPFILES`. The association resolves to a no-op: double-clicking
   a disk image starts the emulator and loads nothing.
 <!-- cites: cpmdroid -->
-<!-- cites-elsewhere: c26aeb7 c06fa58 -->
+<!-- cites-elsewhere: c26aeb7 -->
   (b) used to say it was "done on Android (share sheet plus the paths shown
   in-app)"; that was the `c26aeb7` reading talking, and it is the last claim of
   that reading left in this row — there is no `ACTION_SEND`, no `FileProvider`,
@@ -827,7 +825,6 @@ copyrighted content.
   from under an installed client and re-introduce an HBIOS/CBIOS version mismatch.
   *Cancel is in the spec because the ports need it, not because this port has it.*
 <!-- cites: z80cpmw -->
-<!-- cites-elsewhere: dbd53b1 -->
 - **Where:** `z80cpmw/DiskCatalog.{h,cpp}` — note the single `RELEASE_TAG` constant.
 - **z80cpmw itself, re-read 2026-09-06 at `dbd53b1`** — the commit the Store's
   1.0.23 was built from, and not at HEAD, where the constant is gone entirely in
@@ -856,7 +853,7 @@ copyrighted content.
     item 6 for why that choice is only safe with a bundled fallback.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-<!-- cites-elsewhere: af0b9b2 -->
+<!-- cites-elsewhere: 1f70c6b -->
   - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — **pinned**,
     since build 42 — but the value is **`v1.4.12`**, repinned by `0010591` in
     build 59 and shipped in 61; this entry read `v1.4.5` when it was taken at
@@ -893,7 +890,7 @@ copyrighted content.
     `releases/latest`.
 <!-- /cites -->
 <!-- cites: romwbw_emu -->
-<!-- cites-elsewhere: fce8f87 disks.xml -->
+<!-- cites-elsewhere: disks.xml -->
   - **romwbw_emu (web)** *(re-read 2026-09-02, at `fce8f87`)* — **there is no catalog
     here at all**, and the cell in the table above used to read "hardcoded list,
     unpinned; 4 of 5 images ship nowhere", which understated it in the one
@@ -968,7 +965,7 @@ In-app help fetched from GitHub, with offline bundled topics.
   break. Ship the topics in the app and treat the download as an optional
   refresh, never as the source.
 <!-- cites: cpmdroid -->
-<!-- cites-elsewhere: aee7276 build.gradle.kts -->
+<!-- cites-elsewhere: build.gradle.kts -->
 - **Verified port behaviour (2026-08-29, superseding the 2026-08-25 entry):**
   **cpmdroid is out of the trap**, and the 2026-08-25 entry — which correctly
   found nothing bundled, no cache, and a `build.gradle.kts` that mentions help
@@ -1098,7 +1095,6 @@ In-app help fetched from GitHub, with offline bundled topics.
   monitor-change / off-screen reset; auto-size the window to the exact 80×25 grid on
   font change; per-monitor DPI-v2 font scaling.
 <!-- cites: z80cpmw -->
-<!-- cites-elsewhere: dbd53b1 -->
 <!-- cites-withdrawn: WM_DPICHANGED -->
 - **Where:** `z80cpmw/MainWindow.cpp` (`WindowConfig`, `restoreWindowPlacement`,
   `saveWindowPlacement`, `resizeWindowToTerminal`), `TerminalView::createFont`;
@@ -1122,7 +1118,6 @@ In-app help fetched from GitHub, with offline bundled topics.
   have it.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-<!-- cites-elsewhere: af0b9b2 -->
 <!-- cites-withdrawn: NSUserActivity -->
 - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ◐ on Catalyst, no
   longer absent. `8e7587f` added `WindowFrame` and `CatalystWindow`: four numbers
@@ -1228,7 +1223,6 @@ Emulated retro graphics card in a separate window.
 
 <!-- /cites -->
 <!-- cites: ioscpm -->
-<!-- cites-elsewhere: af0b9b2 -->
   - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ✅, and this row was
     ⬜ for it until the re-read. `ProfileSection` in Settings is ungated, so iOS
     and Catalyst both have it: named `EmulatorProfile`s carrying ROM, four disk
@@ -1249,7 +1243,6 @@ Emulated retro graphics card in a separate window.
 - **Behaviour/spec:** warn before writing to a downloaded catalog ("manifest") disk,
   since a re-download would overwrite local changes. Suppressible.
 <!-- cites: z80cpmw -->
-<!-- cites-elsewhere: dbd53b1 -->
 - **Where:** config `core.warnManifestWrites` (default `true`); the *Warn on
   Downloaded Disk Writes* checkbox on `SettingsDialogWx.cpp`'s Disk Images page;
   `EmulatorEngine::setDiskIsManifest`, `setDiskWarningSuppressed` and
@@ -1319,7 +1312,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
   8-column stop.
 - **Where (per port):**
 <!-- cites: ioscpm -->
-<!-- cites-elsewhere: cpmdroid TerminalView.kt c0b3bf7 af0b9b2 -->
+<!-- cites-elsewhere: cpmdroid TerminalView.kt c0b3bf7 978b623 -->
   - **ioscpm** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — `iOSCPM/Views/TerminalScreen.swift` since `8e7587f`, with the whole of SGR now in `TerminalRendition.swift`.
     The origin of the parser: full VT52, scrolling region, answerbacks, deferred
     autowrap, charset consumption. **Build 51 closed the gap this entry used to
@@ -1375,7 +1368,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     the original colours instead of resetting to white-on-black.
 <!-- /cites -->
 <!-- cites: cpmdroid -->
-<!-- cites-elsewhere: ioscpm HFONT TCELL_BOLD TCELL_UNDERLINE TCELL_BLINK kotlinc c6756af c0b3bf7 -->
+<!-- cites-elsewhere: ioscpm HFONT TCELL_BOLD TCELL_UNDERLINE TCELL_BLINK kotlinc -->
   - **cpmdroid** *(2026-08-29 at `167acbe`, re-read 2026-09-02 at the current
     tip, where nothing in this row has moved — see the caveat
     at the end of this bullet)* — ✅, and this row has moved further in one day

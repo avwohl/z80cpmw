@@ -191,6 +191,29 @@ cite_resolves() {
 			fi
 			;;
 	esac
+	# A commit id is a citation too, and it is not a symbol: it will never be
+	# found by grepping source.  Until 2026-09-06 the only ones that passed were
+	# the ones that happened to begin with a digit, because the extractor tests
+	# backticked tokens beginning with a LETTER - so `8e7587f` and `0165dac` were
+	# never checked at all while `af0b9b2` and `dbd53b1` had to be declared
+	# cites-elsewhere to be shut up.  That is backwards twice over: the unchecked
+	# ones were unchecked by accident, and the declared ones were real.
+	#
+	# The bar is existence in the port being described, which is exactly what the
+	# c26aeb7 failure was - a commit id cited for cpmdroid that is not an object
+	# in cpmdroid.  Deliberately NOT ancestry of the recorded sha: this document
+	# legitimately cites commits that came after a reading, e.g. naming the repin
+	# that a shipped build predates.
+	case "$_sym" in
+		*[!0-9a-f]*) ;;
+		???????*)
+			if [ "${#_sym}" -le 40 ] &&
+			   git -C "$_tree" cat-file -e "$_sym^{commit}" 2>/dev/null; then
+				return 0
+			fi
+			;;
+	esac
+
 	# shellcheck disable=SC2086 - SrcOnly is a deliberate word list
 	if git -C "$_tree" grep -q -F -- "$_sym" "$_rev" -- $SrcOnly 2>/dev/null; then
 		return 0
@@ -567,7 +590,14 @@ if [ "$Cites" = yes ]; then
 				# citations in the marked regions unchecked - including, when
 				# this was noticed, the one sentence that had just been written.
 				sub(/\(\)$/, "", tok)
-				if (tok !~ /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/) continue
+				# Identifiers, dotted names, and short commit ids.  The hex
+				# alternative was added 2026-09-06: without it a backticked
+				# sha was tested only when it happened to begin with a
+				# letter, so `af0b9b2` was checked and `8e7587f` was not -
+				# an exemption nobody chose.  Hashes are written with a
+				# trailing ellipsis in this document and so are not bare hex.
+				if (tok !~ /^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-z0-9_]*)*$/ &&
+				    tok !~ /^[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]+$/) continue
 				# Two characters is a letter in prose, not a citation: `R8`,
 				# `W8`, `Up`, `_`.  They resolve trivially and prove nothing.
 				if (length(tok) < 3) continue
