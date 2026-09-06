@@ -103,6 +103,25 @@
 
 set -u
 
+# --allow-drift: a reading BEHIND origin is expected, not a fault.
+#
+# Every column in FEATURE_PARITY.md is now read at the commit its store actually
+# ships - ioscpm at build 61, cpmdroid at versionCode 27, z80cpmw at 1.0.25,
+# romwbw_emu at v1.38 - because a tick that describes the tree describes software
+# nobody can install.  A shipped commit is by definition behind a tree that has
+# moved on, so DRIFTED fires for three of the four columns permanently and will
+# fire for the fourth the moment anything lands after its release.
+#
+# That makes the exit code useless in CI: a gate that is red on every run for a
+# reason nobody can fix gets ignored, and this one conflates that with the faults
+# that ARE actionable - a recorded sha nobody has, an unrecorded or contradicted
+# shipped build, a cited symbol that resolves nowhere.  With this flag DRIFTED is
+# still reported in full, and still counted in the summary, but does not decide
+# the exit status.  Everything else still does.
+#
+# Do not pass it interactively.  Locally the drift list is the reading list: it
+# is what tells you which column to re-read next.
+
 # Citations are claims about code, so only code is searched.  Excluding
 # documentation is not tidiness: cpmdroid's own todo.txt now quotes the nine
 # fabricated symbols in the course of recording that they were fabricated, and a
@@ -112,13 +131,16 @@ SrcOnly=". :(exclude)*.md :(exclude)*.txt :(exclude)docs/*"
 
 Fetch=no
 Cites=yes
+AllowDrift=no
+drifted=0
 for arg in "$@"; do
 	case "$arg" in
 		--fetch) Fetch=yes ;;
 		--no-cites) Cites=no ;;
+		--allow-drift) AllowDrift=yes ;;
 		-h|--help)
 			sed -n '2,/^$/p' "$0" | sed 's/^# \{0,1\}//'
-			echo "usage: $0 [--fetch] [--no-cites]"
+			echo "usage: $0 [--fetch] [--no-cites] [--allow-drift]"
 			exit 0
 			;;
 		*)
@@ -463,8 +485,9 @@ while read -r repo sha date shipped rest; do
 		echo "$repo	current: read $sha ($date); $behind commit(s) since, documentation only"
 	else
 		echo "$repo	DRIFTED: read $sha ($date), $ref is $tip, $behind commit(s) since (last fetch: $fetched)"
+		drifted=$((drifted + 1))
 		git -C "$tree" log --format='		%h %ad %s' --date=short "$sha..$ref"
-		status=1
+		[ "$AllowDrift" = yes ] || status=1
 	fi
 	fi
 
@@ -697,7 +720,18 @@ if [ "$Cites" = yes ]; then
 fi
 
 echo
-if [ "$status" -eq 0 ]; then
+if [ "$status" -eq 0 ] && [ "$drifted" -gt 0 ]; then
+	# --allow-drift got us here, so do not claim the thing the other branch
+	# claims.  Drift was found and reported; it just did not decide the exit
+	# code.  Saying "every column is as current as its recorded reading" with
+	# three DRIFTED lines above it would be the exact failure this file exists
+	# to catch, committed by the file itself.
+	echo "$drifted column(s) DRIFTED, reported above and not counted against"
+	echo "the exit status (--allow-drift).  A column read at its shipped commit"
+	echo "is behind a moving tree by definition; that is the intended state, not"
+	echo "a fault.  Nothing else disagrees: the recorded shas exist, the shipped"
+	echo "builds are recorded, and every cited symbol resolves."
+elif [ "$status" -eq 0 ]; then
 	echo "every column is as current as its recorded reading, and every"
 	echo "checkout is level with its origin."
 else

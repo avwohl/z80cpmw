@@ -1,0 +1,81 @@
+name: Parity gate
+
+# WHAT THIS CHECKS. FEATURE_PARITY.md scores four ports against each other, and
+# every claim in it is a claim about somebody else's repository. This runs
+# tools/check-sibling-drift.sh, which is the only thing that can tell whether
+# those claims are still true: it resolves every backticked identifier in a
+# <!-- cites: repo --> region against that repository at the sha the
+# sibling-readings block records, confirms each recorded sha is a real commit,
+# and compares each column's shipped: field with the build in the tree there.
+#
+# It exists because the document was wrong in exactly those ways. On 2026-09-02
+# the Android column cited NINE symbols that existed nowhere in cpmdroid, four of
+# the claims resting on them asserting the opposite of what that code does.
+#
+# WHY ALL FOUR REPOSITORIES ARE CHECKED OUT. The script reads the siblings as
+# directories beside this one, the way they sit on a developer's machine.
+# actions/checkout cannot write above the workspace, so all four go into it side
+# by side instead. A missing sibling is not skipped quietly - the script reports
+# "NOT CHECKED OUT ... the column cannot be re-read here" and fails.
+#
+# WHY fetch-depth: 0. The script deliberately compares readings against ORIGIN
+# rather than local HEAD, because a stale checkout would otherwise certify a
+# column as current - that happened on 2026-08-27. A shallow clone has no
+# remote-tracking refs to compare against, so the check would degrade to the
+# thing it was rewritten to stop.
+#
+# WHY --allow-drift. Every column is now read at the commit its store actually
+# ships, and a shipped commit is behind a moving tree by definition, so DRIFTED
+# fires permanently for any port that has committed since its last release. That
+# is the intended state. Without the flag this job would be red on every run for
+# a reason nobody can fix, which is how a gate gets ignored. The flag changes
+# nothing about what is REPORTED - the drift list is still printed in full and
+# the summary counts it - only whether it decides the exit status. Everything
+# that indicates a wrong claim still fails: a fabricated symbol, a recorded sha
+# nobody has, a missing or contradicted shipped build. Both were verified by
+# injecting them.
+
+on:
+  schedule:
+    - cron: '47 7 * * *'
+  workflow_dispatch:
+  push:
+    paths:
+      - 'FEATURE_PARITY.md'
+      - 'tools/check-sibling-drift.sh'
+      - '.github/workflows/parity-gate.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with: { path: z80cpmw, fetch-depth: 0 }
+      - uses: actions/checkout@v7
+        with: { repository: avwohl/ioscpm, path: ioscpm, fetch-depth: 0 }
+      - uses: actions/checkout@v7
+        with: { repository: avwohl/cpmdroid, path: cpmdroid, fetch-depth: 0 }
+      - uses: actions/checkout@v7
+        with: { repository: avwohl/romwbw_emu, path: romwbw_emu, fetch-depth: 0 }
+
+      - name: Check the parity claims against the siblings
+        run: |
+          set +e
+          sh z80cpmw/tools/check-sibling-drift.sh --allow-drift > out.txt 2>&1
+          rc=$?
+          cat out.txt
+          {
+            echo '### Parity gate'
+            echo
+            echo '```'
+            cat out.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$rc" != 0 ]; then
+            echo "::error::a parity claim does not hold against the sibling repositories"
+            exit 1
+          fi
