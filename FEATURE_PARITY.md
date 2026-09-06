@@ -38,11 +38,18 @@ shipped in 1.0.23.  It is not repeated, because repeating it would assert the
 same gap from a baseline two releases stale.  What is needed is a re-read of
 this column, which `tools/check-sibling-drift.sh` has been asking for.
 
-**And note how that Store number is known.** Unlike `ioscpm`, which has
-`tools/check-store-version.sh` and measures the Microsoft equivalent of it,
-nothing here queries the Store: **1.0.23** is this repository's own record
-(`CHANGELOG.md`, `211488b`, 2026-09-04), which is an assertion rather than a
-measurement.  `shipped:1.0.23` in the block below is only as good as that.
+**And note how that Store number is known — it was wrong.** This paragraph used
+to say that nothing here queries the Store and that **1.0.23** was this
+repository's own record rather than a measurement. `tools/check-store-version.sh`
+now measures it, and on its first run, 2026-09-06, the Store was serving
+**1.0.25** — `AaronWohl.Z80CPM_1.0.25.0_x64__pyqcdeggzw67m`, catalog updated
+2026-09-04. So the whole re-read below was taken at `dbd53b1`, three source
+commits BEHIND the build users actually have, which was built at `211488b`.
+**Rows 4 and 5 are known wrong as a result** and are not patched here, because
+guessing is what this document exists to stop: at `dbd53b1` `RELEASE_TAG` reads
+`v1.4.5`, and at `211488b` it reads `v1.4.12`, so the shipped Windows build is
+on the SAME pin as ioscpm's shipped build rather than behind it. This column
+needs re-reading at `211488b`.
 
 **The Android (`cpmdroid`) column was rewritten from source on 2026-08-25**, at
 `origin/master` — every row, because the branch the previous review described
@@ -1461,7 +1468,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     only: cursor state is read back with `ESC [ 6 n`, which puts the answerback
     under test rather than assuming it, and screen content through `cellAt()`.
     `tests\run_tests.bat` runs it first of **six suites, 1323 checks** — the
-    figure for `dbd53b1`, the 1.0.23 the Store serves, and the one that build's
+    figure for `dbd53b1`, the 1.0.23 build, and the one that build's
     own CHANGELOG entry records. The **seven suites, 1467 checks** that stood
     here is 1.0.25's: its seventh suite is disk provenance
     (`tests/test_diskledger.cpp`), added after the shipped build, and 1467
@@ -1625,7 +1632,7 @@ when that was; `--fetch` updates them first and is the only thing the script
 does that writes to a sibling.
 
 ```sibling-readings
-z80cpmw    dbd53b1  2026-09-06  shipped:1.0.23
+z80cpmw    dbd53b1  2026-09-06  shipped:1.0.25
 ioscpm     af0b9b2  2026-09-06  shipped:61
 cpmdroid   35873d0  2026-09-06  shipped:27
 romwbw_emu 8bd38cd  2026-09-06  shipped:1.38
@@ -1650,14 +1657,18 @@ thing:
   document's oldest unexamined assumption: the reference column was "maintained
   in place", edited in the same commit as the code it describes, so it always
   described the TREE. The tree is not what anyone runs. All thirteen rows were
-  re-read on 2026-09-06 at `dbd53b1`, the commit the Store's 1.0.23 was built
-  from - not at HEAD (1.0.25, never built) and not at the newest commit numbered
-  1.0.23 (`032b1cf` changed five source files after the package was already made
-  from `bin\Release`). Eight rows moved. From here this column carries a reading
-  like the other three and has to be re-read when the Store moves, rather than
-  drifting forward with the tree. Its shipped figure is still the weakest of the
-  four: nothing in this family queries the Microsoft Store, so `shipped:1.0.23`
-  is this repository's own CHANGELOG assertion, not a measurement.
+  re-read on 2026-09-06 at `dbd53b1`, **and that was the wrong commit.** It was
+  chosen as the build behind Store 1.0.23, on this repository's own written word
+  that 1.0.23 was the released version. `tools/check-store-version.sh`, added
+  later the same day, measured the Store instead of trusting that sentence and
+  found **1.0.25** — built at `211488b`, three source commits ahead of `dbd53b1`.
+  Eight rows moved in that re-read and it has to be done again at `211488b`;
+  rows 4 and 5 are already known wrong, both resting on a `RELEASE_TAG` that
+  reads `v1.4.5` at `dbd53b1` and `v1.4.12` at the build that ships. From here
+  this column carries a reading like the other three and has to be re-read when
+  the Store moves. Its shipped figure is no longer the weakest of the four - it
+  is now the only one taken from a live query rather than a hand-maintained
+  number.
 - **`cpmdroid` `35873d0`** - a full re-read of all thirteen rows on 2026-09-06,
   taken at the SHIPPED bundle rather than at a tree: versionCode 27 is what Play
   serves, and `a24ca9a` records that 35873d0 is what was uploaded. It stacks on

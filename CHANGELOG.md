@@ -5,7 +5,12 @@ All notable changes to **z80cpmw** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use a simple `MAJOR.MINOR.PATCH` scheme: a `-beta` suffix names the
 signed GitHub / sideload package, and the bare number names the Microsoft Store
-release. The released Store version is **1.0.23**; the newest sideload package
+release. The released Store version is **1.0.25** — measured with
+`tools/check-store-version.sh` on 2026-09-06, which is the first time it was
+measured rather than asserted; this sentence read **1.0.23** until then, and the
+paragraph below it still says 1.0.25 "is not yet built at all" while 1.0.25's own
+entry records the Release x64 build and a 7,090,707-byte `dist\z80cpmw.msix`.
+Somebody submitted that package; the repository does not record when. The newest sideload package
 is **1.0.22-beta**, which is the same binary as Store 1.0.22 signed under our
 own publisher. **1.0.20** was built and tagged but never published on any
 channel, and **1.0.21** shipped only as a signed sideload beta.
