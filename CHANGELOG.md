@@ -45,11 +45,381 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
-## [Unreleased]
+## [1.0.29] - 2026-09-07
 
-`Version.h` still says 1.0.25; the entry below is unreleased work sitting on top
-of it. The detail of what 1.0.23 carried is kept under this heading because
+**The Store package for everything below.** Unsigned and carrying the Store
+identity `Publisher`, which is the whole difference between this and the betas:
+Microsoft re-signs at ingestion, and a package self-signed under
+`CN=Aaron Wohl, …` is rejected on identity rather than accepted as signed.
+
+**No code changed between 1.0.28-beta and this.** The only edit is
+`VERSION_PATCH`, so the binary the Store gets is the one that was driven as
+1.0.28-beta — Start enabled on a machine with no ROM, and a release switch that
+fetches its ROM without asking. The number moved because 1.0.28 names a package
+that was built, signed and handed over, and a number may name only one build.
+
+What this release is, in one line: **the first z80cpmw package that ships no ROM
+and no disk image at all.** Everything comes from the `romwbw_disks` catalog,
+checked against the size and sha256 it publishes, and a new ROM or disk image
+reaches users with no build of this application.
+
+**The cost, stated where a Store reviewer will meet it: a first launch with no
+network cannot start the machine.** There is no bundled ROM to fall back on and
+no second place a published hash is remembered, so the app reports it and offers
+to retry rather than running a CPU over empty banks.
+
+**The artifact.** `dist\z80cpmw.msix`, 6,686,287 bytes, off a clean `-t:Rebuild`
+(0 warnings, 0 errors) with `-SkipBuild`. Verified by unpacking it before it goes
+anywhere:
+
+- `Publisher="CN=724C9014-DD22-420E-9BB4-F2740D082EB0"` — the identity Partner
+  Center assigned, **not** the beta subject. This is the check that decides
+  whether Partner Center accepts the upload at all.
+- `Name="AaronWohl.Z80CPM"`, `Version="1.0.29.0"`, matching `Version.h`, which
+  `Assert-ExeVersion` refuses to package without.
+- **No `AppxSignature.p7x`.** Unsigned is correct and required here: the Store
+  re-signs at ingestion, and `signtool` could not sign this package anyway
+  because the cert subject would have to equal that GUID.
+- No `.rom` and no `.img` in the payload.
+
+`dist\z80cpmw-1.0.29-store.pdb` is kept, 12,300,288 bytes, because the Store
+package's own name carries no version and the next Store build would otherwise
+overwrite the symbols for this one. 1.0.22 and 1.0.24 both shipped with no
+symbols kept anywhere and their crash dumps are permanently unreadable; this is
+the rule that ends that.
+
+All eight suites pass at this version: 1,705 checks, 0 failed.
+
+## [1.0.28-beta] - 2026-09-07
+
+**Changing the RomWBW release and pressing Start now just fetches that release's
+ROM.** Reported against 1.0.27-beta: *"I hit start. test 3.6.0 ok. then stop.
+machine settings. changed the rom to 3.5.1. when i hit start it give a big
+warning about not being ready... I thought the roms where supposed to auto
+download as needed?"*
+
+They were, and the answer is that they were not. Switching to a release whose ROM
+this machine has never downloaded landed in `offerRomChoice()`, the same modal
+that reports a ROM which failed its checksum or a release that publishes none —
+so the ordinary consequence of a deliberate choice was presented as a fault, and
+the box led with a warning about a mismatch that was not happening:
+
+    Starting on another release's ROM would make the guest print
+    *** WARNING: HBIOS/CBIOS Version Mismatch ***
+    and misbehave, so the machine is not started.
+
+Nothing was wrong. The user had chosen 3.5.1 and the 3.5.1 ROM had simply never
+been fetched.
+
+It was also inconsistent with everything around it. A first F5 on an empty data
+folder downloads **about 57 MB** of disk images without asking a thing; the ROM
+is **512 KB**, and it was the one transfer that stopped to ask. The smallest
+download had the most ceremony.
+
+`loadCatalogRomForStart()` now reports **why** it could not load a ROM rather
+than only that it could not, through a new `RomBlock`. Four of the five values
+are conditions to report — no catalog, no ROM published, present-but-unusable —
+and one, `NotDownloaded`, is not a fault at all: the catalog names the ROM, this
+machine does not have it, and a fetch fixes it with nothing to decide. That case
+now goes straight to `downloadRomThenStart()`, which already shows per-block
+progress in the status bar and re-enters the start when the file lands and
+verifies.
+
+Guarded against repeating itself: `m_autoFetchedRom` records the filename the
+automatic path has already fetched this session, so a download that lands and
+still will not load falls through to the offer instead of fetching the same file
+again. That preserves the existing "re-downloaded once, then reported" rule.
+
+**Verified on the reporter's own machine state** — `core.romwbwVersion` at
+`3.5.1` with only `emu_avw-v0-3.6.0.rom` in the data folder, which is exactly
+what produced the complaint. Pressing Start raised **no dialog**, fetched
+`emu_avw-v0-3.5.1.rom`, and booted to the RomWBW loader. The file hashes
+`4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258`, which is what
+`catalog-v0-3.5.1.json` publishes for it.
+
+The modal is unchanged for the cases that are genuinely failures, and Start still
+never boots another release's ROM.
+
+**The artifact.** `dist\z80cpmw-1.0.28-beta.msix`, 6,706,171 bytes, sha256
+`d205be82ca783c2e51fb7596976c4001ac214b285f92dfd2f8ab66c9c075b2ca`, off a clean
+`-t:Rebuild` (0 warnings, 0 errors), signed and verified against `Aaron Wohl`
+under the Microsoft Identity Verification root, with
+`dist\z80cpmw-1.0.28-beta.pdb` beside it. `Version` `1.0.28.0`, sideload
+`Publisher`, so never for the Store. All eight suites pass: 1,705 checks.
+
+Checked on the package's own `z80cpmw.exe`, extracted before signing and driven
+in the reported state: **Start enabled**, **no dialog**, ROM fetched, and no
+`.rom` or `.img` anywhere in the payload.
+
+`dist\z80cpmw-1.0.27-beta.*` was deleted, the way 1.0.26 was: a superseded beta
+left where it can be double-clicked is a support question waiting to happen.
+
+## [1.0.27-beta] - 2026-09-07 - superseded by 1.0.28-beta
+
+**1.0.26-beta could not be started at all, and this is the fix.** It was handed
+over, installed, and the report came straight back: *F5 emulator start is dim.
+no way to start after install.*
+
+`updateMenuState()` read
+
+    bool canStart = !running && m_emulator && m_emulator->hasROM();
+
+which was correct for every build that shipped a ROM — `loadDefaultROM()` put one
+in the banks before the window appeared, so `hasROM()` was true at startup and a
+greyed **Start** meant "the ROM you chose could not be loaded". With no ROM in
+the package that line is a **deadlock**: `hasROM()` is false on a fresh install,
+so Start is greyed — and Start is now the only thing that fetches a ROM, so
+there is no way to get one and no way ever to start. The F5 accelerator dies with
+it, because Windows suppresses an accelerator whose menu item is disabled, which
+is why the symptom was "dim" *and* "F5 does nothing".
+
+Start is now gated on `!running` alone. Whether a start can proceed is
+`romReadyToStart()`'s question, and it is the right place to ask it: it can fetch
+a catalog, offer the download and say what it is waiting for. A greyed menu item
+says nothing.
+
+**Why every check passed on a broken build**, which is the part worth keeping.
+`MainWindow.cpp` is in no suite, so it is verified by driving the built app —
+and the driver posts `WM_COMMAND ID_EMU_START` straight to the frame, which the
+window procedure handles *whether or not the menu item is greyed*. The scripted
+F5 therefore started a machine on which a human's F5 could not, and did so on the
+very run that was checking the no-ROM path. Reproduced afterwards by extracting
+`z80cpmw.exe` from the signed `1.0.26-beta.msix` and reading the menu with
+`GetMenuState`: **Start GRAYED**, against **enabled** on this build. `WIP.md`
+now carries the rule — a check that asserts "the user can do X" must read the
+menu state, not the result of a posted message.
+
+Verified end to end on this build, on a machine with no ROM in the data folder:
+Start **enabled**, pressing it raised *"the ROM for RomWBW 3.6.0 is not ready:
+emu_avw-v0-3.6.0.rom is not on this machine"*, Yes fetched the 524,288-byte ROM,
+and the guest reached the RomWBW boot loader.
+
+Nothing else changed. The version moved off 26 because that package was built,
+signed and handed over; re-minting the name with different bytes is what
+CHANGELOG forbids, whether or not it reached a release page.
+
+**The artifact.** `dist\z80cpmw-1.0.27-beta.msix`, 6,706,117 bytes, sha256
+`99dc986478dc137b1b345162269de834c451607b46f6c6fe512fd7b095cdfc65`, off a clean
+`-t:Rebuild` (0 warnings, 0 errors), signed and verified against `Aaron Wohl`
+under the Microsoft Identity Verification root, with
+`dist\z80cpmw-1.0.27-beta.pdb` beside it. `Version` reads `1.0.27.0` and
+`Publisher` is the sideload subject, so it must never go to the Store. All eight
+suites pass: 1,705 checks, 0 failed.
+
+Checked on the package's own `z80cpmw.exe`, extracted before signing and run on a
+machine with no ROM in the data folder: **Start enabled**, and no `.rom` or
+`.img` anywhere in the payload.
+
+**`dist\z80cpmw-1.0.26-beta.msix` and its `.pdb` were deleted.** Keeping a
+package that cannot be started where somebody might double-click it is worse
+than losing its symbols, and there is nothing to debug in it: the defect is
+known, is one line, and is fixed here.
+
+## [1.0.26-beta] - 2026-09-07 — superseded by 1.0.27-beta, do not install
+
+**Cut as a signed sideload beta only. Nothing has gone to the Store under this
+number**, and the Store still serves 1.0.25 — measured, not assumed, with
+`tools/check-store-version.sh` on 2026-09-07.
+
+The bump off 25 was forced rather than chosen. `Version.h` said 1.0.25 and the
+Store serves 1.0.25, so the number was already spent: signing a `-Beta` on it
+would have re-minted a published artifact under its own name, which is the one
+thing CLAUDE.md forbids outright and which has happened here once before. The
+shipped 1.0.25 was built at `211488b` — before the romwbw_disks index, before the
+ROM gate, and before everything below — so the two builds did not even have the
+same package contents, the older one carrying `roms\`.
+
+This package is the first z80cpmw build that ships **no ROM and no disk image at
+all**. The detail of what 1.0.23 carried is kept under this heading because
 1.0.23's own entry refers back to it.
+
+**The artifact.** `dist\z80cpmw-1.0.26-beta.msix`, 6,706,153 bytes, sha256
+`37ff6a01fddc38a7fd76432175b067c220cd5cec3f700b3744810ee552ecf5ce`, built from a
+clean `-t:Rebuild` (0 warnings, 0 errors) with `-Beta -SkipBuild` off that same
+`bin\Release`. Signed with the Azure Trusted Signing cert and verified:
+`Aaron Wohl` under `Microsoft ID Verified CS EOC CA 03`, chaining to
+`Microsoft Identity Verification Root Certificate Authority 2020`, timestamped —
+so no dev-cert import is needed to sideload it. `Publisher` in the packaged
+manifest is `CN=Aaron Wohl, O=Aaron Wohl, L=Gainesville, S=fl, C=US`, which is
+the rewrite `-Beta` performs and the reason this package **must never be uploaded
+to the Store**: Partner Center rejects it on identity. `Version` reads
+`1.0.26.0`, matching `Version.h`, which `Assert-ExeVersion` checks before it
+packages anything.
+
+`dist\z80cpmw-1.0.26-beta.pdb` is kept beside it, 12,292,096 bytes, from the same
+link — the rule that 1.0.22 and 1.0.24 broke and that cannot be repaired after
+the fact.
+
+**Verified by unpacking the package before signing**, not by reading the script:
+it contains `z80cpmw.exe`, `Assets\`, the fifteen wx and CRT DLLs, and the three
+manifest files — **and no `.rom` and no `.img`**, which no previous z80cpmw
+package could say. All eight suites pass at this version: 1,705 checks, 0 failed.
+
+The rehearsal that preceded it (`-Beta -SkipBuild -SkipSign`) wrote
+`z80cpmw-1.0.26-beta-unsigned.msix` under its own distinct name, reached neither
+`sign.ps1` nor the network, and both `-unsigned` files were deleted afterwards.
+
+### No ROM in this repository, and the user picks which one to run
+
+**BUILT, TESTED AND DRIVEN, on Windows, on 2026-09-07** - which is new. Every
+entry above this one that touches the v0 migration says NOT COMPILED, because
+all of it was written on a Linux machine with no MSVC, no wxWidgets and no
+Windows. This is the first session on a machine that could build the project,
+run the suites and launch the application, and doing so found two real failures
+that no amount of reading had:
+
+- `tests/test_diskledger.cpp` asserted `SupersededPristine` for the migrated
+  `hd1k_combo`, which `9640981` had deliberately changed to `Current` five
+  commits earlier. The test was never re-run, so the suite had been red since.
+- `tests/test_config.cpp` asserted `currentProfileName() == ""` after the v0
+  migration, which leaks from an earlier section that loads a profile named
+  `clean`: `freshManager()` resets the CONFIG, and `m_currentProfile` has no
+  public setter and is not cleared by `load()`. The check now compares across
+  the migration call instead, which is what it was actually about - migrating a
+  profile must not LOAD it - and is order-independent.
+
+Neither is a product defect and `currentProfileName()` has no caller outside the
+tests, but a suite that cannot run is a suite that is not checking anything.
+**All eight suites now pass: 516, 355, 50, 166, 154, 66, 36 and 362 checks,
+1,705 in total.**
+
+**THE THREE ROM IMAGES ARE DELETED.** `roms/emu_avw.rom`, `roms/emu_romwbw.rom`
+and `roms/SBC_simh_std.rom` are gone and so is the directory. The first two were
+byte-identical to each other and to the catalog's `emu_avw-v0-3.5.1.rom` - all
+three `4b11402a…`, measured here - so the pair cost 1 MB in every package to
+ship one image twice, and the ROM menu's two entries were two names for one
+file. `SBC_simh_std.rom` was a stock hardware ROM with no port 0xEF HBIOS proxy
+that no build could load and nothing shipped.
+
+Nothing stages or packages a ROM any more: both `PostBuildEvent`s in
+`z80cpmw.vcxproj` stopped copying into `$(OutDir)roms`, `build-msix.ps1` stages
+no `roms\` directory, and the NSIS script installs no `File`. The uninstaller
+still deletes all three names, to clean up installs that had them.
+
+**The cost, named rather than discovered later: a first launch with no network
+can no longer start the machine.** Every ROM comes from the release's catalog and
+is checked against the size and sha256 only the catalog carries, so a machine
+that has never reached the network has no ROM it is allowed to load. It says so
+and offers to retry. It never boots unverified bytes, and it never boots another
+release's ROM - that substitution is the whole thing the gate exists to refuse.
+`loadPackagedRom()`, `bundledRomwbwRelease()` and `switchToBundledRelease()` are
+deleted with the files they read, and `offerRomChoice()` lost its third answer
+because there is no longer a release this app ships a ROM for.
+
+**The user picks the ROM, from the catalog.** `populateROMList()` was two
+hardcoded filenames; it is now the release catalog's `roms[]`. So `emu_rcz80` -
+published in both catalogs since the migration and unreachable from this client
+until now - is selectable, and **publishing a ROM in `romwbw_disks` reaches users
+with no build of this application.** `catalogv0::chooseRom()` takes a
+`preferredId`, matched on `id` and never on `filename`.
+
+**`core.rom` is a catalog id, not a filename.** A filename carries its release -
+`emu_avw-v0-3.5.1.rom` beside `emu_avw-v0-3.6.0.rom` - so a stored one would be
+forgotten by the first version switch. Old values are converted in `from_json`
+rather than in `migrateToInterfaceV0`, and that placement is the point: that pass
+is gated on `interfaceV0Migrated`, which is **already true** on every machine
+that has launched since the storage rename, so a migration written there would
+never run on the configurations that need it. `diskv0::romIdForStoredName()` maps
+the two filenames any released build wrote onto `emu_avw`; anything else becomes
+no preference, which is a real answer - `chooseRom` then takes the catalog's
+default.
+
+`File > Select ROM` and its two entries are gone, with `ID_ROM_EMU_AVW`,
+`ID_ROM_EMU_ROMWBW`, `ID_ROM_SBC_SIMH`, `onSelectROM()`, `checkROMMenuItem()` and
+`m_currentRomId`. Five messages pointed the user at `Emulator > ROM`, a menu that
+never existed under that name - the submenu was under **File** - and now name
+`Emulator > Settings`.
+
+`diskv0::BUNDLED_ROMWBW` is renamed `PRE_V0_ROMWBW`. The value is unchanged and
+must stay `3.5.1`: it was never really about the ROM, it is a fact about the
+twenty images the ioscpm catalog published, and it is the suffix a pre-v0 rename
+targets. The old name described a file that no longer exists.
+
+**The catalog fixture was stale and nothing could have said so.** The documents
+in `tests/test_catalogv0.cpp` were pasted in at generation 1, when 3.6.0 was
+`"status": "preview"` and 3.5.1 was the index's default; the published index
+moved to generation 2 on 2026-09-05 and the copy did not. The suite passed
+anyway, every time, because a self-contained fixture is only ever compared to
+itself - so it was asserting a ROM hash no catalog serves (`c7abc580`, the
+pre-`HB_BNKCALL` build) and a default release that was no longer the default.
+Both fixtures are refreshed from the real documents, the nine assertions that
+described the old ones are corrected, and `test_the_fixture_is_not_stale()` now
+reads the sibling `romwbw_disks` checkout and fails on any drift - SKIPping where
+there is no sibling, so the suite still runs on any machine with a compiler.
+
+`tools/check-shipped-disks.sh` gave `z80cpmw` a row that could only fail once the
+ROM was deleted; a port that bundles no ROM now reports that as its answer rather
+than as a file the script could not read.
+
+#### What was actually run
+
+The application was built Release x64 (0 warnings, 0 errors) and driven with
+`WM_COMMAND` and `PrintWindow`, twice - once before the ROM deletion and once
+after.
+
+**Before**, against the live catalog: the v0 storage migration ran on a real
+pre-v0 data folder, renaming `hd1k_combo.img` and `hd1k_games.img` to their
+`-v0-3.5.1` names and rewriting both slots, with `interfaceV0Migrated` written
+back; F5 passed the ROM gate and reached the RomWBW boot loader; Settings said
+**Catalog loaded**; the release dropdown held **2** entries with the second
+selected - 3.6.0, the index's own default - and the disk list held the 3.6.0 set
+including `hd1k_infocom`, an id that has never existed in any build of this
+client. That is criterion "a new disk needs no client release", demonstrated
+rather than argued.
+
+**After**, with `bin\Release\roms` deleted and no ROM anywhere on the machine:
+the terminal carried the notice, F5 raised *"This machine is set to RomWBW 3.6.0,
+and the ROM for RomWBW 3.6.0 is not ready: emu_avw-v0-3.6.0.rom is not on this
+machine"*, and answering Yes downloaded it. **The file that landed hashes
+`01d1ca6d142e9b757d4fd98c2229f2e506dd8c3253839391c8f5d4f6263c6557` at 524,288
+bytes, which is exactly what `catalog-v0-3.6.0.json` publishes**, and the machine
+booted on it. The configuration was left holding `"rom": "emu_avw"` and
+`"romwbwVersion": "3.6.0"`.
+
+The published chain was also fetched directly and checked: `index-v0.json` on the
+`catalog-v0` tag is byte-identical to the committed copy modulo line endings, and
+both version catalogs download at exactly the `catalog_size` the index states
+with sha256 matching its `catalog_sha256`.
+
+A third run, after the documentation pass below found two things reading alone
+had missed: the ROM dropdown came up holding **EMU AVW (Default)** - the
+catalog's own `name` for `emu_avw`, 2 rows, selection 0 - and pressing **OK**
+left `"rom": "emu_avw"` in `z80cpmw.json` rather than a filename.
+
+**Still not run:** the no-network path. Every failure message above was reached
+by deleting the ROM rather than by removing the connection, so what is verified
+is "the ROM is missing", not "the network is gone".
+
+#### Three things the documentation pass found in the code
+
+Rewriting the docs against the code is what caught these; none was visible from
+the change itself.
+
+**The Settings dialog was seeded with a filename and stored ids.**
+`onEmulatorSettings` set `settings.romFile` from `m_emulator->getROMName()`,
+which `loadCatalogRomForStart` fills from `req.rom.filename` - so it read
+`emu_avw-v0-3.6.0.rom`. `populateROMList` matches ids, so that matched nothing,
+was appended as a `(not in this release)` row, and OK wrote the *filename* back
+into `cfg.rom`: one visit to Settings turned a working preference into one
+`chooseRom` can never match. It is seeded from `cfg.rom` now, which is also the
+only value that is the user's *choice* rather than whatever `chooseRom` settled
+on. Caught by the checker on `NOTES.md`, whose brief was to describe the field.
+
+**Two string literals outlived the files they described.** The note under the
+release picker ended `The ROM in the app is kept as the offline fallback.`, and
+its other arm said a release publishing no `roms[]` `can only be started with
+the ROM the app ships` - describing a fallback that had been deleted hours
+earlier and a start that can no longer happen. The constructor's placeholder said
+`z80cpmw boots the ROM it ships with. ROMs in the catalog are not downloaded.`,
+which had already been false since the catalog ROM fetch landed. Nothing
+compiles a string literal, so the only thing that catches one that has stopped
+being true is somebody reading it on screen; `MANUAL_CHECKS.md` §10 now says so
+and keeps the check.
+
+**`z80cpmw.vcxproj` still listed the three deleted ROMs** as `<None Include>`
+items. They staged nothing - a desktop MSBuild does not copy `None` items, the
+removed `PostBuildEvent` is what did - but they named paths that no longer
+exist.
 
 ### `check-sibling-drift.sh` compared the shipped build in one direction only
 

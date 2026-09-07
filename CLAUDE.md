@@ -25,12 +25,30 @@ messages are not marshalled across processes and will crash the app).
 
 ## Rules
 
-**Disk images come from the ioscpm release area. Always.** Every port's client
-downloads them from the catalog pinned by `RELEASE_TAG` in `DiskCatalog.cpp`.
-Nothing is bundled in any package — if a packaging script grows a
-`Copy-Item ...disks\*` or a `File ...hd1k_*.img`, that is a bug. When the
-question is "which disk image do users get?", the answer is `RELEASE_TAG`,
-never the build. Changing it is a code change with its own release.
+**ROMs and disk images come from the `romwbw_disks` catalog. Always.** There is
+no `RELEASE_TAG` in this tree any more and no pinned release of anything: the
+only URL compiled in is the index, `CatalogV0.cpp:24`, and it is the mutable
+`catalog-v0` tag. From it the client reads the RomWBW releases on offer, keeps
+the ones the linked core says it can boot (`DiskCatalog.cpp:496-502`, which asks
+`emu_romwbw_release_supported` rather than deciding for itself), and fetches that
+release's own catalog for the ROM and the images. **So publishing a release in
+`romwbw_disks` is the whole of shipping a new ROM or disk — no build of this
+application is involved.** Verified on 2026-09-07 by running it: the release
+dropdown came back holding both published releases with 3.6.0 selected, and the
+disk list held the 3.6.0 set including `hd1k_infocom`, an id that has never
+existed in any build of this client.
+
+Nothing is bundled in any package **except the fallback ROM** — if a packaging
+script grows a `Copy-Item ...disks\*` or a `File ...hd1k_*.img`, that is a bug.
+The ROM is the one exception and it is deliberate: `roms\emu_avw.rom` and
+`roms\emu_romwbw.rom` are tracked here and staged into the package by the
+`PostBuildEvent` at `z80cpmw.vcxproj:177-179`, so a first launch with no network
+still boots. They are byte-identical to each other and to the catalog's
+`emu_avw-v0-3.5.1.rom` — all three `4b11402a…`, measured 2026-09-07 — so the
+second menu entry is a second name for the same 512 KB.
+
+When the question is "which disk image do users get?", the answer is whatever
+`romwbw_disks` publishes at the release the user has selected, never the build.
 
 **Never sign a `-Beta` package run on a version that is already published.**
 `build-msix.ps1` names its output from `Version.h`, so such a run re-mints the

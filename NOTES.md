@@ -145,23 +145,90 @@ All user data is stored in `%LocalAppData%\z80cpmw\`:
 
 ```
 %LocalAppData%\z80cpmw\
-  z80cpmw.json         - Settings file (a legacy z80cpmw.ini is migrated once,
-                         then renamed z80cpmw.ini.bak)
-  profiles\            - Saved configuration profiles
-  data\                - Disk images and file transfers
-    hd1k_combo.img     - Downloaded disk images
-    hd1k_games.img
-    <files from W8>    - Exported files from CP/M
-    <files for R8>     - Files to import to CP/M
+  z80cpmw.json               - Settings file (a legacy z80cpmw.ini is migrated
+                               once, then renamed z80cpmw.ini.bak)
+  profiles\                  - Saved configuration profiles
+  data\                      - ROMs, disk images and file transfers
+    emu_avw-v0-3.6.0.rom     - Downloaded ROM
+    hd1k_combo-v0-3.6.0.img  - Downloaded disk images
+    hd1k_combo-v0-3.5.1.img
+    disk_ledger.json         - The catalog sha256 each image was verified
+                               against, plus the size/mtime that saves
+                               re-hashing it on the next launch
+    <files from W8>          - Exported files from CP/M
+    <files for R8>           - Files to import to CP/M
 ```
 
 This location is used because Microsoft Store apps cannot write to Program Files.
+
+Every downloaded name carries the catalog interface and the RomWBW release the
+file was built for - `hd1k_combo.img` became `hd1k_combo-v0-3.5.1.img` when the
+catalog moved from `avwohl/ioscpm` to `avwohl/romwbw_disks`. That is not
+cosmetic: a 3.5.1 disk booted against a 3.6.0 ROM makes the guest CBIOS print
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***`, so the two generations have to
+sit in one folder without either overwriting the other, and only the filename
+can keep them apart (`DiskMigrationV0.h`). Images already on disk under the
+pre-v0 names are moved onto the v0 ones once, by
+`DiskCatalog::migrateFilesToInterfaceV0`: renamed rather than copied, so the
+ledger's cached (size, mtime) measurement survives and nobody re-hashes 210 MB
+of images for nothing; driven by the fixed list of twenty legacy names in
+`DiskMigrationV0.cpp` rather than by a pattern over the folder, because R8 and
+W8 put the user's own files in this same directory and a pattern would rename
+one of those; and deleting nothing, so where a file already sits under the v0
+name the pre-v0 one is left exactly where it is.
+
+The ROM is in this folder too, and since 2026-09-07 this is the only place a
+downloaded one goes - no package ships a ROM any more.
+`DiskCatalog::downloadRomInto` writes the catalog's `<id>-v0-<ver>.rom` to a
+`.new` beside the final name and moves it on only after the size and sha256
+match, and `MainWindow::loadCatalogRomForStart` checks both again on every
+start - not only after a download - before the bytes reach the core. Which ROM
+that is comes from the release catalog's `roms[]` and the user's choice on the
+Machine page of Emulator > Settings; `core.rom` in z80cpmw.json holds the
+catalog **id** (`emu_avw`), never a filename, because a filename carries the
+release and a stored one would be forgotten by the first switch between 3.5.1
+and 3.6.0. `Config.cpp`'s `from_json` converts the two filenames released builds
+used to write through `diskv0::romIdForStoredName`, and leaves the field empty
+for anything else - "no preference", which lets the catalog's `default: true`
+entry decide.
 
 ## Store App Compatibility
 
 - App install directory is read-only
 - All writable files go to LocalAppData
-- ROMs are read from app install directory (read-only resources)
+- ROMs and disk images are downloaded into the data folder; the package carries
+  neither
+
+That last line used to read "ROMs are read from app install directory
+(read-only resources)", and it was true until 2026-09-07, when
+`roms\emu_avw.rom`, `roms\emu_romwbw.rom` and `roms\SBC_simh_std.rom` were
+deleted from the tree. Nothing stages or ships a ROM now: the Debug
+configuration of `z80cpmw.vcxproj` has no post-build event at all and the
+Release one copies only the app-local CRT DLLs, `build-msix.ps1` has no `roms\`
+staging directory to package, and the two `File` lines and the
+`SetOutPath $INSTDIR\roms` are gone from `z80cpmw.nsi` - whose UNINSTALLER still
+deletes all three names, to clear out installs made before this.
+
+`MainWindow::findResourceFile` still looks in `<app>\roms\`, `<app>\` and
+`<app>\..\roms\` before the data folder, so a ROM a user drops beside the
+executable by hand still wins - which also means a leftover `bin\Release\roms`
+from a build made before the deletion is still searched, and should be deleted
+by hand. Winning is narrower than it sounds: `loadCatalogRomForStart` asks
+`findResourceFile` for the catalog entry's own filename and then runs
+`DiskCatalog::verifyRom` on whatever came back, so a hand-placed file is loaded
+only when it is named `<id>-v0-<ver>.rom` and is the published bytes. Those
+directories are read-only under the Store, which is why nothing can be added to
+them at run time and why a downloaded ROM has nowhere else to land.
+
+The cost of shipping no ROM, which belongs here rather than only in a release
+note: a first launch with no network can no longer start the machine. Every ROM
+is now checked against the size and sha256 that only the catalog carries, so a
+machine that has never reached the network holds no ROM it is allowed to load.
+It says so and offers to fetch it (`MainWindow::offerRomChoice`) rather than
+booting unverified bytes or another release's ROM, and `loadDefaultROM()`
+survives only to put that notice on the screen at startup - `startEmulator()`
+clears the terminal, so the notice is the one thing that reaches the screen the
+user is looking at.
 
 ## Unified RAM Bank Initialization (January 2026)
 

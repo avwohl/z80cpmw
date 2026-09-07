@@ -17,12 +17,15 @@
  * purpose so that a mistake in one is not searched for in the other.
  *
  * The two halves are in the same tree now, which changes one thing worth naming
- * here: the file a stored path is rewritten onto is the one the catalog will
- * name too, because BUNDLED_ROMWBW below is the release this build's bundled ROM
- * is and that is the release the index's `default: true` entry selects. A user
- * who then chooses another release in Settings gets a second set of images
- * beside these, under their own `-v0-<ver>` names, and this pass never touches
- * them - it renames pre-v0 names and nothing else.
+ * here: the file a stored path is rewritten onto is NOT necessarily the one the
+ * catalog will name. PRE_V0_ROMWBW is 3.5.1 because that is what the old images
+ * were built for, and the index's `default: true` moved to 3.6.0 on 2026-09-05 -
+ * so a migrated machine with no stored release preference renames its images to
+ * -v0-3.5.1 and is then offered 3.6.0. That is correct and costs nothing: every
+ * `-v0-<ver>` name is a different file, so the two generations coexist in one
+ * folder, the migrated images stay valid for the release they belong to, and a
+ * user who moves to 3.6.0 downloads that release's set beside them. This pass
+ * renames pre-v0 names and nothing else, and it never deletes.
  *
  * ## The three rules, and why each of them is a rule
  *
@@ -67,17 +70,23 @@
 
 namespace diskv0 {
 
-// The interface these names carry, and the RomWBW release this build's bundled
-// ROM is. Both appear in the filename: <stem>-<INTERFACE>-<BUNDLED_ROMWBW>.<ext>.
+// The interface these names carry, and the RomWBW release the PRE-V0 IMAGES WERE
+// BUILT FOR. Both appear in the filename: <stem>-<INTERFACE>-<PRE_V0_ROMWBW>.<ext>.
 //
-// BUNDLED_ROMWBW is a fact about roms/emu_avw.rom, whose HCB reads 35 10. It is
-// written down rather than read out of the ROM because the migration has to run
-// before any ROM question is asked, and because a rename that changed with the
-// loaded ROM would move a user's files somewhere else on the next launch.
-// Offering more than one release is a later step, and it is where
-// emu_romwbw_release_of_image() belongs; here the answer must not vary.
+// It was called BUNDLED_ROMWBW and was described as a fact about roms/emu_avw.rom,
+// whose HCB read 35 10. That file was deleted on 2026-09-07 along with every other
+// ROM in this repository - nothing is bundled now, and a constant named for a
+// bundled ROM was a constant naming something that does not exist.
+//
+// The VALUE is unchanged and must stay unchanged, because it was never really
+// about the ROM: it is a fact about the twenty images the ioscpm catalog
+// published, which were built for RomWBW 3.5.1 and still are. It is written down
+// rather than read out of anything because the migration runs before any ROM or
+// catalog question is asked, and because a rename target that varied with the
+// loaded ROM or the selected release would move a user's files somewhere else on
+// the next launch. Here the answer must not vary.
 extern const char* const INTERFACE;
-extern const char* const BUNDLED_ROMWBW;
+extern const char* const PRE_V0_ROMWBW;
 
 // The twenty filenames the pre-v0 catalog published, and the only names this
 // migration is allowed to touch. Read out of ioscpm's release_assets/disks.xml
@@ -121,6 +130,30 @@ bool isEquivalentPriorImage(const std::string& provenance,
                             const std::string& catalogSha256);
 
 bool looksLikeV0Name(const std::string& filename);
+
+// The catalog ROM id a stored AppConfig::rom becomes, for a configuration
+// written while that field still held a FILENAME.
+//
+// Three shapes reach this, and they are the only three any released build ever
+// wrote: the two bundled names, and a v0 name a catalog ROM fetch had already
+// stored. `emu_avw.rom` and `emu_romwbw.rom` both become "emu_avw" - the two
+// files were byte-identical (both 4b11402a..., measured 2026-09-07), so the
+// second was always a second name for the first, and mapping it anywhere else
+// would invent a preference the user never expressed. `emu_avw-v0-3.6.0.rom`
+// becomes "emu_avw" as well: the release belongs to romwbwVersion, and carrying
+// it in the ROM preference is exactly the coupling this migration removes.
+//
+// Everything else answers false with 'out' untouched, and that is deliberate
+// rather than lossy. `SBC_simh_std.rom` is a stock hardware ROM this emulator
+// cannot run and no released build could load, so a configuration naming it is
+// naming nothing; a name this application has never written is somebody's own
+// file. Both become "no preference", which is a real answer - the catalog's
+// `default: true` decides - and not a silent guess at what they meant.
+//
+// Idempotent: a value that is already a bare id carries no ".rom", so it is not
+// a filename, so it is not this function's to touch. It answers false and the
+// caller leaves the stored id alone.
+bool romIdForStoredName(const std::string& storedRom, std::string& out);
 
 // The v0 filename for a bare pre-v0 one. False - and 'out' untouched - when the
 // name already looks like a v0 name, or when it is not one legacyCatalogFilenames()

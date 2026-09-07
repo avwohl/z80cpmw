@@ -733,14 +733,20 @@ static void test_v0_ledger_rename() {
     checkTrue(ledger.record(COMBO_V0) != nullptr, "and everything is under the new one");
 
     // 3. The verdicts, which are the whole point. Nineteen of the twenty images
-    //    are byte-identical between the two catalogs, so they come out Current;
-    //    hd1k_combo is the one whose bytes moved.
+    //    are byte-identical between the two catalogs, so they come out Current.
+    //    hd1k_combo is the one whose bytes moved - and it comes out Current too,
+    //    because the two images were compared and the 2,342 bytes that differ
+    //    are CP/M slack between the same 94 files. diskv0::isEquivalentPriorImage
+    //    records that one pair; test_catalogv0.cpp owns the rule itself, this
+    //    check owns what a migrated user sees because of it. Before that
+    //    measurement this read SupersededPristine and the Settings column said
+    //    "Update available" for a 49 MB download that would change nothing.
     checkFreshness(ledger.freshness(GAMES_V0, CATALOG_GAMES, &gamesFacts),
                    DiskFreshness::Current,
                    "an image the v0 catalog names identically is current, unread");
     checkFreshness(ledger.freshness(COMBO_V0, CATALOG_V0_COMBO, &comboFacts),
-                   DiskFreshness::SupersededPristine,
-                   "and the one image whose bytes moved is superseded, not re-measured");
+                   DiskFreshness::Current,
+                   "and so is the one image whose bytes moved, since they moved only in slack");
 
     // 4. What it costs to skip step 2. This is the version of the migration
     //    that renames files and leaves the ledger behind: every entry falls to

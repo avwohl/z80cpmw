@@ -100,8 +100,24 @@ using UnreadSections = std::map<std::string, std::string>;
 struct AppConfig {
     int version = CURRENT_VERSION;
 
-    // Core emulator settings
-    std::string rom = "emu_avw.rom";
+    // Core emulator settings.
+    //
+    // WHICH ROM, as a catalog `id` - "emu_avw", "emu_rcz80" - and NOT as a
+    // filename. This held a filename until the bundled ROMs were deleted, and a
+    // filename cannot be the preference any more for the same reason a stored
+    // index position cannot be the release: every published ROM filename carries
+    // its release, so emu_avw-v0-3.5.1.rom and emu_avw-v0-3.6.0.rom are one
+    // choice under two names and a stored filename would be forgotten by the
+    // first version switch. An id is the one thing CATALOG_SCHEMA 6.1 promises
+    // is stable across releases.
+    //
+    // Empty means "no preference", which is what every configuration written
+    // before this release says once migrateRomIdToV0() has run over it, and what
+    // a fresh install starts as: catalogv0::chooseRom then takes the entry the
+    // catalog marks `default: true`. It is deliberately NOT defaulted to
+    // "emu_avw" - "do not assume emu_avw is present" is in the compatibility
+    // rules, and a default here would be this application assuming exactly that.
+    std::string rom;
     bool debug = false;
     std::string bootString;
     bool warnManifestWrites = true;  // Warn when writing to downloaded catalog disks

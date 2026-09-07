@@ -40,11 +40,6 @@
 #define ID_HELP_TOPICS          4000
 #define ID_HELP_ABOUT           4001
 
-// ROM selection submenu
-#define ID_ROM_EMU_AVW          5001
-#define ID_ROM_EMU_ROMWBW       5002
-#define ID_ROM_SBC_SIMH         5003
-
 // Status bar
 #define IDC_STATUSBAR           6001
 

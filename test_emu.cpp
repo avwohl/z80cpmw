@@ -20,7 +20,9 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
+#include <string>
 #include <vector>
 #include <functional>
 
@@ -135,25 +137,48 @@ int main(int argc, char* argv[]) {
     g_cpu = new test_cpu(g_mem);
     printf("CPU initialized\n");
 
-    // Find and load ROM
-    const char* romPaths[] = {
-        "bin/Debug/roms/emu_avw.rom",
-        "roms/emu_avw.rom",
-        "../roms/emu_avw.rom",
-        "z80cpmw/roms/emu_avw.rom",
-    };
-
-    bool romLoaded = false;
-    for (const char* path : romPaths) {
-        printf("Trying ROM path: %s\n", path);
-        if (load_rom(path)) {
-            romLoaded = true;
-            break;
+    // Find and load a ROM.
+    //
+    // THIS HARNESS HAS NO ROM OF ITS OWN, and neither does the repository any
+    // more. The four paths that stood here - bin/Debug/roms/emu_avw.rom,
+    // roms/emu_avw.rom, ../roms/emu_avw.rom, z80cpmw/roms/emu_avw.rom - all
+    // named files deleted on 2026-09-07, so every one of them would miss and
+    // this harness would only ever print "Could not find ROM file".
+    //
+    // A ROM now reaches a machine one way: the application downloads it from the
+    // romwbw_disks catalog into its data folder, under the catalog's own
+    // <id>-v0-<release>.rom name. So that folder is where this looks, and it
+    // takes whatever .rom is there rather than naming one - the release is the
+    // user's choice and this harness has no opinion about it. Pass a path as
+    // argv[1] to use a particular one.
+    std::string romPath;
+    if (argc > 1) {
+        romPath = argv[1];
+    } else {
+        const char* local = getenv("LOCALAPPDATA");
+        if (local) {
+            const std::string dir = std::string(local) + "\\z80cpmw\\data";
+            WIN32_FIND_DATAA find;
+            HANDLE h = FindFirstFileA((dir + "\\*.rom").c_str(), &find);
+            if (h != INVALID_HANDLE_VALUE) {
+                romPath = dir + "\\" + find.cFileName;
+                FindClose(h);
+            }
         }
     }
 
-    if (!romLoaded) {
-        printf("ERROR: Could not find ROM file\n");
+    if (romPath.empty()) {
+        printf("ERROR: no ROM to run.\n"
+               "  This repository ships none: every ROM comes from the\n"
+               "  romwbw_disks catalog into %%LOCALAPPDATA%%\\z80cpmw\\data.\n"
+               "  Start z80cpmw once and press F5 to fetch one, or pass a\n"
+               "  path: test_emu.exe <rom>\n");
+        return 1;
+    }
+
+    printf("Trying ROM path: %s\n", romPath.c_str());
+    if (!load_rom(romPath.c_str())) {
+        printf("ERROR: could not load %s\n", romPath.c_str());
         return 1;
     }
 

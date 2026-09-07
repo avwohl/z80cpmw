@@ -27,14 +27,21 @@ hashing equal to `bin\Release\z80cpmw.pdb`. It cannot be undone for 1.0.22.
 **And it happened a second time, on the arm that fix did not cover.** Step 6 of
 `build-msix.ps1` was `if ($Beta)` until 1.0.25, so a Store package built without
 a beta beside it kept no symbols at all. **1.0.24 is such a package.** No `.pdb`
-for it exists anywhere — `dist\` holds `z80cpmw-1.0.21-beta.pdb` and
-`z80cpmw-1.0.23-beta.pdb` and nothing else, and `bin\Release\z80cpmw.pdb` has
-been rebuilt at 1.0.25 since. If `dist\z80cpmw-1.0.24-store.msix` is submitted,
-its crash dumps are unreadable exactly as 1.0.22's are; submitting 1.0.25
-instead is the only version of that choice with symbols behind it. 1.0.23
-escapes by accident rather than by design: its beta was cut from the same build
-with `-SkipBuild`, so `z80cpmw-1.0.23-beta.pdb` symbolicates the Store binary
-too — which is a property of how that release happened to be cut, not a rule.
+for it exists anywhere — `dist\` holds `z80cpmw-1.0.21-beta.pdb`,
+`z80cpmw-1.0.23-beta.pdb` and `z80cpmw-1.0.25-store.pdb`, and nothing carrying
+1.0.24 in its name but the `.msix` itself; `bin\Release\z80cpmw.pdb` has been
+rebuilt many times since, most recently on 2026-09-07. The choice this paragraph
+used to pose — submit `dist\z80cpmw-1.0.24-store.msix` and inherit 1.0.22's
+problem, or submit 1.0.25 and not — has since been made, and made the right way:
+the Store serves **1.0.25** (`tools/check-store-version.sh` on 2026-09-06 in
+`7ca073c`, re-run on 2026-09-07), and `z80cpmw-1.0.25-store.pdb` was kept beside
+the package it came from, so the version users actually have is symbolicated.
+The 1.0.24 package is still on disk and still has no symbols anywhere, and
+submitting it now would be choosing that problem rather than inheriting it.
+1.0.23 escapes by accident rather than by design: its beta was cut from the same
+build with `-SkipBuild`, so `z80cpmw-1.0.23-beta.pdb` symbolicates the Store
+binary too — which is a property of how that release happened to be cut, not a
+rule.
 
 ## `emu_host_path_basename()` is a link error waiting to be triggered
 
@@ -116,13 +123,22 @@ repository no longer ships an image.
 
 ## Nothing transfers from the games disk, and the gate will never say so
 
-`hd1k_games.img` carries **neither `R8.COM` nor `W8.COM`**, so a user who
-follows the in-app help to the Games disk and then tries to move a save file has
-no utility to run — on either side. Measured on the image this build ships,
-`bin\Release\disks\hd1k_games.img`: the 8.3 directory pattern `R8      COM`
-occurs **zero** times in it and `W8      COM` zero times, against one of each in
-`hd1k_combo.img` — so the search finds them where they exist, and the answer for
-the games disk is really nothing rather than a bad search.
+The Games disk carries **neither `R8.COM` nor `W8.COM`**, so a user who follows
+the in-app help to it and then tries to move a save file has no utility to
+run — on either side. No build ships that image and none has for some time, so
+it has to be measured where a user actually gets it: `hd1k_games-v0-3.6.0.img`,
+downloaded from the catalog on 2026-09-07 and hashing `287601a3…`, the sha256
+the 3.6.0 catalog publishes for it. In that file the 8.3 directory pattern
+`R8      COM` occurs **zero** times and `W8      COM` zero times, against one
+of each in `hd1k_combo-v0-3.6.0.img` (`f4873027…`) — so the search finds them
+where they exist, and the answer for the games disk is really nothing rather
+than a bad search. It is not a property of one release either:
+`hd1k_games-v0-3.5.1.img` in the data folder answers the same and hashes
+`7f33738c…`. A third copy used to be measurable at `bin\Release\disks\`, left
+there by a build from back when one staged images; it was deleted on 2026-09-07
+along with `bin\Release\roms\`, so there is no copy anywhere in this tree to
+measure any more, and there never will be again — which is exactly why the
+measurement above is taken on the downloaded file.
 
 The half that will not change is the gate. The check that used to run here,
 `packaging/scripts/verify-disk-assets.sh` (deleted 2026-09-05), was
@@ -132,7 +148,8 @@ signature reached `bad()` for a missing utility, while a plain 8 MB image got an
 secondary data disk carrying neither utility is a choice and not a fault.
 `hd1k_games.img` is exactly 8,388,608 bytes, so it took the info branch every
 time. The v0 catalog states the same thing as data rather than inferring it from
-geometry: the `hd1k_games` entry carries `host_transfer: false`. **A PASS is
+geometry: the `hd1k_games` entry carries `host_transfer: false`, still there in
+the published 3.6.0 catalog when it was fetched on 2026-09-07. **A PASS is
 compatible with the games disk having no R8 and no W8**, and is
 meant to be. Anyone refreshing the images who wants this closed has to check
 that image by hand and put the utilities on it deliberately; nothing will go red
@@ -149,8 +166,15 @@ downloaded library under a name nothing fetches.
 
 That was exercised once, on 2026-09-06: generation 2, four rebuilt ROMs, both
 releases. It was safe only because no shipped client could see those URLs — the
-migration to the index (`f91c3a3`) has never been in a released build, and
-Store 1.0.23 still fetches `avwohl/ioscpm/releases/download/v1.4.5/disks.xml`.
+migration to the index (`f91c3a3`) has never been in a released build, and the
+build the Store serves still fetches
+`avwohl/ioscpm/releases/download/v1.4.12/disks.xml`. That build is **1.0.25**,
+not 1.0.23, and its pin is `v1.4.12`, not `v1.4.5`:
+`tools/check-store-version.sh` answers `AaronWohl.Z80CPM_1.0.25.0_x64`, on
+2026-09-06 in `7ca073c` and again on 2026-09-07, and `git show
+211488b:z80cpmw/DiskCatalog.cpp` reads `RELEASE_TAG = L"v1.4.12"`. What survives
+that correction is the half that matters here: `git merge-base --is-ancestor
+f91c3a3 211488b` answers no, so nothing users have can see the index.
 
 **Do not check that with `git tag --contains`.** This family releases without
 tagging: ioscpm 1.5.1 went live on 2026-09-05 and has no `v1.5.1` tag at all, so
@@ -161,5 +185,60 @@ or the `RELEASE_TAG` string in the artifact, where it is UTF-16LE.
 Whichever release first carries `f91c3a3` ends this. From then on a correction
 upstream is a new RomWBW version entry, not a quiet re-upload, and a user who
 already verified a SHA-256 would otherwise get different bytes at the same URL.
+Since 2026-09-07 that covers the ROM as well as the images: this application
+fetches every ROM from those same URLs and verifies its sha256 each time it
+loads one (`loadCatalogRomForStart()` calls `DiskCatalog::verifyRom()` before
+`loadROM()`), so an asset regenerated in place stops verifying on a machine
+that already holds the old bytes, and that machine needs another download
+before it will start.
+
 This is not an action for this repository; it is a cost that this repository's
 next release imposes on another, and worth knowing before spending it.
+
+## A first launch with no network cannot start the machine
+
+This is what shipping no ROM costs, and it was spent deliberately on 2026-09-07,
+when `roms\emu_avw.rom` and `roms\emu_romwbw.rom` were deleted along with every
+line that staged or packaged them: the ROM copy out of both `PostBuildEvent`s in
+`z80cpmw.vcxproj` (the Debug one is now a comment and nothing else, the Release
+one still copies the app-local CRT DLLs), the `roms\` staging directory and its
+`Copy-Item` in `build-msix.ps1`, and the two `File` lines with their
+`SetOutPath "$INSTDIR\roms"` in `z80cpmw.nsi`. Every ROM now comes from the
+release catalog in `avwohl/romwbw_disks`, reached through the one URL left in
+the binary (`catalogv0::INDEX_URL` in `CatalogV0.cpp`), and is checked against
+the exact size and the sha256 that only the catalog carries.
+A machine that has never reached the network therefore has no ROM it is allowed
+to load, and does not start.
+
+The check is not a policy laid over the loader; it is the only way in.
+`m_emulator->loadROM()` has exactly one caller in the whole application,
+`MainWindow::loadCatalogRomForStart()`, and the statement immediately above it is
+`DiskCatalog::verifyRom()`, which refuses a size that is not exactly the
+published one or a sha256 that does not match. "Boot it anyway, unverified" is
+not a branch somebody forgot to write, and adding it would mean adding a second
+caller.
+
+What the user gets instead of a dead machine is a sentence. `loadDefaultROM()`
+loads nothing now and stays only to post the notice that the ROM is fetched on
+the first start; `romReadyToStart()` fetches the catalog without asking, a
+catalog being a few kilobytes where a ROM is 512 KB of somebody's connection;
+and `offerRomChoice()` then says which of the two situations this is. With a
+catalog in hand that names the ROM, it offers the download — "Download the
+RomWBW 3.6.0 ROM now (about 512 KB)?", Yes to fetch it and start, No to not
+start. With no catalog at all, which is the offline first launch and the case
+where not even the release is known, there is nothing to offer: it says the ROM
+is downloaded from the catalog the first time the machine starts, that this app
+does not ship one, and to check the network connection and press F5 again. What
+it never does is boot empty banks or boot another release's ROM, which is the
+whole reason the gate is there.
+
+**A ROM put beside the executable by hand does not rescue this**, and that is
+the part that surprises people. `findResourceFile()` still searches `roms\`
+beside the executable, the executable's own directory and `..\roms\` before it
+reaches the data folder, so a file dropped there does win the lookup — but
+winning the lookup only carries it as far as `verifyRom()`, and the size and
+hash it has to match exist only in the catalog. The same goes for a ROM an
+earlier run already downloaded into `%LOCALAPPDATA%\z80cpmw\data`: the bytes are
+on the machine, the claim about them is not. Doing better would mean writing a
+ROM's published hash down locally — a second provenance store beside
+`DiskLedger`'s — and that has not been built.

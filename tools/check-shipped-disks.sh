@@ -178,7 +178,10 @@ bundled_rom_of() { # $1 = port name, $2 = checkout -> prints a path
     case "$1" in
         cpmdroid) echo "$2/app/src/main/assets/emu_avw.rom" ;;
         ioscpm)   echo "$2/iOSCPM/Resources/emu_avw.rom" ;;
-        z80cpmw)  echo "$2/roms/emu_avw.rom" ;;
+        # z80cpmw deliberately prints NOTHING.  It deleted roms/ on 2026-09-07
+        # and bundles no ROM at all, so the empty string is its answer and the
+        # caller reports that rather than reading it as a file it could not find.
+        z80cpmw)  ;;
     esac
 }
 
@@ -321,12 +324,18 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
             continue
         fi
 
+        # An EMPTY path is a real answer and not a missing file: it means this
+        # port bundles no ROM at all.  Only a port that names one is asked what
+        # release it is.
         rom=$(bundled_rom_of "$port" "$dir")
-        romver=$(rom_release_of "$rom")
-        if [ -z "$romver" ]; then
-            printf '%-10s CANNOT READ the RomWBW release out of %s\n' "$port" "$rom"
-            echo 1 > "$tmp/fail"
-            continue
+        romver=""
+        if [ -n "$rom" ]; then
+            romver=$(rom_release_of "$rom")
+            if [ -z "$romver" ]; then
+                printf '%-10s CANNOT READ the RomWBW release out of %s\n' "$port" "$rom"
+                echo 1 > "$tmp/fail"
+                continue
+            fi
         fi
 
         if ! get "$idx" "$tmp/$port-index.json"; then
@@ -338,7 +347,16 @@ echo "$ports" | while IFS='|' read -r port file pat kind; do
         # Whitespace stripped first so this does not depend on how the generator
         # happens to indent.  One field, not a pair, so it does not depend on
         # field order either.
-        if tr -d ' \n' < "$tmp/$port-index.json" |
+        if [ -z "$romver" ]; then
+            # A port that bundles NO ROM, which z80cpmw became on 2026-09-07.
+            # There is no "is the bundled release still published" question to
+            # ask of it, and no offline first launch to strand: every ROM is
+            # fetched from the catalog and checked against the size and sha256
+            # that catalog publishes.  Printed rather than passed over, because
+            # "this port bundles nothing" is the answer and not the absence of
+            # one - and because the next port to do it must not read as broken.
+            printf '%-10s v0 index, bundles no ROM - every ROM comes from the catalog\n' "$port"
+        elif tr -d ' \n' < "$tmp/$port-index.json" |
                 grep -q "\"romwbw_version\":\"$romver\""; then
             printf '%-10s v0 index, bundled ROM RomWBW %s is published\n' "$port" "$romver"
         else

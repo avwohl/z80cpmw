@@ -139,7 +139,15 @@ private:
     void buildTerminalPage();
     void buildKeyboardPage();
     void buildDiskImagesPage();
-    void populateROMList();
+    // Rebuilds the ROM dropdown from the catalog's roms[] and leaves `selectId`
+    // selected, appending it as an unavailable row when this release does not
+    // publish it. Called again whenever a catalog lands, so the id to keep is
+    // passed in rather than read from m_settings: a user who changed the
+    // dropdown while the fetch was in flight must not have it put back.
+    void populateROMList(const std::string& selectId);
+
+    // The id the dropdown is holding now, or empty for the placeholder row.
+    std::string selectedRomId() const;
     // The RomWBW releases the catalog offers that this build's core can boot,
     // and the sentence underneath saying what the selected one means for the
     // ROM in the banks. Both are refilled whenever a catalog lands, because
@@ -300,13 +308,18 @@ private:
     std::vector<std::string> m_romwbwVersionIds;
     wxStaticText* m_romwbwVersionNote;
 
-    // Row -> the ROM FILENAME that row stands for, kept beside m_romChoice for
-    // the same reason as the list above: what the control displays is a label
-    // ("EMU AVW (Default)") and what the configuration stores is a filename.
-    // The two packaged ROMs plus, when the machine is running one, the catalog
-    // ROM for the RomWBW release it is set to - appended by loadSettings() so
-    // that OK writes back the ROM in the banks instead of replacing it with the
-    // first entry.
+    // Row -> the catalog ROM `id` that row stands for, kept beside m_romChoice
+    // for the same reason as the list above: what the control displays is a
+    // label ("EMU AVW (Default)") and what the configuration stores is an id.
+    //
+    // An id and not a filename, which is what this held until the bundled ROMs
+    // were deleted. Every published ROM filename carries its release, so a
+    // stored filename would be forgotten by the first version switch; the id is
+    // the one thing CATALOG_SCHEMA 6.1 promises is stable across releases. The
+    // rows are the release's roms[], plus - when the stored preference is an id
+    // this release does not publish - that id appended so OK writes it back
+    // rather than erasing it. One empty id means the placeholder row, which
+    // saveSettings() refuses to write.
     std::vector<std::string> m_romFileIds;
 
     wxListCtrl* m_catalogList;

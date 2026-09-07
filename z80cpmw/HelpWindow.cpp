@@ -33,10 +33,20 @@ static HelpWindow* g_helpWindow = nullptr;
 // Shown in the scrollable help window so it does not overflow the terminal.
 //
 // The "File Transfer (R8 / W8)" section describes the R8 and W8 the disk catalog
-// serves, which since the v1.4.12 repin are the current ones: verified against the
-// published hd1k_combo.img (sha256 89b8ae1a...) rather than against its lineage -
-// the raw image contains "Usage: W8 <cpmname> [hostpath]" and the 06 E9 CF bytes of
-// the HBF_HOST_CAPS probe, and the v1.4.5 image it replaced contains neither.
+// serves, which are the current ones: verified against the published combo image
+// rather than against its lineage - the raw image contains
+// "Usage: W8 <cpmname> [hostpath]" and the 06 E9 CF bytes of the HBF_HOST_CAPS
+// probe, and the v1.4.5 image it replaced contains neither.
+//
+// The hash that verification was done against was 89b8ae1a..., which is the
+// ioscpm v1.4.12 image and is no longer what any user downloads. The v0 catalog
+// publishes hd1k_combo-v0-3.5.1.img at 0ca4ec60... and hd1k_combo-v0-3.6.0.img at
+// a third hash again, so there is no single image to name here any more - which
+// is the point of the catalog, and the reason this comment now names the property
+// checked rather than the file it was checked on. The property still holds:
+// romwbw_disks builds w8.com and r8.com from src/ and tools/build_utils.sh
+// asserts the probe bytes at build time, and tools/verify_catalog.py asserts them
+// against every published image carrying w8.com.
 //
 // Three blocks used to sit here saying W8 took no host path and warning about the
 // old R8's unfiltered F_DELETE and the old W8's 1Ah truncation. Two are gone with

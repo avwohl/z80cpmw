@@ -157,6 +157,16 @@ std::string DiskCatalog::getPreferredRomwbwVersion() const {
     return m_preferredVersion;
 }
 
+void DiskCatalog::setPreferredRomId(const std::string& romId) {
+    std::lock_guard<std::mutex> lock(m_indexMutex);
+    m_preferredRomId = romId;
+}
+
+std::string DiskCatalog::getPreferredRomId() const {
+    std::lock_guard<std::mutex> lock(m_indexMutex);
+    return m_preferredRomId;
+}
+
 std::string DiskCatalog::getSelectedRomwbwVersion() const {
     std::lock_guard<std::mutex> lock(m_indexMutex);
     return m_selectedVersion;
@@ -175,6 +185,11 @@ std::vector<catalogv0::RomItem> DiskCatalog::getCatalogRoms() const {
 DiskCatalog::RomRequirement DiskCatalog::getRomRequirement() const {
     RomRequirement req;
     std::string filename;
+    // Read BEFORE m_catalogMutex is taken, through the accessor that takes
+    // m_indexMutex. No path in this class holds two of its three locks at once,
+    // which is the rule the comment below the next block states, and taking this
+    // one inside that block would be the first place to break it.
+    const std::string preferredRom = getPreferredRomId();
     {
         std::lock_guard<std::mutex> lock(m_catalogMutex);
         // The base URL is what says a catalog has been fetched: parseCatalog
@@ -182,7 +197,7 @@ DiskCatalog::RomRequirement DiskCatalog::getRomRequirement() const {
         // whole catalog landed and not that some field happened to be set.
         req.haveCatalog = !m_catalogBaseUrl.empty();
         req.romwbwVersion = m_catalogRomwbwVersion;
-        const size_t pick = catalogv0::chooseRom(m_catalogRoms);
+        const size_t pick = catalogv0::chooseRom(m_catalogRoms, preferredRom);
         if (req.haveCatalog && pick < m_catalogRoms.size()) {
             req.haveRom = true;
             req.rom = m_catalogRoms[pick];

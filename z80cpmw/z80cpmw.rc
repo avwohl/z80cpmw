@@ -69,12 +69,6 @@ IDR_MAINMENU MENU
 BEGIN
     POPUP "&File"
     BEGIN
-        POPUP "Select &ROM"
-        BEGIN
-            MENUITEM "EMU AVW (Recommended)",   ID_ROM_EMU_AVW
-            MENUITEM "EMU RomWBW",              ID_ROM_EMU_ROMWBW
-        END
-        MENUITEM SEPARATOR
         MENUITEM "Load Disk &0...",             ID_FILE_LOADDISK0
         MENUITEM "Load Disk &1...",             ID_FILE_LOADDISK1
         MENUITEM SEPARATOR

@@ -59,14 +59,32 @@ desktop.ini
 .vs/
 
 # Exclude large binary files that should be downloaded
-# roms/*.rom
+# Active now, and deliberately not scoped to roms/ the way the disks line
+# below is scoped: that directory is gone and no ROM belongs anywhere in this
+# tree.  roms/emu_avw.rom, roms/emu_romwbw.rom and roms/SBC_simh_std.rom were
+# deleted on 2026-09-07, and the vcxproj (the Debug arm has no PostBuildEvent
+# at all now; the Release one at z80cpmw.vcxproj:165-181 copies only the
+# app-local CRT), build-msix.ps1 and the NSIS installer all stopped staging
+# one, so no build of this application produces a roms directory any more.
+# Every ROM comes from the romwbw_disks catalog and is checked against the
+# size and the sha256 that only that catalog carries (DiskCatalog::verifyRom,
+# at DiskCatalog.cpp:214) before it is loaded, so a ROM committed here could
+# only be an unverifiable second copy going stale against what the catalog
+# serves - which is what the two deleted emulator ROMs had become:
+# byte-identical to each other and to the catalog's emu_avw-v0-3.5.1.rom,
+# sha256 4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258,
+# measured 2026-09-07.  The three names still appear in the uninstaller, to
+# clean up installs that had them; nothing installs them any more.
+*.rom
 
 # Not a commented-out intention any more.  CLAUDE.md's standing rule is that
-# every disk image comes from the ioscpm release area pinned by RELEASE_TAG and
-# that nothing is bundled in any package; disks/cpm_wbw.img and
-# disks/zsys_wbw.img were the last two tracked here, they were what the deleted
-# MainWindow::loadDefaultDisks() wanted, and no packaging script has staged them
-# since dbd53b1.  This is what stops the next one being committed by accident.
+# every ROM and every disk image comes from the romwbw_disks catalog, reached
+# through the one URL compiled in - the index at CatalogV0.cpp:24, there being
+# no RELEASE_TAG in this tree any more - and that nothing is bundled in any
+# package; disks/cpm_wbw.img and disks/zsys_wbw.img were the last two tracked
+# here, they were what the deleted MainWindow::loadDefaultDisks() wanted, and no
+# packaging script has staged them since dbd53b1.  This is what stops the next
+# one being committed by accident.
 disks/*.img
 
 # Upstream repos (pulled for reference)

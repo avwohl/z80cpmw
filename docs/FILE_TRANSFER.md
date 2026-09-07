@@ -52,21 +52,56 @@ W8 OUT.COM                               → the data folder, as out.com
 ```
 
 This document used to say `W8` took a host path when it did not, then said it
-did not once that was corrected. Both are now history: the utilities come from
-the disk catalog, pinned by `RELEASE_TAG` in `DiskCatalog.cpp`, and that pin
-names a release whose `w8.com` takes the path and asks the emulator whether it
-is safe to before doing so (`HBF_HOST_CAPS`).
+did not once that was corrected. Both are now history, and it is worth being
+exact about where the answer comes from, because it does not come from this
+repository. `W8.COM` and `R8.COM` are not built here and never were: they are
+assembled from `src/w8.asm` and `src/r8.asm` in
+[`avwohl/romwbw_disks`](https://github.com/avwohl/romwbw_disks) by that
+repository's `tools/build_utils.sh`, and written into slice 0 of `hd1k_combo` —
+the only image that carries them, and the only thing that repository adds to the
+stock upstream disk set. So the pair reaches you inside a disk image you
+download, and until you have downloaded the combo there is no `W8` to run.
 
-It also *tells you where the file went*, which is worth more on this platform
-than on any other: it asks the emulator for the effective destination
-(`HBF_HOST_GETNAME`) instead of echoing what you typed, so a bare name prints as
-the data folder, and an installed Store/MSIX build prints the redirected
-`LocalCache` path the OS actually wrote to rather than the `%LOCALAPPDATA%` path
-the app asked for.
+There is no compiled-in pin deciding which copy you get any more. `RELEASE_TAG`
+is gone from `DiskCatalog.cpp`; the only address compiled in for anything the
+catalog serves is the index itself, `catalogv0::INDEX_URL` (the in-app help
+fetches its own text from elsewhere, and the crash dialog links to the issue
+tracker — neither carries a ROM or a disk image). Which release's
+combo you download is the *RomWBW release:* picker on *Emulator → Settings →
+Disk Images*. That choice does not change the utilities, though, and it is not
+supposed to: `tools/build_utils.sh` takes no version argument — one build serves
+every RomWBW release — because `W8`/`R8` talk to the emulator's private
+host-file function block (`0xE1`–`0xEA`), which belongs to the *interface*
+version and which RomWBW itself knows nothing about. Both published releases
+therefore carry the same `w8.com`, the one that takes the path and asks the
+emulator whether it is safe to before doing so (`HBF_HOST_CAPS`, `0xE9` in
+`romwbw_emu/src/hbios_dispatch.h`). That is enforced at build time rather than
+assumed: `build_utils.sh` refuses to publish a `w8.com` that does not contain
+the probe's three bytes, `06 e9 cf`.
+
+(The catalog also marks which images carry the pair — `"host_transfer": true`,
+which is set on `hd1k_combo` and on nothing else in either published release —
+and z80cpmw parses it into `DiskItem::hostTransfer` at `CatalogV0.cpp:279`. But
+no code in this application reads that flag yet, so it is not why the combo is
+the disk you want; it just happens to agree.)
+
+That same `w8.com` also *tells you where the file went*, which is worth more on
+this platform than on any other: it asks the emulator for the effective
+destination (`HBF_HOST_GETNAME`) instead of echoing what you typed, so a bare
+name prints as the data folder, and an installed Store/MSIX build prints the
+redirected `LocalCache` path the OS actually wrote to rather than the
+`%LOCALAPPDATA%` path the app asked for.
 
 If your `W8` prints `Usage: W8 <cpmname>` with no `[hostpath]`, you are running
-an older image than the pin serves — delete it from the data folder and let the
-app download it again.
+a combo image older than the one the catalog now serves. An install that
+predates the move keeps the copy it already had: `DiskMigrationV0` renames
+`hd1k_combo.img` onto the v0 name `hd1k_combo-v0-3.5.1.img` rather than
+replacing it, deliberately, and while the disk ledger can tell that such an
+image is *superseded*, nothing in this application calls `getFreshness()` yet —
+so no automatic refresh will happen and no control offers one. Replace it by
+hand: select it on *Emulator → Settings → Disk Images*, press **Delete**, then
+**Download**. Do that knowing what it costs — a downloaded disk is a writable
+CP/M volume, so any file you have saved inside that combo goes with it.
 
 **A bare name goes to the app's data folder.** `W8 out.com` (no path) lands in:
 

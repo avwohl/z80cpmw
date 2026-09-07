@@ -59,7 +59,10 @@ SettingsDialogWx::SettingsDialogWx(wxWindow* parent, DiskCatalog* catalog)
     OutputDebugStringA("[Settings] Constructor: laying out controls\n");
     layoutControls();
     OutputDebugStringA("[Settings] Constructor: populating ROM list\n");
-    populateROMList();
+    // No settings yet - setSettings() has not been called - so there is no
+    // preference to keep and this puts up the placeholder. loadSettings() runs
+    // it again with the stored id the moment there is one.
+    populateROMList(std::string());
     OutputDebugStringA("[Settings] Constructor: populating disk lists\n");
     populateDiskLists();
 
@@ -754,8 +757,15 @@ void SettingsDialogWx::buildDiskImagesPage() {
     // this page is laid out before any catalog has been fetched, and a label
     // that grows from nothing to two lines afterwards grows into a page that was
     // measured without it. updateRomwbwVersionNote() replaces the text.
+    //
+    // It said "z80cpmw boots the ROM it ships with. ROMs in the catalog are not
+    // downloaded." - true when it was written, false since the catalog ROM fetch
+    // landed, and doubly so since the ROMs were deleted. It is a placeholder
+    // that is on screen for as long as the first catalog fetch takes, so it has
+    // to be a sentence that stays true rather than a description of a state.
     m_romwbwVersionNote = new wxStaticText(page, wxID_ANY,
-        "z80cpmw boots the ROM it ships with. ROMs in the catalog are not downloaded.");
+        "The ROM and the disk images are downloaded from the RomWBW catalog and "
+        "checked against it. Reading the catalog...");
     content->Add(m_romwbwVersionNote, 0, wxEXPAND | wxBOTTOM, 10);
 
     // Catalog section header
@@ -837,26 +847,75 @@ void SettingsDialogWx::layoutControls() {
     SetSizer(mainSizer);
 }
 
-void SettingsDialogWx::populateROMList() {
+void SettingsDialogWx::populateROMList(const std::string& selectId) {
     m_romChoice->Clear();
     m_romFileIds.clear();
 
-    // The two ROMs the package ships, and a parallel list of the FILENAMES they
-    // stand for. The names used to live in a switch on the selection index in
-    // saveSettings(), which meant the control could only ever produce one of
-    // them: any other ROM name went in and came out as emu_avw.rom.
+    // THE CATALOG'S roms[], and a parallel list of the ids they stand for.
     //
-    // This list is deliberately NOT the catalog's roms[]. A catalog ROM is not a
-    // stored preference - it is chosen by the RomWBW release the machine is set
-    // to and verified against the catalog's own sha256 on every start - so
-    // offering one here as a peer of these two would invite a choice that the
-    // release, not this control, decides. loadSettings() appends the one in use
-    // when it is neither of these, purely so that OK writes it back unchanged.
-    m_romChoice->Append("EMU AVW (Default)");
-    m_romFileIds.push_back("emu_avw.rom");
-    m_romChoice->Append("EMU RomWBW");
-    m_romFileIds.push_back("emu_romwbw.rom");
-    m_romChoice->SetSelection(0);
+    // This was two hardcoded entries naming the two ROM files the package
+    // shipped, with a comment arguing that a catalog ROM is not a stored
+    // preference. That argument fell with the bundled ROMs: there is no packaged
+    // ROM left to be the peer of anything, every ROM this application can load
+    // now comes from the release's catalog, and a client that offered none of
+    // them would make the second published ROM - emu_rcz80 - unreachable no
+    // matter what romwbw_disks published. Publishing a ROM has to be enough.
+    //
+    // Ids, never filenames. A filename carries the release, so a preference
+    // stored as one would be forgotten the moment the user switched 3.5.1 to
+    // 3.6.0; catalogv0::chooseRom matches on id for the same reason.
+    const std::vector<catalogv0::RomItem> roms =
+        m_catalog ? m_catalog->getCatalogRoms() : std::vector<catalogv0::RomItem>();
+
+    if (roms.empty()) {
+        // No catalog yet - the fetch this dialog's constructor started has not
+        // come back, or there is no network - or a release whose catalog carries
+        // no roms[] at all, which CATALOG_SCHEMA 6.1 allows. Same shape as the
+        // release picker's placeholder and for the same reason: an empty
+        // dropdown invites a click that can only produce a worse answer than the
+        // one already stored, and the empty id makes saveSettings() refuse to
+        // write over the stored choice.
+        m_romChoice->Append(selectId.empty()
+                                ? wxString("(catalog not loaded)")
+                                : wxString::FromUTF8(selectId));
+        m_romFileIds.push_back(std::string());
+        m_romChoice->SetSelection(0);
+        m_romChoice->Enable(false);
+        return;
+    }
+
+    for (const auto& rom : roms) {
+        // The catalog's own name, with its id in parentheses so that two
+        // releases' spellings of one ROM still read as the same choice. name is
+        // free text and may be absent; the id is the thing 6.1 promises.
+        std::string label = rom.name.empty() ? rom.id : rom.name;
+        if (rom.isDefault) label += " (Default)";
+        m_romChoice->Append(wxString::FromUTF8(label));
+        m_romFileIds.push_back(rom.id);
+    }
+    m_romChoice->Enable(true);
+
+    // The id to keep, appended as an unavailable row when this release does not
+    // publish it, so that OK writes it back rather than replacing it with this
+    // release's default. The preference is still theirs; it is only unavailable
+    // here, and switching back must find it intact. chooseRom already treats an
+    // unpublished preference as no preference for what actually BOOTS, so
+    // keeping it here strands nothing.
+    int idx = -1;
+    for (size_t i = 0; i < m_romFileIds.size(); i++) {
+        if (m_romFileIds[i] == selectId) { idx = static_cast<int>(i); break; }
+    }
+    if (idx < 0 && !selectId.empty()) {
+        idx = m_romChoice->Append(wxString::FromUTF8(selectId) + " (not in this release)");
+        m_romFileIds.push_back(selectId);
+    }
+    m_romChoice->SetSelection(idx < 0 ? 0 : idx);
+}
+
+std::string SettingsDialogWx::selectedRomId() const {
+    const int sel = m_romChoice->GetSelection();
+    if (sel < 0 || (size_t)sel >= m_romFileIds.size()) return std::string();
+    return m_romFileIds[sel];
 }
 
 void SettingsDialogWx::populateVersionList() {
@@ -957,14 +1016,26 @@ void SettingsDialogWx::updateRomwbwVersionNote() {
     // than as a promise.
     const size_t romCount = m_catalog ? m_catalog->getCatalogRoms().size() : 0;
     if (romCount > 0) {
+        // "The ROM in the app is kept as the offline fallback" stood at the end
+        // of this sentence and outlived the files it described by a few hours:
+        // the app ships no ROM. Nothing compiles a string literal, so the only
+        // thing that catches one that has stopped being true is somebody reading
+        // it - which is exactly how this was caught.
         note += "This catalog publishes " + std::to_string(romCount) + " ROM" +
                 (romCount == 1 ? "" : "s") +
-                "; the one it marks default is fetched and checked against its "
-                "published size and checksum before the machine starts. The ROM "
-                "in the app is kept as the offline fallback.";
+                "; the one on the Machine page is fetched and checked against "
+                "its published size and checksum before the machine starts. "
+                "This app ships no ROM of its own.";
     } else {
-        note += "This catalog publishes no ROM, so this release can only be "
-                "started with the ROM the app ships.";
+        // A release whose catalog carries no roms[] at all, which
+        // CATALOG_SCHEMA 6.1 allows. This used to end "can only be started with
+        // the ROM the app ships", which now describes nothing: there is no such
+        // ROM, so this release cannot be started at all, and saying so is the
+        // honest form. The gate refuses it rather than substituting another
+        // release's ROM, which is the whole point of the gate.
+        note += "This catalog publishes no ROM, so this release cannot be "
+                "started - there is no ROM to fetch and none in the app. "
+                "Choose another release.";
     }
 
     m_romwbwVersionNote->SetLabel(wxString::FromUTF8(note));
@@ -1105,36 +1176,9 @@ void SettingsDialogWx::repopulateDiskLists() {
 void SettingsDialogWx::loadSettings() {
     // ROM selection, round-tripped rather than snapped to the first entry.
     //
-    // Rebuilt here as well as in the constructor so that this is idempotent:
-    // the append below must not stack up a second copy if this ever runs twice.
-    populateROMList();
-    {
-        int idx = -1;
-        for (size_t i = 0; i < m_romFileIds.size(); i++) {
-            if (m_romFileIds[i] == m_settings.romFile) {
-                idx = static_cast<int>(i);
-                break;
-            }
-        }
-        if (idx < 0 && !m_settings.romFile.empty()) {
-            // The ROM in the banks is neither of the packaged two, which now
-            // happens whenever the machine is set to a RomWBW release this
-            // build does not ship a ROM for: it is running the catalog's
-            // <id>-v0-<ver>.rom. Appended and selected so OK writes back the ROM
-            // that is really loaded.
-            //
-            // Without it the control fell to index 0 and saveSettings' switch
-            // wrote "emu_avw.rom", so MainWindow's write-back saw a change,
-            // loaded the BUNDLED 3.5.1 image over the release's ROM, and one
-            // visit to Settings silently undid the pairing this whole mechanism
-            // exists to hold. Same shape as loadDiskSelections' append, for the
-            // same reason: a control that cannot show a value must not be
-            // allowed to erase it.
-            idx = m_romChoice->Append(wxString::FromUTF8(m_settings.romFile));
-            m_romFileIds.push_back(m_settings.romFile);
-        }
-        m_romChoice->SetSelection(idx < 0 ? 0 : idx);
-    }
+    // Rebuilt here as well as in the constructor so that this is idempotent: the
+    // append inside must not stack up a second copy if this ever runs twice.
+    populateROMList(m_settings.romFile);
 
     // Before any catalog has landed this puts up the placeholder, which is why
     // it has to run here as well as in onCatalogLoaded: setSettings() is the
@@ -1178,12 +1222,18 @@ void SettingsDialogWx::loadSettings() {
 void SettingsDialogWx::saveSettings() {
     // ROM selection, read out of the id list rather than out of a switch on the
     // index. An unrecognised selection leaves the seeded value alone instead of
-    // falling through to emu_avw.rom: writing a ROM name the user never chose is
+    // falling through to a hardcoded name: writing a ROM the user never chose is
     // how the running ROM got replaced by the bundled one, and "the control said
     // something I cannot map" is not a reason to change the machine.
+    //
+    // The empty id is the placeholder row shown before a catalog has landed, and
+    // it is refused for exactly the reason the release picker refuses its own:
+    // opening Settings with no network and pressing OK must not turn "I chose
+    // emu_rcz80" into "no preference".
     {
         const int sel = m_romChoice->GetSelection();
-        if (sel >= 0 && (size_t)sel < m_romFileIds.size()) {
+        if (sel >= 0 && (size_t)sel < m_romFileIds.size() &&
+            !m_romFileIds[sel].empty()) {
             m_settings.romFile = m_romFileIds[sel];
         }
     }
@@ -1357,6 +1407,17 @@ void SettingsDialogWx::onCatalogLoaded(wxCommandEvent& event) {
         // names, and populateCatalog() has just been handed that release's
         // entries.
         populateVersionList();
+        // The ROM list is about the release that just landed, so it is rebuilt
+        // beside the version list rather than left holding the previous
+        // release's roms[] - or the "(catalog not loaded)" placeholder, which is
+        // what every first open of this dialog shows until now. What is kept is
+        // the id the control is HOLDING, not the one in m_settings: a user who
+        // changed the dropdown while the fetch was in flight must not have it
+        // put back, which is the same rule repopulateDiskLists follows below.
+        {
+            const std::string keep = selectedRomId();
+            populateROMList(keep.empty() ? m_settings.romFile : keep);
+        }
         populateCatalog();
         // Only the dropdowns, which have to be emptied and refilled now that
         // the catalog names some entries. This used to be loadSettings(), which
@@ -1379,6 +1440,13 @@ void SettingsDialogWx::onCatalogLoaded(wxCommandEvent& event) {
         // it; without this call a failed fetch would leave it dead for the rest
         // of the dialog's life.
         populateVersionList();
+        // Same reasoning one control up: getCatalogRoms() is only written by a
+        // fetch that succeeded, so a failed one leaves the rows alone and this
+        // re-enables the control and restores the selection.
+        {
+            const std::string keep = selectedRomId();
+            populateROMList(keep.empty() ? m_settings.romFile : keep);
+        }
     }
 }
 

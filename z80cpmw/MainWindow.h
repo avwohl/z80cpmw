@@ -59,7 +59,6 @@ private:
     void onFileLoadDisk(int unit);
     void onFileSaveDisk(int unit);
     void onFileSaveAllDisks();
-    void onSelectROM(int romId);
     void onEmulatorStart();
     void onEmulatorStop();
     void onEmulatorReset();
@@ -83,20 +82,17 @@ private:
     // image rather than from a constant - there is no compile-time pin any more.
     std::string loadedRomwbwRelease() const;
 
-    // The RomWBW release the ROM this build SHIPS declares, as "3.5.1".
+    // THERE IS NO "the release this build ships a ROM for" ANY MORE, and its
+    // absence is the point. bundledRomwbwRelease() stood here and read the HCB
+    // out of roms\emu_avw.rom; that file and every other ROM in this repository
+    // were deleted on 2026-09-07, so the question has no answer and the two
+    // things that leaned on it are gone with it - loadPackagedRom(), and the
+    // "go back to the release this app ships" answer in offerRomChoice().
     //
-    // Read out of roms\emu_avw.rom itself rather than written down, which is
-    // the whole difference between this and diskv0::BUNDLED_ROMWBW next door.
-    // That constant governs a rename of the user's files and must not vary with
-    // what is loaded; this one is the identity of a packaged asset, and reading
-    // it means a build that ships a different ROM cannot end up claiming the
-    // old release in the one place that decides whether a download is needed.
-    // Empty when there is no bundled ROM to read, which is a real state - the
-    // three lookup directories are not guaranteed to hold one.
-    //
-    // Cached because it cannot change while the app runs: it is a property of a
-    // file inside the package.
-    std::string bundledRomwbwRelease() const;
+    // What decides which release a machine starts on is now entirely
+    // startRomwbwRelease() below: the user's stored choice, else the release the
+    // catalog was fetched for, else nothing at all - and nothing at all is a
+    // real state that romReadyToStart() resolves by reading the index.
 
     // The RomWBW release this machine is being STARTED on, which is the release
     // its ROM has to be.
@@ -131,13 +127,29 @@ private:
     // Verify the selected release's catalog ROM and put it in the banks.
     // False with 'reason' set when it is not in the data folder, does not match
     // the size and sha256 the catalog publishes, or the core refuses it.
-    bool loadCatalogRomForStart(std::string& reason);
+    // Why a catalog ROM could not be put in the banks. The distinction that
+    // matters is NotDownloaded: it is the ordinary consequence of choosing a
+    // release, not a fault, and it is the one case a fetch fixes without
+    // anything needing to be decided. Everything else is a condition to report.
+    enum class RomBlock {
+        None,           // it loaded
+        NoCatalog,      // no catalog for this release in hand yet
+        NoRomPublished, // roms[] absent or empty - no fetch will change it
+        NotDownloaded,  // the catalog names it, this machine does not have it
+        Unusable,       // present but failed its hash, or the core refused it
+    };
+    bool loadCatalogRomForStart(std::string& reason, RomBlock& block);
+
+    // The ROM filename this start already fetched without asking. Guards the
+    // automatic path against repeating itself: a download that lands and still
+    // does not satisfy loadCatalogRomForStart must fall through to the offer
+    // rather than fetching the same file again.
+    std::string m_autoFetchedRom;
 
     // Put the ROM the PACKAGE ships into the banks - the configured one when
     // that is one of the two packaged names, emu_avw.rom otherwise. True only
     // when the banks then hold the bundled release, which is asked of the image
     // rather than assumed. No catalog, no network: this is the offline path.
-    bool loadPackagedRom();
 
     // Say what is missing and act on the answer. 'why' names the reason.
     // canFetch offers "download it now" as the first choice; where the reason
@@ -153,7 +165,6 @@ private:
     // choice, and load that ROM. The honest half of the offer above: it changes
     // what the machine is set to rather than quietly running the wrong pair, and
     // it deletes and unmounts nothing.
-    bool switchToBundledRelease(const std::string& bundled);
 
     // The catalog and then the ROM, chained through the UI thread, with the
     // start re-attempted once the ROM is in and verified. Four functions rather
@@ -207,7 +218,6 @@ private:
     // keys that are actually registered under the current keyboard config.
     void updateMenuAccelHints();
     void updateStatusBar();
-    void checkROMMenuItem(int romId);
     void checkFontMenuItem(int size);
 
     // Callbacks from emulator
@@ -310,7 +320,6 @@ private:
 
     std::unique_ptr<DazzlerWindow> m_dazzlerWindow;
 
-    int m_currentRomId = 0;         // For menu checkmark tracking
     std::string m_statusText = "Ready";
 
     // The notices currently true, keyed and ordered by the enum above.
@@ -353,11 +362,4 @@ private:
     // while the answer to it is already in flight.
     bool m_fetchingRom = false;
 
-    // bundledRomwbwRelease()'s cache. mutable because that accessor is const
-    // and reads a file the first time it is asked; the answer is a property of
-    // a packaged asset and cannot change while the process runs. The flag is
-    // separate from the string because "there is no bundled ROM" is a real
-    // answer that must not be re-read on every start.
-    mutable std::string m_bundledRomwbwRelease;
-    mutable bool m_bundledRomwbwReleaseRead = false;
 };

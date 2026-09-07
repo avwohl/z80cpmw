@@ -111,13 +111,18 @@ Section "Main Application" SecMain
     File "..\..\bin\Release\concrt140.dll"
     File "..\..\bin\Release\vccorlib140.dll"
 
-    ; ROM files
-    SetOutPath "$INSTDIR\roms"
-    ; SBC_simh_std.rom is deliberately not shipped: it is a stock ROM for real
-    ; hardware, with no port 0xEF HBIOS proxy, so it runs and prints nothing.
-    ; The uninstaller still deletes it, to clean up installs that had it.
-    File "..\..\bin\Release\roms\emu_avw.rom"
-    File "..\..\bin\Release\roms\emu_romwbw.rom"
+    ; NO ROM FILES, and no disk images either. Both come from the interface-v0
+    ; catalog in avwohl/romwbw_disks, reached through the one URL compiled into
+    ; CatalogV0.cpp, and land in the data folder checked against the size and
+    ; sha256 the catalog publishes. Publishing a ROM therefore needs no build of
+    ; this application, which is the point of that repository.
+    ;
+    ; The two ROMs that used to be installed here went on 2026-09-07 with the
+    ; files themselves. They were emu_avw.rom and emu_romwbw.rom, and they were
+    ; byte-identical to each other (both 4b11402a...), so the pair cost 1 MB to
+    ; ship one image twice - and either could go stale against what the catalog
+    ; serves, which is the class of problem this removes. The uninstaller still
+    ; deletes all three names, to clean up installs that had them.
 
     ; No disk images are installed, and that is the design rather than an
     ; omission: every port gets its disk images from the catalog, which is now

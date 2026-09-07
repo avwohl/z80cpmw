@@ -157,18 +157,22 @@ if (Test-Path $stagingDir) {
 }
 New-Item -ItemType Directory -Path $stagingDir -Force | Out-Null
 New-Item -ItemType Directory -Path (Join-Path $stagingDir "Assets") -Force | Out-Null
-New-Item -ItemType Directory -Path (Join-Path $stagingDir "roms") -Force | Out-Null
 
-# No disks\ directory, and that is the design rather than an omission: every
-# port gets its disk images from the interface-v0 catalog in
-# avwohl/romwbw_disks, reached through the one URL compiled into CatalogV0.cpp -
-# there is no release tag in this application any more. Nothing is bundled, so
-# nothing can go stale in a package or disagree with what the catalog serves.
+# No roms\ directory and no disks\ directory, and that is the design rather
+# than an omission: every ROM and every disk image comes from the interface-v0
+# catalog in avwohl/romwbw_disks, reached through the one URL compiled into
+# CatalogV0.cpp - there is no release tag in this application any more. Nothing
+# is bundled, so nothing can go stale in a package or disagree with what the
+# catalog serves, and publishing a ROM needs no build of this application.
+#
+# The roms\ directory went on 2026-09-07 with the files themselves. It staged
+# bin\Release\roms, which the vcxproj filled from the tree - so a package
+# could ship a ROM the catalog had superseded, which is the whole class of
+# problem romwbw_disks exists to remove.
 
 # Copy application files
 Copy-Item (Join-Path $BinDir "z80cpmw.exe") $stagingDir
 Copy-Item (Join-Path $BinDir "*.dll") $stagingDir
-Copy-Item (Join-Path $BinDir "roms\*") (Join-Path $stagingDir "roms")
 
 # Copy assets
 Copy-Item (Join-Path $assetsDir "*") (Join-Path $stagingDir "Assets")

@@ -238,12 +238,21 @@ size_t chooseVersion(const std::vector<IndexEntry>& entries,
 // the schema promises nothing about order. Never by hardcoding `emu_avw`:
 // "do not assume emu_avw is present" is written into the compatibility rules,
 // and a future catalog may publish a different set entirely - so nothing here
-// looks at an id. And never assume the array exists or is non-empty, which is
-// what the npos return is for. The `default` flag is the only thing this reads,
-// and taking the FIRST entry flagged is deliberate: two flagged entries is a
-// broken document a client should route around rather than refuse, exactly as
-// chooseVersion does with two `default: true` index entries.
-size_t chooseRom(const std::vector<RomItem>& roms);
+// looks for a particular id, only for the one the CALLER was told to prefer.
+// And never assume the array exists or is non-empty, which is what the npos
+// return is for. Taking the FIRST entry flagged is deliberate: two flagged
+// entries is a broken document a client should route around rather than refuse,
+// exactly as chooseVersion does with two `default: true` index entries.
+//
+// `preferredId` is the user's stored ROM choice, matched against `id` and never
+// against `filename` - a filename carries the release, an id does not, so only
+// an id survives a version switch. Empty means "no preference", which is the
+// ordinary case and is what the one-argument form passes.
+size_t chooseRom(const std::vector<RomItem>& roms, const std::string& preferredId);
+
+inline size_t chooseRom(const std::vector<RomItem>& roms) {
+    return chooseRom(roms, std::string());
+}
 
 // The label a picker shows: "RomWBW 3.6.0 (preview)".
 //

@@ -194,7 +194,30 @@ void from_json(const json& j, AppConfig& c) {
     // Core settings
     if (j.contains("core")) {
         const auto& core = j["core"];
-        c.rom = core.value("rom", "emu_avw.rom");
+        // A catalog ROM id, converted here rather than in migrateToInterfaceV0
+        // and deliberately so. That pass is gated on interfaceV0Migrated, which
+        // is already TRUE on every machine that has launched a build since the
+        // storage rename - so a migration written there would never run on the
+        // configurations that need it most. Doing it at parse time needs no flag
+        // and no ordering: romIdForStoredName only recognises the two filenames
+        // released builds wrote, so it is a no-op on a value that is already an
+        // id, and it runs over profiles too because they come through here.
+        //
+        // A name it does not recognise leaves `rom` EMPTY rather than keeping
+        // the filename. That is the point of the conversion: this field is read
+        // by catalogv0::chooseRom, which matches ids, and a filename left in it
+        // would match nothing while looking like a preference.
+        {
+            const std::string stored = core.value("rom", std::string());
+            std::string romId;
+            if (diskv0::romIdForStoredName(stored, romId)) {
+                c.rom = romId;
+            } else if (stored.find('.') == std::string::npos) {
+                c.rom = stored;
+            } else {
+                c.rom.clear();
+            }
+        }
         c.debug = core.value("debug", false);
         c.bootString = core.value("bootString", "");
         c.warnManifestWrites = core.value("warnManifestWrites", true);

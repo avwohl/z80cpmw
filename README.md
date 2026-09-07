@@ -28,10 +28,54 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
 - Scrolling region (DECSTBM), deferred autowrap (DECAWM), and answerback for
   cursor-position, status and identify queries
 - Support for CP/M, ZSDOS, and other operating systems
-- Multiple ROM images included
+- ROMs and disk images fetched from the RomWBW catalog and checked against the
+  size and SHA-256 it publishes — nothing is bundled in the package
 - Disk image support (up to 64MB hd1k format)
 - Configurable keyboard map for function/navigation keys (termcap-style)
 - Mouse text selection with right-click Copy/Paste
+
+## ROMs and Disk Images
+
+**Nothing is bundled.** The package carries the executable, the app-local VC++
+runtime and — in a build made with the optional `..\ioscpm` checkout — the help
+text. It carries no ROM and no disk image. Both come from the interface-v0
+catalog in [romwbw_disks](https://github.com/avwohl/romwbw_disks), and the only
+content address compiled into this application is the index that catalog starts
+from (the in-app help has its own, and the crash dialog links to the issue
+tracker)
+(`z80cpmw/CatalogV0.cpp`); the index names every published RomWBW release and
+points at that release's own list of ROMs and disk images, so no download URL is
+ever assembled here from a version number. Everything fetched lands in the data
+folder and is measured against the size and SHA-256 the catalog publishes: a
+download whose bytes do not match is deleted rather than kept, and a ROM is
+refused outright if the catalog carries no checksum for it, because fifteen
+banks of unknown bytes under a CPU is not a risk worth the convenience.
+
+Two things are yours to choose, both under **Emulator → Settings**:
+
+- **Which RomWBW release** — the *RomWBW release* picker at the top of the
+  **Disk Images** page. That list is not compiled in either: it is the index,
+  filtered to the releases the emulator core says it can boot, so a release the
+  core has never been checked against is not offered.
+- **Which ROM** — the *ROM* dropdown on the **Machine** page, filled from the
+  selected release's ROMs. Publishing a new ROM in `romwbw_disks` therefore
+  makes it selectable with no new release of this application.
+
+**The first run needs a network connection**, and that is the cost of shipping
+no ROM. No ROM may be loaded before the catalog carrying its size and checksum
+has been read, so a machine that has never reached the network has nothing it is
+allowed to boot. Press **F5** on a fresh install and it fetches the catalog,
+downloads the two default disk images (`hd1k_combo` and `hd1k_games`) and then
+offers the ROM (about 512 KB); it starts when that ROM has arrived and matched.
+If the network is not there it says so and asks you to check the connection and
+press F5 again — it never boots unverified bytes. After one success everything
+is cached in the data folder, and later starts cost one small catalog request
+and one checksum.
+
+A ROM you place in the data folder, or beside `z80cpmw.exe`, under the filename
+the catalog gives it is used instead of downloading it again — but still only
+after the catalog has been read and the file has matched the published size and
+checksum.
 
 ## Building
 
@@ -86,10 +130,14 @@ mismatch. See [packaging/STORE_SUBMISSION.md](packaging/STORE_SUBMISSION.md) and
 
 1. Launch z80cpmw.exe (on first run, a scrollable **Getting Started** help
    window opens automatically; you can reopen it any time with **F1**)
-2. Select a ROM from File > Select ROM (default: EMU AVW)
-3. Optionally load disk images from File > Load Disk
-4. Click Emulator > Start (or press F5)
-5. At the RomWBW boot menu, press a number to boot an OS
+2. Click Emulator > Start (or press F5). With no disks mounted this is also
+   where the ROM and the two default disk images are fetched, so the very first
+   start needs a network connection and takes longer than the ones after it —
+   see [ROMs and Disk Images](#roms-and-disk-images)
+3. At the RomWBW boot menu, press a number to boot an OS
+
+To run a different ROM, or a different RomWBW release, open **Emulator >
+Settings**; to mount images of your own, use **File > Load Disk 0/1**.
 
 ### Boot Menu Keys
 
@@ -134,10 +182,14 @@ MSIX install is the redirected `LocalCache` location, not the one you typed:
 W8 REPORT.TXT C:\Users\me\Desktop\report.txt
 ```
 
-Both utilities come from the disk catalog, not from this app: the images are
-published in the [ioscpm release area](https://github.com/avwohl/ioscpm/releases)
-and pinned by `RELEASE_TAG` in `DiskCatalog.cpp`. Nothing is bundled in the
-installer, so the `R8` and `W8` you get are whichever the pinned release carries.
+Both utilities come from the disk catalog, not from this app: they are on the
+images published in [romwbw_disks](https://github.com/avwohl/romwbw_disks).
+There is no pinned release tag in this application any more — the only
+compiled-in address for content is the index — so which images you get follows
+from the
+RomWBW release selected in **Emulator > Settings > Disk Images**. Nothing is
+bundled in the installer, so the `R8` and `W8` you get are whichever that
+release's catalog carries.
 
 A bare name (`W8 out.com`) goes to the app's data folder — whose real location the
 app shows in *Emulator → Settings* (with an **Open Folder** button), *Help → About*,
@@ -150,7 +202,14 @@ macOS/iOS/Android ports — and how to find them — see
 Settings are stored in `%LOCALAPPDATA%\z80cpmw\z80cpmw.json`, which you can edit
 by hand. This includes the keyboard map (`keyboard.keys`, written as termcap-style
 escape strings), the `f1ToCpm` / `f5ToCpm` / `ctrlRToCpm` toggles, fonts, ROM and disk
-assignments. The keyboard map and a Getting Started guide are also viewable
+assignments. `rom` holds the catalog's **id** for a ROM — `emu_avw`, not a
+filename — because a filename carries the release (`emu_avw-v0-3.5.1.rom` and
+`emu_avw-v0-3.6.0.rom` are one choice) and would be forgotten the first time you
+switched releases; `romwbwVersion` holds the release itself, and an empty `rom`
+means "whichever ROM the catalog marks as its default". A file written by an
+older build, holding `emu_avw.rom`, is converted to the id as it is read.
+
+The keyboard map and a Getting Started guide are also viewable
 in-app from **Help → Help Topics**, and every topic there works offline in a
 build made with the optional `..\ioscpm` checkout: the **Getting Started** and
 **Configuration File** topics are written into the app, and the seven guides

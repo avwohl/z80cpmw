@@ -75,8 +75,9 @@ Features:
 - RomWBW HBIOS compatibility
 - VT100 terminal emulation with customizable fonts
 - Support for multiple disk images (.img, .dsk)
-- Built-in ROM files for immediate use
 - Disk catalog with downloadable disk images
+- ROM and disk images fetched from the published RomWBW catalog and checked against its SHA-256
+- New ROMs and disk images appear in the app without an update
 
 Perfect for:
 - Retro computing enthusiasts
@@ -84,8 +85,22 @@ Perfect for:
 - Educational purposes
 - Running vintage software
 
-Includes CP/M and Z-System disk images ready to boot.
+Needs an internet connection: nothing bootable is installed with the app. The ROM and the CP/M and Z-System disk images are downloaded from the public RomWBW catalog on GitHub and checked against it before the machine runs.
 ```
+
+Two lines that used to be in that copy — "Built-in ROM files for immediate
+use" and "Includes CP/M and Z-System disk images ready to boot" — were false
+and must not come back. No disk image has been in the package for some time, and since
+2026-09-07 no ROM is either: `build-msix.ps1` stages `z80cpmw.exe`, the DLLs
+beside it and `Assets\`, and makes no `roms\` or `disks\` directory at all,
+while `z80cpmw.nsi` installs no `.rom` file. Nothing in the install boots by
+itself: at startup `MainWindow::loadDefaultROM` loads no ROM and only posts a
+notice saying the ROM is downloaded on the first Start, and
+`MainWindow::romReadyToStart` refuses to start until a catalog has been read and
+the ROM it names has been fetched and checked against the size and sha256 the
+catalog carries. Listing copy that promises a ready-to-boot install therefore
+describes the one thing the package cannot do, to the reader most likely to try
+it with no connection.
 
 **Short Description (up to 100 characters):**
 ```
@@ -124,8 +139,11 @@ Complete the IARC questionnaire in Partner Center. Z80CPM should qualify for:
 The published policy is [PRIVACY.md](../PRIVACY.md). In summary, Z80CPM:
 - Does NOT collect personal data, run analytics, or require accounts
 - Does NOT send anything to the developer automatically
-- Uses the internet only for two optional, on-demand features (disk catalog and
-  in-app help), both from public GitHub assets
+- Uses the internet for the catalog in `avwohl/romwbw_disks` — which carries
+  the ROM as well as the disk images — and for in-app help, both public GitHub
+  release assets. The catalog stopped being optional on 2026-09-07: with no ROM
+  in the package, a machine that has never reached it has nothing it is allowed
+  to boot
 - Stores everything locally, including settings, disk images, R8/W8 transfers, and
   diagnostic/crash files (which are only shared if the user chooses to send them)
 
@@ -259,12 +277,39 @@ The Store carried 1.0.14, then 1.0.19, and now **1.0.22**, published 2026-08-23.
    - `build-msix.ps1` refuses to package a `bin\Release\z80cpmw.exe` whose
      version does not match `Version.h`.
 
-3. **Nothing to do — no disk images ship in the package**
-   - **As of 1.0.23 the package contains no `disks\` folder at all.** Every port
-     gets its disk images from the **ioscpm release area**, through the catalog
-     pinned in `DiskCatalog.cpp`'s `RELEASE_TAG`. That is the design; a bundled
-     copy is a second source of the same file that can only disagree with the
-     first.
+3. **Nothing to do — no ROM and no disk images ship in the package**
+   - **As of 1.0.23 the package contains no `disks\` folder, and since
+     2026-09-07 no `roms\` folder either.** Both come from the interface-v0
+     catalog in **`avwohl/romwbw_disks`**, which is two documents:
+     `index-v0.json`, at the one URL compiled into the binary
+     (`z80cpmw/CatalogV0.cpp:24`), listing the RomWBW releases; and a
+     `catalog-v0-<ver>.json` per release, carrying that release's `base_url`,
+     `roms[]` and `disks[]`. No `RELEASE_TAG` constant is left in this tree —
+     `git grep RELEASE_TAG` finds only comments explaining that it was deleted
+     rather than repointed — and nothing interpolates a tag into an asset URL:
+     every URL but the index is read out of a document. That is the design; a
+     bundled copy is a second source of the same file that can only disagree
+     with the first.
+   - **The three ROMs went with the `roms\` directory on 2026-09-07.**
+     `emu_avw.rom` and `emu_romwbw.rom` were byte-identical to each other and to
+     the catalog's `emu_avw-v0-3.5.1.rom` (sha256 `4b11402a29fad22d…`, measured
+     2026-09-07), so the package paid twice to ship one image; `SBC_simh_std.rom`
+     was a stock hardware ROM the emulator could not run and nothing staged it.
+     Three files stopped moving them: `z80cpmw.vcxproj`'s PostBuildEvent no
+     longer copies `roms\emu_*.rom` into `$(OutDir)roms` (the Release arm still
+     copies the app-local CRT DLLs), `build-msix.ps1` no longer creates or fills
+     a `roms\` staging directory, and `z80cpmw.nsi` has lost its two `File`
+     lines and its `SetOutPath $INSTDIR\roms`. The uninstaller still *deletes*
+     all three names, which is cleanup for installs that had them and not
+     evidence that anything still ships them.
+   - **The cost of that, which the listing copy must not paper over:** a first
+     launch with no network can no longer start the machine. Every ROM now comes
+     from the catalog and is checked against the size and sha256 only the catalog
+     carries, so a machine that has never reached the network has no ROM it is
+     allowed to load — the offline branch that used to answer "the release this
+     build ships a ROM for" is gone from `MainWindow::romReadyToStart` along with
+     the ROM it named. The app says so and offers to retry; it never boots
+     unverified bytes.
    - Up to and including 1.0.22 both vehicles *did* bundle `hd1k_combo.img` and
      `hd1k_games.img`, and **nothing ever read them**. The only function that
      looked in the install directory's `disks\` was `loadDefaultDisks()`, which
@@ -275,15 +320,25 @@ The Store carried 1.0.14, then 1.0.19, and now **1.0.22**, published 2026-08-23.
      real user takes, looks in the *user data* folder and downloads what is
      missing. So the two images cost 57 MB of payload (12.7 MB → 7.07 MB
      packaged) and bought nothing.
-   - The image the user actually runs is therefore governed by `RELEASE_TAG`,
-     not by this build. Changing which images users get is a **code change**
-     with its own release, not a packaging step. See `CLAUDE.md`.
+   - What the user actually runs is therefore decided by what `romwbw_disks`
+     publishes — not by this build, and no longer by a constant inside it. A new
+     ROM or a new disk image within a release the client already offers reaches
+     users with no packaging step and no release here at all; that is what makes
+     the catalog's second ROM, `emu_rcz80`, selectable without a build of this
+     application. What still needs a build is a new RomWBW *version*, because
+     which versions are offered is decided by the emulator core rather than by
+     this repository: `DiskCatalog::fetchCatalogInto` filters the index through
+     `emu_romwbw_release_supported()`, which answers from
+     `ROMWBW_SUPPORTED_RELEASES` in `..\romwbw_emu\src\romwbw_pin.h` (3.5.1
+     and 3.6.0 today, both recorded there as checked 2026-09-05). See
+     `CLAUDE.md`.
    - Images are verified where they are published: `romwbw_disks`
      `tools/verify_release.sh` checks every ROM's HCB, every bootable image's
      CBIOS banner and the `06 E9 CF` `HBF_HOST_CAPS` probe in every `w8.com`,
      against the catalog that names them. `packaging/scripts/verify-disk-assets.sh`
      did that here and was deleted on 2026-09-05: this package has no images to
-     check, and had none for some time before that.
+     check, and had none for some time before that. Since 2026-09-07 it has no
+     ROM to check either.
 
 4. **Build the package**
    - `cd packaging\scripts` then `.\build-msix.ps1 -Configuration Release`,
@@ -307,6 +362,16 @@ Common rejection reasons and how to avoid them:
 3. **Poor metadata** - Use accurate, complete descriptions
 4. **Inappropriate content** - N/A for this app
 5. **Privacy policy missing** - Required if collecting data
+
+Item 1 acquired a new failure mode on 2026-09-07. A clean install with no network
+still reaches a window, a terminal and the startup text, but F5 does not boot it:
+with no ROM in the package and no catalog read, `MainWindow::startEmulator`'s
+`hasROM()` guard puts up "No ROM is loaded, so there is nothing to run" and
+`offerRomChoice` explains that the ROM is downloaded the first time the machine
+starts. A certification pass run where github.com is unreachable would therefore
+see an app that never boots anything, and a screenshot taken there would show an
+error box. Say in the listing that the first start downloads a ROM, rather than
+leaving a tester to find that out.
 
 ## Post-Submission
 

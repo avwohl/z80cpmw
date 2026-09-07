@@ -30,10 +30,21 @@
  * be reportable rather than a silent fallback to something unbootable.
  *
  * The documents below are the REAL published ones, byte for byte out of
- * romwbw_disks/catalog/v0/. The index is whole; the catalog is an excerpt of the
- * 3.5.1 one carrying its header, both ROMs and four of its twenty disks -
- * including hd1k_ws4, which exists under 3.5.1 and not under 3.6.0 and is
- * therefore the entry that proves ids come and go.
+ * romwbw_disks/catalog/v0/: the whole index, and the whole 3.5.1 catalog with
+ * both its ROMs and all twenty of its disks - including hd1k_ws4, which exists
+ * under 3.5.1 and not under 3.6.0 and is therefore the entry that proves ids
+ * come and go.
+ *
+ * THEY GO STALE, AND THAT USED TO BE INVISIBLE. These were pasted in at
+ * generation 1, when 3.6.0 was still `"status": "preview"` and 3.5.1 was the
+ * index's default; the published documents moved to generation 2 on 2026-09-05
+ * and this copy did not, so for two days the suite asserted a ROM hash no
+ * catalog served and a default release that was no longer the default - and
+ * passed every time, because a self-contained fixture is only ever compared to
+ * itself. test_the_fixture_is_not_stale() below is the answer: it reads the
+ * sibling romwbw_disks checkout when there is one and fails on any drift, and
+ * SKIPS when there is not, so the suite still needs no network and no sibling
+ * to run everywhere else.
  *
  * It needs no window, no data folder, no network and no Windows: CatalogV0.cpp
  * holds no Win32, no WinHTTP and no threads, which is the whole reason this
@@ -108,7 +119,7 @@ static const char* const REAL_INDEX = R"JSON({
       "romwbw_version": "3.5.1",
       "label": "RomWBW 3.5.1",
       "status": "stable",
-      "default": true,
+      "default": false,
       "released": "2025-05-21",
       "hbios": {
         "major": 3,
@@ -121,9 +132,9 @@ static const char* const REAL_INDEX = R"JSON({
       },
       "release_tag": "v0-romwbw-3.5.1",
       "catalog_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.5.1/catalog-v0-3.5.1.json",
-      "catalog_sha256": "7a5411b329be606c2bcc7b8d2b051b8fca9a2906f780d65fc98221cb6b61ed65",
+      "catalog_sha256": "942803d1ed67bcd8c6e0a9b730f9a08775618535b8e9affc58c56830839a78fd",
       "catalog_size": 11826,
-      "generation": 1,
+      "generation": 2,
       "disks_xml_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.5.1/disks-v0-3.5.1.xml",
       "rom_count": 2,
       "disk_count": 20,
@@ -135,8 +146,8 @@ static const char* const REAL_INDEX = R"JSON({
     {
       "romwbw_version": "3.6.0",
       "label": "RomWBW 3.6.0",
-      "status": "preview",
-      "default": false,
+      "status": "stable",
+      "default": true,
       "released": "2026-03-28",
       "hbios": {
         "major": 3,
@@ -149,17 +160,17 @@ static const char* const REAL_INDEX = R"JSON({
       },
       "release_tag": "v0-romwbw-3.6.0",
       "catalog_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.6.0/catalog-v0-3.6.0.json",
-      "catalog_sha256": "3907ba2f23f2307fdbc220fd20e3209b877357b5df1057b86db86a905090191f",
-      "catalog_size": 14694,
-      "generation": 1,
+      "catalog_sha256": "4b4de2967482ab3f218df0ca065a9bdb9998b895792b720b2be3cddc3a6edbb1",
+      "catalog_size": 15062,
+      "generation": 2,
       "disks_xml_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.6.0/disks-v0-3.6.0.xml",
       "rom_count": 2,
       "disk_count": 24,
       "notes": [
-        "PREVIEW. No released client can load a v3.6.0 ROM yet: romwbw_emu's emu_validate_rom_hcb (src/emu_init.cc:52-60) refuses any ROM whose HCB version bytes differ from the compile-time ROMWBW_PIN_STR. See docs/CLIENT_MIGRATION.md.",
+        "Promoted out of preview 2026-09-05. romwbw_emu v1.39 reads the RomWBW version out of the loaded ROM instead of a compile-time pin, so one binary boots this release and 3.5.1 alike; romwbw_disks tools/boot_test.sh asserts the boot, the CBIOS v3.6.0 [WBW] banner, no version-mismatch warning on a matched pair, and an R8/W8 round trip. NOTE: no client in any app store carries that core yet, so a SHIPPED client still cannot load a v3.6.0 ROM - it filters this entry out by hbios.ver_byte, which is what those bytes are in the index for.",
         "hd1k_ws4.img does not exist in v3.6.0; upstream combo.def slice 5 is 'wp' (WordStar / word processing) where v3.5.1 had 'ws4'.",
         "NVRAM checksums do not validate across a version change: RomWBW's NVSW_CHECKSUM XORs the version bytes into the seed, so a blob saved under 3.5.1 silently resets under a 3.6.0 ROM. Clients must namespace their NVRAM store per RomWBW version.",
-        "Do NOT build from archive/romwbw-v3.6.0/SBC_simh_std_v360.rom in romwbw_emu: it is a v3.6.0-dev.46 snapshot from 2025-12-12, not the release, and its HCB reads 36 00 so a version check cannot tell the difference."
+        "Do NOT build from a v3.6.0-dev snapshot. romwbw_emu's archive/romwbw-v3.6.0/SBC_simh_std_v360.rom was deleted 2026-09-05 for this reason: it is a v3.6.0-dev.46 snapshot from 2025-12-12, not the release, and its HCB reads 36 00 so a version check cannot tell the difference."
       ]
     }
   ]
@@ -170,132 +181,356 @@ static const char* const REAL_INDEX = R"JSON({
 // one. The four disks are the two defaults, one plain single-slice image, and
 // hd1k_ws4 - which 3.6.0 does not carry.
 static const char* const REAL_CATALOG_351 = R"JSON({
-    "schema": "romwbw-disks-catalog",
-    "schema_version": 1,
-    "interface": "v0",
-    "romwbw_version": "3.5.1",
-    "generation": 1,
-    "status": "stable",
-    "release_tag": "v0-romwbw-3.5.1",
-    "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.5.1/",
-    "hbios": {
-        "major": 3,
-        "minor": 5,
-        "update": 1,
-        "patch": 0,
-        "ver_byte": "0x35",
-        "upd_byte": "0x10",
-        "sysver_de": "0x3510"
+  "schema": "romwbw-disks-catalog",
+  "schema_version": 1,
+  "interface": "v0",
+  "romwbw_version": "3.5.1",
+  "generation": 2,
+  "status": "stable",
+  "release_tag": "v0-romwbw-3.5.1",
+  "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.5.1/",
+  "hbios": {
+    "major": 3,
+    "minor": 5,
+    "update": 1,
+    "patch": 0,
+    "ver_byte": "0x35",
+    "upd_byte": "0x10",
+    "sysver_de": "0x3510"
+  },
+  "upstream": {
+    "tag": "v3.5.1",
+    "package_url": "https://github.com/wwarthen/RomWBW/releases/download/v3.5.1/RomWBW-v3.5.1-Package.zip",
+    "package_sha256": "e696ff2faf8f6420367ae3d0ad14c9daf1d7b08727b2699d005e877cc755da20"
+  },
+  "notes": [
+    "The RomWBW release every shipped client is pinned to today.",
+    "CBIOS banner in the boot slices reads 'CBIOS v3.5.1 [WBW]'."
+  ],
+  "roms": [
+    {
+      "id": "emu_avw",
+      "filename": "emu_avw-v0-3.5.1.rom",
+      "name": "EMU AVW",
+      "description": "Standard emulator ROM. Our HBIOS proxy in bank 0 over the RomWBW SBC_simh_std ROM disk in banks 1-15. This is the ROM every shipped client bundles today.",
+      "size": 524288,
+      "sha256": "4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258",
+      "default": true,
+      "hcb": {
+        "marker": "57 A8",
+        "version": "0x35",
+        "update": "0x10",
+        "platform": 0
+      },
+      "built_from": {
+        "bank0": "src/emu_hbios.asm",
+        "banks_1_15": "Binary/SBC_simh_std.rom"
+      }
     },
-    "upstream": {
-        "tag": "v3.5.1",
-        "package_url": "https://github.com/wwarthen/RomWBW/releases/download/v3.5.1/RomWBW-v3.5.1-Package.zip",
-        "package_sha256": "e696ff2faf8f6420367ae3d0ad14c9daf1d7b08727b2699d005e877cc755da20"
+    {
+      "id": "emu_rcz80",
+      "filename": "emu_rcz80-v0-3.5.1.rom",
+      "name": "EMU RCZ80",
+      "description": "Alternate emulator ROM. Same HBIOS proxy in bank 0, but banks 1-15 come from the RomWBW RCZ80_std ROM disk, so the ROM-resident applications match an RC2014 Z80 build.",
+      "size": 524288,
+      "sha256": "03e646914628aea507eb8db560497292c728d26a127965b5b3cff6270af5feee",
+      "default": false,
+      "hcb": {
+        "marker": "57 A8",
+        "version": "0x35",
+        "update": "0x10",
+        "platform": 0
+      },
+      "built_from": {
+        "bank0": "src/emu_hbios.asm",
+        "banks_1_15": "Binary/RCZ80_std.rom"
+      }
+    }
+  ],
+  "disks": [
+    {
+      "id": "hd1k_combo",
+      "filename": "hd1k_combo-v0-3.5.1.img",
+      "name": "Combo (Recommended)",
+      "description": "Six-slice disk: CP/M 2.2, ZSDOS, NZCOM, CP/M 3, ZPM3 and a WordStar 4 applications slice, plus R8/W8 host file transfer on slice 0. Best starter disk.",
+      "size": 51380224,
+      "sha256": "0ca4ec60cb8bca71b8f0287c4b634c3126887be483db9b59b41bdff424f89303",
+      "license": "Mixed",
+      "format": "hd1k_combo",
+      "bootable": true,
+      "cbios": "CBIOS v3.5.1 [WBW]",
+      "host_transfer": true,
+      "upstream": "Binary/hd1k_combo.img",
+      "slices": 6,
+      "defaultSlot": 0
     },
-    "notes": [
-        "The RomWBW release every shipped client is pinned to today.",
-        "CBIOS banner in the boot slices reads 'CBIOS v3.5.1 [WBW]'."
-    ],
-    "roms": [
-        {
-            "id": "emu_avw",
-            "filename": "emu_avw-v0-3.5.1.rom",
-            "name": "EMU AVW",
-            "description": "Standard emulator ROM. Our HBIOS proxy in bank 0 over the RomWBW SBC_simh_std ROM disk in banks 1-15. This is the ROM every shipped client bundles today.",
-            "size": 524288,
-            "sha256": "c7abc580b3285a33e439c0d6724a9d64dd3e93733a4fc2c1b80b0bfd91f9c580",
-            "default": true,
-            "hcb": {
-                "marker": "57 A8",
-                "version": "0x35",
-                "update": "0x10",
-                "platform": 0
-            },
-            "built_from": {
-                "bank0": "src/emu_hbios.asm",
-                "banks_1_15": "Binary/SBC_simh_std.rom"
-            }
-        },
-        {
-            "id": "emu_rcz80",
-            "filename": "emu_rcz80-v0-3.5.1.rom",
-            "name": "EMU RCZ80",
-            "description": "Alternate emulator ROM. Same HBIOS proxy in bank 0, but banks 1-15 come from the RomWBW RCZ80_std ROM disk, so the ROM-resident applications match an RC2014 Z80 build.",
-            "size": 524288,
-            "sha256": "ee3adea5caa9b3da4005e6a3d627e3eaf4ebd56f5795a5c41f6a90492850c4a7",
-            "default": false,
-            "hcb": {
-                "marker": "57 A8",
-                "version": "0x35",
-                "update": "0x10",
-                "platform": 0
-            },
-            "built_from": {
-                "bank0": "src/emu_hbios.asm",
-                "banks_1_15": "Binary/RCZ80_std.rom"
-            }
-        }
-    ],
-    "disks": [
-        {
-            "id": "hd1k_combo",
-            "filename": "hd1k_combo-v0-3.5.1.img",
-            "name": "Combo (Recommended)",
-            "description": "Six-slice disk: CP/M 2.2, ZSDOS, NZCOM, CP/M 3, ZPM3 and a WordStar 4 applications slice, plus R8/W8 host file transfer on slice 0. Best starter disk.",
-            "size": 51380224,
-            "sha256": "0ca4ec60cb8bca71b8f0287c4b634c3126887be483db9b59b41bdff424f89303",
-            "license": "Mixed",
-            "format": "hd1k_combo",
-            "bootable": true,
-            "cbios": "CBIOS v3.5.1 [WBW]",
-            "host_transfer": true,
-            "upstream": "Binary/hd1k_combo.img",
-            "slices": 6,
-            "defaultSlot": 0
-        },
-        {
-            "id": "hd1k_cpm22",
-            "filename": "hd1k_cpm22-v0-3.5.1.img",
-            "name": "CP/M 2.2",
-            "description": "Digital Research CP/M 2.2 operating system with standard utilities.",
-            "size": 8388608,
-            "sha256": "bfe32f3b5d6ebc8c9d5615a3390d61bba4cb565039d4fb144a65a9502515cbe6",
-            "license": "Mixed",
-            "format": "hd1k",
-            "bootable": true,
-            "cbios": "CBIOS v3.5.1 [WBW]",
-            "host_transfer": false,
-            "upstream": "Binary/hd1k_cpm22.img"
-        },
-        {
-            "id": "hd1k_games",
-            "filename": "hd1k_games-v0-3.5.1.img",
-            "name": "Games",
-            "description": "Collection of classic CP/M games including adventures and arcade titles.",
-            "size": 8388608,
-            "sha256": "7f33738c4c8be0655ee9452370fe450146492e9174347c22b3300ac2377d0abd",
-            "license": "Abandonware",
-            "format": "hd1k",
-            "bootable": false,
-            "cbios": null,
-            "host_transfer": false,
-            "upstream": "Binary/hd1k_games.img"
-        },
-        {
-            "id": "hd1k_ws4",
-            "filename": "hd1k_ws4-v0-3.5.1.img",
-            "name": "WordStar 4",
-            "description": "WordStar 4.0 - classic word processor for CP/M.",
-            "size": 8388608,
-            "sha256": "fcdf308753142d2d2957636ac74721f8e3ef27a4f0aeec81f41196f631c1f2c9",
-            "license": "Abandonware",
-            "format": "hd1k",
-            "bootable": false,
-            "cbios": null,
-            "host_transfer": false,
-            "upstream": "Binary/hd1k_ws4.img"
-        }
-    ]
+    {
+      "id": "hd1k_cpm22",
+      "filename": "hd1k_cpm22-v0-3.5.1.img",
+      "name": "CP/M 2.2",
+      "description": "Digital Research CP/M 2.2 operating system with standard utilities.",
+      "size": 8388608,
+      "sha256": "bfe32f3b5d6ebc8c9d5615a3390d61bba4cb565039d4fb144a65a9502515cbe6",
+      "license": "Mixed",
+      "format": "hd1k",
+      "bootable": true,
+      "cbios": "CBIOS v3.5.1 [WBW]",
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_cpm22.img"
+    },
+    {
+      "id": "hd1k_zsdos",
+      "filename": "hd1k_zsdos-v0-3.5.1.img",
+      "name": "ZSDOS",
+      "description": "Z-System DOS - enhanced CP/M compatible OS with date/time stamping.",
+      "size": 8388608,
+      "sha256": "0d44decad41fd054dcaf44219d60b0c253e7351e30dec16e902ec76d1a063acc",
+      "license": "Mixed",
+      "format": "hd1k",
+      "bootable": true,
+      "cbios": "CBIOS v3.5.1 [WBW]",
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_zsdos.img"
+    },
+    {
+      "id": "hd1k_zpm3",
+      "filename": "hd1k_zpm3-v0-3.5.1.img",
+      "name": "ZPM3",
+      "description": "Z-System ZPM3 - enhanced CP/M 3 compatible with ZCPR extensions.",
+      "size": 8388608,
+      "sha256": "7397a518e7cbee06d3d9fd470d9a5185c9b81fad8b757607248de010eced6187",
+      "license": "Mixed",
+      "format": "hd1k",
+      "bootable": true,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_zpm3.img"
+    },
+    {
+      "id": "hd1k_cpm3",
+      "filename": "hd1k_cpm3-v0-3.5.1.img",
+      "name": "CP/M 3",
+      "description": "CP/M Plus (CP/M 3.0), Digital Research's banked successor to CP/M 2.2.",
+      "size": 8388608,
+      "sha256": "9d2199eeef755f36b36fd3eae886f18da5b44bfd1f0ea1bed4fa49c73950472c",
+      "license": "Mixed",
+      "format": "hd1k",
+      "bootable": true,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_cpm3.img"
+    },
+    {
+      "id": "hd1k_nzcom",
+      "filename": "hd1k_nzcom-v0-3.5.1.img",
+      "name": "NZCOM",
+      "description": "NZCOM - Z-System implementation for CP/M 2.2 environments.",
+      "size": 8388608,
+      "sha256": "c578ef7264be9cdcddd1b8bee242ef728dcbbdf1043c05ad0d2fac14e873beee",
+      "license": "Mixed",
+      "format": "hd1k",
+      "bootable": true,
+      "cbios": "CBIOS v3.5.1 [WBW]",
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_nzcom.img"
+    },
+    {
+      "id": "hd1k_qpm",
+      "filename": "hd1k_qpm-v0-3.5.1.img",
+      "name": "QPM",
+      "description": "QP/M operating system, a CP/M 2.2 compatible alternative.",
+      "size": 8388608,
+      "sha256": "3822a1db41b0a3d710a5125a5dca04dabc611fd7ef48ff014d3c42a01357460b",
+      "license": "Mixed",
+      "format": "hd1k",
+      "bootable": true,
+      "cbios": "CBIOS v3.5.1 [WBW]",
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_qpm.img"
+    },
+    {
+      "id": "hd1k_games",
+      "filename": "hd1k_games-v0-3.5.1.img",
+      "name": "Games",
+      "description": "Collection of classic CP/M games including adventures and arcade titles.",
+      "size": 8388608,
+      "sha256": "7f33738c4c8be0655ee9452370fe450146492e9174347c22b3300ac2377d0abd",
+      "license": "Abandonware",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_games.img"
+    },
+    {
+      "id": "hd1k_aztecc",
+      "filename": "hd1k_aztecc-v0-3.5.1.img",
+      "name": "Aztec C",
+      "description": "Aztec C compiler for CP/M - professional C development environment.",
+      "size": 8388608,
+      "sha256": "d2e637a562a31fd855281ec3eb8ed598019885ecb127e22c7d4b8e1fc4c44c03",
+      "license": "Abandonware",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_aztecc.img"
+    },
+    {
+      "id": "hd1k_bascomp",
+      "filename": "hd1k_bascomp-v0-3.5.1.img",
+      "name": "BASIC Compilers",
+      "description": "Collection of BASIC compilers and interpreters for CP/M.",
+      "size": 8388608,
+      "sha256": "4a260bcaebe5666e6144c219e22d16a9d784cf328b4e9372c3654808ab689943",
+      "license": "Abandonware",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_bascomp.img"
+    },
+    {
+      "id": "hd1k_cowgol",
+      "filename": "hd1k_cowgol-v0-3.5.1.img",
+      "name": "Cowgol",
+      "description": "Cowgol compiler - modern language targeting 8-bit systems.",
+      "size": 8388608,
+      "sha256": "68fdae49d596799ea0393d17eecac5a2bafea3284b679db6bb7e0278dcc443fd",
+      "license": "Open Source",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_cowgol.img"
+    },
+    {
+      "id": "hd1k_fortran",
+      "filename": "hd1k_fortran-v0-3.5.1.img",
+      "name": "Fortran",
+      "description": "Fortran compiler for CP/M - scientific computing language.",
+      "size": 8388608,
+      "sha256": "a9b977eb88dc71414634cb847eb12eb84f62150d08fe4de60e9e88fb2fc2c27a",
+      "license": "Abandonware",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_fortran.img"
+    },
+    {
+      "id": "hd1k_hitechc",
+      "filename": "hd1k_hitechc-v0-3.5.1.img",
+      "name": "Hi-Tech C",
+      "description": "Hi-Tech C compiler - optimizing C compiler for Z80 CP/M.",
+      "size": 8388608,
+      "sha256": "1423423e124bbc4b90b4152522923c16a41ccef3b3eae9d99fcad19909dc4d74",
+      "license": "Freeware",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_hitechc.img"
+    },
+    {
+      "id": "hd1k_tpascal",
+      "filename": "hd1k_tpascal-v0-3.5.1.img",
+      "name": "Turbo Pascal",
+      "description": "Borland Turbo Pascal 3.0 - fast Pascal IDE and compiler.",
+      "size": 8388608,
+      "sha256": "b349c329b6233ad9cfcdd728075c4e53fe5e737a6d6003f20e5f1eb80e007573",
+      "license": "Freeware",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_tpascal.img"
+    },
+    {
+      "id": "hd1k_z80asm",
+      "filename": "hd1k_z80asm-v0-3.5.1.img",
+      "name": "Z80 Assemblers",
+      "description": "Collection of Z80 assemblers and development tools.",
+      "size": 8388608,
+      "sha256": "46104ce74a53405b99228bf7d17f000880dab5e0aca0fb774ae7fa046559f04d",
+      "license": "Mixed",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_z80asm.img"
+    },
+    {
+      "id": "hd1k_ws4",
+      "filename": "hd1k_ws4-v0-3.5.1.img",
+      "name": "WordStar 4",
+      "description": "WordStar 4.0 - classic word processor for CP/M.",
+      "size": 8388608,
+      "sha256": "fcdf308753142d2d2957636ac74721f8e3ef27a4f0aeec81f41196f631c1f2c9",
+      "license": "Abandonware",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_ws4.img"
+    },
+    {
+      "id": "hd1k_z3plus",
+      "filename": "hd1k_z3plus-v0-3.5.1.img",
+      "name": "Z3Plus",
+      "description": "Z3Plus - ZCPR3 command processor with enhanced features.",
+      "size": 8388608,
+      "sha256": "09fa6306b5b38db7f4536c38a192488b8c2e608add0fb869aea274356f2bb760",
+      "license": "Mixed",
+      "format": "hd1k",
+      "bootable": true,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_z3plus.img"
+    },
+    {
+      "id": "hd1k_bp",
+      "filename": "hd1k_bp-v0-3.5.1.img",
+      "name": "B/P Bios",
+      "description": "B/P Bios utilities and tools disk.",
+      "size": 8388608,
+      "sha256": "37b31a2866bf7b0b6617395be7fd599ba1e287b7037ffe9fd112cb07ae1d60f1",
+      "license": "Mixed",
+      "format": "hd1k",
+      "bootable": true,
+      "cbios": "CBIOS v3.5.1 [WBW]",
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_bp.img"
+    },
+    {
+      "id": "hd1k_msxroms1",
+      "filename": "hd1k_msxroms1-v0-3.5.1.img",
+      "name": "MSX ROMs 1",
+      "description": "MSX ROM images collection - volume 1.",
+      "size": 8388608,
+      "sha256": "0d0624a444369971c1e6ff68d04ffede7050d157963bbf2821ff1d338a439d5f",
+      "license": "Abandonware",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_msxroms1.img"
+    },
+    {
+      "id": "hd1k_msxroms2",
+      "filename": "hd1k_msxroms2-v0-3.5.1.img",
+      "name": "MSX ROMs 2",
+      "description": "MSX ROM images collection - volume 2.",
+      "size": 8388608,
+      "sha256": "4a8e89b981f2684e9f523010d84d2050db6cf07d031aa9fb200f3bc1b9cf2893",
+      "license": "Abandonware",
+      "format": "hd1k",
+      "bootable": false,
+      "cbios": null,
+      "host_transfer": false,
+      "upstream": "Binary/hd1k_msxroms2.img"
+    }
+  ]
 })JSON";
 
 // The cores this suite pretends to be. The real one is
@@ -356,24 +591,28 @@ static void test_real_index() {
 
     checkStr(entries[0].romwbwVersion, "3.5.1", "the first is 3.5.1");
     checkStr(entries[0].status, "stable", "published stable");
-    checkTrue(entries[0].isDefault, "and it is the index's default");
+    // NOT the default any more, and that is the point of reading it rather than
+    // assuming it: 3.5.1 was the index's default until 3.6.0 was promoted out of
+    // preview on 2026-09-05, and a client that had hardcoded "the first entry"
+    // or "3.5.1" would have gone on fetching the older release for ever.
+    checkFalse(entries[0].isDefault, "and it is NO LONGER the index's default");
     checkNum(entries[0].verByte, 0x35, "ver_byte 0x35");
     checkNum(entries[0].updByte, 0x10, "upd_byte 0x10");
     checkNum(entries[0].catalogSize, 11826, "with the catalog size the index publishes");
     checkStr(entries[0].catalogSha256,
-             "7a5411b329be606c2bcc7b8d2b051b8fca9a2906f780d65fc98221cb6b61ed65",
+             "942803d1ed67bcd8c6e0a9b730f9a08775618535b8e9affc58c56830839a78fd",
              "and the sha256 that catalog is verified against before it is parsed");
     checkStr(entries[0].catalogUrl,
              "https://github.com/avwohl/romwbw_disks/releases/download/"
              "v0-romwbw-3.5.1/catalog-v0-3.5.1.json",
              "the catalog URL is absolute and is NOT built from the release tag");
-    checkNum(entries[0].generation, 1, "generation 1");
+    checkNum(entries[0].generation, 2, "generation 2 - the HB_BNKCALL rebuild");
     checkNum(entries[0].diskCount, 20, "20 disks");
     checkNum(entries[0].romCount, 2, "2 ROMs");
 
     checkStr(entries[1].romwbwVersion, "3.6.0", "the second is 3.6.0");
-    checkStr(entries[1].status, "preview", "published preview");
-    checkFalse(entries[1].isDefault, "and is not the default");
+    checkStr(entries[1].status, "stable", "published stable, promoted 2026-09-05");
+    checkTrue(entries[1].isDefault, "and it is now the index's default");
     checkNum(entries[1].verByte, 0x36, "ver_byte 0x36");
     checkNum(entries[1].updByte, 0x00, "upd_byte 0x00 - a zero that is a value");
     checkNum(entries[1].diskCount, 24, "24 disks, four more than 3.5.1");
@@ -391,7 +630,18 @@ static void test_preview_is_marked() {
 
     checkStr(catalogv0::displayLabel(entries[0]), "RomWBW 3.5.1",
              "a stable release says nothing extra");
-    checkStr(catalogv0::displayLabel(entries[1]), "RomWBW 3.6.0 (preview)",
+    checkStr(catalogv0::displayLabel(entries[1]), "RomWBW 3.6.0",
+             "and so does the second, now that 3.6.0 is stable too");
+
+    // Both published releases are stable today, so the real documents no longer
+    // exercise the marking at all - which is exactly why the made-up entry below
+    // exists and must stay. A rule only the fixtures could check would stop
+    // being checked the moment the fixtures stopped carrying a preview.
+    catalogv0::IndexEntry stillPreview;
+    stillPreview.romwbwVersion = "3.7.0";
+    stillPreview.label = "RomWBW 3.7.0";
+    stillPreview.status = "preview";
+    checkStr(catalogv0::displayLabel(stillPreview), "RomWBW 3.7.0 (preview)",
              "a preview release says so, in the menu, where the user chooses");
 
     // `status` is free text copied from the version metadata, not a closed set.
@@ -423,8 +673,10 @@ static void test_which_releases_are_offered() {
     // A core that can boot both - which is what romwbw_emu v1.39 is today.
     std::vector<size_t> both = catalogv0::runnableVersions(entries, supportsBoth);
     checkNum(both.size(), 2, "a core that boots both is offered both");
-    checkNum(catalogv0::chooseVersion(entries, both, ""), 0,
-             "and with no preference it takes the index's default, 3.5.1");
+    checkNum(catalogv0::chooseVersion(entries, both, ""), 1,
+             "and with no preference it takes the index's default, which is 3.6.0 "
+             "since the 2026-09-05 promotion - read from the flag, never from the "
+             "position, so this moved when the document did");
     checkNum(catalogv0::chooseVersion(entries, both, "3.6.0"), 1,
              "a stored preference for 3.6.0 is honoured");
 
@@ -508,7 +760,7 @@ static void test_real_catalog() {
               "the real catalog parses");
     checkStr(catalog.romwbwVersion, "3.5.1", "for RomWBW 3.5.1");
     checkStr(catalog.releaseTag, "v0-romwbw-3.5.1", "on its own immutable tag");
-    checkNum(catalog.generation, 1, "at generation 1");
+    checkNum(catalog.generation, 2, "at generation 2");
     checkStr(catalog.baseUrl,
              "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.5.1/",
              "with a base_url that ends in a slash");
@@ -519,8 +771,9 @@ static void test_real_catalog() {
         checkTrue(catalog.roms[0].isDefault, "and it is the default");
         checkNum(catalog.roms[0].size, 524288, "512 KB");
         checkStr(catalog.roms[0].sha256,
-                 "c7abc580b3285a33e439c0d6724a9d64dd3e93733a4fc2c1b80b0bfd91f9c580",
-                 "and the hash the bundled roms/emu_avw.rom already has");
+                 "4b11402a29fad22de304775b7c415eb6a74600df06bd57828b9931a7e9693258",
+                 "and the hash every start checks the downloaded file against - "
+                 "the generation-2 rebuild, c7abc580 before HB_BNKCALL was fixed");
         checkTrue(catalog.roms[0].haveHcb, "its HCB bytes are published");
         checkNum(catalog.roms[0].hcbVersion, 0x35, "version 0x35");
         checkNum(catalog.roms[0].hcbUpdate, 0x10, "update 0x10 - checkable before a 512 KB fetch");
@@ -655,6 +908,42 @@ static void test_which_rom_boots() {
              "and its size is taken from the document - nothing here promises 512 KB, "
              "and upstream v3.6.0 already ships ROM images that are not");
 
+    // THE USER'S OWN CHOICE, which is what makes publishing a second ROM worth
+    // anything: emu_rcz80 is in both published catalogs and was unreachable from
+    // this client until the Settings dropdown started listing roms[]. Matched on
+    // id, so it survives a release switch that renames every file.
+    pick = catalogv0::chooseRom(real.roms, "emu_rcz80");
+    checkStr(pick < real.roms.size() ? real.roms[pick].id : std::string(""), "emu_rcz80",
+             "a stored preference beats the default flag");
+    checkStr(pick < real.roms.size() ? real.roms[pick].filename : std::string(""),
+             "emu_rcz80-v0-3.5.1.rom",
+             "and it is this release's file, not the one the preference was made against");
+
+    // A PREFERENCE THIS RELEASE DOES NOT PUBLISH loses to the default rather
+    // than stranding the release. 6.1's "do not assume emu_avw is present" cuts
+    // both ways: the set of ROMs is the document's to change, so a client whose
+    // stored id has gone must still boot something rather than refuse.
+    pick = catalogv0::chooseRom(real.roms, "emu_gone");
+    checkStr(pick < real.roms.size() ? real.roms[pick].id : std::string(""), "emu_avw",
+             "an id the catalog no longer carries falls back to the flagged entry");
+
+    // The empty preference is the ordinary case - a fresh install, and every
+    // configuration written before the ROM choice existed - and must behave
+    // exactly as the one-argument form does.
+    checkTrue(catalogv0::chooseRom(real.roms, std::string()) == catalogv0::chooseRom(real.roms),
+              "no preference is the same answer as not asking");
+
+    // A preference cannot resurrect a release that publishes no ROM at all.
+    checkTrue(catalogv0::chooseRom(emptyRoms.roms, "emu_avw") == (size_t)-1,
+              "and it cannot invent one where roms[] is empty");
+
+    // The id is matched, NEVER the filename. A client that compared filenames
+    // would forget the choice at the first version switch, because every
+    // published ROM filename carries its release.
+    pick = catalogv0::chooseRom(real.roms, "emu_rcz80-v0-3.5.1.rom");
+    checkStr(pick < real.roms.size() ? real.roms[pick].id : std::string(""), "emu_avw",
+             "a filename is not an id and does not select");
+
     // The URL a ROM is fetched from is the same concatenation a disk's is, which
     // is the point of assetUrl having one home.
     checkStr(catalogv0::assetUrl(real.baseUrl, "emu_avw-v0-3.5.1.rom"),
@@ -787,6 +1076,131 @@ static void test_the_one_equivalent_prior_image() {
           "refused", "refused");
 }
 
+static void test_the_stored_rom_becomes_an_id() {
+    section("what a stored ROM filename becomes");
+
+    // AppConfig::rom held a FILENAME until the bundled ROMs were deleted, and it
+    // holds a catalog id now. The conversion runs at parse time rather than in
+    // the interfaceV0Migrated pass, because that flag is already true on every
+    // machine that has launched since the storage rename - so a migration gated
+    // on it would never run on the configurations that need this most.
+    std::string id;
+
+    check(diskv0::romIdForStoredName("emu_avw.rom", id),
+          "the default packaged name maps", "mapped", "mapped");
+    checkStr(id, "emu_avw", "onto the catalog id it was");
+
+    // The two packaged files were byte-identical - both 4b11402a..., measured
+    // 2026-09-07 - so the second was always a second name for the first. Mapping
+    // it anywhere else would invent a preference the user never expressed.
+    id.clear();
+    check(diskv0::romIdForStoredName("emu_romwbw.rom", id),
+          "and so does the other one, which was the same 512 KB", "mapped", "mapped");
+    checkStr(id, "emu_avw", "onto the same id");
+
+    // Case, because Windows kept whatever the user's file was created with and a
+    // hand-edited config can say anything.
+    id.clear();
+    check(diskv0::romIdForStoredName("EMU_AVW.ROM", id),
+          "a differently-cased name still maps", "mapped", "mapped");
+    checkStr(id, "emu_avw", "onto the canonical id");
+
+    // A v0 ROM filename, which carries its release. The release belongs to
+    // romwbwVersion and this field must not carry a second copy of it.
+    id.clear();
+    check(diskv0::romIdForStoredName("emu_avw-v0-3.6.0.rom", id),
+          "a v0 ROM filename loses its release", "mapped", "mapped");
+    checkStr(id, "emu_avw", "and comes back as the bare id");
+
+    // IDEMPOTENT. A value that is already an id carries no extension, so it is
+    // not a filename and is not this function's to touch. from_json keeps it.
+    id = "untouched";
+    check(!diskv0::romIdForStoredName("emu_avw", id),
+          "a bare id is not a filename and is left alone", "refused", "refused");
+    checkStr(id, "untouched", "with the out parameter not written");
+
+    // NOT AN ALLOWLIST OF CATALOG IDS. 6.1 forbids assuming emu_avw is
+    // published; this maps two legacy FILENAMES onto the id those files were and
+    // asks nothing about what any catalog carries. Everything else is "no
+    // preference", which is a real answer - chooseRom then takes the default.
+    id = "untouched";
+    check(!diskv0::romIdForStoredName("SBC_simh_std.rom", id),
+          "the stock hardware ROM no build could load maps to no preference",
+          "refused", "refused");
+    check(!diskv0::romIdForStoredName("mine.rom", id),
+          "and so does a ROM the user put beside the executable themselves",
+          "refused", "refused");
+    check(!diskv0::romIdForStoredName("", id),
+          "an empty stored value is already no preference", "refused", "refused");
+    check(!diskv0::romIdForStoredName("emu_avw.img", id),
+          "a name that is not a .rom at all is not a ROM filename",
+          "refused", "refused");
+    checkStr(id, "untouched", "and none of those wrote the out parameter");
+}
+
+// The two fixtures above are copies, and a copy that nothing compares to its
+// original is a copy that will be wrong eventually. This is the comparison.
+//
+// It reads the sibling romwbw_disks checkout, which CLAUDE.md already requires
+// beside this one for the build, and SKIPS when it is not there - so the suite
+// keeps its "no network, no sibling, any machine with a compiler" property and
+// still turns red on the machine where the drift would actually be noticed.
+// Whitespace-insensitive on purpose: what matters is the document, not how the
+// generator chose to indent it.
+static std::string readWholeFile(const std::string& path) {
+    FILE* f = fopen(path.c_str(), "rb");
+    if (!f) return std::string();
+    std::string out;
+    char buf[4096];
+    size_t got;
+    while ((got = fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, got);
+    fclose(f);
+    return out;
+}
+
+static std::string squeeze(const std::string& text) {
+    std::string out;
+    out.reserve(text.size());
+    for (char c : text) {
+        if (!isspace((unsigned char)c)) out += c;
+    }
+    return out;
+}
+
+static void test_the_fixture_is_not_stale() {
+    section("the fixtures still match the published documents");
+
+    // run_tests.bat runs the exe from the repository root, so one "..\" is
+    // right; the second candidate is for running it from tests\ by hand. Both
+    // rather than one, because a check that silently SKIPs in the ordinary case
+    // is a check that never runs - which is the exact failure this section was
+    // written to end.
+    static const char* const kBases[] = {
+        "..\\romwbw_disks\\catalog\\v0\\",
+        "..\\..\\romwbw_disks\\catalog\\v0\\",
+    };
+
+    std::string liveIndex, liveCatalog;
+    for (const char* base : kBases) {
+        liveIndex = readWholeFile(std::string(base) + "index.json");
+        liveCatalog = readWholeFile(std::string(base) + "3.5.1\\catalog.json");
+        if (!liveIndex.empty() && !liveCatalog.empty()) break;
+    }
+
+    if (liveIndex.empty() || liveCatalog.empty()) {
+        printf("  SKIP - no ..\\romwbw_disks checkout beside this one, so there is\n"
+               "         nothing to compare the fixtures against on this machine.\n");
+        return;
+    }
+
+    checkStr(squeeze(REAL_INDEX), squeeze(liveIndex),
+             "REAL_INDEX is still romwbw_disks/catalog/v0/index.json - if this fails, "
+             "the published index moved and every assertion below about defaults, "
+             "status and hashes is now about a document nobody serves");
+    checkStr(squeeze(REAL_CATALOG_351), squeeze(liveCatalog),
+             "REAL_CATALOG_351 is still romwbw_disks/catalog/v0/3.5.1/catalog.json");
+}
+
 int main() {
     printf("=== Interface-v0 catalog suite ===\n");
 
@@ -800,6 +1214,8 @@ int main() {
     test_catalog_tolerance();
     test_the_url_that_is_compiled_in();
     test_the_one_equivalent_prior_image();
+    test_the_stored_rom_becomes_an_id();
+    test_the_fixture_is_not_stale();
 
     printf("\n===============================\n");
     printf("%d checks, %d failed\n", g_checks, g_failed);

@@ -333,12 +333,26 @@ size_t chooseVersion(const std::vector<IndexEntry>& entries,
     return runnable.front();
 }
 
-size_t chooseRom(const std::vector<RomItem>& roms) {
+size_t chooseRom(const std::vector<RomItem>& roms, const std::string& preferredId) {
     // Empty covers both "the document had no roms[]" and "it had an empty one".
     // parseCatalog produces the same vector for either, and there is nothing a
     // caller would do differently: the release publishes no ROM this build can
     // fetch.
     if (roms.empty()) return static_cast<size_t>(-1);
+
+    // The user's own choice, while the catalog still publishes it. Matched on
+    // `id` and never on `filename`, because the filename carries the release -
+    // emu_avw-v0-3.5.1.rom and emu_avw-v0-3.6.0.rom are the same CHOICE - so a
+    // preference stored as a filename would be forgotten by the first version
+    // switch. This is the same shape as chooseVersion's preferredVersion: a
+    // preference the document no longer carries silently loses to the default
+    // rather than stranding the release, which is what happens to somebody who
+    // picked a ROM that a later release dropped.
+    if (!preferredId.empty()) {
+        for (size_t i = 0; i < roms.size(); i++) {
+            if (roms[i].id == preferredId) return i;
+        }
+    }
 
     for (size_t i = 0; i < roms.size(); i++) {
         if (roms[i].isDefault) return i;

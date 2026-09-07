@@ -81,6 +81,22 @@ directory and driving it with `WM_COMMAND` and `PrintWindow`, with the real
 `z80cpmw.json` backed up first and restored byte-identical afterwards. Three
 things cost an hour each on 2026-08-28 and are worth not rediscovering.
 
+**A posted `WM_COMMAND` bypasses the menu's enabled state, so it cannot tell you
+whether a user could have done the same thing.** This one shipped a bug. The
+driver sends `WM_COMMAND ID_EMU_START` straight to the frame, which the window
+procedure handles whether or not `Emulator > Start` is greyed — and on
+1.0.26-beta it *was* greyed, because `updateMenuState()` still read
+`hasROM()` and the package no longer carries a ROM. So the scripted F5 started
+the machine on a machine where a human's F5 did nothing, and every check passed.
+The F5 accelerator fails the same way a click would: Windows suppresses an
+accelerator whose menu item is disabled.
+
+Read the state as well as sending the command. `GetMenuState(GetMenu(hwnd), id,
+MF_BYCOMMAND)` and test `& (MF_GRAYED | MF_DISABLED)`; a return of `0xFFFFFFFF`
+means the id is not in the menu at all, which is its own finding. Any check that
+asserts "the user can do X" has to look at that, not at what a posted message
+achieved.
+
 **Common-control messages that carry a pointer are not marshalled across a
 process boundary.** `TCM_GETITEMRECT`, `LVM_GETITEMTEXTW` and `LVM_SETITEMSTATE`
 all take an address, and one sent from another process hands the app the

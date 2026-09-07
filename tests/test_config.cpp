@@ -1636,6 +1636,16 @@ static void test_v0_migration_end_to_end() {
     checkTrue(!cm.get().interfaceV0Migrated,
               "and a file written before the migration says it has not been migrated");
 
+    // Held rather than asserted empty. freshManager() resets the CONFIG, which
+    // is all it can reach - m_currentProfile has no public setter and load()
+    // deliberately does not clear it, so whichever profile an earlier section
+    // loaded is still named here. That is not this section's subject and it is
+    // not a defect anything can see: currentProfileName() has no caller outside
+    // this file. What this section has to prove is that migrating a profile
+    // does not LOAD it, and comparing across the call proves exactly that,
+    // whatever ran before.
+    const std::string profileBefore = cm.currentProfileName();
+
     V0MigrationReport r = cm.migrateToInterfaceV0(dataDir(), landed, true);
 
     checkInt(r.slotsRewritten, 1, "one slot in force is rewritten");
@@ -1672,7 +1682,8 @@ static void test_v0_migration_end_to_end() {
 
     // The manager still holds the configuration in force, not the profile's:
     // migrating a profile must not load it.
-    checkStr(cm.currentProfileName(), "", "no profile has been made current");
+    checkStr(cm.currentProfileName(), profileBefore,
+             "and the migration made no profile current that was not current already");
 }
 
 static void test_v0_migration_persistence() {
@@ -1767,6 +1778,75 @@ static void test_romwbw_version_is_persisted() {
     json ref = referenceDocument();
     checkTrue(ref.contains("core") && ref["core"].contains("romwbwVersion"),
               "and the reference document names core.romwbwVersion");
+}
+
+//=============================================================================
+// core.rom, which stopped being a filename
+//
+// It held "emu_avw.rom" while this application shipped ROMs. It holds a catalog
+// ROM `id` now - "emu_avw" - and the conversion happens in from_json rather than
+// in migrateToInterfaceV0, because that pass is gated on interfaceV0Migrated and
+// that flag is ALREADY TRUE on every machine that has launched a build since the
+// storage rename. A migration written there would never run on the very
+// configurations that need this one.
+//
+// The rule that matters to a user: a value this build cannot map becomes "no
+// preference", never a filename left in a field that is now matched against ids.
+// A leftover filename would match no ROM in any catalog while still looking like
+// a choice, so chooseRom would fall to the default and the Settings dropdown
+// would show a row that selects nothing.
+//=============================================================================
+
+static void test_rom_is_read_back_as_a_catalog_id() {
+    section("core.rom, read back as a catalog id");
+
+    ConfigManager& cm = ConfigManager::instance();
+
+    freshManager(cm);
+    resetDir();
+    writeFile(configPath(), R"({"core": {"rom": "emu_avw.rom"}})");
+    checkTrue(cm.load(), "a configuration naming the old packaged ROM loads");
+    checkStr(cm.get().rom, "emu_avw", "and the filename is read back as the catalog id");
+
+    // The second packaged name was the same 512 KB as the first, so it is the
+    // same choice and not a different one.
+    freshManager(cm);
+    resetDir();
+    writeFile(configPath(), R"({"core": {"rom": "emu_romwbw.rom"}})");
+    checkTrue(cm.load(), "and so does one naming the other packaged ROM");
+    checkStr(cm.get().rom, "emu_avw", "which was the same image under a second name");
+
+    // A stock hardware ROM no build could ever load. It used to take a special
+    // branch in applyConfig that put up a notice; it now simply is not a
+    // preference, which is the honest reading of a field naming a file that
+    // cannot run.
+    freshManager(cm);
+    resetDir();
+    writeFile(configPath(), R"({"core": {"rom": "SBC_simh_std.rom"}})");
+    checkTrue(cm.load(), "a configuration naming the stock hardware ROM loads");
+    checkStr(cm.get().rom, "", "and reads back as no preference rather than as a filename");
+
+    // Nothing at all, which is what a fresh install and most real files say.
+    freshManager(cm);
+    resetDir();
+    writeFile(configPath(), R"({"core": {"debug": false}})");
+    checkTrue(cm.load(), "a configuration with no rom at all loads");
+    checkStr(cm.get().rom, "", "as no preference - the catalog's default:true decides");
+
+    // ROUND TRIP, and it must be idempotent: what save() writes is an id, and
+    // reading an id back must not put it through the filename mapping again.
+    freshManager(cm);
+    resetDir();
+    cm.get().rom = "emu_rcz80";
+    checkTrue(cm.save(), "a chosen ROM id saves");
+    freshManager(cm);
+    checkTrue(cm.load(), "and reloads");
+    checkStr(cm.get().rom, "emu_rcz80",
+             "unchanged - an id is not a filename and is not remapped");
+
+    json ref = referenceDocument();
+    checkTrue(ref.contains("core") && ref["core"].contains("rom"),
+              "and the reference document still names core.rom");
 }
 
 static void test_render_block() {
@@ -2005,6 +2085,7 @@ int main() {
     test_retrying_a_profile_does_not_double_the_report();
     test_carry_belongs_to_one_file();
     test_romwbw_version_is_persisted();
+    test_rom_is_read_back_as_a_catalog_id();
     test_v0_document_paths();
     test_v0_migration_end_to_end();
     test_v0_migration_persistence();

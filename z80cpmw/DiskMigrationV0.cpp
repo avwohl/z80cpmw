@@ -12,7 +12,7 @@
 namespace diskv0 {
 
 const char* const INTERFACE = "v0";
-const char* const BUNDLED_ROMWBW = "3.5.1";
+const char* const PRE_V0_ROMWBW = "3.5.1";
 
 const std::vector<std::string>& legacyCatalogFilenames() {
     static const std::vector<std::string> names = {
@@ -69,6 +69,50 @@ bool looksLikeV0Name(const std::string& filename) {
     return at != std::string::npos && at + tag.size() < stem.size();
 }
 
+bool romIdForStoredName(const std::string& storedRom, std::string& out) {
+    const std::string folded = DiskLedger::fold(storedRom);
+    const size_t dot = extensionDot(folded);
+
+    // No extension is no filename, so there is nothing to convert: either the
+    // field is empty, or it already holds the bare id this function produces.
+    // Answering false is what makes running the pass twice harmless.
+    if (dot == std::string::npos || folded.substr(dot) != ".rom") return false;
+
+    std::string stem = folded.substr(0, dot);
+
+    // A v0 ROM filename, from a machine that had already fetched one:
+    // emu_avw-v0-3.6.0 -> emu_avw. The release goes; romwbwVersion is where it
+    // belongs and this field must not carry a second copy of it.
+    const std::string tag = interfaceTag();
+    const size_t at = stem.rfind(tag);
+    if (at != std::string::npos && at + tag.size() < stem.size()) {
+        stem = stem.substr(0, at);
+    }
+
+    // THE CLOSED SET, and it really is closed: these are the only two values any
+    // released build ever wrote into this field. onSelectROM had two menu ids and
+    // loadPackagedRom had two filenames; loadCatalogRomForStart deliberately set
+    // m_currentRomId to 0 so that updateConfigFromState would NOT write a catalog
+    // ROM's filename here, so no build ever stored one. Both files were the same
+    // 512 KB, so both mean the ROM the catalog marks default.
+    //
+    // Not an allowlist of catalog ids - 6.1 forbids assuming emu_avw is
+    // published, and this does not: it maps two legacy FILENAMES onto the id
+    // those files were, and asks nothing about what the catalog carries. If a
+    // catalog stops publishing emu_avw, chooseRom drops the stale preference and
+    // takes the default, which is the behaviour that rule exists to protect.
+    if (stem == "emu_avw" || stem == "emu_romwbw") {
+        out = "emu_avw";
+        return true;
+    }
+
+    // Anything else named a file rather than a catalog ROM - SBC_simh_std.rom,
+    // which no build could load, or a ROM the user put beside the executable
+    // themselves. There is no id to map it to, and inventing one would express a
+    // preference they never had. "No preference" is a real answer here.
+    return false;
+}
+
 bool isEquivalentPriorImage(const std::string& provenance,
                             const std::string& catalogSha256) {
     // hd1k_combo-v0-3.5.1.img, and nothing else. A table rather than a pair of
@@ -106,7 +150,7 @@ bool v0NameFor(const std::string& filename, std::string& out) {
     // note on legacyCatalogFilenames().
     size_t dot = extensionDot(*matched);
     if (dot == std::string::npos) return false;
-    out = matched->substr(0, dot) + interfaceTag() + BUNDLED_ROMWBW + matched->substr(dot);
+    out = matched->substr(0, dot) + interfaceTag() + PRE_V0_ROMWBW + matched->substr(dot);
     return true;
 }
 

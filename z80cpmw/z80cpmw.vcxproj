@@ -125,13 +125,10 @@
       <Command>copy /b "$(ProjectDir)MainWindow.cpp"+,, "$(ProjectDir)MainWindow.cpp"</Command>
       <Message>Updating build timestamp...</Message>
     </PreBuildEvent>
-    <PostBuildEvent>
-      <!-- Same ROM staging as Release: a Debug run has to load the ROMs this
-           tree ships, not a snapshot someone copied into bin once. -->
-      <Command>if not exist "$(OutDir)roms\" mkdir "$(OutDir)roms"
-xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
-      <Message>Staging ROMs...</Message>
-    </PostBuildEvent>
+    <!-- No PostBuildEvent. Nothing is staged into $(OutDir) because this tree
+         ships no ROM and no disk image: both come from the romwbw_disks catalog
+         into %LOCALAPPDATA%\z80cpmw\data at run time, checked against the
+         size and sha256 the catalog publishes. -->
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -169,15 +166,18 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
       <!-- Ship the VC++ runtime app-local: the installers bundle no CRT, and a
            system msvcp140.dll older than the build toolset crashes on first
            std::mutex lock (GitHub issue #1).
-           Stage the ROMs too. Nothing used to copy them, so $(OutDir)roms kept
-           whatever snapshot was put there by hand - a stale one for over half a
-           year. That is how a build "fixes" a corrupt ROM and still ships the
-           corrupt one: the app loads $(OutDir)roms at runtime, and
-           packaging/scripts/build-msix.ps1 packages from bin\Release\roms. -->
-      <Command>xcopy /y /d "$(VCInstallDir)Redist\MSVC\$(VCToolsVersion)\x64\Microsoft.VC$(PlatformToolsetVersion).CRT\*.dll" "$(OutDir)"
-if not exist "$(OutDir)roms\" mkdir "$(OutDir)roms"
-xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
-      <Message>Copying app-local VC++ runtime DLLs and staging ROMs...</Message>
+
+           NO ROM STAGING. This used to copy roms\emu_*.rom into $(OutDir)roms,
+           which is what build-msix.ps1 and the NSIS script then packaged. The
+           files and both copies are gone: every ROM comes from the romwbw_disks
+           catalog into the data folder at run time, checked against the size and
+           sha256 the catalog publishes, so there is no longer a staged copy
+           whose staleness a build could hide. A leftover $(OutDir)roms from an
+           older build is still SEARCHED - findResourceFile looks beside the
+           executable so that a ROM a user puts there by hand wins - so delete
+           the bin\Release\roms directory by hand first. -->
+      <Command>xcopy /y /d "$(VCInstallDir)Redist\MSVC\$(VCToolsVersion)\x64\Microsoft.VC$(PlatformToolsetVersion).CRT\*.dll" "$(OutDir)"</Command>
+      <Message>Copying app-local VC++ runtime DLLs...</Message>
     </PostBuildEvent>
   </ItemDefinitionGroup>
   <!-- No ..\ioscpm: compile the .rc with the eight RCDATA lines guarded out.
@@ -341,17 +341,12 @@ xcopy /y /d "$(SolutionDir)roms\emu_*.rom" "$(OutDir)roms\"</Command>
   <ItemGroup>
     <ResourceCompile Include="z80cpmw.rc" />
   </ItemGroup>
-  <ItemGroup>
-    <None Include="..\roms\emu_avw.rom">
-      <DeploymentContent>true</DeploymentContent>
-    </None>
-    <None Include="..\roms\emu_romwbw.rom">
-      <DeploymentContent>true</DeploymentContent>
-    </None>
-    <None Include="..\roms\SBC_simh_std.rom">
-      <DeploymentContent>true</DeploymentContent>
-    </None>
-  </ItemGroup>
+  <!-- The three <None Include="..\roms\*.rom"> items that stood here are gone
+       with the files, deleted 2026-09-07. They were IDE listing entries that
+       staged nothing - a desktop MSBuild does not copy None items to $(OutDir),
+       the removed PostBuildEvent is what did that - but they pointed at paths
+       that no longer exist, which is a project file describing a tree that is
+       not there. -->
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>

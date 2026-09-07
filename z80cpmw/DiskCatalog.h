@@ -298,6 +298,20 @@ public:
     void setPreferredRomwbwVersion(const std::string& romwbwVersion);
     std::string getPreferredRomwbwVersion() const;
 
+    // Which ROM of the release's `roms[]` to boot, as a catalog `id` and never
+    // as a filename - a filename carries the release, an id does not, so only an
+    // id survives the version switch above. Empty means "no preference", which
+    // is what a fresh install says and what every configuration written before
+    // the bundled ROMs were deleted says once it has been read: chooseRom then
+    // takes the entry the catalog marks `default: true`.
+    //
+    // A preference and not a pin. A catalog that no longer publishes this id
+    // falls back to its default rather than refusing to start, which is the
+    // behaviour CATALOG_SCHEMA 6.1's "do not assume emu_avw is present" asks
+    // for: the set of ROMs is the document's to change.
+    void setPreferredRomId(const std::string& romId);
+    std::string getPreferredRomId() const;
+
     // The RomWBW release the entries currently in hand were fetched for, or
     // empty before any successful fetch. This is the answer to "what am I
     // looking at", which the preference above is not: the two differ whenever
@@ -659,6 +673,11 @@ private:
     // release, and all three are read and written by the fetch worker.
     mutable std::mutex m_indexMutex;
     std::string m_preferredVersion;
+    // The user's ROM choice, as a catalog `id`. Under this mutex rather than
+    // m_catalogMutex even though it is read beside the roms[] it selects from,
+    // because it is written on the UI thread from the Settings dialog exactly as
+    // m_preferredVersion is, and the two are set together.
+    std::string m_preferredRomId;
     std::string m_selectedVersion;
     std::vector<catalogv0::IndexEntry> m_runnableVersions;
 };

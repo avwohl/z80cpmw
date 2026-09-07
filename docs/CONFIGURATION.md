@@ -7,15 +7,15 @@ z80cpmw keeps its settings in a JSON file you can edit by hand:
 ```
 
 **Finding it:** *Emulator → Settings → Open Folder* opens the **data** folder
-(`...\z80cpmw\data`, where disks and R8/W8 transfers live). The `z80cpmw.json`
-file is one level up, in the `z80cpmw` folder. On any MSIX install — the
-Microsoft Store build or the signed sideload beta — both are redirected under
-`...\Packages\AaronWohl.Z80CPM_<hash>\LocalCache\Local\z80cpmw\`. The `<hash>`
-is derived from the package publisher, so the Store build and the beta get
-different ones and can be installed side by side. You don't need to know that
-path — the app shows the real, resolved data-folder location in *Settings* (a
-copyable field) and in *Help → About*. For R8/W8 file transfer specifically,
-see [FILE_TRANSFER.md](FILE_TRANSFER.md).
+(`...\z80cpmw\data`, where disks, the downloaded ROM and R8/W8 transfers live).
+The `z80cpmw.json` file is one level up, in the `z80cpmw` folder. On any MSIX
+install — the Microsoft Store build or the signed sideload beta — both are
+redirected under `...\Packages\AaronWohl.Z80CPM_<hash>\LocalCache\Local\z80cpmw\`.
+The `<hash>` is derived from the package publisher, so the Store build and the
+beta get different ones and can be installed side by side. You don't need to
+know that path — the app shows the real, resolved data-folder location in
+*Settings* (a copyable field) and in *Help → About*. For R8/W8 file transfer
+specifically, see [FILE_TRANSFER.md](FILE_TRANSFER.md).
 
 Close z80cpmw before editing the file, then restart for changes to take effect.
 (The same settings, including the keyboard map, are also viewable in-app from
@@ -277,9 +277,25 @@ it. A profile that *does* load is the other way round: it is the configuration
 now, so it takes the previous file's report down with it and shows its own.
 
 The report survives *Emulator → Start* and *Emulator → Reset* clearing the
-screen, so it is still readable after the machine boots. So do the notices about
-the ROM: if the ROM named in the file cannot be loaded, the line saying which
-ROM is running instead stays on screen until you choose a ROM.
+screen, so it is still readable after the machine boots. So does the notice
+about the ROM, which every launch now begins with: no ROM is in the package any
+more, so the window opens with empty ROM banks and a line saying so — that the
+app ships no ROM, that pressing *Start* will fetch one from the catalog and
+check it, and that *Emulator → Settings* is where the RomWBW release and the ROM
+are chosen. It survives the same clears, and it comes down only when a
+ROM has actually been loaded: found, checked against the size and sha256 the
+catalog publishes for it, and accepted by the emulator core. Pressing OK in
+*Settings* does not take it down, and neither does saving settings — nothing
+short of a ROM in the banks answers it.
+
+That has a price worth saying plainly: **a first launch with no network cannot
+start the machine.** There is no bundled ROM left to fall back on, and the size
+and sha256 a ROM is checked against are published in the catalog and nowhere
+else, so a machine that has never reached the network holds no ROM it is allowed
+to load. *Start* says so and stops there — offering the download when the
+catalog is already in hand, and otherwise asking you to check the connection and
+press F5 again — rather than running a CPU over empty banks and calling it
+Running.
 
 ## Mouse copy and paste
 
@@ -295,8 +311,45 @@ running.
 | `display.fontSize` | Terminal font size, in points |
 | `display.scrollbackLines` | Lines of terminal history kept for scrollback (0 = off) |
 | `display.bell` | Whether `BEL` (character 7) makes a sound (default `true`) |
-| `core.rom`         | ROM image to load at startup |
+| `core.rom`         | Which ROM to boot, as a catalog **id** — `emu_avw`, not a filename |
+| `core.romwbwVersion` | Which RomWBW release to run, as its version string — `3.6.0` |
 | `core.bootString`  | Text typed automatically at the boot menu |
 | `disks`            | Disk images assigned to units 0–3 |
 
-Most of these are easier to change from *Emulator → Settings*.
+**`core.rom` and `core.romwbwVersion` name a choice, not a file**, and both are
+empty on a fresh install. Empty means *no preference*, which is a real answer
+and not a missing one: the catalog is asked instead, and the entry it marks as
+its default decides — the default release for `romwbwVersion`, and within that
+release's catalog the default ROM for `rom`.
+
+Neither is written as a filename, and that is the point of them. Every published
+ROM and disk image carries its release in its own name —
+`emu_avw-v0-3.5.1.rom` sits beside `emu_avw-v0-3.6.0.rom`, and they are one
+choice under two names — so a preference stored as a filename would be forgotten
+the first time you changed release. The catalog `id` is the part that means the
+same ROM in every release, so that is what is stored. A `core.rom` left over
+from a build that still shipped ROMs is converted as the file is read, and needs
+no attention from you: `emu_avw.rom` and `emu_romwbw.rom` both become `emu_avw`
+(the two files were byte-identical, so the second was only ever a second name
+for the first), and a name that carries a release loses it — `emu_avw-v0-3.6.0.rom`
+becomes `emu_avw` as well, because the release belongs to `romwbwVersion` and
+this field must not hold a second copy of it. Any other filename — the old
+`SBC_simh_std.rom`, or a ROM you put there yourself — becomes empty rather than
+being kept, because there is no id to map it to and inventing one would express
+a preference you never had.
+
+A preference the catalog does not carry loses to the default rather than
+stopping anything, and nothing is deleted over it. Pick a ROM that a later
+release drops and that release boots its own default, while your choice stays in
+the file — and in the dropdown, marked *not in this release* — for when you
+switch back. Write a `core.romwbwVersion` this build cannot boot and the index's
+default release is used. Which releases can be offered at all is decided by the
+emulator core rather than by this file: it answers from the list of RomWBW
+releases it has been checked against, which is 3.5.1 and 3.6.0 today, so a
+release the core does not know is not one the picker will show you.
+
+Most of these are easier to change from *Emulator → Settings*. The ROM is the
+**ROM:** dropdown on the *Machine* page, filled from the release catalog's own
+list of ROMs — so a ROM published in the catalog becomes selectable without a
+new version of this app — and the release is the **RomWBW release:** picker at
+the top of the *Disk Images* page.

@@ -7,39 +7,46 @@ Related: MANUAL_CHECKS.md (checks needing a person at a keyboard),
 KNOWN_PROBLEMS.md (standing facts that will never be "done"), WIP.md (handoff).
 
 
-- [RELEASE] dist\z80cpmw.msix is 1.0.25's unsigned Store package and needs a
-Partner Center submission.  That submission is the whole item.  The Store is on
-1.0.23, which serves the v1.4.5 catalog, so every Store user today runs the R8
-that erases every matching CP/M file when a host filename holds ? or *.
+- [RELEASE] Version.h must be bumped before anything else is packaged.  1.0.25
+IS SHIPPED - tools/check-store-version.sh, run 2026-09-07, reports the Store
+serving 1.0.25 as AaronWohl.Z80CPM_1.0.25.0_x64__pyqcdeggzw67m with a catalog
+date of 2026-09-04.  The submission this item used to ask for has happened, and
+the line that said "the Store is on 1.0.23, which serves the v1.4.5 catalog" was
+already wrong when it was written.
 
-  THE PACKAGE PREDATES THE MIGRATION AND THE VERSION NUMBER DOES NOT SAY SO.
-  It was built at 211488b, where DiskCatalog.cpp still compiled in RELEASE_TAG =
-  L"v1.4.12" and the ioscpm download URLs; f91c3a3 (the romwbw_disks index),
-  17c72fa (the ROM gate) and cd1fb2b (the 4b11402a ROM) all landed after it, and
-  Version.h still says 25.  So 1.0.25 names two different builds, which is the
-  one thing CHANGELOG.md forbids outright.  Decide before submitting: send the
-  package as it stands and the migration waits for its own number, or bump
-  Version.h and rebuild - but not both under 1.0.25.
+  What is left is the opposite problem.  The shipped 1.0.25 was built at
+  211488b, where DiskCatalog.cpp still compiled in RELEASE_TAG = L"v1.4.12" and
+  the ioscpm download URLs.  Everything since landed after it: f91c3a3 (the
+  romwbw_disks index), 17c72fa (the ROM gate), cd1fb2b (the 4b11402a ROM), and
+  now the deletion of every ROM in this repository together with the
+  catalog-driven ROM picker and core.rom becoming an id.  Version.h still says
+  25, so the number now names two builds that do not even have the same package
+  CONTENTS - the shipped one carries roms\ and the tree ships nothing - which is
+  the one thing CHANGELOG.md forbids outright.
 
-  Submit 1.0.25, not 1.0.24.  Both carry the v1.4.12 repin and both were
-  verified at the artifact, but 1.0.24 was packaged before build-msix.ps1 kept
-  the Store arm's symbols and no .pdb for it exists anywhere, so its crash dumps
-  would be unreadable the way 1.0.22's are.  1.0.24's package is kept as
-  dist\z80cpmw-1.0.24-store.msix; delete it once 1.0.25 is submitted.
+  So: bump Version.h, rebuild, and package that.  Do not send dist\z80cpmw.msix,
+  which is the old build under the shipped number.  dist\z80cpmw-1.0.24-store.msix
+  can be deleted: 1.0.24 was never submitted, it was packaged before
+  build-msix.ps1 kept the Store arm's symbols so no .pdb for it exists anywhere,
+  and 1.0.25 superseded it on the Store.
 
-- [RELEASE] the GitHub channel has no pin at all and nothing says so.  v1.0.14
-is what GitHub marks Latest; DiskCatalog.cpp at that tag builds both URLs from
-releases/latest/download/, so the stable download floats onto ioscpm's
-releases/latest - today v1.4.12, which by luck carries the FIXED R8 and not the
-pre-fix one.  The float is the defect either way: nothing stops whatever ioscpm
-marks Latest next from moving it again.  The newest thing on z80cpmw's own
-GitHub channel since v1.0.14 is v1.0.22-beta.  Cutting a -beta fixes it.
+- [RELEASE] publish 1.0.28-beta to the GitHub channel.  The package is BUILT
+AND SIGNED - dist\z80cpmw-1.0.28-beta.msix, sha256 d205be82..., with its .pdb
+beside it, and CHANGELOG [1.0.28-beta] records the artifact - so what is left is
+the release itself: gh release create v1.0.28-beta --prerelease, with the msix
+attached.
 
-  It must come off the same bin\Release the Store package was made from, with
-  -SkipBuild, and must not run on a published version number.  Neither 1.0.24
-  nor 1.0.25 is published, so both are legal; rehearse with -Beta -SkipBuild
-  -SkipSign, which writes a distinct -unsigned name and reaches neither sign.ps1
-  nor the network.
+  That closes the older half of this item.  v1.0.14 is what GitHub still marks
+  Latest, and DiskCatalog.cpp at that tag built both URLs from
+  releases/latest/download/, so the stable download floated onto whatever ioscpm
+  marked Latest.  1.0.28 has no such float: the only compiled-in URL is the
+  romwbw_disks index, and every other address is read out of a document.  The
+  newest thing on the GitHub channel is still v1.0.22-beta until this is
+  published.
+
+  Do NOT upload this package to the Store.  -Beta rewrote its Publisher to
+  CN=Aaron Wohl, so Partner Center rejects it on identity; a Store package is a
+  separate unsigned build off the same bin\Release.
 
 - 1.0.25 makes a superseded disk image visible and does not yet make it go away.
 Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:
@@ -81,24 +88,6 @@ Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:
   MainWindow.cpp and SettingsDialogWx.cpp are in no suite and cannot be, so both
   are verified by driving the built app.  See WIP.md.
 
-- tools\check-shipped-disks.sh no longer answers its question, in both directions.
-DiskCatalog.cpp holds no quoted vX.Y.Z any more, so pin_of() (:90-96) returns
-nothing and the tree check prints NO PIN FOUND and exits 1 for a client that is
-working correctly; and the artifact scan looks for v1\.[0-9]+\.[0-9]+ (:119-120),
-which matches neither "v0" nor "3.5.1", so a scan that finds nothing lands in the
-"  " case at :232-233 and is read as no evidence either way - a migrated build is
-never checked and never complained about.  It also still hardcodes
-CATALOG_REPO="avwohl/ioscpm" (:34) and hd1k_combo.img as its canary (:66).
-
-  Rewrite it or retire it, and it is no longer one file to rewrite: ioscpm's
-  copy (3b914238) already detects a migrated port and reports CANNOT VERIFY,
-  and cpmdroid's (f8ba1d5c) gave migrated ports their own row and says in its
-  own header that the other four need the same edit.  Only z80cpmw, cpmemu and
-  romwbw_emu still hold 47b7437050018c7cb4f7687d09909dc6, so this is the stale
-  half of the rewrite rather than the whole file.  What it would have to check now is a
-  romwbw_disks release tag, an <id>-v0-<ver> filename, and a client whose only
-  compiled-in URL is the index.
-
 - HelpWindow.cpp still keeps ioscpm's Latest release load-bearing.  INDEX_URL
 (:23-24) and CONTENT_BASE_URL (:25-26) fetch help_index.json and every help asset
 from avwohl/ioscpm/releases/latest/download/, and the comment above them says the
@@ -112,46 +101,6 @@ happen" that only this client can answer.
   W8 is still true, and the v0 catalog says so as data rather than leaving it to
   be inferred: the hd1k_games entry carries host_transfer: false.
 
-- The ROM gate cannot be checked by any suite, and the offline case it costs is
-open.  romReadyToStart() and everything under it live in MainWindow.cpp, which
-needs a real window and is in no suite; MANUAL_CHECKS.md "The ROM gate" is the
-whole of the verification and none of it has been run.
-
-  The open behaviour, not a defect: a machine set to a release other than the
-  bundled one cannot start with no network even when that release's ROM is
-  already in its data folder, because the published size and sha256 exist only in
-  the catalog and this build will not load a ROM it cannot check.  The offer that
-  follows the failed lookup gives the user a machine that boots, on the bundled
-  release.  Doing better means remembering a ROM's published hash locally - a
-  second provenance store beside DiskLedger's, keyed on a filename the config
-  would also have to carry - and that is a design, not a tweak.
-
-  Two smaller things the gate left behind.  The two bundled ROM names are still
-  written out by hand in seven places that must move together: MainWindow.cpp's
-  onSelectROM (menu id -> filename), the Settings write-back (filename -> menu
-  id), loadDefaultROM (emu_avw.rom outright), loadPackagedRom (the same choice
-  again), applyConfig (filename -> check mark), updateConfigFromState (id ->
-  filename) and bundledRomwbwRelease (:2125-2127, which the gate itself added -
-  three more emu_avw.rom paths, and deliberately not routed through
-  findResourceFile), plus SettingsDialogWx::populateROMList's two labels.  And
-  roms\emu_avw.rom and roms\emu_romwbw.rom are byte-identical to each other and
-  to the catalog's emu_avw-v0-3.5.1.rom (all three 4b11402a... as of
-  2026-09-06, c7abc580... before the HB_BNKCALL fix), so the second
-  menu entry is a second name for the same 512 KB.
-
-  The ROM refresh missed the suite.  tests\test_catalogv0.cpp's 3.5.1 fixture
-  (:206) still publishes emu_avw as c7abc580, and the check at :521-523 reads
-  "and the hash the bundled roms/emu_avw.rom already has", which stopped being
-  true on 2026-09-06.  All 130 checks still pass, because the fixture is
-  self-contained and nothing compares it to anything real - so the suite now
-  asserts a hash no catalog serves, against a bundled ROM that does not have it.
-
-- z80cpmw\SettingsDialog.cpp and SettingsDialog.h are dead and misleading.
-Neither is in the vcxproj ClCompile list, so nothing has compiled them for a
-long time; SettingsDialog.cpp:398-412 carries a hardcoded ROM list that is not
-shipped and that reads, to anyone grepping for where ROM names live, like a
-ninth place to keep in step.  Delete both.
-
 - DiskCatalog::getLocalName() maps nothing any more and can go.  It was the
 scaffolding that let the storage migration rename the images in a release whose
 catalog still called them hd1k_combo.img; the catalog now serves the v0 names and
@@ -160,7 +109,11 @@ reaches it from a catalog entry.  Its five call sites - DiskCatalog.cpp:682
 (downloadDisk's local path, which is also the recordInstall key), :817
 (deleteDownloadedDisk's removeRecord), :832 (getDiskPath), :1351
 (updateFreshness) and SettingsDialogWx.cpp:1000 (populateDiskLists) - all become
-one line shorter.  Leave it until a release that can be built and driven: the one caller
-that can still hand it a bare pre-v0 name is MainWindow's Settings write-back,
-against a configuration whose rename did not complete, and that path is in no
-suite.
+one line shorter.
+
+  THE BLOCKER ON THIS IS LIFTED.  It said "leave it until a release that can be
+  built and driven", and 2026-09-07 was that: the tree builds, all eight suites
+  run, and the application was launched and driven twice.  The one caller that
+  can still hand it a bare pre-v0 name is MainWindow's Settings write-back,
+  against a configuration whose rename did not complete, and that path is in no
+  suite - so it is the path to drive when this is done.
