@@ -4,15 +4,19 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
 
 ## Download
 
-- **Microsoft Store — recommended:** search for **Z80CPM**. The Store has
-  **v1.0.22**, released 2026-08-23. Microsoft signs it and it updates itself, so
-  this is the easiest way in for most people.
-- **Signed sideload beta:**
-  [z80cpmw-1.0.22-beta.msix](https://github.com/avwohl/z80cpmw/releases/download/v1.0.22-beta/z80cpmw-1.0.22-beta.msix)
-  — for machines that cannot install from the Store. This is the **same binary**
-  as Store v1.0.22, repackaged and signed for sideloading. Download and
-  double-click; the Azure Trusted Signing certificate chains to a Microsoft
-  public root, so no developer mode and no certificate import are needed.
+- **Signed sideload build — newest:**
+  [z80cpmw-1.0.28-beta.msix](https://github.com/avwohl/z80cpmw/releases/latest/download/z80cpmw-1.0.28-beta.msix)
+  — the release GitHub marks **Latest**. Download and double-click; the Azure
+  Trusted Signing certificate chains to a Microsoft public root, so no developer
+  mode and no certificate import are needed. This is the first build that ships
+  **no ROM and no disk image**: both come from the RomWBW catalog and are checked
+  against the size and SHA-256 it publishes, so **the first run needs a network
+  connection**.
+- **Microsoft Store:** search for **Z80CPM**. Microsoft signs it and it updates
+  itself, which makes it the easiest way in — but it is currently **behind**:
+  the Store serves **1.0.25**, measured with `tools/check-store-version.sh` on
+  2026-09-07, and **1.0.29** (the same code as the build above) is packaged and
+  waiting on submission.
 - The two packages carry different publishers, so the sideload build installs
   **side-by-side** with a Store install rather than replacing it, and it updates
   in place over any earlier beta. Uninstall whichever you do not want.
