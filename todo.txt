@@ -117,3 +117,76 @@ one line shorter.
   can still hand it a bare pre-v0 name is MainWindow's Settings write-back,
   against a configuration whose rename did not complete, and that path is in no
   suite - so it is the path to drive when this is done.
+
+- The ioscpm column's READING is correct and its RATIONALE is stale.
+FEATURE_PARITY.md records the iOS/macOS column re-read at af0b9b2 - build 61,
+the commit the App Store's 1.5.1 was built from - and holds it there
+deliberately, because "builds 62-65 exist in ioscpm and none has ever been
+compiled, so a tick taken from HEAD would describe software nobody can install".
+Holding at the shipped commit is still right, and sibling-readings `shipped:61`
+still matches what the Store serves: ioscpm's tools/check-store-version.sh, run
+2026-09-08, reports 1.5.1 served since 2026-09-05, which is at most build 61.
+Do NOT advance either one.
+  What has gone stale is the reason.  ioscpm builds 62 through 67 HAVE now been
+compiled: build 67 was made on a Mac with Xcode 26.6 and succeeded for the iOS
+Simulator, for generic/platform=iOS at arm64 and for Mac Catalyst, and it was
+then installed on an iPhone 17 simulator and driven to a CP/M prompt under
+CBIOS v3.6.0 [WBW].  So "none has ever been compiled" is no longer why the
+column is held; "none has ever been RELEASED" is.  Reword it, because the next
+reader will check the stated reason, find it false, and may take that as licence
+to move the column.
+  tools/check-sibling-drift.sh reporting the column DRIFTED at 21 commits
+(af0b9b2 -> 342612f) is correct and should keep reporting until ioscpm ships a
+build above 61.  Budget for the re-read when it does: the whole interface-v0
+migration is inside that range - no bundled ROM at all, a RomWBW Release picker,
+per-release UserDefaults and NVRAM keys, and ROM and disk lists driven entirely
+from the catalog.
+  Raised from ioscpm, whose todo.txt had been carrying this as "a z80cpmw-side
+re-read, not an ioscpm task".  Per this file's own header, a note about what
+another repository ought to do belongs in that repository's list.
+
+- tools/check-shipped-disks.sh EXITS 1 ON A FAMILY THAT IS CORRECT, and the
+cause is one missing test.  Measured 2026-09-08 by running all five copies:
+cpmdroid and ioscpm exit 0; this one, romwbw_emu's and cpmemu's exit 1.  This
+copy prints
+
+    ioscpm     CANNOT READ the RomWBW release out of .../iOSCPM/Resources/emu_avw.rom
+    cpmdroid   CANNOT READ the RomWBW release out of .../app/src/main/assets/emu_avw.rom
+
+for two files that were DELETED on purpose - ioscpm build 66 and cpmdroid 1.28
+removed their bundled ROMs, so git ls-files matches no .rom in either and every
+ROM now comes from the romwbw_disks catalog, verified against its size and
+sha256 on every use.  The script is reporting the migration itself as a failure.
+  DO NOT FIX THIS BY GUARDING THE ARM.  The obvious repair is to gate on
+`[ -f "$rom" ]` as well as `[ -n "$rom" ]`, and ioscpm's copy did exactly that
+for a while.  It only hides the problem: the arm reads a bundled ROM's HBIOS
+Configuration Block and asks whether the v0 index still publishes that release,
+and it is fed by a `bundled_rom_of()` table of three paths that were deleted on
+purpose.  That table carried its own justification - "keeping the path listed
+rather than deleting the line is deliberate: it means a ROM that reappears at
+that path gets checked again" - and the rule is now the other way round: no
+repository but romwbw_disks may carry a ROM at all, so a ROM that reappears is
+not a case to check, it is the violation.
+  ioscpm inverted the arm on 2026-09-08.  `bundled_rom_of()` and
+`rom_release_of()` are gone; `roms_in_tree()` asks
+`git ls-files --cached --others --exclude-standard` for any `*.rom` in the whole
+checkout and fails the port if there is one, naming it.  That enforces the rule
+instead of policing three paths, catches an untracked ROM one `git add` from
+being committed, and ignores gitignored build output where a downloaded ROM
+legitimately lives.  Verified by planting a 512 KB file: exit 1 with the path
+named, exit 0 once removed.
+  Nothing is red: no repository runs this in CI.  What it costs is the gate, and
+this script's own header names that cost - "a gate that cries wolf is a gate that
+stops being read, which is the exact failure this script was written after".
+  The header also promises "this script is identical in cpmemu, romwbw_emu,
+cpmdroid, ioscpm and z80cpmw ... Edit one, copy to the rest", and that has not
+held: the five copies have five md5s - ioscpm ba456daf, cpmemu 2dd4a7f6,
+romwbw_emu 29fd68a7, cpmdroid 9a703420, z80cpmw 7e6a2c90.  ioscpm's is furthest
+ahead: it is the only one with *.app arms in scan_artifact() and
+scan_artifact_for(), so running THIS copy on a Mac silently skips the iOS .app.
+Taking ioscpm's copy wholesale fixes both halves.
+  romwbw_emu/todo.txt owns this script family-wide and has the same note; this
+entry exists because the exit-1 is z80cpmw's own to clear.  Raised from ioscpm
+on 2026-09-08, whose copy carries "THIS COPY HAS DIVERGED and the other four
+need the same edit" - an instruction about other repositories, which per this
+file's header belongs in those repositories' lists.
