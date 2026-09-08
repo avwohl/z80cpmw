@@ -108,7 +108,8 @@ void to_json(json& j, const AppConfig& c) {
             {"warnManifestWrites", c.warnManifestWrites},
             {"welcomeShown", c.welcomeShown},
             {"interfaceV0Migrated", c.interfaceV0Migrated},
-            {"romwbwVersion", c.romwbwVersion}
+            {"romwbwVersion", c.romwbwVersion},
+            {"catalogIndexUrl", c.catalogIndexUrl}
         }},
         {"display", {
             {"fontSize", c.fontSize},
@@ -230,6 +231,9 @@ void from_json(const json& j, AppConfig& c) {
         // the bundled release here would make a configuration written today
         // outlive the day this build stops bundling it.
         c.romwbwVersion = core.value("romwbwVersion", "");
+        // Absent means the built-in index, which is what every
+        // configuration written before this release says.
+        c.catalogIndexUrl = core.value("catalogIndexUrl", "");
     }
 
     // Display settings

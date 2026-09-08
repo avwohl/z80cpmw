@@ -4,6 +4,7 @@
 
 #include "pch.h"
 #include "DiskCatalog.h"
+#include "Config.h"   // catalogIndexUrl, for the index actually in use
 #include "Version.h"
 #include <thread>
 #include <sstream>
@@ -403,9 +404,15 @@ bool DiskCatalog::findDiskById(const std::string& id, DiskEntry& out) const {
 }
 
 bool DiskCatalog::fetchIndex(std::vector<catalogv0::IndexEntry>& entries, std::string& error) {
+    // The index in use, which is catalogv0::INDEX_URL unless this machine has
+    // been pointed somewhere else. Resolved here rather than cached, so that a
+    // setting changed in this session takes effect on the next fetch.
+    const std::string want =
+        catalogv0::indexUrl(config::ConfigManager::instance().get().catalogIndexUrl);
+
     std::wstring url;
-    if (!widenUrl(catalogv0::INDEX_URL, url)) {
-        error = "The disk catalog index URL is not a usable URL";
+    if (!widenUrl(want, url)) {
+        error = "The disk catalog index URL is not a usable URL: " + want;
         return false;
     }
 

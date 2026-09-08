@@ -80,6 +80,8 @@ struct WxEmulatorSettings {
     // populated must not be allowed to write an emptier value than it was
     // given; the same rule the four disk dropdowns learned the hard way.
     std::string romwbwVersion;
+    // The catalog index this machine reads, or empty for the built-in one.
+    std::string catalogIndexUrl;
 
     // The RomWBW release the ROM in the banks declares, e.g. "3.5.1", or empty
     // when there is no ROM or its HCB cannot be read. IN ONLY - the dialog
@@ -307,6 +309,8 @@ private:
     // shown before any catalog has been fetched.
     std::vector<std::string> m_romwbwVersionIds;
     wxStaticText* m_romwbwVersionNote;
+    wxTextCtrl* m_catalogIndexUrlText;
+    wxStaticText* m_catalogIndexNote;
 
     // Row -> the catalog ROM `id` that row stands for, kept beside m_romChoice
     // for the same reason as the list above: what the control displays is a

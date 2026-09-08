@@ -1401,6 +1401,7 @@ void MainWindow::onEmulatorSettings() {
     // that means before they download 200 MB of disks that will print
     // "*** WARNING: HBIOS/CBIOS Version Mismatch ***" at them.
     settings.romwbwVersion = cfg.romwbwVersion;
+    settings.catalogIndexUrl = cfg.catalogIndexUrl;
     settings.loadedRomwbwRelease = loadedRomwbwRelease();
 
     // A bare name for a disk in the data folder, the WHOLE path for one
@@ -1465,6 +1466,7 @@ void MainWindow::onEmulatorSettings() {
         // 3.6.0. Setting a preference costs nothing and starts nothing, so
         // there is no reason to make it conditional.
         cfgMut.romwbwVersion = settings.romwbwVersion;
+        cfgMut.catalogIndexUrl = settings.catalogIndexUrl;
         m_diskCatalog->setPreferredRomwbwVersion(settings.romwbwVersion);
 
         // The ROM CHOICE, stored and handed to the catalog, and deliberately

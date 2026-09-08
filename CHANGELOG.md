@@ -45,6 +45,65 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
+## [Unreleased]
+
+No version number yet: `Version.h` is the single source of it and todo.txt
+reserves bumping it for the moment something is packaged, which has not happened.
+
+### Added
+
+- **The catalog index can be pointed somewhere else** — to test a romwbw_disks
+  release before it is published, or to run your own. `config::Config::
+  catalogIndexUrl` holds it, empty meaning the index this build ships with, and
+  `$ROMWBW_INDEX_URL` wins over it for a single run. Settings gains a
+  **Catalog index** field under the RomWBW release picker, disabled when the
+  environment has fixed the answer, showing the URL actually in use whatever its
+  source.
+
+  Precedence is copied from `romwbw_emu/tools/romwbw-get` rather than invented —
+  environment, then setting, then built-in — so one set of instructions covers
+  every client. Empty is deliberately not a stored copy of the default URL:
+  storing one would freeze this machine onto whatever the default was the day it
+  was written, where empty picks up a default that moves.
+
+- `catalogv0::indexUrl()`, `isCustomIndex()`, `indexScope()` and `fnv1a32()`, in
+  the portable half of the client so they are testable. `indexScope()` is
+  **empty for the built-in index** and `@<tag>` otherwise; the tag is FNV-1a
+  folded to 32 bits, the same function folded the same way as ioscpm's Swift and
+  cpmdroid's Kotlin, so one index URL produces one scope on every client and a
+  bug report naming one means the same thing in each. `tests/test_catalogv0.cpp`
+  pins `https://example.invalid/mine/index-v0.json` to `78f588f0`, which is the
+  value ioscpm's Swift was measured producing for the same URL on 2026-09-08 —
+  so the three clients cannot drift apart silently.
+
+### Known limitation
+
+- **The downloads are not isolated yet, and this client differs from ioscpm
+  there.** ioscpm gives each index its own `Disks` folder and its own per-release
+  settings keys, so a visit to a test catalog cannot touch the library the device
+  already has. Here the data folder is computed in four places — `MainWindow`
+  twice, `getDataFolder()` in `emu_io_windows.cpp`, and `DiskCatalog`'s
+  constructor plus `setDownloadDirectory()` — and scoping one of them would have
+  the emulator read a folder the catalog does not write, which is a worse fault
+  than the one it would fix. `indexScope()` returns the suffix already, so the
+  work is reducing four sites to one first; `MainWindow.cpp` already calls that
+  out in two comments. todo.txt carries it.
+
+  Until then two catalogs share one data folder, so an image published under the
+  same name by both is replaced on each switch. Nothing wrong is ever booted — a
+  mismatched image fails its sha256 and is re-fetched — but work saved inside a
+  downloaded disk can be lost. The Settings note says so.
+
+### Verified
+
+`tests/test_catalogv0.cpp` at **166 checks, 0 failed**, up from 152. Built and
+run with `clang++ -std=c++17` against `CatalogV0.cpp`, `DiskMigrationV0.cpp` and
+`DiskLedger.cpp` — that half of this client is portable, so the catalog layer is
+testable off Windows and was. **Everything outside it is unbuilt:** `Config.cpp`,
+`DiskCatalog.cpp`, `MainWindow.cpp` and `SettingsDialogWx.cpp` need MSVC and
+`windows.h`, so the settings field, the config round trip and the fetch site have
+been read and not compiled. Read them before packaging.
+
 ## [1.0.29] - 2026-09-07
 
 **The Store package for everything below.** Unsigned and carrying the Store

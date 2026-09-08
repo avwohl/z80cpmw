@@ -1041,6 +1041,63 @@ static void test_the_url_that_is_compiled_in() {
     checkStr(catalogv0::INTERFACE, "v0", "the interface these documents describe");
 }
 
+static void test_pointing_at_another_catalog() {
+    section("pointing at another catalog, and coming back");
+
+    // The invariant the whole feature rests on. Every path this scopes has to
+    // come out byte-identical to what a machine already holds, or one visit to
+    // a test catalog would strand the user's library behind a name nothing
+    // reads afterwards. So the built-in index adds NOTHING.
+    checkStr(catalogv0::indexScope(""), "",
+             "no preference stored: the built-in index adds no suffix, so an existing "
+             "install finds its files and settings exactly where it left them");
+    checkFalse(catalogv0::isCustomIndex(""),
+               "and is not reported as custom");
+    checkStr(catalogv0::indexUrl(""), catalogv0::INDEX_URL,
+             "and resolves to the URL this build ships with");
+
+    // A field a user has cleared, or pasted a stray space into.
+    checkStr(catalogv0::indexScope("   "), "",
+             "whitespace is no preference, not an index whose host is empty - which "
+             "would fail every fetch with a message about the network");
+
+    // Somebody who pastes the built-in URL in by hand has not chosen anything
+    // different, and must not be given a second namespace holding a second copy
+    // of the same downloads.
+    checkStr(catalogv0::indexScope(catalogv0::INDEX_URL), "",
+             "the built-in URL typed in by hand is still the built-in index");
+
+    const std::string mine = "https://example.invalid/mine/index-v0.json";
+    const std::string other = "https://example.invalid/other/index-v0.json";
+    checkTrue(catalogv0::isCustomIndex(mine), "a different URL is reported as custom");
+    checkStr(catalogv0::indexUrl(mine), mine, "and is what gets fetched");
+    checkTrue(!catalogv0::indexScope(mine).empty(), "and takes a namespace of its own");
+
+    // Two catalogs both publishing "3.6.0" is the ordinary case here, not a
+    // corner: same release name, same filenames, different bytes.
+    checkTrue(catalogv0::indexScope(mine) != catalogv0::indexScope(other),
+          "two different custom indexes get different namespaces - two forks both "
+          "publishing 3.6.0 must not write over each other's images");
+    checkStr(catalogv0::indexScope(mine), catalogv0::indexScope(mine),
+             "and the tag is stable, so returning to a catalog finds what was left there");
+
+    // THE CROSS-CLIENT PROPERTY. ioscpm computes this tag in Swift and cpmdroid
+    // in Kotlin, from the same FNV-1a folded the same way, so one index URL
+    // produces one tag everywhere. Measured against ioscpm on 2026-09-08: a
+    // simulator pointed at the URL below created Documents/Disks@78f588f0.
+    // If this fails, the three clients have drifted and a bug report naming a
+    // scope no longer means the same thing in each.
+    checkStr(catalogv0::fnv1a32(mine), "78f588f0",
+             "the tag matches what ioscpm's Swift computes for the same URL");
+    checkStr(catalogv0::indexScope(mine), "@78f588f0",
+             "and the scope is that tag, prefixed");
+
+    checkTrue(catalogv0::fnv1a32("a") != catalogv0::fnv1a32("b"),
+          "the tag distinguishes inputs at all");
+    checkTrue(catalogv0::fnv1a32(catalogv0::INDEX_URL).size() == 8,
+          "and is 8 hex characters, short enough to sit in a path");
+}
+
 static void test_the_one_equivalent_prior_image() {
     section("the one pre-v0 image accepted as equivalent");
 
@@ -1213,6 +1270,7 @@ int main() {
     test_which_rom_boots();
     test_catalog_tolerance();
     test_the_url_that_is_compiled_in();
+    test_pointing_at_another_catalog();
     test_the_one_equivalent_prior_image();
     test_the_stored_rom_becomes_an_id();
     test_the_fixture_is_not_stale();

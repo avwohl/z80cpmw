@@ -70,6 +70,44 @@ namespace catalogv0 {
 extern const char* const INTERFACE;
 extern const char* const INDEX_URL;
 
+// ---------------------------------------------------------------------------
+// Pointing the application at a different catalog
+//
+// INDEX_URL is the index this build SHIPS with. These three resolve which one
+// is actually in use, so that a romwbw_disks release can be tested before it is
+// published and so that somebody can run their own.
+//
+// Precedence matches romwbw_emu/tools/romwbw-get, deliberately, so the two
+// behave the same way and one set of instructions covers both: the environment
+// first, so a single test run needs nothing stored; then the setting; then the
+// built-in.
+
+// The index actually in use. `configured` is Config's catalogIndexUrl - empty
+// meaning "no preference", which is NOT the same as "the built-in URL": storing
+// a copy would freeze this install onto whatever the default was on the day it
+// was typed, where empty picks up a default that moves in a later build.
+std::string indexUrl(const std::string& configured);
+
+// Is the application reading a catalog other than the one it ships with?
+bool isCustomIndex(const std::string& configured);
+
+// A short, stable, filesystem- and key-safe tag for the index in use, and
+// EMPTY for the built-in one.
+//
+// Empty is the point. Every path this scopes has to come out byte-identical to
+// what a machine already has, or one visit to a test catalog would strand the
+// user's library behind a name nothing reads afterwards. Only a custom index
+// gets a suffix.
+//
+// The hash is FNV-1a folded to 32 bits, the same function and the same folding
+// as ioscpm and cpmdroid use, so one index URL produces one tag on every client
+// - which makes a bug report comparable across ports.
+std::string indexScope(const std::string& configured);
+
+// The tag on its own, for testing and for anything that needs it without a
+// configured value in hand.
+std::string fnv1a32(const std::string& s);
+
 // One entry of index-v0.json's `romwbw_versions[]`.
 //
 // Only what a client acts on is kept. `released`, `disks_xml_url`, `notes` and

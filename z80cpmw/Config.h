@@ -159,6 +159,35 @@ struct AppConfig {
     // keys the interface asks of ports that store bare filenames.
     std::string romwbwVersion;
 
+    // The catalog index this machine reads, or EMPTY for the one the build
+    // ships with. Empty rather than a copy of catalogv0::INDEX_URL: storing the
+    // default would freeze this install onto whatever it was on the day the
+    // setting was written, where empty picks up a default that moves.
+    //
+    // Set this to test a romwbw_disks release before it is published, or to run
+    // your own. catalogv0::indexScope() then gives the downloads and the
+    // settings a namespace of their own, so the library this machine already
+    // has is neither read nor written by the other catalog - two catalogs
+    // publish different bytes under the same filenames, and hd1k_combo-v0-3.6.0
+    // means one thing in romwbw_disks and another in a fork.
+    //
+    // $ROMWBW_INDEX_URL wins over this for one run, which is what a test uses.
+    //
+    // NOT YET ISOLATED HERE, and that is the difference from ioscpm, which gives
+    // each index its own Disks folder and its own settings keys. This client
+    // computes the data folder in four places - MainWindow twice,
+    // emu_io_windows.cpp's getDataFolder() and DiskCatalog - and scoping one of
+    // them would have the emulator read a folder the catalog does not write.
+    // catalogv0::indexScope() exists and is tested, so the suffix is ready; what
+    // is missing is one place to apply it. See todo.txt.
+    //
+    // The consequence, until then: two catalogs publishing an image of the same
+    // name share one file, so switching replaces it. Verification still holds -
+    // a mismatched image fails its sha256 and is re-fetched - so nothing wrong
+    // is ever booted; what can be lost is work saved INSIDE a downloaded disk,
+    // which is the hazard the manifest-write warning already covers.
+    std::string catalogIndexUrl;
+
     // Display settings
     int fontSize = 20;
     std::string fontName = "Consolas";

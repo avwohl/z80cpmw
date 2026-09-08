@@ -9,6 +9,8 @@
 #include "include/nlohmann/json.hpp"
 
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 
 using json = nlohmann::json;
 
@@ -22,6 +24,55 @@ const char* const INTERFACE = "v0";
 // full of 200 MB of images would not be.
 const char* const INDEX_URL =
     "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json";
+
+namespace {
+
+// Trim, because a URL pasted into a settings field arrives with whitespace far
+// more often than not, and " " must read as "no preference" rather than as an
+// index whose host is empty - which would fail every fetch with a message about
+// the network.
+std::string trimmed(const std::string& s) {
+    const char* ws = " \t\r\n";
+    const size_t b = s.find_first_not_of(ws);
+    if (b == std::string::npos) return std::string();
+    return s.substr(b, s.find_last_not_of(ws) - b + 1);
+}
+
+}  // namespace
+
+std::string fnv1a32(const std::string& s) {
+    unsigned long long hash = 0xcbf29ce484222325ULL;
+    for (unsigned char c : s) {
+        hash ^= static_cast<unsigned long long>(c);
+        hash *= 0x100000001b3ULL;
+    }
+    const unsigned int folded =
+        static_cast<unsigned int>((hash ^ (hash >> 32)) & 0xffffffffULL);
+    char buf[9];
+    std::snprintf(buf, sizeof(buf), "%08x", folded);
+    return std::string(buf);
+}
+
+std::string indexUrl(const std::string& configured) {
+    // getenv rather than a Windows-only call: this file is built by the test
+    // suite on a machine that is not Windows, and the variable is as useful in
+    // a CI job there as it is here.
+    if (const char* env = std::getenv("ROMWBW_INDEX_URL")) {
+        const std::string e = trimmed(env);
+        if (!e.empty()) return e;
+    }
+    const std::string c = trimmed(configured);
+    return c.empty() ? std::string(INDEX_URL) : c;
+}
+
+bool isCustomIndex(const std::string& configured) {
+    return indexUrl(configured) != std::string(INDEX_URL);
+}
+
+std::string indexScope(const std::string& configured) {
+    if (!isCustomIndex(configured)) return std::string();
+    return "@" + fnv1a32(indexUrl(configured));
+}
 
 namespace {
 

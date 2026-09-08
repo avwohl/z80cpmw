@@ -768,6 +768,31 @@ void SettingsDialogWx::buildDiskImagesPage() {
         "checked against it. Reading the catalog...");
     content->Add(m_romwbwVersionNote, 0, wxEXPAND | wxBOTTOM, 10);
 
+    // WHERE THE CATALOG ITSELF COMES FROM.
+    //
+    // The point of compiling in exactly one URL is that everything else is read
+    // out of a document at run time. This is that one URL, made changeable: for
+    // testing a romwbw_disks release before it is published, and for running
+    // your own. Empty means the one this build ships with.
+    //
+    // Directly under the release picker because it decides what that picker can
+    // even offer - a different index publishes a different set of releases.
+    wxBoxSizer* indexSizer = new wxBoxSizer(wxHORIZONTAL);
+    indexSizer->Add(new wxStaticText(page, wxID_ANY, "Catalog index:"), 0,
+                    wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    m_catalogIndexUrlText = new wxTextCtrl(page, wxID_ANY, wxEmptyString);
+    m_catalogIndexUrlText->SetHint("built-in catalog");
+    indexSizer->Add(m_catalogIndexUrlText, 1, wxALIGN_CENTER_VERTICAL);
+    content->Add(indexSizer, 0, wxEXPAND | wxBOTTOM, 4);
+
+    // Created with the neutral sentence for the same reason as the note above:
+    // the page is laid out before any of this is known, and a label that grows
+    // afterwards grows into a page measured without it.
+    m_catalogIndexNote = new wxStaticText(page, wxID_ANY,
+        "Leave empty for the catalog this build ships with. Each catalog keeps "
+        "its own downloads and settings, so switching never costs your library.");
+    content->Add(m_catalogIndexNote, 0, wxEXPAND | wxBOTTOM, 10);
+
     // Catalog section header
     m_refreshBtn = new wxButton(page, ID_REFRESH_CATALOG, "Refresh");
     wxBoxSizer* catalogHeaderSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -1188,6 +1213,31 @@ void SettingsDialogWx::loadSettings() {
 
     loadDiskSelections();
 
+    // The catalog index, and whether it is this machine's to change. An
+    // environment variable set for the run wins over the setting, so showing an
+    // editable field would be a lie in that case.
+    m_catalogIndexUrlText->SetValue(wxString::FromUTF8(m_settings.catalogIndexUrl));
+    {
+        const char* env = std::getenv("ROMWBW_INDEX_URL");
+        const bool fromEnv = env != nullptr && *env != '\0';
+        m_catalogIndexUrlText->Enable(!fromEnv);
+        const std::string inUse = catalogv0::indexUrl(m_settings.catalogIndexUrl);
+        std::string note;
+        if (fromEnv) {
+            note = "ROMWBW_INDEX_URL is set for this run and wins over this field. ";
+        } else if (catalogv0::isCustomIndex(m_settings.catalogIndexUrl)) {
+            note = "Using a custom catalog. Downloads are still checked against that "
+                   "catalog's own SHA-256, but the catalog is the thing being trusted. "
+                   "Both catalogs share this data folder, so an image with the same "
+                   "name is replaced on each switch - save work out of a downloaded "
+                   "disk first. ";
+        } else {
+            note = "Leave empty for the catalog this build ships with. ";
+        }
+        note += "In use: " + inUse;
+        m_catalogIndexNote->SetLabel(wxString::FromUTF8(note));
+    }
+
     // Debug mode
     m_debugCheck->SetValue(m_settings.debugMode);
 
@@ -1262,6 +1312,7 @@ void SettingsDialogWx::saveSettings() {
     }
 
     // Debug mode
+    m_settings.catalogIndexUrl = m_catalogIndexUrlText->GetValue().ToStdString();
     m_settings.debugMode = m_debugCheck->GetValue();
 
     // Warn on manifest writes
