@@ -76,6 +76,50 @@ reserves bumping it for the moment something is packaged, which has not happened
   value ioscpm's Swift was measured producing for the same URL on 2026-09-08 —
   so the three clients cannot drift apart silently.
 
+### Fixed
+
+- **The v0 storage migration never recorded a RomWBW release, so an upgraded
+  machine booted its renamed 3.5.1 disks under a 3.6.0 ROM.** The pass renames a
+  user's images to `-v0-3.5.1` and rewrites the four slots onto them, but left
+  `core.romwbwVersion` empty — which means "no preference", so
+  `MainWindow::startRomwbwRelease()` fell through to the catalog and
+  `catalogv0::chooseVersion` took the index's `default: true`, 3.6.0 since
+  2026-09-05. The first start after the upgrade therefore fetched
+  `emu_avw-v0-3.6.0.rom` and loaded it over four 3.5.1 images, and the guest
+  CBIOS printed `*** WARNING: HBIOS/CBIOS Version Mismatch ***` — the one pairing
+  that putting the release in every filename exists to prevent, produced by the
+  rename that puts it there.
+
+  `ConfigManager::migrateToInterfaceV0` now records `diskv0::PRE_V0_ROMWBW`
+  beside the paths it rewrites, and each profile it rewrites gets the same stamp
+  — `loadProfile()` replaces the whole configuration including this member, so a
+  profile carrying rewritten paths and no release is the same mismatch through a
+  second door, arriving whenever the user loads it.
+
+  **Only where a slot actually moved**, and that guard is the fix rather than an
+  afterthought: `interfaceV0Migrated` is false on a fresh install too, so this
+  pass runs there as well, and recording 3.5.1 unconditionally would pin every
+  new machine to it for ever and defeat the index's own default — the opposite
+  mistake and the worse one. A machine with nothing mounted has no pair to
+  mismatch. `!filesComplete` is in the condition for the same reason a landing
+  is: `DiskCatalog` only attempts a rename for a file it has just found, so a
+  failure is equally proof of a 3.5.1 library. And only where nothing is stored,
+  because a release the user picked is theirs.
+
+  `DiskMigrationV0.h`'s header paragraph argued this was fine — "renames its
+  images to -v0-3.5.1 and is then offered 3.6.0. That is correct and costs
+  nothing." It is corrected in place rather than deleted, because it is the
+  argument a reader will reach for again: its premise about FILE COEXISTENCE is
+  true and stays, and its conclusion about which release gets SELECTED does not
+  follow from it and is retracted.
+
+  Found by an audit of all three clients against the interface-v0 contract, and
+  it survived three adversarial verifiers. It had also been recorded happening on
+  a real machine in 1.0.28-beta's own "What was actually run" notes without being
+  recognised.
+
+  **Not compiled.** `Config.cpp` needs MSVC and `windows.h`.
+
 ### Known limitation
 
 - **The downloads are not isolated yet, and this client differs from ioscpm

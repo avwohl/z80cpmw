@@ -19,13 +19,29 @@
  * The two halves are in the same tree now, which changes one thing worth naming
  * here: the file a stored path is rewritten onto is NOT necessarily the one the
  * catalog will name. PRE_V0_ROMWBW is 3.5.1 because that is what the old images
- * were built for, and the index's `default: true` moved to 3.6.0 on 2026-09-05 -
- * so a migrated machine with no stored release preference renames its images to
- * -v0-3.5.1 and is then offered 3.6.0. That is correct and costs nothing: every
- * `-v0-<ver>` name is a different file, so the two generations coexist in one
- * folder, the migrated images stay valid for the release they belong to, and a
- * user who moves to 3.6.0 downloads that release's set beside them. This pass
- * renames pre-v0 names and nothing else, and it never deletes.
+ * were built for, and the index's `default: true` moved to 3.6.0 on 2026-09-05.
+ *
+ * WHAT THIS PARAGRAPH USED TO CONCLUDE WAS WRONG, and it is left here corrected
+ * rather than deleted because it is the argument a reader will reach for again.
+ * It said a migrated machine "renames its images to -v0-3.5.1 and is then
+ * offered 3.6.0. That is correct and costs nothing." The premise is true and the
+ * conclusion does not follow from it. Every `-v0-<ver>` name IS a different
+ * file, so the two generations do coexist in one folder, the migrated images do
+ * stay valid for the release they belong to, and this pass does rename pre-v0
+ * names and nothing else and never deletes. All of that is about FILES.
+ *
+ * It says nothing about which release the machine then SELECTS, and that is the
+ * half that was broken. romwbwVersion was left empty, so
+ * MainWindow::startRomwbwRelease() fell through to the catalog,
+ * catalogv0::chooseVersion took the index's `default: true`, and the first start
+ * after an upgrade loaded emu_avw-v0-3.6.0.rom over four -v0-3.5.1 disks - the
+ * `*** WARNING: HBIOS/CBIOS Version Mismatch ***` that putting the release in
+ * the filename exists to prevent, produced by the rename that puts it there.
+ *
+ * ConfigManager::migrateToInterfaceV0 now records PRE_V0_ROMWBW alongside the
+ * paths it rewrites, and only where a slot actually moved - a machine with
+ * nothing mounted has no pair to mismatch and must still reach the index's
+ * default, because this pass runs on a fresh install too.
  *
  * ## The three rules, and why each of them is a rule
  *

@@ -1149,6 +1149,66 @@ V0MigrationReport ConfigManager::migrateToInterfaceV0(const std::string& dataDir
         report.slotsRewritten++;
     }
 
+    // AND THE RELEASE THOSE PATHS NOW BELONG TO, because the disks in the four
+    // slots are only half a machine and the ROM is the other half.
+    //
+    // Every path the loop above moved names a `-v0-3.5.1` image - that is the
+    // whole of what diskv0::PRE_V0_ROMWBW means, and it is the suffix
+    // v0NameFor() just put on the file. Left empty, romwbwVersion means "no
+    // preference": MainWindow::startRomwbwRelease() has nothing to return,
+    // falls through to the catalog, and catalogv0::chooseVersion takes the
+    // index's own `default: true`, which has been 3.6.0 since 2026-09-05. So
+    // the first start after an upgrade fetched emu_avw-v0-3.6.0.rom and loaded
+    // it over four 3.5.1 disks, and the guest CBIOS printed
+    // `*** WARNING: HBIOS/CBIOS Version Mismatch ***` - the one pairing every v0
+    // filename exists to keep apart, produced by the rename that exists to
+    // prevent it.
+    //
+    // It is not a release chosen for the user. It is the release they were
+    // already running, written down at the only moment anything still knows it,
+    // and it is a PREFERENCE and not a pin: Settings moves it, chooseVersion
+    // falls through to `default: true` if the index or this build can no longer
+    // offer 3.5.1, and every -v0-<ver> name is a different file, so moving to
+    // 3.6.0 later costs a download and deletes nothing.
+    //
+    // ONLY WHERE THE DISKS IN FORCE SAY SO, and the condition has two halves for
+    // one reason. slotsRewritten counts the slots this pass has just pointed at
+    // 3.5.1 images. !filesComplete is the machine that still has one under its
+    // PRE-v0 name because MoveFileEx failed - DiskCatalog only ever attempts a
+    // rename for a file it has just found, skipping a name whose old file is
+    // absent, so a failure is proof of a 3.5.1 library exactly as a landing is,
+    // and that machine is the one left mounting hd1k_combo.img with no release
+    // recorded at all.
+    //
+    // A machine with nothing mounted is deliberately NOT recorded: there is no
+    // pair to mismatch, and a fresh install must reach the index's default -
+    // interfaceV0Migrated is false on a fresh install too, so this pass runs
+    // there as well, and pinning every new machine to 3.5.1 for ever is the
+    // opposite mistake and the worse one.  ioscpm moves a user with disks and no
+    // choice onto the newest release on purpose, and that decision does not
+    // transfer here: ioscpm scopes its four slots by release
+    // (selectedDisks.v0.3.5.1), so adopting 3.6.0 there shows empty drives and
+    // an offer to download, where the four slots here are one set of absolute
+    // paths shared by every release and adopting 3.6.0 shows MISMATCHED ones.
+    //
+    // ONLY WHERE NOTHING IS STORED, because a value that is there is the user's
+    // own.  No pre-v0 build ever wrote this member, so on the upgrade this
+    // exists for it is always empty; the guard is what keeps a release picked in
+    // Settings from being undone by a later re-run of this pass, which loading a
+    // profile written before the migration can still cause.
+    //
+    // Before the markedDone gate below on purpose: a pass that could not finish
+    // still mounted the slots it rewrote, so THIS session must not go looking
+    // for the other release's ROM.  It is simply not saved until a pass
+    // completes, and the next launch works it out again from the same evidence.
+    //
+    // Nothing else needs telling.  MainWindow::applyConfig() runs after this
+    // pass and already hands this member to DiskCatalog::setPreferredRomwbwVersion.
+    if (m_config.romwbwVersion.empty() &&
+        (report.slotsRewritten > 0 || !filesComplete)) {
+        m_config.romwbwVersion = diskv0::PRE_V0_ROMWBW;
+    }
+
     // Every profile, now and not lazily: a profile is loaded at a moment of the
     // user's choosing, and one that still names hd1k_combo.img would arrive with
     // four empty slots and unmount whatever was running.
@@ -1194,6 +1254,37 @@ V0MigrationReport ConfigManager::migrateToInterfaceV0(const std::string& dataDir
             doc["core"]["interfaceV0Migrated"] = true;
         } else if (core->is_object()) {
             (*core)["interfaceV0Migrated"] = true;
+        }
+
+        // And the release, under the rule the configuration in force follows
+        // above and for the reason that block exists at all: loadProfile()
+        // REPLACES the whole configuration with the profile's, romwbwVersion
+        // included.  A profile whose slots now name -v0-3.5.1 images while its
+        // core names no release hands the machine 3.5.1 disks and then lets the
+        // index choose 3.6.0's ROM for them - the same mismatch through the
+        // second door, arriving at a moment of the user's choosing rather than
+        // at startup.
+        //
+        // Reached only where changed > 0, which is this profile's version of "a
+        // slot actually moved": a profile that named none of the twenty images
+        // is not rewritten and is not stamped.
+        //
+        // Only where the document does not answer already.  A profile that names
+        // a release names the one it was saved with, and that is not this pass's
+        // to overwrite; an empty string is the same "no preference" from_json
+        // reads it as, and a value that is not a string at all is a section this
+        // application does not understand and must leave exactly as it found it.
+        //
+        // `core` is found AGAIN rather than reused, because the branch above may
+        // have inserted "core" into doc and invalidated it.  A "core" that is
+        // neither absent nor an object is skipped by both blocks, which is the
+        // whole point of not writing through doc["core"].
+        auto stamped = doc.find("core");
+        if (stamped != doc.end() && stamped->is_object()) {
+            auto ver = stamped->find("romwbwVersion");
+            const bool named = ver != stamped->end() && ver->is_string() &&
+                               !ver->get<std::string>().empty();
+            if (!named) (*stamped)["romwbwVersion"] = diskv0::PRE_V0_ROMWBW;
         }
 
         // The atomic write saveToFile() uses, and not saveToFile() itself: this
