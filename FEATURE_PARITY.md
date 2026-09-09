@@ -1643,17 +1643,24 @@ inventing one, so that a single set of instructions covers every client.
   over the URL's UTF-8 bytes, 64-bit, folded `hash ^ (hash >> 32)` to 32 bits and
   printed `%08x`. One index URL therefore produces one tag on every client, so a
   bug report naming a scope means the same thing in each.
-<!-- cites: z80cpmw -->
-- **Where:** `CatalogV0.h` / `CatalogV0.cpp` (`indexUrl`, `isCustomIndex`,
-  `indexScope`, `fnv1a32`, `indexUrlFromEnvironment` — the single reader of the
-  variable — and `normalizedIndexSetting`, which is what a typed URL is stored
-  as), `Config.h` (`catalogIndexUrl`), `DiskCatalog.h` (`setCatalogIndexUrl`,
-  `getCatalogIndexUrl`; `fetchIndex` resolves through `indexUrl` so the variable
-  still wins), `SettingsDialogWx.cpp` (`updateCatalogIndexNote`,
-  `typedCatalogIndexUrl`, `onCatalogIndexUrlChanged` — the field, its live note,
-  and the push into the catalog before every fetch), `MainWindow.cpp`
-  (`applyConfig` seeds it, `onEmulatorSettings` stores it).
-<!-- /cites -->
+- **Where — and NOT inside a citation region, deliberately.** Everything named
+  in this bullet post-dates `211488b`, the shipped 1.0.25 commit the z80cpmw
+  column is read at, so a `cites: z80cpmw` block around it fails the gate — and
+  fails it correctly, because that is the gate saying "this document is
+  describing a build nobody has". Measured: wrapping this bullet took
+  `check-sibling-drift.sh --allow-drift` from 0 to 1, every symbol reported as
+  *arrived after the recorded reading*. It becomes a citation when the column is
+  re-read at a build that ships it.
+
+  CatalogV0.h / CatalogV0.cpp — indexUrl, isCustomIndex, indexScope, fnv1a32,
+  indexUrlFromEnvironment (the single reader of the variable) and
+  normalizedIndexSetting (what a typed URL is stored as). Config.h —
+  catalogIndexUrl. DiskCatalog.h — setCatalogIndexUrl / getCatalogIndexUrl, with
+  fetchIndex resolving through indexUrl so the variable still wins.
+  SettingsDialogWx.cpp — updateCatalogIndexNote, typedCatalogIndexUrl,
+  onCatalogIndexUrlChanged: the field, its live note, and the push into the
+  catalog before every fetch. MainWindow.cpp — applyConfig seeds it,
+  onEmulatorSettings stores it.
 - **Config:** `core.catalogIndexUrl` in the JSON config, or **Settings → Disk
   Images → Catalog index**, which reads and writes that same member. Documented
   for users in `docs/CONFIGURATION.md` and in the in-app Configuration topic.
