@@ -541,12 +541,17 @@ to find them on every platform.
   commits behind the build the Store actually serves. They need images carrying
   the `w8.com` and `r8.com` that ask (`HBF_HOST_GETNAME` `0xE8`,
   `HBF_HOST_GETRNAME` `0xEA`); the package carries no images at all, by design,
-  so `RELEASE_TAG` alone decides which combo a download gets — and at `211488b`,
-  the Store's 1.0.25, it reads **`v1.4.12`**, whose `hd1k_combo.img` was measured
-  in `032b1cf` to carry the host-path usage line and the capability probe. So
-  this port is **level with ioscpm's shipped build on this row's pin**, not
-  behind it: the sentence that stood here docked ioscpm for a pin its shipped
-  build has and this one supposedly lacked, when both are on `v1.4.12`. This port also defines
+  and **which combo a download gets is decided by the catalog, not by the
+  build**. Re-read 2026-09-09 at `6496fd4`, the Store's 1.0.29: there is no
+  `RELEASE_TAG` in this port. The only content address compiled in is
+  `catalogv0::INDEX_URL`, from which the client reads the releases on offer and
+  fetches the selected one's own catalog for `base_url`, `roms[]` and `disks[]`.
+  The previous reading — that `RELEASE_TAG` alone decides, and at `211488b` read
+  `v1.4.12` — describes 1.0.25 and is kept as history rather than deleted,
+  because it is what the row was scored on. There is no pin comparison to make
+  for this column any more: whether a Windows user's `r8.com` and `w8.com` ask
+  those functions is a property of what `romwbw_disks` publishes for the release
+  they selected, not of this build. This port also defines
   `emu_host_path_caps()` and sets `EMU_HOST_CAP_SAFE_PATHS` — honestly, since the
   bit means a guest path is never used *destructively*, not that it is confined to
   one directory, and open-write here is a plain create-or-replace with no delete
@@ -836,45 +841,65 @@ to find them on every platform.
   `cpmdroid` still carries its own copy — so until it is deleted the sentence
   above still describes the two trees.
 
-### 5. Remote disk catalog + downloader (pinned)
+### 5. Remote disk catalog + downloader  — *z80cpmw is no longer on this row's pin axis*
 Download prebuilt disk images from the shared release host instead of bundling
 copyrighted content.
-- **Behaviour/spec:** fetch `disks.xml`, list catalog (name/desc/status), download
-  with progress, track downloaded state, delete. **Pinned to one explicit
-  release tag** (not `latest`) so a new release can't silently swap disk images out
-  from under an installed client and re-introduce an HBIOS/CBIOS version mismatch.
-  *Cancel is in the spec because the ports need it, not because this port has it.*
+- **Behaviour/spec:** fetch the catalog, list it (name/desc/status), download with
+  progress, track downloaded state, delete. *Cancel is in the spec because the
+  ports need it, not because this port has it.*
+
+  **The pin is history on this port and still the spec on the others**, which is
+  why the heading no longer says "(pinned)". The rule was: pin to one explicit
+  release tag, never `latest`, so a new release cannot silently swap disk images
+  out from under an installed client and re-introduce an HBIOS/CBIOS version
+  mismatch. z80cpmw now gets that protection a different way — see below — and
+  ioscpm and cpmdroid still name a tag in source.
 <!-- cites: z80cpmw -->
-- **Where:** `z80cpmw/DiskCatalog.{h,cpp}` for the pin and the transfer — note
-  the single `RELEASE_TAG` constant — and, since 1.0.25,
-  `z80cpmw/DiskLedger.{h,cpp}` and `z80cpmw/DiskHash.{h,cpp}` for whether the
-  image already on the machine is still the one the catalog names.
-- **z80cpmw itself, re-read 2026-09-06 at `211488b`** — the commit the Store's
-  **1.0.25** was built from, measured with `tools/check-store-version.sh` rather
-  than taken from this repository's own prose. An earlier entry here was written
-  the same day at `dbd53b1`, on the CHANGELOG's word that 1.0.23 was released;
-  that is three source commits and the whole provenance ledger too early, and
-  everything it said about this row was wrong in the same direction. Not at HEAD
-  either, where `f91c3a3` deletes the constant in favour of a two-document
-  catalog no Windows user has.
-  **Pinned — to `v1.4.12`, the current pin.** `RELEASE_TAG = L"v1.4.12"` at
-  `DiskCatalog.cpp:38` is the single source of both URLs, with the
-  HBIOS/CBIOS-mismatch reason in the comment above it. `032b1cf` repinned,
-  `5ee0e5f` cut 1.0.24 to carry it, and `211488b` cut 1.0.25 — which is the one
-  that was submitted and is being served. So **this port is level with ioscpm's
-  shipped build 61 on this row's own axis, not behind it**, and `cpmdroid` is now
-  the only port whose installed clients still fetch `v1.4.5`. The sentence that
-  stood here — that the Windows build fetches the same `v1.4.5` images cpmdroid
-  is marked down for — was true of 1.0.23 and false of what shipped.
-  **The library has provenance since 1.0.25.** `DiskLedger` and `DiskHash` are
-  what `211488b` added, and they are the reason this row's ◐ needs re-examining
-  rather than restating: the shipped build can say whether the image on the
-  machine is still the one the catalog names. Cancel remains the shape cpmdroid's
-  ◐ describes — it happens when the window dies, not from a button.
+- **Where:** `z80cpmw/DiskCatalog.{h,cpp}` for the transfer, the cache and the
+  ledger, and `z80cpmw/CatalogV0.{h,cpp}` for parsing the documents and choosing
+  the release. `z80cpmw/DiskLedger.{h,cpp}` and `z80cpmw/DiskHash.{h,cpp}` are
+  whether the image already on the machine is still the one the catalog names,
+  and `z80cpmw/DiskMigrationV0.{h,cpp}` is the rename that put the release into
+  every stored filename.
+- **z80cpmw itself, re-read 2026-09-09 at `6496fd4`** — the commit the Store's
+  **1.0.29** was built from, measured with `tools/check-store-version.sh` rather
+  than taken from this repository's own prose. This cell has now been wrong in
+  both directions and both times for the same reason. It was first written at
+  `dbd53b1` on the CHANGELOG's word that 1.0.23 was released, which was three
+  source commits and the whole provenance ledger too early; it was then re-read
+  at `211488b` and said the constant was deleted only at HEAD, "a two-document
+  catalog no Windows user has" — and by then 1.0.29 had shipped exactly that.
+  Prose about what ships is not a measurement, in either direction.
+
+  **NOT PINNED, deliberately, and that is the change.** `RELEASE_TAG` does not
+  exist in this port: the only content address compiled in is
+  `catalogv0::INDEX_URL`, which names the mutable `catalog-v0` tag in
+  `avwohl/romwbw_disks` and nothing else. Which RomWBW release is fetched is
+  decided at run time — `runnableVersions` keeps the releases the linked core
+  says it can boot by asking `emu_romwbw_release_supported`, and `chooseVersion`
+  picks between them by stored preference, then the index's own `default: true`,
+  then the first — and asset URLs come from the fetched catalog's `base_url`. So
+  the HBIOS/CBIOS-mismatch protection the pin existed for is still here; it is
+  enforced by the core and the document rather than by a constant.
+
+  A published release therefore reaches users with no build of this application,
+  which is the point. Two documents rather than one: `index-v0.json` names the
+  releases, and each release's own catalog names its ROMs and images with their
+  sizes and sha256.
+
+  **The library has provenance.** `DiskLedger` and `DiskHash` arrived in
+  `211488b` and are why this row's ◐ needs re-examining rather than restating:
+  the shipped build can say whether the image on the machine is still the one the
+  catalog names. Cancel remains the shape cpmdroid's ◐ describes — it happens
+  when the window dies, not from a button.
 <!-- /cites -->
-- **Shared concern:** all ports download from `ioscpm` releases. **Every port should
-  pin to an explicit tag matching the RomWBW version its embedded ROM was built
-  from.** See this repo's `WIP`/parity notes on the version-skew problem.
+- **Shared concern, and it is no longer shared.** ioscpm and cpmdroid download
+  from `ioscpm` releases and should each pin to an explicit tag matching the
+  RomWBW version their embedded ROM was built from. z80cpmw downloads its disks
+  **and its ROM** from `avwohl/romwbw_disks`, and that advice does not apply to
+  it: it has no embedded ROM to match, and it checks the ROM it fetches against
+  the size and sha256 the catalog publishes before loading it. See this repo's
+  `WIP`/parity notes on the version-skew problem.
 - **Verified port behaviour (2026-08-07):**
 <!-- cites: cpmdroid -->
   - **cpmdroid (Android)** *(re-verified 2026-09-02)* — **pinned**.
@@ -977,10 +1002,14 @@ In-app help fetched from GitHub, with offline bundled topics.
 - **Where:** `z80cpmw/HelpWindow.{h,cpp}` and `HelpAssets.{h,cpp}` — the
   state-free half (index parsing, the markdown→text renderer, and the cache) was
   split out on 2026-08-28 in `392df97` so it could be put under test, and is
-  **355** checks in the shipped 1.0.25, one of the seven suites making 1467. 244
-  was the figure before the bundled-asset section existed; **353 was 1.0.23's,
-  and this row carried it until 2026-09-06 because 1.0.23 had been taken for the
-  shipped build.** `help_assets::resolveTopic` is the one place the topic order
+  **355** checks in the shipped 1.0.29, one of the **eight** suites making
+  **1,705** — re-read 2026-09-09 at `6496fd4`, where `run_tests.bat` builds eight
+  suites and the CHANGELOG records the total in three places. The 355 itself has
+  not moved since 1.0.25; what moved is the count around it, and this row said
+  "one of the seven suites making 1467" until 2026-09-09. 244 was the figure
+  before the bundled-asset section existed; **353 was 1.0.23's, and this row
+  carried it until 2026-09-06 because 1.0.23 had been taken for the shipped
+  build.** `help_assets::resolveTopic` is the one place the topic order
   lives — download, then the on-disk cache, then the copy in the binary, the same
   order as `ioscpm`'s below — and **all three steps reach real bytes.** The cache
   is wired rather than merely present: `MainWindow::onCreate` calls
@@ -1083,12 +1112,15 @@ In-app help fetched from GitHub, with offline bundled topics.
   NVRAM switches; nothing is typed at the boot menu.** `EmulatorEngine::start`
   calls `setNvramSetting(m_bootString)` under the comment "Configure boot option
   via NVRAM switches (not character queueing)", and `sendString` — the only
-  character-queueing entry point on the engine — has no caller anywhere in
-  `z80cpmw/`, only its definition and its declaration.
+  *string*-queueing entry point on the engine, `sendChar` being the per-character
+  one the keyboard handler uses — has no caller anywhere in `z80cpmw/`, only its
+  definition and its declaration.
   This row said "an optional `bootString` is auto-typed at the boot menu" until
   2026-09-06, and that described **1.0.7**: `eb97c64` ("v1.0.8: Fix boot option
   using NVRAM switches") deleted the `emu_console_queue_char` loop as broken on
-  2026-01-08, fifteen releases before the build the Store serves. **No port has
+  2026-01-08, nineteen releases before the build the Store serves (1.0.8 to the
+  1.0.29 it serves now, counting the release headings CHANGELOG.md carries
+  between them; 1.0.11 has no entry, so this is not the version-number distance). **No port has
   the auto-type, this one included**, so the ⬜ it was creating in the other
   three columns was scored against software that has not existed since 1.0.8.
   **Note the boot-unit numbering:** with the EMU AVW ROM the on-board RAM/ROM
@@ -1507,20 +1539,21 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     landed in `tests/`. It drives the terminal through the public interface
     only: cursor state is read back with `ESC [ 6 n`, which puts the answerback
     under test rather than assuming it, and screen content through `cellAt()`.
-    `tests\run_tests.bat` runs it first of **seven suites, 1467 checks** — the
-    figure the shipped build's own `[1.0.25]` entry records: terminal
-    conformance 516, help renderer and assets 355, configuration diagnostics
-    302, disk provenance 142, host file transfer 66, rendering conformance 50,
-    HBIOS host file extension 36. The seventh suite, `tests/test_diskledger.cpp`,
-    was added **by** `211488b` — the 1.0.25 the Store serves — not after the
-    shipped build, which is what this paragraph said on 2026-09-06 when it was
-    written at `dbd53b1` under the belief that 1.0.23 was released. "Six suites,
-    1323 checks" is 1.0.23's figure. Nothing in this row's parser claims turned
-    on the mistake: `TerminalView.cpp`, `TerminalView.h`, `tests/test_vt52.cpp`
-    and `tests/test_render.cpp` are byte-identical at both commits, so only the
-    evidence figure moved — and it moved up. The tree has since grown an eighth
-    suite, the interface-v0 catalog one, which has shipped nowhere and is not
-    counted here. The
+    `tests\run_tests.bat` runs it first of **eight suites, 1,705 checks** —
+    re-read 2026-09-09 at `6496fd4`, the commit the Store's **1.0.29** was built
+    from, where `run_tests.bat` builds eight suites and the CHANGELOG records
+    that total in three separate places.
+
+    This sentence has now been re-dated twice and the shape of the error was the
+    same both times. It said "six suites, 1323 checks" (1.0.23's figure) while
+    1.0.25 shipped; it was corrected to "seven suites, 1467 checks" on 2026-09-06
+    and said the eighth suite "has shipped nowhere" — and 1.0.29, carrying that
+    eighth suite, was already what the Store served by the time anybody read it
+    again. The evidence figure has only ever moved up, and this row's parser
+    claims have never turned on it: `TerminalView.cpp`, `TerminalView.h`,
+    `tests/test_vt52.cpp` and `tests/test_render.cpp` are byte-identical at
+    `211488b` and `6496fd4`, so what changes here is the count and nothing else.
+    The
     one beside it is not a model check at all — `tests/test_render.cpp` opens a
     real window, drives it with real bytes, asks the DWM for it with
     `PrintWindow(PW_RENDERFULLCONTENT)` and reads the pixels, 50 checks over the
@@ -1761,7 +1794,7 @@ when that was; `--fetch` updates them first and is the only thing the script
 does that writes to a sibling.
 
 ```sibling-readings
-z80cpmw    211488b  2026-09-06  shipped:1.0.25
+z80cpmw    6496fd4  2026-09-09  shipped:1.0.29
 ioscpm     af0b9b2  2026-09-06  shipped:61
 cpmdroid   35873d0  2026-09-06  shipped:27
 romwbw_emu 8bd38cd  2026-09-06  shipped:1.38
@@ -1801,6 +1834,33 @@ thing:
   has to be re-read when the Store moves. Its shipped figure is no longer the
   weakest of the four: it is the only one taken from a live query rather than a
   hand-maintained number.
+
+  **AND THE STORE MOVED, three days later.** The line now reads `6496fd4` /
+  **1.0.29**, re-read on 2026-09-09 - and this is the third reading of this
+  column, made for the same reason as the second: `check-store-version.sh` found
+  the Store serving 1.0.29 while this block still said 1.0.25, which is the CI
+  failure that forced it. The measurement did its job twice; what did not happen
+  either time was anybody re-reading the column before the number went stale.
+
+  All thirteen rows were read again at `6496fd4`. **Eight came back unchanged** -
+  1, 2, 3, 8, 9, 10, 11 and 12, none of which the catalog work touched. **Five
+  moved: 4, 5, 6, 7 and 13**, and four of those for one cause: `f91c3a3`,
+  `17c72fa` and `6496fd4` between them deleted `RELEASE_TAG` from this port
+  altogether, so row 5's heading, its spec bullet and its "level with ioscpm on
+  this row's pin" verdict were all describing a constant that no longer exists,
+  and row 4's `w8.com`/`r8.com` reasoning rested on the same constant. Row 5 is
+  the one that changed in kind rather than in detail: this port is off the pin
+  axis entirely now, so the row can no longer be scored on it. Rows 6 and 13
+  carried the suite count, which went from seven suites and 1,467 checks to
+  **eight and 1,705**; row 13 had said the eighth suite "has shipped nowhere",
+  and it had shipped in the very build this reading is taken at. Row 7 lost two
+  small factual errors that were wrong at `211488b` too - a release count and a
+  description of `sendString` - and are corrected here rather than left because
+  they were found.
+
+  Section 14 was added after this reading and is deliberately NOT inside a
+  citation region: everything it names post-dates `6496fd4`, so asserting it
+  against this reading would be the error the gate exists to catch.
 - **`cpmdroid` `35873d0`** - a full re-read of all thirteen rows on 2026-09-06,
   taken at the SHIPPED bundle rather than at a tree: versionCode 27 is what Play
   serves, and `a24ca9a` records that 35873d0 is what was uploaded. It stacks on
