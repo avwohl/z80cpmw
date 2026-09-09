@@ -958,6 +958,22 @@ void MainWindow::startEmulator() {
         return;
     }
 
+    // What is actually in the four slots, checked against the catalog in hand.
+    //
+    // Before the clear and beside the ROM gate above because it is the other
+    // half of the same question: that gate refuses to boot 3.5.1 disks under a
+    // 3.6.0 ROM by checking the ROM, and this says so when the DISK is the one
+    // that does not belong - which is what a shared data folder makes possible,
+    // since two catalogs publish different bytes under one filename and the
+    // second to be downloaded is the one on disk.
+    //
+    // It never refuses. A downloaded disk is a writable volume, and its bytes
+    // stop matching the catalog the first time the guest saves a file; refusing
+    // would brick every machine that had been used. It also must not refuse an
+    // offline launch, which the two default-disk paths below go to some trouble
+    // to keep working.
+    reportMountedDiskProvenance();
+
     if (m_terminal) {
         m_terminal->clear();
         m_terminal->resetScrollback();
@@ -1465,9 +1481,35 @@ void MainWindow::onEmulatorSettings() {
         // and the next fetch, from F5 or the next Settings open, quietly used
         // 3.6.0. Setting a preference costs nothing and starts nothing, so
         // there is no reason to make it conditional.
-        cfgMut.romwbwVersion = settings.romwbwVersion;
+        //
+        // EXCEPT UNDER $ROMWBW_INDEX_URL, which is the one case where the
+        // release on screen is not this machine's release at all.
+        //
+        // The variable is documented - CatalogV0.h, Config.h, and the note in
+        // the dialog - as winning "for a single run", the thing a test uses
+        // because it stores nothing. It stores nothing of ITSELF, and then this
+        // line stored the consequence: the dropdown holds whatever the test
+        // catalog publishes, so a test catalog offering only 3.5.1 collapses the
+        // control to 3.5.1, and OK wrote 3.5.1 over the user's real 3.6.0.
+        // MEASURED from a pristine configuration on 2026-09-08 - one launch with
+        // the variable set, open Settings, press OK, nothing typed, and
+        // core.romwbwVersion had moved. The next launch without the variable
+        // then ran the built-in catalog at a release the user never chose.
+        //
+        // The catalog INDEX itself is written unconditionally: the field is
+        // disabled under the variable and holds the stored setting, so what goes
+        // back is what was already there.
+        std::string envIndexUrl;
+        const bool indexFromEnv = catalogv0::indexUrlFromEnvironment(envIndexUrl);
+        if (!indexFromEnv) {
+            cfgMut.romwbwVersion = settings.romwbwVersion;
+        }
         cfgMut.catalogIndexUrl = settings.catalogIndexUrl;
         m_diskCatalog->setPreferredRomwbwVersion(settings.romwbwVersion);
+        // And the index the next fetch reads, so an OK that changed it does not
+        // have to wait for a restart. The dialog pushed the typed value before
+        // each of its own fetches; this is the one that outlives the dialog.
+        m_diskCatalog->setCatalogIndexUrl(settings.catalogIndexUrl);
 
         // The ROM CHOICE, stored and handed to the catalog, and deliberately
         // not loaded here.
@@ -1945,6 +1987,83 @@ void MainWindow::terminalPrint(const std::string& text) {
     }
 }
 
+void MainWindow::reportMountedDiskProvenance() {
+    if (!m_diskCatalog || !m_emulator) {
+        clearNotice(Notice::MountedDisk);
+        return;
+    }
+
+    const std::string dataDir = m_diskCatalog->getDownloadDirectory();
+    const std::string release = m_diskCatalog->getSelectedRomwbwVersion();
+
+    // THE RELEASE THE MACHINE IS ABOUT TO RUN, which is not the same question as
+    // the one below and is answerable without a catalog. Every v0 filename
+    // carries its release, so a slot holding hd1k_combo-v0-3.5.1.img under a
+    // machine set to 3.6.0 is the HBIOS/CBIOS mismatch itself, visible from the
+    // name alone - no fetch, no hash, no ledger.
+    //
+    // This is the case the freshness check below cannot see: the 3.6.0 catalog
+    // has no entry named ...-v0-3.5.1.img at all, so there is no verdict to
+    // give, and rightly so - that file is not a wrong copy of a 3.6.0 image, it
+    // is a different release's image. MEASURED on this machine on 2026-09-09,
+    // which had exactly that pairing and booted it in silence.
+    //
+    // It is a NOTICE and not a refusal. The pairing is legal, it is what an
+    // upgrade leaves behind, and the guest's own CBIOS banner is what finally
+    // says so; this just says it first, in a place the user can act on.
+    const std::string running = startRomwbwRelease();
+
+    std::string block;
+    for (int unit = 0; unit < 4; unit++) {
+        if (!m_emulator->isDiskLoaded(unit)) continue;
+        const std::string path = m_emulator->getDiskPath(unit);
+
+        {
+            std::string diskRelease;
+            if (!running.empty() &&
+                diskv0::releaseOfV0Name(diskv0::basenameOf(path), diskRelease) &&
+                diskRelease != running) {
+                // Hand-wrapped to the 80-column terminal. Nothing wraps these
+                // for us - printNotices() writes them straight through - so a
+                // line over 80 is folded by the terminal in the middle of a word.
+                block += "Disk " + std::to_string(unit) + ": " +
+                         diskv0::basenameOf(path) + "\r\n"
+                         "  is a RomWBW " + diskRelease + " image, and this machine is set to RomWBW " +
+                         running + ".\r\n"
+                         "  The guest will report an HBIOS/CBIOS version mismatch.\r\n"
+                         "  Settings > Disk Images has the release picker.\r\n";
+                continue;   // said what matters about this slot
+            }
+        }
+
+        // Only a file sitting DIRECTLY in the data folder is a catalog image.
+        // One the user browsed to is their own and no catalog describes it, so
+        // saying anything about it would be an accusation about a file this
+        // application never fetched. Same test the Settings seed uses.
+        if (path.empty() || !diskv0::isDirectlyIn(path, dataDir)) continue;
+
+        const std::string name = diskv0::basenameOf(path);
+        if (!DiskLedger::mountedCopyIsNotTheCatalogImage(m_diskCatalog->getFreshness(name))) {
+            continue;
+        }
+
+        // "may be", never an accusation: UnknownProvenanceDiffers genuinely
+        // cannot tell a stale image from the user's own saved work, and the two
+        // want opposite reactions. The release is omitted when the catalog has
+        // not named one yet, so the sentence cannot read "the catalog for
+        // publishes".
+        block += "Disk " + std::to_string(unit) + ": " + name + "\r\n"
+                 "  is not the image the catalog" +
+                 (release.empty() ? "" : " for RomWBW " + release) +
+                 " publishes under that name.\r\n"
+                 "  It may be your own changes; it is mounted as it is.\r\n"
+                 "  Settings > Disk Images can replace it, and says what that costs.\r\n";
+    }
+
+    if (block.empty()) clearNotice(Notice::MountedDisk);
+    else               setNotice(Notice::MountedDisk, block + "\r\n");
+}
+
 void MainWindow::setNotice(Notice which, const std::string& text) {
     m_notices[which] = text;
     terminalPrint(text);
@@ -2340,7 +2459,37 @@ bool MainWindow::offerRomChoice(const std::string& want, const std::string& why,
 
     // No fetch left to offer - one has just failed, or there is no catalog to
     // name a ROM in. Nothing to ask, so this reports rather than prompts.
-    msg += "Check the network connection and press F5 again.";
+    //
+    // THE REMEDY DEPENDS ON WHICH CATALOG IS BEING READ, and "check the network
+    // connection" was the only one offered. It is the wrong advice for the case
+    // this most often is now: a custom index that simply does not publish the
+    // release this machine is set to. MEASURED on 2026-09-08 - pointing the app
+    // at a test catalog carrying only 3.5.1 with the machine set to 3.6.0
+    // produced exactly this dialog, telling the user to check a network that was
+    // working perfectly and fetching the index without trouble.
+    //
+    // So: name the catalog when it is not the built-in one, and say the thing
+    // that can actually be done about it. The release picker and the index field
+    // are on the same page, which is where both remedies live.
+    std::string envIndexUrl;
+    const bool indexFromEnv = catalogv0::indexUrlFromEnvironment(envIndexUrl);
+    const std::string inUse = indexFromEnv
+        ? envIndexUrl
+        : catalogv0::indexUrl(config::ConfigManager::instance().get().catalogIndexUrl);
+
+    if (inUse != std::string(catalogv0::INDEX_URL)) {
+        msg += "This machine is reading a custom catalog:\n\n    " + inUse + "\n\n";
+        if (indexFromEnv) {
+            msg += "That is $ROMWBW_INDEX_URL, set for this run, and it wins over\n"
+                   "the Catalog index field in Settings.\n\n";
+        }
+        msg += "A catalog that does not publish RomWBW " + want + " cannot supply\n"
+               "its ROM, however good the network is. Choose a release that\n"
+               "catalog does publish, or clear the catalog index, under\n"
+               "Emulator > Settings > Disk Images.";
+    } else {
+        msg += "Check the network connection and press F5 again.";
+    }
     MessageBoxA(m_hwnd, msg.c_str(), "Cannot start", MB_OK | MB_ICONERROR);
     return false;
 }
@@ -2734,6 +2883,14 @@ void MainWindow::applyConfig() {
     // - and DiskCatalog falls back to the index's default if this release is one
     // it cannot boot. Nothing is deleted, unmounted or invalidated by the change.
     m_diskCatalog->setPreferredRomwbwVersion(cfg.romwbwVersion);
+
+    // And WHICH CATALOG those releases are read out of, seeded here for exactly
+    // the reasons above: this function is what turns a configuration into
+    // running state, and loading a PROFILE replaces the whole configuration,
+    // this member included. It sets a preference and starts nothing;
+    // $ROMWBW_INDEX_URL still wins over it, because fetchIndex resolves the
+    // value through catalogv0::indexUrl() rather than using it raw.
+    m_diskCatalog->setCatalogIndexUrl(cfg.catalogIndexUrl);
 
     // Apply the ROM PREFERENCE, which is now an id and not a file to load.
     //

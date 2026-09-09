@@ -257,6 +257,11 @@ private:
         DefaultRom,   // loadDefaultROM(): no usable emu_avw.rom
         SavedRom,     // applyConfig(): the ROM named by the config is not the one running
         StorageMigration,  // migrateStorageToInterfaceV0(): a file it could not rename
+        // startEmulator(): a mounted image in the data folder that the catalog
+        // in hand does not vouch for. LAST because the enumerator order is the
+        // print order and this is the one about the disks the machine is about
+        // to boot, so it belongs nearest the boot output.
+        MountedDisk,
     };
 
     // Raise a notice AND print it now. Notices are raised where nothing is
@@ -264,6 +269,19 @@ private:
     // is loaded - so one that was only remembered would sit unread until the
     // next Start; printNotices() runs only where the screen has just been
     // emptied.
+    // Raise or clear Notice::MountedDisk from the four slots as they stand.
+    //
+    // Answers only from what has ALREADY been measured - DiskCatalog::getFreshness
+    // is the verdict the last fetch computed on its worker - so this hashes
+    // nothing, opens nothing and reaches no network. It is therefore SILENT ON A
+    // COLD LAUNCH: romReadyToStart() deliberately does not fetch when the loaded
+    // ROM already matches the stored release, so with no catalog in hand every
+    // verdict is Unverifiable and nothing is said. It speaks in the session that
+    // matters - opening Settings fetches, and a fetch runs updateFreshness()
+    // before its callback - which is the session in which somebody changed the
+    // catalog index.
+    void reportMountedDiskProvenance();
+
     void setNotice(Notice which, const std::string& text);
     // Retract a notice. Erasing a notice that was never raised is a no-op, so a
     // caller does not have to know which of them it is contradicting.

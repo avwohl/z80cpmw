@@ -281,6 +281,54 @@ void from_json(const json& j, AppConfig& c) {
         }
     }
 
+    // THE RELEASE THE MOUNTED DISKS BELONG TO, when nothing else says.
+    //
+    // Here, at parse time, for the reason romIdForStoredName is converted here:
+    // the alternative is ConfigManager::migrateToInterfaceV0, and that pass is
+    // gated on interfaceV0Migrated, which MainWindow::migrateStorageToInterfaceV0
+    // returns on immediately. It is already TRUE on every machine that has
+    // launched a build since the storage rename - which is to say, on every
+    // machine that has the problem. A backfill written there runs on a fresh
+    // install, where there is nothing to back-fill, and never again.
+    //
+    // That is not a hypothesis. The configuration on the machine this was
+    // written on read `interfaceV0Migrated: true`, `romwbwVersion: "3.6.0"` and
+    // four slots naming `-v0-3.5.1` images: the mismatch itself, on a machine
+    // the gated fix could no longer reach.
+    //
+    // WHAT IS READ IS THE FILENAMES, not a constant. Every v0 name carries its
+    // release, so the slots in force answer the question directly, and they
+    // answer it for 3.6.0 images as readily as for 3.5.1 ones - where
+    // PRE_V0_ROMWBW could only ever say 3.5.1 and would drag a 3.6.0 library
+    // backwards. It also needs no report, no landed-name list and no knowledge
+    // of whether a rename happened, so it works on a configuration that was
+    // migrated by some earlier build, and it runs over PROFILES too, because
+    // they come through this function.
+    //
+    // ONLY WHERE NOTHING IS STORED: a value that is there is the user's own, and
+    // this must not undo a release chosen in Settings.
+    //
+    // ONLY WHERE THE SLOTS AGREE: a machine mounting a 3.5.1 disk beside a 3.6.0
+    // one has no single right answer, and picking either would be inventing a
+    // preference. It is left empty, which is what it was, and the index's
+    // `default: true` decides as before.
+    //
+    // A machine with nothing mounted is untouched for the reason it always was -
+    // no pair, no mismatch - and a fresh install therefore reaches the index's
+    // default rather than being pinned to 3.5.1 for ever.
+    if (c.romwbwVersion.empty()) {
+        std::string agreed;
+        bool conflict = false;
+        for (int i = 0; i < 4 && !conflict; i++) {
+            if (!c.disks[i].has_value()) continue;
+            std::string release;
+            if (!diskv0::releaseOfV0Name(c.disks[i]->path, release)) continue;
+            if (agreed.empty()) agreed = release;
+            else if (agreed != release) conflict = true;
+        }
+        if (!conflict && !agreed.empty()) c.romwbwVersion = agreed;
+    }
+
     // Keyboard
     if (j.contains("keyboard")) {
         c.keyboard = j["keyboard"].get<KeyboardConfig>();
@@ -1067,13 +1115,46 @@ bool ConfigManager::saveToFile(const std::string& path) const {
             if (!file.is_open()) return false;
 
             json j = forThisFile;
-            file << j.dump(2);  // Pretty print with 2-space indent
+            // ONE BAD BYTE MUST NOT COST THE WHOLE CONFIGURATION.
+            //
+            // dump() throws type_error.316 on a string that is not valid UTF-8,
+            // and the catch below turns that into a bare `false` - so a single
+            // un-encodable byte anywhere in the document stopped this
+            // application from EVER saving its settings again, silently, on
+            // every launch, for as long as the value stayed in memory. Every
+            // string here is a candidate: a font name, a boot string, a key
+            // binding, a disk path from a Browse dialog, and the catalog index
+            // URL, which is the one field a user types free text into.
+            //
+            // error_handler_t::replace substitutes U+FFFD for the offending
+            // bytes and writes the file. That loses the bad bytes - which were
+            // not going to survive a JSON round trip under any handler - and
+            // keeps the other forty settings, which is the trade this had
+            // backwards. It cannot lose anything that was ever readable: a value
+            // that came OUT of this file parsed as UTF-8 to get there.
+            file << j.dump(2, ' ', false, json::error_handler_t::replace);
+            if (!file.good()) {
+                // A short write leaves a truncated temp file. Say no rather than
+                // renaming it over a good configuration - the disk being full is
+                // exactly when this matters.
+                file.close();
+                std::error_code ec;
+                fs::remove(tempPath, ec);
+                return false;
+            }
         }
 
         // Rename temp to final (atomic on most filesystems)
         fs::rename(tempPath, path);
         return true;
     } catch (const std::exception&) {
+        // The temp file does not survive the failure. It used to: every failed
+        // save left a z80cpmw.json.tmp beside the real file, and the next
+        // successful one wrote a different temp and renamed it away, so the
+        // orphan stayed for ever looking like a configuration somebody might
+        // fix. Nothing reads it and nothing else deletes it.
+        std::error_code ec;
+        fs::remove(path + ".tmp", ec);
         return false;
     }
 }

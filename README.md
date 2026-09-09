@@ -55,7 +55,7 @@ download whose bytes do not match is deleted rather than kept, and a ROM is
 refused outright if the catalog carries no checksum for it, because fifteen
 banks of unknown bytes under a CPU is not a risk worth the convenience.
 
-Two things are yours to choose, both under **Emulator → Settings**:
+Three things are yours to choose, all under **Emulator → Settings**:
 
 - **Which RomWBW release** — the *RomWBW release* picker at the top of the
   **Disk Images** page. That list is not compiled in either: it is the index,
@@ -64,6 +64,18 @@ Two things are yours to choose, both under **Emulator → Settings**:
 - **Which ROM** — the *ROM* dropdown on the **Machine** page, filled from the
   selected release's ROMs. Publishing a new ROM in `romwbw_disks` therefore
   makes it selectable with no new release of this application.
+- **Which catalog** — the *Catalog index* field under the release picker, and
+  the one setting that changes what the other two can offer. Leave it empty for
+  the catalog this build ships with; point it at another `romwbw_disks` index to
+  try a release before it is published, or to run your own. `ROMWBW_INDEX_URL`
+  in the environment overrides it for one run and stores nothing, which is what
+  a test uses; the field is disabled and says so while it is set. The order —
+  environment, then setting, then built-in — is `romwbw_emu`'s `romwbw-get`
+  order, so one set of instructions covers every client.
+  [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) has the details, including
+  the one thing to know before using it: every catalog reads and writes the same
+  data folder, so two catalogs publishing an image under one name share one
+  file.
 
 **The first run needs a network connection**, and that is the cost of shipping
 no ROM. No ROM may be loaded before the catalog carrying its size and checksum

@@ -237,6 +237,22 @@ public:
     // is about the catalog and the file, and being mounted is about the machine.
     static bool allowsUserRequestedUpdate(DiskFreshness f);
 
+    // Whether a file about to be BOOTED is known not to be the image the
+    // current catalog publishes under its name - the question the machine asks
+    // at Start, where allowsUserRequestedUpdate asks what a button may do.
+    //
+    // Same true-set as that function today, and kept separate deliberately: one
+    // is a permission and this is a statement, and they part company the moment
+    // there is an Update button, which may act on a case the user should not be
+    // interrupted about and vice versa.
+    //
+    // FALSE FOR NeedsMeasurement AND Unverifiable, which is what makes this
+    // usable at Start: neither may be paid for there. NeedsMeasurement wants a
+    // hash of a 50 MB image, and Unverifiable is what a client with no catalog
+    // in hand sees for everything - so a cold launch that never fetches says
+    // nothing rather than accusing every disk of being wrong.
+    static bool mountedCopyIsNotTheCatalogImage(DiskFreshness f);
+
     // One line for a status column. Deliberately says "may be" for the
     // ambiguous case rather than accusing the user of being out of date.
     static const char* describe(DiskFreshness f);

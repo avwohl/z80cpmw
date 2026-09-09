@@ -32,13 +32,42 @@ namespace {
 // index whose host is empty - which would fail every fetch with a message about
 // the network.
 std::string trimmed(const std::string& s) {
-    const char* ws = " \t\r\n";
+    // The whole of C's isspace() set, not the four obvious characters. It was
+    // " \t\r\n", which is what a URL pasted from a browser carries and is also
+    // what makes the difference invisible until it bites: Swift's
+    // .whitespacesAndNewlines and Kotlin's .trim() both strip \f and \v, so a
+    // string those two ports read as "no preference" was read here as a host
+    // named "\f" and failed every fetch with a message about the network.
+    const char* ws = " \t\r\n\f\v";
     const size_t b = s.find_first_not_of(ws);
     if (b == std::string::npos) return std::string();
     return s.substr(b, s.find_last_not_of(ws) - b + 1);
 }
 
 }  // namespace
+
+bool indexUrlFromEnvironment(std::string& out) {
+    // getenv rather than a Windows-only call: this file is built by the test
+    // suite on a machine that is not Windows, and the variable is as useful in
+    // a CI job there as it is here.
+    const char* env = std::getenv("ROMWBW_INDEX_URL");
+    if (env == nullptr) return false;
+    const std::string e = trimmed(env);
+    if (e.empty()) return false;
+    out = e;
+    return true;
+}
+
+std::string normalizedIndexSetting(const std::string& typed) {
+    // Empty for anything that means "the index this build ships with", which
+    // includes the built-in URL typed or pasted in by hand. Storing that string
+    // would freeze the install onto whatever the default was on the day it was
+    // typed, which is the exact freeze the header says empty exists to prevent -
+    // and the field shows the URL in use, so pasting back what it shows is the
+    // obvious thing for a user to do.
+    const std::string t = trimmed(typed);
+    return t == std::string(INDEX_URL) ? std::string() : t;
+}
 
 std::string fnv1a32(const std::string& s) {
     unsigned long long hash = 0xcbf29ce484222325ULL;
@@ -54,13 +83,12 @@ std::string fnv1a32(const std::string& s) {
 }
 
 std::string indexUrl(const std::string& configured) {
-    // getenv rather than a Windows-only call: this file is built by the test
-    // suite on a machine that is not Windows, and the variable is as useful in
-    // a CI job there as it is here.
-    if (const char* env = std::getenv("ROMWBW_INDEX_URL")) {
-        const std::string e = trimmed(env);
-        if (!e.empty()) return e;
-    }
+    // The environment first, then the setting, then the built-in. Both other
+    // readers of the variable - the Settings dialog, which disables the field
+    // when it is set - go through indexUrlFromEnvironment() rather than calling
+    // getenv themselves, so "set" cannot come to mean two different things.
+    std::string fromEnv;
+    if (indexUrlFromEnvironment(fromEnv)) return fromEnv;
     const std::string c = trimmed(configured);
     return c.empty() ? std::string(INDEX_URL) : c;
 }

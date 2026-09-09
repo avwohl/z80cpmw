@@ -46,10 +46,10 @@ the same binary and also MSIX.
 ## 2. Keystroke delivery, mouse copy/paste, and the first-run Help window
 
 Never watched by a person, and nothing here can automate them.
-`tests\run_tests.bat` is **1467 checks in seven suites** now — 516 terminal
-conformance, 355 help renderer and assets, 302 configuration diagnostics, 142
-disk provenance, 66 host file transfer, 50 rendering conformance, 36 HBIOS host
-file extension.
+`tests\run_tests.bat` is **1779 checks in eight suites** now — 516 terminal
+conformance, 374 configuration diagnostics, 355 help renderer and assets, 207
+interface-v0 catalog, 175 disk provenance, 66 host file transfer, 50 rendering
+conformance, 36 HBIOS host file extension.
 
 **A cell becoming a pixel is no longer a person's job.** `tests/test_render.cpp`
 creates a real window, drives the parser with real bytes, asks the DWM for the
@@ -95,20 +95,30 @@ these checks are about. Nothing below can be settled by reading the source.
 
 ## 3. The disk status column, and the verdict behind it
 
-142 headless checks say what `DiskLedger` decides and that `DiskHash` measures
+175 headless checks say what `DiskLedger` decides and that `DiskHash` measures
 it correctly. None of them can see a word reach the screen:
 `SettingsDialogWx.cpp` is in no suite and needs a real window, and the verdict
 is computed on the `fetchCatalog` worker against a live catalog and a real data
 folder, neither of which a suite has.
 
-**Set the release picker to RomWBW 3.5.1 before any of this**, and expect the
-`-v0-3.5.1` names §9 leaves behind rather than the bare ones. The storage
-migration renames into `-v0-3.5.1` — `diskv0::PRE_V0_ROMWBW` is `"3.5.1"` at
-`DiskMigrationV0.cpp:15` and `v0NameFor` builds the target from it — while the
-index marks **3.6.0** `default: true`, and the Disk Images list only ever holds
-the selected release's catalog entries. On a machine left at the default the
-migrated images are not in the list at all, and nothing below has anything to
-look at.
+**The release picker should already be on RomWBW 3.5.1**, and that is now a
+CHECK rather than a setup step. This paragraph used to read "set the release
+picker to RomWBW 3.5.1 before any of this", which was right while the migration
+left `core.romwbwVersion` empty and the index's `default: true` then chose 3.6.0
+for a 3.5.1 library. `Config.cpp`'s `from_json` now reads the release out of the
+mounted filenames on every load, so a machine whose slots name `-v0-3.5.1`
+images arrives at Disk Images already on 3.5.1.
+
+- [ ] With `-v0-3.5.1` images in the four slots and no `core.romwbwVersion` in
+      the file, the picker reads **RomWBW 3.5.1** on opening Settings, without
+      anybody setting it. If it reads 3.6.0 the backfill is not running, and
+      everything below is looking at the wrong release's catalog: the list only
+      ever holds the selected release's entries, so on 3.6.0 the migrated images
+      are not in it at all.
+
+Expect the `-v0-3.5.1` names §9 leaves behind rather than the bare ones — the
+storage migration renames into `-v0-3.5.1`, `diskv0::PRE_V0_ROMWBW` is `"3.5.1"`
+at `DiskMigrationV0.cpp:15`, and `v0NameFor` builds the target from it.
 
 - [ ] Settings → **Disk Images** with `hd1k_combo-v0-3.5.1.img` in the data
       folder and no record for it in `disk_ledger.json`. Right: the status
@@ -607,3 +617,71 @@ missing" are different branches and only the second has been seen.
       `$INSTDIR\roms`: that is cleanup of installs that had them, not a packing
       list, and it is the one place in the packaging where those names survive
       on purpose.
+
+## 11. The Catalog index field
+
+The setting that points this client at another `romwbw_disks` catalog. Every
+part of it lives in `SettingsDialogWx.cpp` and `MainWindow.cpp`, which are in no
+suite and cannot be — a real window and an interactive window station — so this
+section is the only coverage it has. The resolution underneath it *is* covered:
+`tests/test_catalogv0.cpp` has the precedence, the trimming and the normalizing
+at 207 checks.
+
+Everything below was driven with `WM_COMMAND` + `PrintWindow` on 2026-09-09, so
+these are re-checks rather than first runs. What a person adds is a pair of eyes
+on the wrapping, which a text dump cannot see: `WM_GETTEXT` returns the whole
+label whether or not the screen shows it, and that is exactly how the clipped
+note shipped in the first place.
+
+**Set up a catalog you control.** Any static file server will do:
+
+    python -m http.server 8731 --bind 127.0.0.1
+
+with a copy of the published `index-v0.json` in the directory, edited so it is
+recognisable — change a `label` to something like `RomWBW 3.5.1 LOCAL-TEST` and
+drop one of the two releases. `http://` is accepted; ioscpm refuses anything but
+`https`/`file`, and that difference is deliberate here because it is what makes a
+local test server usable on the desktop.
+
+- [ ] Settings → **Disk Images** with the field empty. The note reads *"Leave
+      empty for the catalog this build ships with."* and then `In use:` followed
+      by the built-in URL **on its own lines and complete**. The URL is 85
+      characters and the control is about 62 wide, so it wraps onto a second
+      line. If any line is cut off mid-word at the right edge, the wrapping has
+      regressed — this is the check that matters most, because the clipped form
+      is what shipped.
+- [ ] Type the local URL. The note changes **as you type**, without pressing
+      anything: it becomes the custom-catalog form, and `In use:` names what you
+      typed. Read the whole warning — five lines about the shared data folder —
+      and confirm none of it is cut off.
+- [ ] Press **Refresh** with the URL typed and **without** pressing OK. The
+      release picker fills from *your* index (the `LOCAL-TEST` label is the
+      proof) and the disk list changes with it. If it comes back with the
+      built-in catalog's releases, the typed value is not reaching the fetch.
+- [ ] Press **Cancel**. Re-open Settings: the field is empty again and the
+      picker is back on the built-in catalog's releases.
+- [ ] Type it again and press **OK**. `z80cpmw.json` gains
+      `core.catalogIndexUrl` with that URL, and re-opening Settings shows it.
+- [ ] Paste the **built-in** URL into the field, with a space or two around it,
+      and press OK. `core.catalogIndexUrl` is stored **empty**, not as that
+      string. Storing it would pin the install to today's default, and the note
+      invites copying it, so this is the easy mistake to make.
+- [ ] Relaunch with `set ROMWBW_INDEX_URL=<a second local index>` and a
+      *different* URL still in the field. The field is **disabled**, still shows
+      the stored value, and the note says the variable wins and names the
+      variable's URL. The picker holds the variable's catalog.
+- [ ] With the variable still set, press **OK** and quit. `core.romwbwVersion`
+      in `z80cpmw.json` is **unchanged**. The variable is documented as winning
+      for one run and storing nothing; a test catalog that publishes only one
+      release collapses the picker to it, and OK used to write that over the
+      user's release.
+- [ ] Point the field at a catalog that does **not** publish the release the
+      machine is set to, and press F5. The refusal names the custom catalog and
+      says to choose a release it does publish or clear the field. It must not
+      say "check the network connection" — the network is fine, and it was
+      fetching the index a moment earlier.
+- [ ] Mount an image, switch to a catalog that publishes a different image under
+      the same name, download it — the warning about replacing a disk you have
+      written to appears — then press F5. The boot output carries a line saying
+      that slot is not the image the catalog publishes, and the machine starts
+      anyway.

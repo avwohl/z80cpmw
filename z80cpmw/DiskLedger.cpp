@@ -221,6 +221,22 @@ bool DiskLedger::allowsUserRequestedUpdate(DiskFreshness f) {
     return false;
 }
 
+bool DiskLedger::mountedCopyIsNotTheCatalogImage(DiskFreshness f) {
+    switch (f) {
+    case DiskFreshness::SupersededPristine:
+    case DiskFreshness::SupersededModified:
+    case DiskFreshness::UnknownProvenanceDiffers:
+        return true;
+    case DiskFreshness::Unverifiable:
+    case DiskFreshness::NotInstalled:
+    case DiskFreshness::Current:
+    case DiskFreshness::UnknownProvenanceMatches:
+    case DiskFreshness::NeedsMeasurement:
+        return false;
+    }
+    return false;
+}
+
 const char* DiskLedger::describe(DiskFreshness f) {
     switch (f) {
     case DiskFreshness::NotInstalled:

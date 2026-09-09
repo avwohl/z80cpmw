@@ -27,9 +27,9 @@ messages are not marshalled across processes and will crash the app).
 
 **ROMs and disk images come from the `romwbw_disks` catalog. Always.** There is
 no `RELEASE_TAG` in this tree any more and no pinned release of anything: the
-only URL compiled in is the index, `CatalogV0.cpp:24`, and it is the mutable
+only URL compiled in is the index, `CatalogV0.cpp:25`, and it is the mutable
 `catalog-v0` tag. From it the client reads the RomWBW releases on offer, keeps
-the ones the linked core says it can boot (`DiskCatalog.cpp:496-502`, which asks
+the ones the linked core says it can boot (`DiskCatalog.cpp:534-542`, which asks
 `emu_romwbw_release_supported` rather than deciding for itself), and fetches that
 release's own catalog for the ROM and the images. **So publishing a release in
 `romwbw_disks` is the whole of shipping a new ROM or disk — no build of this
@@ -38,17 +38,42 @@ dropdown came back holding both published releases with 3.6.0 selected, and the
 disk list held the 3.6.0 set including `hd1k_infocom`, an id that has never
 existed in any build of this client.
 
-Nothing is bundled in any package **except the fallback ROM** — if a packaging
-script grows a `Copy-Item ...disks\*` or a `File ...hd1k_*.img`, that is a bug.
-The ROM is the one exception and it is deliberate: `roms\emu_avw.rom` and
-`roms\emu_romwbw.rom` are tracked here and staged into the package by the
-`PostBuildEvent` at `z80cpmw.vcxproj:177-179`, so a first launch with no network
-still boots. They are byte-identical to each other and to the catalog's
-`emu_avw-v0-3.5.1.rom` — all three `4b11402a…`, measured 2026-09-07 — so the
-second menu entry is a second name for the same 512 KB.
+**Nothing is bundled in any package. There is no exception and no fallback
+ROM.** If a packaging script grows a `Copy-Item ...disks\*`, a `File
+...hd1k_*.img` or anything staging a `.rom`, that is a bug.
+
+This paragraph used to say the opposite — that `roms\emu_avw.rom` and
+`roms\emu_romwbw.rom` were tracked here and staged by a `PostBuildEvent`, "so a
+first launch with no network still boots". Commit `6496fd4` deleted the `roms\`
+directory and the staging; the `PostBuildEvent` at `z80cpmw.vcxproj:165-181`
+copies the app-local VC++ runtime and says `NO ROM STAGING` in as many words.
+A first launch with no network does **not** boot, and that is the design: every
+ROM comes from the catalog and is checked against the size and sha256 only the
+catalog carries, and this build will not load a ROM it cannot check.
 
 When the question is "which disk image do users get?", the answer is whatever
 `romwbw_disks` publishes at the release the user has selected, never the build.
+
+**The catalog index itself is changeable, so "the catalog" is not always the
+published one.** `Config::catalogIndexUrl` (empty = the index this build ships
+with) and `$ROMWBW_INDEX_URL` (wins over it, for one run) point the client at
+another `romwbw_disks` catalog — to test a release before publishing it, or to
+run a fork. Precedence is copied from `romwbw_emu/tools/romwbw-get`, so one set
+of instructions covers every client. `catalogv0::indexUrl()` is the only place
+that resolves it and `catalogv0::indexUrlFromEnvironment()` the only reader of
+the variable.
+
+Two consequences worth knowing before answering a bug report:
+
+- **Every catalog shares one data folder.** `catalogv0::indexScope()` computes
+  the per-index suffix and **has no caller** — the isolation is not built. Two
+  catalogs publishing an image under one name share one file. Downloads are safe
+  (fetched beside the real name, renamed on only after the sha256 passes) and
+  Start says so when a mounted image is not the one the catalog names, but the
+  file is still shared. `todo.txt` carries the work.
+- **A custom index is not a network fault.** A catalog that does not publish the
+  selected release cannot supply its ROM however good the connection is, and the
+  "Cannot start" dialog now names the index rather than blaming the network.
 
 **Never sign a `-Beta` package run on a version that is already published.**
 `build-msix.ps1` names its output from `Version.h`, so such a run re-mints the

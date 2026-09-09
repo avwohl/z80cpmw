@@ -1736,6 +1736,114 @@ static void test_v0_migration_persistence() {
     checkStr(readFile(configPath()), carried, "so the user's own text is still there");
 }
 
+// The release read back out of the four slots at PARSE time, which is the fix
+// for a bug the migration pass could not reach.
+//
+// The pass that used to do this is gated on interfaceV0Migrated, and
+// MainWindow::migrateStorageToInterfaceV0 returns immediately when that is set -
+// so on every machine that had already migrated, which is every machine that had
+// the problem, the correction never ran. Config.cpp says the same thing about
+// the ROM-id conversion and puts that here for the same reason.
+//
+// The configuration on the machine this was written on read
+// `interfaceV0Migrated: true`, `romwbwVersion: "3.6.0"` and four slots naming
+// -v0-3.5.1 images: the mismatch itself, out of reach of the gated fix.
+static void test_release_is_read_out_of_the_mounted_disks() {
+    section("the release the mounted disks belong to");
+
+    ConfigManager& cm = ConfigManager::instance();
+
+    // The machine that had the bug: already migrated, so the pass will not run,
+    // and no release stored.
+    freshManager(cm);
+    resetDir();
+    {
+        json doc;
+        doc["core"]["interfaceV0Migrated"] = true;
+        doc["disks"] = json::array({
+            json{{"path", dataDir() + "\\hd1k_combo-v0-3.5.1.img"}},
+            json{{"path", dataDir() + "\\hd1k_games-v0-3.5.1.img"}},
+            nullptr, nullptr});
+        writeFile(configPath(), doc.dump(2));
+        checkTrue(cm.load(), "an already-migrated configuration loads");
+        checkStr(cm.get().romwbwVersion, "3.5.1",
+                 "and the release comes from the images in the slots, with no migration "
+                 "pass involved - the pass is gated on a flag this file already sets");
+    }
+
+    // And it reads the release rather than assuming the pre-v0 one.
+    freshManager(cm);
+    resetDir();
+    {
+        json doc;
+        doc["core"]["interfaceV0Migrated"] = true;
+        doc["disks"] = json::array({
+            json{{"path", dataDir() + "\\hd1k_combo-v0-3.6.0.img"}}, nullptr, nullptr, nullptr});
+        writeFile(configPath(), doc.dump(2));
+        checkTrue(cm.load(), "a 3.6.0 library loads");
+        checkStr(cm.get().romwbwVersion, "3.6.0",
+                 "as 3.6.0 - a constant could only ever have said 3.5.1 and would have "
+                 "dragged this machine backwards into the very mismatch it prevents");
+    }
+
+    // A value already there is the user's own.
+    freshManager(cm);
+    resetDir();
+    {
+        json doc;
+        doc["core"]["romwbwVersion"] = "3.6.0";
+        doc["disks"] = json::array({
+            json{{"path", dataDir() + "\\hd1k_combo-v0-3.5.1.img"}}, nullptr, nullptr, nullptr});
+        writeFile(configPath(), doc.dump(2));
+        checkTrue(cm.load(), "a configuration that names a release loads");
+        checkStr(cm.get().romwbwVersion, "3.6.0",
+                 "and keeps it - a release chosen in Settings is not this to overwrite");
+    }
+
+    // Slots that disagree have no right answer, and inventing one would be
+    // choosing a release for the user.
+    freshManager(cm);
+    resetDir();
+    {
+        json doc;
+        doc["disks"] = json::array({
+            json{{"path", dataDir() + "\\hd1k_combo-v0-3.5.1.img"}},
+            json{{"path", dataDir() + "\\hd1k_games-v0-3.6.0.img"}},
+            nullptr, nullptr});
+        writeFile(configPath(), doc.dump(2));
+        checkTrue(cm.load(), "a configuration mounting two releases at once loads");
+        checkStr(cm.get().romwbwVersion, "",
+                 "and is left with no preference, so the index's own default decides "
+                 "rather than this picking a side");
+    }
+
+    // A fresh install must reach the index's default, not be pinned for ever.
+    freshManager(cm);
+    resetDir();
+    {
+        json doc;
+        doc["disks"] = json::array({nullptr, nullptr, nullptr, nullptr});
+        writeFile(configPath(), doc.dump(2));
+        checkTrue(cm.load(), "a configuration with nothing mounted loads");
+        checkStr(cm.get().romwbwVersion, "",
+                 "and stays empty - there is no pair to mismatch, and pinning every new "
+                 "machine to one release is the opposite mistake and the worse one");
+    }
+
+    // A user's own image says nothing about a release.
+    freshManager(cm);
+    resetDir();
+    {
+        json doc;
+        doc["disks"] = json::array({
+            json{{"path", "C:\\Users\\me\\Desktop\\my_own_disk.img"}}, nullptr, nullptr, nullptr});
+        writeFile(configPath(), doc.dump(2));
+        checkTrue(cm.load(), "a configuration mounting an imported image loads");
+        checkStr(cm.get().romwbwVersion, "",
+                 "and no release is invented from a name this application never wrote");
+    }
+}
+
 //=============================================================================
 // Which RomWBW release the disk catalog is fetched for
 //
@@ -2089,6 +2197,7 @@ int main() {
     test_v0_document_paths();
     test_v0_migration_end_to_end();
     test_v0_migration_persistence();
+    test_release_is_read_out_of_the_mounted_disks();
     test_render_block();
     test_bell();
 

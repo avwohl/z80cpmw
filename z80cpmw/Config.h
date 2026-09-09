@@ -174,18 +174,29 @@ struct AppConfig {
     // $ROMWBW_INDEX_URL wins over this for one run, which is what a test uses.
     //
     // NOT YET ISOLATED HERE, and that is the difference from ioscpm, which gives
-    // each index its own Disks folder and its own settings keys. This client
-    // computes the data folder in four places - MainWindow twice,
-    // emu_io_windows.cpp's getDataFolder() and DiskCatalog - and scoping one of
-    // them would have the emulator read a folder the catalog does not write.
-    // catalogv0::indexScope() exists and is tested, so the suffix is ready; what
-    // is missing is one place to apply it. See todo.txt.
+    // each index its own Disks folder and its own settings keys.
+    // catalogv0::indexScope() computes the suffix and is tested, but nothing
+    // calls it; emu_io_windows.cpp's getDataFolder() is the R8/W8 transfer
+    // folder as well as the catalog's, and moving that is not this setting's to
+    // do. See todo.txt.
     //
-    // The consequence, until then: two catalogs publishing an image of the same
-    // name share one file, so switching replaces it. Verification still holds -
-    // a mismatched image fails its sha256 and is re-fetched - so nothing wrong
-    // is ever booted; what can be lost is work saved INSIDE a downloaded disk,
-    // which is the hazard the manifest-write warning already covers.
+    // The consequence: two catalogs publishing an image of the same name share
+    // one file, so downloading from the second replaces the first.
+    //
+    // "A mismatched image fails its sha256 and is re-fetched, so nothing wrong
+    // is ever booted" stood here and was WRONG. Every diskhash:: call is in
+    // DiskCatalog.cpp - the download path and the Settings status column - and
+    // the mount path does not hash at all, so a foreign image under a known name
+    // is mounted as it is. Nothing re-fetches a file already on disk except a
+    // user pressing Download.
+    //
+    // What is true instead, and what the sharing is now safe on:
+    //   - a download lands under <name>.new and is renamed on only after its
+    //     sha256 matches, so a failed transfer destroys nothing;
+    //   - replacing an image whose bytes have changed asks first;
+    //   - Start reports a mounted image the catalog does not vouch for, and
+    //     boots it anyway, because a disk the user has written to stops matching
+    //     the catalog by definition and refusing would brick every used machine.
     std::string catalogIndexUrl;
 
     // Display settings

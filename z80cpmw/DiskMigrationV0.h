@@ -147,6 +147,22 @@ bool isEquivalentPriorImage(const std::string& provenance,
 
 bool looksLikeV0Name(const std::string& filename);
 
+// The RomWBW release a v0 name carries: "3.5.1" out of
+// "hd1k_combo-v0-3.5.1.img", and out of a whole path as readily as out of a bare
+// name. False - and 'out' untouched - for anything that is not a v0 name, which
+// includes a user's own image and every pre-v0 one.
+//
+// This is what lets a configuration ANSWER THE QUESTION "which release are the
+// mounted disks?" without a catalog, a ROM or a migration pass, which is what
+// makes the backfill in Config's from_json possible. It reads the release out of
+// the name rather than assuming PRE_V0_ROMWBW, so a machine mounting 3.6.0
+// images is recorded as 3.6.0 and not dragged back to 3.5.1.
+//
+// The string is returned exactly as the filename spells it, lowercased by fold()
+// like every other name comparison here. It is a release id to compare and to
+// store, never a version to do arithmetic on.
+bool releaseOfV0Name(const std::string& filename, std::string& out);
+
 // The catalog ROM id a stored AppConfig::rom becomes, for a configuration
 // written while that field still held a FILENAME.
 //

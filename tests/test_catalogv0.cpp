@@ -58,6 +58,7 @@
 
 #include <cctype>
 #include <cstdio>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -1096,6 +1097,179 @@ static void test_pointing_at_another_catalog() {
           "the tag distinguishes inputs at all");
     checkTrue(catalogv0::fnv1a32(catalogv0::INDEX_URL).size() == 8,
           "and is 8 hex characters, short enough to sit in a path");
+
+    // The whole of C's isspace() set, because Swift's .whitespacesAndNewlines
+    // and Kotlin's .trim() both strip \f and \v: a value those two ports read as
+    // "no preference" must not be read here as a host whose name is a form feed.
+    checkStr(catalogv0::indexUrl("\f\v \t\r\n"), catalogv0::INDEX_URL,
+             "form feed and vertical tab are whitespace here as they are in the siblings");
+    checkStr(catalogv0::indexUrl("  " + mine + "\t\r\n"), mine,
+             "and a pasted URL is trimmed on both ends rather than fetched with its padding");
+
+    // WHAT GETS STORED, which is not the same question as what gets fetched.
+    checkStr(catalogv0::normalizedIndexSetting(""), "",
+             "an empty field stores nothing");
+    checkStr(catalogv0::normalizedIndexSetting("   "), "",
+             "and neither does a field holding only spaces");
+    checkStr(catalogv0::normalizedIndexSetting(catalogv0::INDEX_URL), "",
+             "the built-in URL PASTED IN stores as empty - the field shows the URL in "
+             "use and invites copying, and storing it would pin this install to "
+             "today's default for ever");
+    checkStr(catalogv0::normalizedIndexSetting("  " + mine + "  "), mine,
+             "a real custom URL is stored trimmed");
+}
+
+// The environment variable, which is the mechanism the header nominates FIRST
+// for pointing at another catalog and was the one thing here with no test at
+// all - so the precedence rule the feature rests on was never exercised, and
+// the suite quietly FAILED for anyone who had the variable set while working on
+// it. Measured on 2026-09-08: eight of these checks went red with
+// ROMWBW_INDEX_URL exported, which is the state of every machine actually
+// testing this feature.
+// The release a v0 filename carries, which is what lets a CONFIGURATION answer
+// "which release are the disks in my four slots?" with no catalog, no ROM and no
+// migration pass in sight.
+//
+// That question used to be answered only inside ConfigManager::migrateToInterfaceV0,
+// and that pass is gated on interfaceV0Migrated - already true on every machine
+// that has launched a build since the storage rename, which is to say on every
+// machine that has the problem. Reading the release out of the name instead
+// works on a configuration that some earlier build already migrated, and it says
+// 3.6.0 for a 3.6.0 library where a constant could only ever say 3.5.1.
+static void test_the_release_a_v0_name_carries() {
+    section("the release a v0 name carries");
+
+    std::string out;
+
+    out.clear();
+    checkTrue(diskv0::releaseOfV0Name("hd1k_combo-v0-3.5.1.img", out),
+              "a v0 name answers");
+    checkStr(out, "3.5.1", "with the release in it");
+
+    out.clear();
+    checkTrue(diskv0::releaseOfV0Name("hd1k_games-v0-3.6.0.img", out),
+              "and answers for a release that is not the pre-v0 one");
+    checkStr(out, "3.6.0",
+             "with 3.6.0 and not a constant - a 3.6.0 library must not be dragged "
+             "back to 3.5.1 by the thing that reads it");
+
+    out.clear();
+    checkTrue(diskv0::releaseOfV0Name(
+                  "C:\\Users\\me\\AppData\\Local\\z80cpmw\\data\\hd1k_combo-v0-3.5.1.img", out),
+              "a whole path answers too, which is the shape the four slots actually store");
+    checkStr(out, "3.5.1", "reading only the basename");
+
+    out.clear();
+    checkTrue(diskv0::releaseOfV0Name("emu_avw-v0-3.5.1.rom", out),
+              "a ROM name is a v0 name as much as a disk name is");
+    checkStr(out, "3.5.1", "and carries its release the same way");
+
+    out = "untouched";
+    checkFalse(diskv0::releaseOfV0Name("hd1k_combo.img", out),
+               "a PRE-v0 name carries no release");
+    checkStr(out, "untouched", "and leaves the out parameter alone");
+
+    out = "untouched";
+    checkFalse(diskv0::releaseOfV0Name("my_own_disk.img", out),
+               "and neither does an image the user made themselves");
+    checkStr(out, "untouched", "which is what keeps their choice from being overwritten");
+
+    out = "untouched";
+    checkFalse(diskv0::releaseOfV0Name("hd1k_combo-v0-.img", out),
+               "a tag with nothing after it names no release - the same name "
+               "looksLikeV0Name() rejects, so the two cannot disagree");
+
+    out = "untouched";
+    checkFalse(diskv0::releaseOfV0Name("", out), "and an empty name answers nothing");
+
+    // Folded, like every other name comparison in this file, so a spelling
+    // Windows kept for the user does not become a second release.
+    out.clear();
+    checkTrue(diskv0::releaseOfV0Name("HD1K_COMBO-V0-3.5.1.IMG", out),
+              "an upper-case spelling is still a v0 name");
+    checkStr(out, "3.5.1", "and folds to the same release");
+}
+
+static void setIndexEnv(const char* value) {
+#ifdef _WIN32
+    _putenv_s("ROMWBW_INDEX_URL", value ? value : "");
+#else
+    if (value) setenv("ROMWBW_INDEX_URL", value, 1);
+    else       unsetenv("ROMWBW_INDEX_URL");
+#endif
+}
+
+static void test_index_url_environment() {
+    section("the environment variable that wins for one run");
+
+    const std::string mine = "https://example.invalid/mine/index-v0.json";
+    const std::string fromEnv = "https://example.invalid/env/index-v0.json";
+
+    // Cleared first, so this section describes what it sets rather than what the
+    // machine running it happens to export.
+    setIndexEnv(nullptr);
+    {
+        std::string out = "untouched";
+        checkFalse(catalogv0::indexUrlFromEnvironment(out),
+                   "unset: the environment has no answer");
+        checkStr(out, "untouched", "and the out parameter is left alone");
+    }
+
+    setIndexEnv("");
+    {
+        std::string out = "untouched";
+        checkFalse(catalogv0::indexUrlFromEnvironment(out),
+                   "set to nothing is not set");
+        checkStr(catalogv0::indexUrl(mine), mine, "so the stored setting still decides");
+    }
+
+    // The divergence that locked the Settings field for a variable with no
+    // effect: the dialog tested `*env != 0` where indexUrl() trims first.
+    setIndexEnv("   ");
+    {
+        std::string out;
+        checkFalse(catalogv0::indexUrlFromEnvironment(out),
+                   "whitespace-only is not set either - one reader, one answer, so the "
+                   "Settings field cannot be disabled for a variable indexUrl() ignores");
+        checkStr(catalogv0::indexUrl(""), catalogv0::INDEX_URL,
+                 "and the built-in index is still what gets fetched");
+    }
+
+    setIndexEnv(fromEnv.c_str());
+    {
+        std::string out;
+        checkTrue(catalogv0::indexUrlFromEnvironment(out), "set: the environment answers");
+        checkStr(out, fromEnv, "with the URL it holds");
+        checkStr(catalogv0::indexUrl(""), fromEnv,
+                 "it beats no stored setting");
+        checkStr(catalogv0::indexUrl(mine), fromEnv,
+                 "AND it beats a stored one - the precedence romwbw_emu's romwbw-get "
+                 "uses, so one set of instructions covers every client");
+        checkTrue(catalogv0::isCustomIndex(""),
+                  "a machine with nothing stored is still on a custom index while it is set");
+        checkStr(catalogv0::indexScope(""), "@" + catalogv0::fnv1a32(fromEnv),
+                 "and the scope follows the URL in force, not the one stored");
+    }
+
+    setIndexEnv(("  " + fromEnv + "  ").c_str());
+    {
+        std::string out;
+        checkTrue(catalogv0::indexUrlFromEnvironment(out), "a padded variable is still set");
+        checkStr(out, fromEnv, "and is trimmed before use");
+    }
+
+    // Pointing the variable at the built-in URL is not a custom index.
+    setIndexEnv(catalogv0::INDEX_URL);
+    checkFalse(catalogv0::isCustomIndex(mine),
+               "the variable naming the built-in index makes this the built-in index, "
+               "whatever is stored");
+    checkStr(catalogv0::indexScope(mine), "", "so it takes no namespace");
+
+    // Left clear, because every other section in this file asks indexUrl() what
+    // the built-in answer is and would otherwise inherit this one.
+    setIndexEnv(nullptr);
+    checkStr(catalogv0::indexUrl(""), catalogv0::INDEX_URL,
+             "and the variable is cleared again, so the rest of this suite is hermetic");
 }
 
 static void test_the_one_equivalent_prior_image() {
@@ -1261,6 +1435,16 @@ static void test_the_fixture_is_not_stale() {
 int main() {
     printf("=== Interface-v0 catalog suite ===\n");
 
+    // HERMETIC FIRST. catalogv0::indexUrl() reads $ROMWBW_INDEX_URL, and every
+    // section below that asks it what the built-in answer is would otherwise be
+    // answering a question about the machine rather than about the code.
+    //
+    // That is not theoretical: with the variable exported this suite failed
+    // EIGHT checks, measured on 2026-09-08 - and the people who export it are
+    // exactly the people working on this feature, so the suite went red for the
+    // one audience most likely to run it, in a way that looked like their change.
+    setIndexEnv(nullptr);
+
     test_hex_bytes();
     test_real_index();
     test_preview_is_marked();
@@ -1271,6 +1455,8 @@ int main() {
     test_catalog_tolerance();
     test_the_url_that_is_compiled_in();
     test_pointing_at_another_catalog();
+    test_index_url_environment();
+    test_the_release_a_v0_name_carries();
     test_the_one_equivalent_prior_image();
     test_the_stored_rom_becomes_an_id();
     test_the_fixture_is_not_stale();

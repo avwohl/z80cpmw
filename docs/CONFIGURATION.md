@@ -313,6 +313,7 @@ running.
 | `display.bell` | Whether `BEL` (character 7) makes a sound (default `true`) |
 | `core.rom`         | Which ROM to boot, as a catalog **id** — `emu_avw`, not a filename |
 | `core.romwbwVersion` | Which RomWBW release to run, as its version string — `3.6.0` |
+| `core.catalogIndexUrl` | Which catalog to read ROMs and disks from — empty for the one this build ships with |
 | `core.bootString`  | Text typed automatically at the boot menu |
 | `disks`            | Disk images assigned to units 0–3 |
 
@@ -353,3 +354,50 @@ Most of these are easier to change from *Emulator → Settings*. The ROM is the
 list of ROMs — so a ROM published in the catalog becomes selectable without a
 new version of this app — and the release is the **RomWBW release:** picker at
 the top of the *Disk Images* page.
+
+## Reading a different catalog
+
+Everything above is read out of a document fetched at run time. `core.catalogIndexUrl`
+is which document — the **Catalog index** field under the release picker on the
+*Disk Images* page, and the one setting that changes what every other one can
+mean. Set it to try a `romwbw_disks` release before it is published, or to run
+your own catalog.
+
+Empty means the index this build ships with. That is deliberately **not** the
+same as pasting that URL in: a stored copy would pin this install to whatever
+the default was on the day you typed it, where empty follows a default that
+moves in a later build. Pasting the built-in URL is therefore stored as empty,
+so you cannot freeze yourself by copying what the field shows you.
+
+`ROMWBW_INDEX_URL` in the environment beats the setting, for that run only, and
+nothing is written down:
+
+    set ROMWBW_INDEX_URL=https://example.com/my-catalog/index-v0.json
+    z80cpmw.exe
+
+The order — environment, then this setting, then the built-in — is the one
+`romwbw_emu`'s `tools/romwbw-get` uses, so one set of instructions covers every
+client. When the variable is set the Settings field is disabled and says so, and
+the note under it always names the URL actually in use, whichever of the three
+supplied it.
+
+Two things to know before you use it:
+
+- **Every catalog shares one data folder.** Disk images are not kept apart per
+  catalog. Two catalogs that publish an image under the same name share one
+  file, so downloading from the second replaces the first. Nothing is destroyed
+  by a *failed* download — the file is fetched under a temporary name and moved
+  into place only after its SHA-256 matches — and a download that would replace
+  an image you have written to asks first. But if you say yes, what was inside
+  that disk is gone.
+- **A release the catalog does not publish cannot start.** The ROM comes from
+  the same catalog as the disks, so pointing at a catalog that carries only
+  3.5.1 while `core.romwbwVersion` says `3.6.0` leaves nothing to boot. The
+  message says so and names the catalog; pick a release that catalog publishes,
+  or clear the field.
+
+When a mounted image in the data folder is not the one the catalog in hand
+publishes under that name, the machine says so at start and boots it anyway —
+your own disks are yours, and a disk you have saved work into stops matching the
+catalog the moment you use it. *Settings → Disk Images* shows the same thing per
+image in its **Status** column and can replace one, and says what that costs.

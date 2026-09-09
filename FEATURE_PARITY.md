@@ -1621,6 +1621,82 @@ extending it; that port's parser turned out to be the thinnest of the four.)
 
 ---
 
+### 14. Switchable catalog index  — *present on iOS/macOS and in Android's model; z80cpmw is not the reference*
+The one URL compiled into each client is the `romwbw_disks` index; everything
+else — which RomWBW releases exist, which ROMs and images each publishes, and
+their sizes and checksums — is read out of a document fetched at run time. This
+entry is about making **that URL** changeable, so a `romwbw_disks` release can be
+tried before it is published and so somebody can run a fork.
+
+This repo is **not** the reference for it. `romwbw_emu`'s `tools/romwbw-get` had
+the precedence rule first, and z80cpmw copied it deliberately rather than
+inventing one, so that a single set of instructions covers every client.
+- **Behaviour/spec:** three levels, highest first — the environment variable
+  `ROMWBW_INDEX_URL`, then a stored setting, then the URL built into the client.
+  Empty as a stored setting means "the built-in one" and is deliberately **not**
+  a stored copy of that URL: storing the default freezes an install onto whatever
+  it was on the day it was written, where empty follows a default that moves.
+  Pasting the built-in URL into the field therefore stores as empty. The variable
+  changes one run and writes nothing down; a UI showing an editable field while
+  it is set would be lying, so the field is disabled and says why.
+- **The index identity is a hash, and it must agree across clients.** FNV-1a
+  over the URL's UTF-8 bytes, 64-bit, folded `hash ^ (hash >> 32)` to 32 bits and
+  printed `%08x`. One index URL therefore produces one tag on every client, so a
+  bug report naming a scope means the same thing in each.
+<!-- cites: z80cpmw -->
+- **Where:** `CatalogV0.h` / `CatalogV0.cpp` (`indexUrl`, `isCustomIndex`,
+  `indexScope`, `fnv1a32`, `indexUrlFromEnvironment` — the single reader of the
+  variable — and `normalizedIndexSetting`, which is what a typed URL is stored
+  as), `Config.h` (`catalogIndexUrl`), `DiskCatalog.h` (`setCatalogIndexUrl`,
+  `getCatalogIndexUrl`; `fetchIndex` resolves through `indexUrl` so the variable
+  still wins), `SettingsDialogWx.cpp` (`updateCatalogIndexNote`,
+  `typedCatalogIndexUrl`, `onCatalogIndexUrlChanged` — the field, its live note,
+  and the push into the catalog before every fetch), `MainWindow.cpp`
+  (`applyConfig` seeds it, `onEmulatorSettings` stores it).
+<!-- /cites -->
+- **Config:** `core.catalogIndexUrl` in the JSON config, or **Settings → Disk
+  Images → Catalog index**, which reads and writes that same member. Documented
+  for users in `docs/CONFIGURATION.md` and in the in-app Configuration topic.
+- **Verified by running it (2026-09-09):** a doctored `index-v0.json` served from
+  `http://127.0.0.1:8731` was fetched, its release label appeared in the picker,
+  its disk set filled the list, and the machine booted to the RomWBW loader on a
+  ROM chosen from it. With the variable pointing at a second local index and a
+  different URL stored in the field, the variable's catalog won and the field was
+  disabled. Pressing OK under the variable left `core.romwbwVersion` untouched.
+- **THE STORAGE IS NOT SCOPED HERE, and that is the gap against `ioscpm`.**
+  `indexScope()` computes the per-index suffix, is tested, and **has no caller**:
+  every catalog reads and writes one data folder, so two catalogs publishing an
+  image under one name share one file. What has been done instead is to make the
+  sharing safe and visible — a download is fetched under a temporary name and
+  moved into place only after its SHA-256 matches, replacing an image whose bytes
+  have changed asks first, the Settings note says the folder is shared, and Start
+  reports a mounted image the catalog in hand does not vouch for. `todo.txt`
+  carries the scoping itself.
+- **Platform mapping:** adopt the three-level precedence verbatim; it is the part
+  that has to match, because it is what the instructions describe. The scope hash
+  matters only for a port that isolates storage, and a port that does isolate
+  should use the same hash so the folder names agree.
+- **Port status — NOT re-read at a commit that carries this work.** Both sibling
+  columns below were read at shas that predate it (`ioscpm` at build 61,
+  `cpmdroid` on 2026-09-06), and both trees have moved 20-odd commits since; the
+  sibling-readings block is not advanced by this entry and the drift script will
+  keep saying so. What is recorded here is only what the current checkouts show,
+  which is a reading of a tree, not of a column — no symbols are cited for either
+  port for that reason:
+  - **ioscpm (iOS/macOS)** — has the setting, a UI for it, and storage scoped per
+    index, which is the thing this port lacks. Its most recent commit at the time
+    of writing is titled *"Build 69: point the catalog index somewhere else, and
+    take its storage with it"*. It also restricts the URL's scheme, which z80cpmw
+    does not — a plain `http://` index is accepted here, and that is what makes a
+    local test server usable on the desktop.
+  - **cpmdroid (Android)** — has the resolution in its model, with the same
+    three-level precedence, and **no UI**: that port's own `todo.txt` says so.
+  - **romwbw_emu (CLI)** — the origin of the precedence rule, with a
+    command-line flag ahead of the environment variable, and no scoping: two
+    indexes share one cache there too.
+
+---
+
 ## Per-port gap snapshot (verify before acting)
 
 ✅ present · ◐ partial · ⬜ missing · ➖ N/A or host-provided · ❓ verify

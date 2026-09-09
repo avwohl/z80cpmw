@@ -191,24 +191,44 @@ on 2026-09-08, whose copy carries "THIS COPY HAS DIVERGED and the other four
 need the same edit" - an instruction about other repositories, which per this
 file's header belongs in those repositories' lists.
 
-- The catalog index is switchable but its downloads are not isolated.
-config::Config::catalogIndexUrl (empty = the built-in index) and
-$ROMWBW_INDEX_URL now point this client at another romwbw_disks catalog, for
-testing a release before it is published or for running your own.
-catalogv0::indexUrl/isCustomIndex/indexScope resolve it, tests/test_catalogv0.cpp
-covers them (166 checks), and the tag is pinned to the value ioscpm's Swift
-computes for the same URL so one index means one scope on every client.
-  WHAT IS MISSING is the other half.  ioscpm gives each index its own Disks
-folder and its own per-release settings keys, so a visit to a test catalog cannot
-touch the library the machine already has and coming back finds it untouched.
-Here the data folder is computed in FOUR places - MainWindow twice, getDataFolder()
-in emu_io_windows.cpp, and DiskCatalog's constructor plus setDownloadDirectory() -
-and scoping one of them would have the emulator read a folder the catalog does not
-write.  catalogv0::indexScope() returns the suffix already and is empty for the
-built-in index, so applying it is a one-line change at each site; the work is
-reducing four sites to one first, which MainWindow.cpp:1915 and :2599 already call
-out as wanting doing.
-  Until then two catalogs share one data folder, so an image published under the
-same name by both is replaced on each switch.  Nothing wrong is ever booted - a
-mismatched image fails its sha256 and is re-fetched - but work saved inside a
-downloaded disk can be lost, which is what the Settings note now says.
+- The catalog index is switchable, and its downloads are still not isolated.
+catalogv0::indexScope() computes the per-index suffix, is tested, and HAS NO
+CALLER: every catalog reads and writes one data folder, so two catalogs
+publishing an image under one name share one file.
+  What ioscpm does instead is give each index its own Disks folder and its own
+per-release settings keys, so a visit to a test catalog cannot touch the library
+the machine already has, and coming back finds it untouched.  Its build 69 is
+titled "point the catalog index somewhere else, and take its storage with it".
+  THE OBSTACLE IS NOT THE SUFFIX, it is where to apply it.  The catalog's own
+download directory does have a single choke point - DiskCatalog::getDownloadDirectory(),
+which m_downloadDir reaches nowhere else - but %LOCALAPPDATA%\z80cpmw\data is
+also computed in emu_io_windows.cpp's getDataFolder(), and THAT one is the R8/W8
+host-file transfer folder as well as the place disks are read from.  Scoping the
+catalog's half alone would have the emulator read a folder the catalog does not
+write; scoping both would move the user's file-transfer folder, which is not
+catalog data and is not this feature's to move.  It also needs a migration:
+existing installs have their images in the unscoped folder under absolute paths
+stored in the config.
+  WHAT HAS BEEN DONE INSTEAD is to make the sharing safe and visible, which is
+not the same thing and does not close this item:
+    * a download is fetched under <name>.new and moved onto the real name only
+      after its sha256 matches, so a cancelled, failed or corrupt transfer can no
+      longer destroy the file that was there.  It used to write straight to the
+      real path and DeleteFileA it on every failure arm.
+    * replacing an image whose bytes have changed since it was written asks
+      first and says what it costs; one that is merely superseded asks too.  The
+      Download button used to refuse both, because isDiskDownloaded() is a size
+      test and two catalogs' images are usually the same size.
+    * Start reports a mounted image the catalog in hand does not vouch for, and
+      boots it anyway.  DiskLedger::mountedCopyIsNotTheCatalogImage is the policy
+      and is in a suite; it is deliberately silent for NeedsMeasurement and
+      Unverifiable, so a launch that never fetched says nothing rather than
+      accusing every disk.
+    * the Settings note says the folder is shared - and is now readable, which it
+      was not: it was drawn on one unwrapped line and clipped after about seventy
+      characters, so the whole warning and the "In use:" URL were off the page.
+  "Nothing wrong is ever booted - a mismatched image fails its sha256 and is
+re-fetched" was in this item and in Config.h, and it was FALSE: every diskhash::
+call is in DiskCatalog.cpp, and the mount path never hashes.  Nothing re-fetches
+an image already on disk except a user clicking Download.  The notice above is
+what stands in for it.

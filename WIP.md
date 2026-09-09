@@ -16,9 +16,14 @@ is `[1.0.20]`, `[1.0.21-beta]` and `[1.0.22]`. The W8-under-MSIX question that
 was this file's open question is answered, in source and in
 [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md).
 
-Current version: **1.0.22** (Store, 2026-08-23), with the same build signed for
-sideloading as 1.0.22-beta. Since `31d01c6` the version is edited only in
-`z80cpmw/Version.h`; the MSIX and NSIS scripts derive theirs from it.
+Version in the tree: **1.0.29** (`z80cpmw/Version.h`), which is the Store package
+`CHANGELOG.md` records for 2026-09-07. The version released on the Store is
+**1.0.25**, measured with `tools/check-store-version.sh`; this line said
+**1.0.22** until 2026-09-09 and was four releases behind. Since `31d01c6` the
+version is edited only in `Version.h`; the MSIX and NSIS scripts derive theirs
+from it, and todo.txt reserves bumping it for the moment something is packaged —
+so a tree with unpackaged work in it sits under `[Unreleased]` at the number of
+the last package, which is what 1.0.29 is now.
 
 ## Building it
 
@@ -60,8 +65,17 @@ pixels — and prints SKIP and exits 0 where there is no desktop rather than
 turning CI red for want of one. The host file transfer suite needs
 `..\romwbw_emu`, the HBIOS suite needs `..\cpmemu` as well, and the
 configuration diagnostics suite is last because it needs both on the include
-path even though it links nothing out of either. All six pass: 516, 244, 50, 66,
-36 and 108 checks, 1020 in total.
+path even though it links nothing out of either. All **eight** pass: 516, 355,
+50, 175, 207, 66, 36 and 374 checks, **1779** in total.
+
+**One of them reads the environment, so keep it hermetic.** The interface-v0
+catalog suite exercises `catalogv0::indexUrl()`, which consults
+`$ROMWBW_INDEX_URL` — and until 2026-09-09 it had no test that set the variable
+and no code that cleared it, so it failed **eight checks** for anyone who had
+that variable exported. That is precisely the person working on the catalog
+index, and the failure looked like their own change. `main()` clears it before
+the first section now, and `test_index_url_environment` sets and unsets it
+deliberately. Any new suite that reads the environment owes the same.
 
 ## Not verified on hardware
 
@@ -112,6 +126,36 @@ which looks exactly like `SetSize` being ignored.
 
 **wx's notebook tab control is class `_wx_SysTabCtl32`, not `SysTabControl32`.**
 A `FindWindowEx` on the documented name finds nothing.
+
+Four more from the 2026-09-09 pass over the Settings dialog, which cost the same
+hour each.
+
+**UI Automation is useless against this dialog.** wx exposes no UIA or MSAA
+roles, so every control — the notebook tabs included — comes back as a generic
+`Pane` with no `TabItem` and no `SelectionItemPattern`. It looks like exactly the
+right tool and returns nothing usable. Do not spend the hour.
+
+**Change the notebook page by posting `WM_KEYDOWN` `VK_RIGHT` (0x27) to the tab
+control.** comctl32's tab proc turns that into a real `TCN_SELCHANGE`, which is
+what makes wx swap the panel. `TCM_SETCURSEL` moves the tab strip and tells wx
+nothing, so the old page stays up; `TCM_GETITEMRECT` carries a pointer and
+crashes the app, per the rule above. Loop until the control you want reports
+visible rather than counting key presses.
+
+**`GetClassNameW` returns an empty string when it is called from inside a
+PowerShell `EnumChildWindows` delegate**, while working perfectly outside one.
+Collect the child handles in a native `Add-Type` helper and read the class names
+in a second pass. `WM_GETTEXT` and `WM_SETTEXT` are marshalled cross-process by
+USER32 and work either way, so those are how to read and set a field.
+
+**A control off the visible page is still enumerable** (`IsWindowVisible` false,
+everything else readable), so every page's state can be dumped without switching
+to it; the switch is only needed for a screenshot. The trap: **a `wxStaticText`
+returns its whole label to `WM_GETTEXT` even when the screen shows a fraction of
+it.** A text dump therefore cannot see a clipped label, which is how a note whose
+warning was cut off after seventy characters passed every scripted check and
+shipped. Anything about what a label *says* has to be read off the `PrintWindow`
+bitmap.
 
 ## The core is shared by reference; `emu_io_common.cc` is not
 

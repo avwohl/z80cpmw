@@ -108,6 +108,21 @@ std::string indexScope(const std::string& configured);
 // configured value in hand.
 std::string fnv1a32(const std::string& s);
 
+// Is $ROMWBW_INDEX_URL set to something that will actually be used, and if so
+// what? THE ONLY READER OF THAT VARIABLE. indexUrl() calls this, and so does the
+// Settings dialog when it decides whether to disable the field - which is the
+// point of it existing: the dialog used to test `env != nullptr && *env != 0`
+// and so treated a variable holding one space as set, disabling the field and
+// announcing an override that indexUrl() had already discarded as whitespace.
+// One reader, one answer.
+bool indexUrlFromEnvironment(std::string& out);
+
+// What a URL typed into the Settings field should be STORED as: trimmed, and
+// EMPTY when it is the built-in index, whether that was left blank or pasted in
+// full. See the note on Config::catalogIndexUrl for why storing the default is
+// not the same as leaving it empty.
+std::string normalizedIndexSetting(const std::string& typed);
+
 // One entry of index-v0.json's `romwbw_versions[]`.
 //
 // Only what a client acts on is kept. `released`, `disks_xml_url`, `notes` and

@@ -66,8 +66,13 @@ reserves bumping it for the moment something is packaged, which has not happened
   storing one would freeze this machine onto whatever the default was the day it
   was written, where empty picks up a default that moves.
 
-- `catalogv0::indexUrl()`, `isCustomIndex()`, `indexScope()` and `fnv1a32()`, in
-  the portable half of the client so they are testable. `indexScope()` is
+- `catalogv0::indexUrl()`, `isCustomIndex()`, `indexScope()`, `fnv1a32()`,
+  `indexUrlFromEnvironment()` and `normalizedIndexSetting()`, in the portable
+  half of the client so they are testable. `indexUrlFromEnvironment()` is the
+  **only** reader of `$ROMWBW_INDEX_URL` — the Settings dialog asks it rather
+  than calling `getenv` itself, so "set" cannot come to mean two different
+  things. `normalizedIndexSetting()` is what a typed URL is stored as: trimmed,
+  and empty for the built-in index however it was entered. `indexScope()` is
   **empty for the built-in index** and `@<tag>` otherwise; the tag is FNV-1a
   folded to 32 bits, the same function folded the same way as ioscpm's Swift and
   cpmdroid's Kotlin, so one index URL produces one scope on every client and a
@@ -118,35 +123,175 @@ reserves bumping it for the moment something is packaged, which has not happened
   a real machine in 1.0.28-beta's own "What was actually run" notes without being
   recognised.
 
-  **Not compiled.** `Config.cpp` needs MSVC and `windows.h`.
+  **Where the backfill lives has changed, and that is the real fix.** Recording
+  the release inside `migrateToInterfaceV0` could not reach the machines that had
+  the bug: `MainWindow::migrateStorageToInterfaceV0` returns immediately when
+  `interfaceV0Migrated` is set, and that flag is already true on every machine
+  that has launched a build since the storage rename. `Config.cpp` says exactly
+  this about the ROM-id conversion, a hundred lines above, and puts that at parse
+  time for the same reason. The configuration on the machine this was found on
+  read `interfaceV0Migrated: true`, `romwbwVersion: "3.6.0"` and four slots
+  naming `-v0-3.5.1` images — the mismatch itself, out of reach of its own fix.
+
+  So `from_json` now reads the release out of the mounted filenames, on every
+  load, for configurations and profiles alike. `diskv0::releaseOfV0Name()` is the
+  new part: every v0 name carries its release, so the slots answer the question
+  directly and answer it for 3.6.0 as readily as for 3.5.1, where a constant
+  could only ever say 3.5.1 and would drag a 3.6.0 library backwards. Only where
+  nothing is stored, and only where the slots AGREE — a machine mounting one of
+  each has no right answer and is left alone.
+
+### Fixed after building and running it
+
+Everything above was written without compiling the Windows half. It compiles, and
+driving it turned up eight things that reading it had not.
+
+- **The Settings note was clipped, so the warning it exists for never reached the
+  user.** `m_catalogIndexNote` was set once, in `loadSettings()`, and never
+  wrapped — while `updateRomwbwVersionNote()`, the note directly above it, does
+  wrap. A `wxStaticText` does not wrap unless told, so the custom-catalog form was
+  drawn as one line and cut off at about seventy characters: on screen it read
+  *"Using a custom catalog. Downloads are still checked against that catalog's"*
+  and stopped. What was cut was the whole shared-data-folder warning and the whole
+  `In use:` URL — the two things the note is for.
+
+  `Wrap()` does not work from that call site, and the fixed paragraphs elsewhere
+  in the dialog prove it works from theirs; what wx does with the difference was
+  not established. The breaks are put in by `hardWrap()` instead, at a measured 62
+  columns, where a screenshot can see them and a later `Layout()` cannot undo
+  them. A URL longer than the budget is broken across lines rather than left to
+  overrun, because leaving it to overrun drew **nothing at all**.
+
+- **Refresh re-fetched the old index.** `fetchIndex` read `ConfigManager`, and the
+  configuration is written only by OK — so pasting an unpublished index and
+  pressing Refresh fetched the *built-in* catalog, filled the release picker and
+  the disk list from it, and said "Catalog loaded", with nothing on screen to say
+  the typed URL had been ignored. That is the one workflow the setting exists for.
+  `DiskCatalog` now holds the index the way it already held the release
+  preference: `setCatalogIndexUrl()`, seeded by `applyConfig`, pushed by the
+  dialog before every fetch, and put back by Cancel. The note is rebuilt on every
+  keystroke for the same reason.
+
+- **One test run with `$ROMWBW_INDEX_URL` rewrote the machine's release.** The
+  variable stores nothing of itself, and then OK stored the consequence: the
+  picker holds whatever the test catalog publishes, so a catalog offering only
+  3.5.1 collapsed the control and wrote 3.5.1 over the user's 3.6.0. Measured from
+  a pristine configuration — one launch, open Settings, press OK, nothing typed.
+  `core.romwbwVersion` is no longer written while the variable is set.
+
+- **A failed disk download destroyed the file it was replacing.** `downloadDisk`
+  handed `downloadToFile` the real path, which truncates it before a byte arrives,
+  and every failure arm then `DeleteFileA`d it — so a cancel, a dead network, a
+  short read or a checksum mismatch took the image with it. That image is not
+  always a spare copy: it may be a mounted volume the user has been writing to for
+  months. It is now fetched as `<name>.new` and renamed on only after the sha256
+  passes, which is what `downloadRomInto` had always done.
+
+- **A superseded image could not be re-downloaded.** The Download button refused
+  anything `isDiskDownloaded()` accepted, and that is a size test — two catalogs'
+  images under one name are usually the same size, so the one manual way out of a
+  wrong file was closed by the check meant to save a redundant download. It now
+  asks the ledger: refused only when the file is genuinely what the catalog
+  publishes, and otherwise offered with what replacing it costs.
+
+- **Nothing checked a mounted image against the catalog.** The claim that "a
+  mismatched image fails its sha256 and is re-fetched" was false — every
+  `diskhash::` call is in `DiskCatalog.cpp`, and the mount path never hashes.
+  Start now reports a slot the catalog in hand does not vouch for and boots it
+  anyway. `DiskLedger::mountedCopyIsNotTheCatalogImage` is the policy, in a suite,
+  and is deliberately silent for `NeedsMeasurement` and `Unverifiable` so a launch
+  that never fetched says nothing rather than accusing every disk.
+
+- **Nothing said the mounted disks belonged to a different release, either — and
+  that is the pairing this whole entry is about.** The check above needs a
+  catalog and answers about one filename; it is blind to the case where the file
+  is a different release's image altogether, because the 3.6.0 catalog has no
+  entry named `…-v0-3.5.1.img` to have an opinion about. So Start also compares
+  the release in each mounted v0 filename against the release the machine is set
+  to, which needs no catalog, no hash and no network — the name carries it.
+
+  Measured on the machine this was written on, which held `romwbwVersion: "3.6.0"`
+  and two `-v0-3.5.1` images and had been booting that pairing in silence: it now
+  prints, per slot, that the image is RomWBW 3.5.1 while the machine is set to
+  3.6.0, that the guest will report an HBIOS/CBIOS version mismatch, and where
+  the release picker is. It starts anyway — the pairing is legal and is what an
+  upgrade leaves behind; the guest's own CBIOS banner is what finally says so,
+  and this says it first, somewhere the user can act on it.
+
+- **"Check the network connection" was the wrong advice.** A catalog that does not
+  publish the selected release cannot supply its ROM however good the network is,
+  and that dialog said to check it anyway. Measured: a test catalog carrying only
+  3.5.1 with the machine set to 3.6.0 produced exactly that. It now names the
+  index and says what can be done about it.
+
+- **One bad byte stopped the configuration saving, silently and for ever.**
+  `dump()` throws on a string that is not valid UTF-8 and `saveToFile`'s catch
+  turned that into a bare `false`, so a single un-encodable byte anywhere in the
+  document — a font name, a boot string, a pasted URL — blocked every save from
+  then on with no message. It now dumps with `error_handler_t::replace`, and a
+  failed save no longer leaves an orphaned `.tmp` beside the real file.
+
+Smaller, from the same pass: `trimmed()` now takes the whole `isspace` set, so a
+value Swift's `.whitespacesAndNewlines` and Kotlin's `.trim()` read as blank is
+not read here as a host named form-feed; `indexUrlFromEnvironment()` is the single
+reader of the variable, so the dialog can no longer disable the field for a
+variable `indexUrl()` ignores; the built-in URL pasted into the field stores as
+empty, since the note invites copying it and storing it would pin the install to
+today's default; and the field is read with `utf8_str()` rather than
+`ToStdString()`, which converts in the active code page.
 
 ### Known limitation
 
-- **The downloads are not isolated yet, and this client differs from ioscpm
-  there.** ioscpm gives each index its own `Disks` folder and its own per-release
-  settings keys, so a visit to a test catalog cannot touch the library the device
-  already has. Here the data folder is computed in four places — `MainWindow`
-  twice, `getDataFolder()` in `emu_io_windows.cpp`, and `DiskCatalog`'s
-  constructor plus `setDownloadDirectory()` — and scoping one of them would have
-  the emulator read a folder the catalog does not write, which is a worse fault
-  than the one it would fix. `indexScope()` returns the suffix already, so the
-  work is reducing four sites to one first; `MainWindow.cpp` already calls that
-  out in two comments. todo.txt carries it.
+- **The downloads are still not isolated.** `catalogv0::indexScope()` computes the
+  per-index suffix, is tested, and **has no caller**, so every catalog reads and
+  writes one data folder and two catalogs publishing an image under one name share
+  one file. ioscpm scopes its storage — build 69 is titled *"point the catalog
+  index somewhere else, and take its storage with it"* — and this client does not.
 
-  Until then two catalogs share one data folder, so an image published under the
-  same name by both is replaced on each switch. Nothing wrong is ever booted — a
-  mismatched image fails its sha256 and is re-fetched — but work saved inside a
-  downloaded disk can be lost. The Settings note says so.
+  The obstacle is not the suffix. `DiskCatalog::getDownloadDirectory()` is a single
+  choke point for catalog data, but `getDataFolder()` in `emu_io_windows.cpp` is
+  the **R8/W8 host-file transfer folder** as well as the place disks are read from:
+  scoping the catalog's half alone would have the emulator read a folder the
+  catalog does not write, and scoping both would move a folder that is not catalog
+  data. It also needs a migration for installs whose images are already there under
+  absolute paths. todo.txt carries it.
+
+  What has been done instead is to make the sharing safe and visible — the
+  temporary-name download, the replace-with-warning, the mounted-image notice and a
+  note that is now readable. That is not isolation and does not close it.
 
 ### Verified
 
-`tests/test_catalogv0.cpp` at **166 checks, 0 failed**, up from 152. Built and
-run with `clang++ -std=c++17` against `CatalogV0.cpp`, `DiskMigrationV0.cpp` and
-`DiskLedger.cpp` — that half of this client is portable, so the catalog layer is
-testable off Windows and was. **Everything outside it is unbuilt:** `Config.cpp`,
-`DiskCatalog.cpp`, `MainWindow.cpp` and `SettingsDialogWx.cpp` need MSVC and
-`windows.h`, so the settings field, the config round trip and the fetch site have
-been read and not compiled. Read them before packaging.
+**Built.** `MSBuild z80cpmw.sln -p:Configuration=Release -p:Platform=x64 -m`,
+**0 warnings, 0 errors**. The four files the entries above were written against
+without compiling — `Config.cpp`, `DiskCatalog.cpp`, `MainWindow.cpp` and
+`SettingsDialogWx.cpp` — all compile.
+
+**All eight suites pass**, 1,779 checks: 516 terminal, 355 help, 50 rendering, 175
+disk provenance, 207 interface-v0 catalog, 66 host file transfer, 36 HBIOS
+host-file, 374 configuration. Up 213, the new ones covering the environment
+variable's precedence, `releaseOfV0Name`, the parse-time release backfill and
+`mountedCopyIsNotTheCatalogImage`.
+
+**The catalog suite is now hermetic.** It read `$ROMWBW_INDEX_URL` through
+`indexUrl()` and had no test that set it, so it FAILED eight checks for anyone who
+had the variable exported — which is exactly the person working on this feature,
+in a way that looked like their own change. Measured before and after: 8 failures,
+then 0.
+
+**Driven, against a catalog served from this machine.** A doctored `index-v0.json`
+on `http://127.0.0.1:8731` was fetched (the server log confirms the GETs), its
+release label `RomWBW 3.5.1 LOCAL-TEST` appeared in the picker, its disk set
+filled the list, and F5 — with `Emulator > Start` confirmed enabled first, per
+WIP.md — booted to `RetroBrew SBC [SBC_simh_std] Boot Loader`. With a second local
+index in `$ROMWBW_INDEX_URL` and a different URL in the field, the variable's
+catalog won and the field was disabled. Pressing OK there left
+`core.romwbwVersion` at 3.6.0. Pasting the built-in URL, padded with spaces,
+stored as empty. The real `z80cpmw.json` was backed up first and restored
+byte-identical afterwards.
+
+**Not verified:** nothing here has been packaged, and `Version.h` is untouched —
+todo.txt reserves the bump for the moment something is packaged.
 
 ## [1.0.29] - 2026-09-07
 

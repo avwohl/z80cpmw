@@ -207,6 +207,11 @@ private:
     void onClearBootConfig(wxCommandEvent& event);
     void onRefreshCatalog(wxCommandEvent& event);
     void onRomwbwVersionChanged(wxCommandEvent& event);
+    // Every keystroke in the Catalog index field. Only re-writes the sentence
+    // under it - nothing is fetched until Refresh, and nothing is stored until
+    // OK - so that "In use:" tracks what is on screen instead of what the
+    // dialog was opened with.
+    void onCatalogIndexUrlChanged(wxCommandEvent& event);
     void onDownloadDisk(wxCommandEvent& event);
     void onDeleteDisk(wxCommandEvent& event);
     void onOpenDataFolder(wxCommandEvent& event);
@@ -309,8 +314,32 @@ private:
     // shown before any catalog has been fetched.
     std::vector<std::string> m_romwbwVersionIds;
     wxStaticText* m_romwbwVersionNote;
-    wxTextCtrl* m_catalogIndexUrlText;
-    wxStaticText* m_catalogIndexNote;
+    // Both null until buildDiskImagesPage() runs. Initialized here rather than
+    // left indeterminate because updateCatalogIndexNote() is reachable from
+    // EVT_TEXT, which wxTextCtrl::SetValue fires - and the text control is
+    // created a few lines before the label, so there is a window in which one
+    // exists and the other does not.
+    wxTextCtrl* m_catalogIndexUrlText = nullptr;
+    wxStaticText* m_catalogIndexNote = nullptr;
+
+    // The catalog index the field held when this dialog opened, so Cancel can
+    // put the catalog back - the same contract as the RomWBW release, and for
+    // the same reason: Refresh pushes the typed value to the DiskCatalog so the
+    // list underneath is the one being asked about, and Cancel means that never
+    // happened. Kept separately from m_settings.catalogIndexUrl because
+    // saveSettings() overwrites that member from the control.
+    std::string m_catalogIndexUrlOnOpen;
+
+    // Rebuild the sentence under the Catalog index field, wrap it, and re-lay
+    // out the page. Called when the dialog loads, whenever the field is edited,
+    // and after a fetch, so that "In use:" is never a claim about a URL that has
+    // been typed over. Named and shaped after updateRomwbwVersionNote(), which
+    // is the note directly above it and had the wrapping right first.
+    void updateCatalogIndexNote();
+
+    // The Catalog index field's value, trimmed and normalized the way it will be
+    // STORED: empty for the built-in index, whether left blank or pasted in.
+    std::string typedCatalogIndexUrl() const;
 
     // Row -> the catalog ROM `id` that row stands for, kept beside m_romChoice
     // for the same reason as the list above: what the control displays is a
@@ -362,6 +391,7 @@ private:
         ID_CLEAR_BOOT_CONFIG,
         ID_REFRESH_CATALOG,
         ID_ROMWBW_VERSION,
+        ID_CATALOG_INDEX_URL,
         ID_DOWNLOAD_DISK,
         ID_DELETE_DISK,
         ID_CATALOG_LOADED,

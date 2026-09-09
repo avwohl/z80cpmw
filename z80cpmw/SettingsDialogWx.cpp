@@ -30,6 +30,7 @@ wxBEGIN_EVENT_TABLE(SettingsDialogWx, wxDialog)
     EVT_BUTTON(ID_CLEAR_BOOT_CONFIG, SettingsDialogWx::onClearBootConfig)
     EVT_BUTTON(ID_REFRESH_CATALOG, SettingsDialogWx::onRefreshCatalog)
     EVT_CHOICE(ID_ROMWBW_VERSION, SettingsDialogWx::onRomwbwVersionChanged)
+    EVT_TEXT(ID_CATALOG_INDEX_URL, SettingsDialogWx::onCatalogIndexUrlChanged)
     EVT_BUTTON(ID_DOWNLOAD_DISK, SettingsDialogWx::onDownloadDisk)
     EVT_BUTTON(ID_DELETE_DISK, SettingsDialogWx::onDeleteDisk)
     EVT_BUTTON(ID_OPEN_DATA_FOLDER, SettingsDialogWx::onOpenDataFolder)
@@ -368,6 +369,78 @@ void SettingsDialogWx::buildMachinePage() {
 // of the Keyboard page showed all three of its paragraphs cut off mid-sentence,
 // because wxStaticText does not wrap unless it is told to.
 static const int kPageTextWrap = 700;
+
+// Characters per line for the two notes on the Disk Images page that are BUILT
+// AT RUN TIME rather than written into the constructor.
+//
+// Those two do not wrap with wxStaticText::Wrap(), and the fixed paragraphs on
+// the other pages do. MEASURED, both of them, on 2026-09-08: bellNote and intro
+// come back from WM_GETTEXT carrying real newlines and drawn 97px tall, while
+// m_romwbwVersionNote and m_catalogIndexNote come back with NO newlines at all,
+// 808x33, clipped mid-sentence - after a Wrap(kPageTextWrap) call on the line
+// above. The difference between the two groups is that these two are added to
+// the sizer with wxEXPAND and are re-labelled after layout; what exactly wx does
+// with that combination was not established, and guessing at it is how the note
+// came to be shipped clipped in the first place.
+//
+// So the line breaks are put in by hand, where they can be seen in a screenshot
+// and cannot be undone by a later Layout(). A CHARACTER budget rather than a
+// pixel one because it needs no device context and no measurement, and cannot be
+// defeated by whatever it is that stops Wrap() working here.
+//
+// 62 is measured, not chosen: bellNote and intro are wrapped by wx itself at
+// kPageTextWrap and come back broken at about 62 characters, and those two are
+// the paragraphs on this dialog that have always drawn correctly. 72 was tried
+// first, on the arithmetic that 808px at this DPI holds about 74 characters, and
+// the URL line came out clipped at "catalog-v0/ind" - so the arithmetic is
+// wrong, or the width the control draws at is not the width the sizer gives it.
+// Being too short costs a line break; being too long costs the text.
+static const size_t kNoteCols = 62;
+
+// Break 'text' into lines of at most 'cols' characters, joined with '\n', which
+// wxStaticText draws as separate lines.
+//
+// A WORD LONGER THAN THE BUDGET IS CUT, and that is not the obvious choice. The
+// obvious one - let it overrun, because a URL split across two lines cannot be
+// double-clicked to copy - was tried first and is wrong here, because it does
+// not overrun: an index URL is 85 characters where the control is 72 wide, and
+// wxStaticText drew that line as NOTHING AT ALL. Measured on 2026-09-08: the
+// label read "In use: https://github.com/avwohl/..." through WM_GETTEXT, the
+// control was two lines tall, and the screen showed "In use:" followed by blank
+// space. A URL the user can read across two lines beats a URL they cannot see,
+// and the field itself still holds a custom one in copyable form.
+static std::string hardWrap(const std::string& text, size_t cols) {
+    if (cols == 0) return text;
+    std::string out;
+    size_t lineLen = 0;
+    for (size_t i = 0; i < text.size();) {
+        while (i < text.size() && text[i] == ' ') i++;
+        if (i >= text.size()) break;
+        const size_t end = text.find(' ', i);
+        std::string word = text.substr(i, end == std::string::npos ? end : end - i);
+        i = (end == std::string::npos) ? text.size() : end;
+
+        // The unbreakable case, taken in whole lines until what is left fits.
+        while (word.size() > cols) {
+            if (lineLen != 0) { out += '\n'; lineLen = 0; }
+            out += word.substr(0, cols);
+            out += '\n';
+            word = word.substr(cols);
+        }
+
+        if (lineLen == 0) {
+            out += word;
+            lineLen = word.size();
+        } else if (lineLen + 1 + word.size() <= cols) {
+            out += ' ' + word;
+            lineLen += 1 + word.size();
+        } else {
+            out += '\n' + word;
+            lineLen = word.size();
+        }
+    }
+    return out;
+}
 
 // How the terminal behaves rather than what the machine is: the scrollback
 // history, and whether BEL makes a noise.
@@ -780,17 +853,27 @@ void SettingsDialogWx::buildDiskImagesPage() {
     wxBoxSizer* indexSizer = new wxBoxSizer(wxHORIZONTAL);
     indexSizer->Add(new wxStaticText(page, wxID_ANY, "Catalog index:"), 0,
                     wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
-    m_catalogIndexUrlText = new wxTextCtrl(page, wxID_ANY, wxEmptyString);
+    m_catalogIndexUrlText = new wxTextCtrl(page, ID_CATALOG_INDEX_URL, wxEmptyString);
     m_catalogIndexUrlText->SetHint("built-in catalog");
     indexSizer->Add(m_catalogIndexUrlText, 1, wxALIGN_CENTER_VERTICAL);
     content->Add(indexSizer, 0, wxEXPAND | wxBOTTOM, 4);
 
-    // Created with the neutral sentence for the same reason as the note above:
-    // the page is laid out before any of this is known, and a label that grows
-    // afterwards grows into a page measured without it.
+    // Created with a neutral sentence for the same reason as the note above: the
+    // page is laid out before any of this is known, and a label that grows
+    // afterwards grows into a page measured without it. It is sized for THREE
+    // lines because that is what the longest form below needs once wrapped, and
+    // updateCatalogIndexNote() replaces the text.
+    //
+    // It said "Each catalog keeps its own downloads and settings, so switching
+    // never costs your library." That describes ioscpm, which gives each index
+    // its own Disks folder; here the downloads are shared, which is the opposite
+    // promise and the one place on this page where being wrong costs a user
+    // their work. A placeholder has to be a sentence that stays true.
     m_catalogIndexNote = new wxStaticText(page, wxID_ANY,
-        "Leave empty for the catalog this build ships with. Each catalog keeps "
-        "its own downloads and settings, so switching never costs your library.");
+        "Leave empty for the catalog this build ships with. Every catalog reads "
+        "and writes the same data folder, so an image published under a name "
+        "already there is replaced when you download it.");
+    m_catalogIndexNote->Wrap(kPageTextWrap);
     content->Add(m_catalogIndexNote, 0, wxEXPAND | wxBOTTOM, 10);
 
     // Catalog section header
@@ -1063,14 +1146,111 @@ void SettingsDialogWx::updateRomwbwVersionNote() {
                 "Choose another release.";
     }
 
-    m_romwbwVersionNote->SetLabel(wxString::FromUTF8(note));
-    // The forms differ by a factor of three in length and a static text in a
-    // sizer does not re-wrap itself. Guarded on a plausible width because Wrap()
-    // with a width of nothing breaks after every word, and this runs once before
-    // the page has ever been laid out.
-    const int wrapWidth = m_romwbwVersionNote->GetSize().GetWidth();
-    if (wrapWidth > 100) m_romwbwVersionNote->Wrap(wrapWidth);
+    m_romwbwVersionNote->SetLabel(wxString::FromUTF8(hardWrap(note, kNoteCols)));
+    // The line breaks come from hardWrap above rather than from Wrap(), which
+    // does nothing from this call site - see kNoteCols. It was
+    // `Wrap(GetSize().GetWidth())` guarded at >100, and it was unreliable in a
+    // second way as well: on any call after the first, the size read back is the
+    // size of the already-wrapped block rather than the room available. Measured
+    // on 2026-09-08, the "publishes no ROM" form drew on two lines when the
+    // dialog opened and on one, cut off at "there is", after pressing Refresh.
     if (m_diskImagesPage->GetSizer()) m_diskImagesPage->Layout();
+    if (m_diskImagesPage) m_diskImagesPage->Refresh();   // see updateCatalogIndexNote
+}
+
+std::string SettingsDialogWx::typedCatalogIndexUrl() const {
+    // utf8_str() and not ToStdString(): the value goes back out through
+    // wxString::FromUTF8 and into a UTF-8 JSON document, and ToStdString()
+    // converts in the CURRENT LOCALE, which is a different function. This is the
+    // one free-text field on the page, so it is the one place the asymmetry
+    // could ever have shown - as a URL that came back mangled on a machine whose
+    // ANSI code page is not the one it was typed on.
+    return catalogv0::normalizedIndexSetting(
+        std::string(m_catalogIndexUrlText->GetValue().utf8_str()));
+}
+
+// The sentence under the Catalog index field.
+//
+// SEPARATE FROM loadSettings, WRAPPED, AND RE-RUN ON EVERY EDIT. It was none of
+// those three, and each one was a defect on its own:
+//
+//   - It was set once, inside loadSettings, so "In use:" named the URL the
+//     dialog OPENED with. Type a new one and the line under it went on quietly
+//     naming the old one, which is the opposite of what a field whose whole job
+//     is "which catalog am I reading?" should do.
+//   - It was never Wrap()ped, while updateRomwbwVersionNote() directly above
+//     wraps the note directly above this one. A wxStaticText does not wrap
+//     unless it is told to, so the longest form - the custom-catalog warning -
+//     was drawn as one line and clipped after about seventy characters. What
+//     was cut off was the whole of the warning about the shared data folder and
+//     the whole of the "In use:" URL: on screen the user got "Using a custom
+//     catalog. Downloads are still checked against that catalog's" and nothing
+//     more. That warning is the mitigation the un-isolated data folder was
+//     shipped on, so it was the one line on the page that had to be readable.
+//   - The environment branch said only that the variable wins, and skipped the
+//     shared-folder warning entirely - even though the variable is the mechanism
+//     the header nominates FIRST for pointing at somebody else's catalog, so the
+//     path most likely to be used was the one carrying no warning at all.
+void SettingsDialogWx::updateCatalogIndexNote() {
+    // EVT_TEXT can reach this before the page is finished: the text control is
+    // created a few lines before the label it writes to, and wxTextCtrl::SetValue
+    // fires the event. Both pointers or nothing.
+    if (!m_catalogIndexUrlText || !m_catalogIndexNote) return;
+
+    // One reader of the variable, in catalogv0, so that "set" cannot mean
+    // something different here from what indexUrl() acts on. This tested
+    // `env != nullptr && *env != '\0'`, which reads a variable holding a single
+    // space as set: the field was disabled and the note announced an override
+    // that indexUrl() had already thrown away as whitespace, leaving the user
+    // unable to edit a setting that was in force.
+    std::string fromEnv;
+    const bool haveEnv = catalogv0::indexUrlFromEnvironment(fromEnv);
+
+    // What the FIELD says, not what the configuration says: nothing is stored
+    // until OK, and this line has to describe the state on screen.
+    const std::string typed = typedCatalogIndexUrl();
+
+    m_catalogIndexUrlText->Enable(!haveEnv);
+
+    const std::string inUse = haveEnv ? fromEnv : catalogv0::indexUrl(typed);
+    const bool custom = inUse != std::string(catalogv0::INDEX_URL);
+
+    std::string note;
+    if (haveEnv) {
+        note = "ROMWBW_INDEX_URL is set for this run and wins over this field. ";
+    } else if (custom) {
+        note = "Using a custom catalog. ";
+    } else {
+        note = "Leave empty for the catalog this build ships with. ";
+    }
+    if (custom) {
+        // Said on BOTH custom paths now, the environment one included.
+        note += "Downloads are still checked against that catalog's own SHA-256, "
+                "but the catalog is the thing being trusted. Every catalog reads "
+                "and writes this one data folder, so downloading an image whose "
+                "name is already there replaces it - save your work out of a "
+                "downloaded disk first. ";
+    }
+    // The URL on a line of its own: it is one unbreakable word, so leaving it in
+    // the flow would push the sentence before it onto a short line for nothing,
+    // and it is the line most likely to be read and copied.
+    m_catalogIndexNote->SetLabel(
+        wxString::FromUTF8(hardWrap(note, kNoteCols) + "\n" +
+                           hardWrap("In use: " + inUse, kNoteCols)));
+    if (m_diskImagesPage->GetSizer()) m_diskImagesPage->Layout();
+    // Repainted, not just re-laid-out. Layout() gives the label its new height;
+    // it does not paint the strip that height just uncovered, so a note that
+    // grew by a line drew the old text and left the new line blank until
+    // something else happened to invalidate the page. Measured on 2026-09-08:
+    // the "In use:" URL was on the control and readable through WM_GETTEXT
+    // while the screen showed "In use:" with nothing after it.
+    if (m_diskImagesPage) m_diskImagesPage->Refresh();
+}
+
+void SettingsDialogWx::onCatalogIndexUrlChanged(wxCommandEvent& event) {
+    // Nothing is fetched and nothing is stored here - see the note on the
+    // declaration. Refresh is what goes to the network, OK is what persists.
+    updateCatalogIndexNote();
 }
 
 void SettingsDialogWx::populateDiskLists() {
@@ -1216,27 +1396,13 @@ void SettingsDialogWx::loadSettings() {
     // The catalog index, and whether it is this machine's to change. An
     // environment variable set for the run wins over the setting, so showing an
     // editable field would be a lie in that case.
+    //
+    // Remembered as well as shown: Refresh pushes whatever is in the field to
+    // the DiskCatalog, so Cancel has to be able to put it back, exactly as it
+    // does for the RomWBW release.
+    m_catalogIndexUrlOnOpen = m_settings.catalogIndexUrl;
     m_catalogIndexUrlText->SetValue(wxString::FromUTF8(m_settings.catalogIndexUrl));
-    {
-        const char* env = std::getenv("ROMWBW_INDEX_URL");
-        const bool fromEnv = env != nullptr && *env != '\0';
-        m_catalogIndexUrlText->Enable(!fromEnv);
-        const std::string inUse = catalogv0::indexUrl(m_settings.catalogIndexUrl);
-        std::string note;
-        if (fromEnv) {
-            note = "ROMWBW_INDEX_URL is set for this run and wins over this field. ";
-        } else if (catalogv0::isCustomIndex(m_settings.catalogIndexUrl)) {
-            note = "Using a custom catalog. Downloads are still checked against that "
-                   "catalog's own SHA-256, but the catalog is the thing being trusted. "
-                   "Both catalogs share this data folder, so an image with the same "
-                   "name is replaced on each switch - save work out of a downloaded "
-                   "disk first. ";
-        } else {
-            note = "Leave empty for the catalog this build ships with. ";
-        }
-        note += "In use: " + inUse;
-        m_catalogIndexNote->SetLabel(wxString::FromUTF8(note));
-    }
+    updateCatalogIndexNote();
 
     // Debug mode
     m_debugCheck->SetValue(m_settings.debugMode);
@@ -1311,8 +1477,18 @@ void SettingsDialogWx::saveSettings() {
         }
     }
 
+    // The catalog index, trimmed and normalized: EMPTY for the built-in index,
+    // whether the field was left blank or the built-in URL was pasted into it.
+    //
+    // Pasting it in is the obvious thing for a user to do, because the line
+    // under the field shows the URL in use and invites copying. Storing that
+    // string would pin this install to whatever the default was on the day it
+    // was pasted, which is the freeze Config::catalogIndexUrl's own comment says
+    // empty exists to prevent - the setting would look like a preference and
+    // behave like a version pin.
+    m_settings.catalogIndexUrl = typedCatalogIndexUrl();
+
     // Debug mode
-    m_settings.catalogIndexUrl = m_catalogIndexUrlText->GetValue().ToStdString();
     m_settings.debugMode = m_debugCheck->GetValue();
 
     // Warn on manifest writes
@@ -1413,6 +1589,19 @@ void SettingsDialogWx::onClearBootConfig(wxCommandEvent& event) {
 
 void SettingsDialogWx::onRefreshCatalog(wxCommandEvent& event) {
     if (!m_catalog) return;
+
+    // WHICH INDEX THIS FETCH IS FOR, pushed before it starts and taken from the
+    // FIELD - the same thing onRomwbwVersionChanged does with the release a few
+    // functions below, and for the identical reason: the list this fetch fills
+    // in has to be the list the controls above it are describing.
+    //
+    // Without this, Refresh re-fetched whatever was in the configuration, and
+    // the configuration is written only by OK. So the one workflow the setting
+    // exists for - paste the URL of an unpublished romwbw_disks release, press
+    // Refresh, look at what it publishes - fetched the BUILT-IN catalog, filled
+    // the release dropdown and the disk list from it, and said "Catalog loaded".
+    // Nothing on screen said the URL had been ignored. Cancel puts this back.
+    m_catalog->setCatalogIndexUrl(typedCatalogIndexUrl());
 
     m_statusText->SetLabel("Loading disk catalog...");
     m_refreshBtn->Enable(false);
@@ -1537,8 +1726,51 @@ void SettingsDialogWx::onDownloadDisk(wxCommandEvent& event) {
     const std::string filenameStr = m_catalogRowFilenames[sel];
     const wxString filename = wxString::FromUTF8(filenameStr);
 
-    if (m_catalog->isDiskDownloaded(filenameStr)) {
-        wxMessageBox("This disk is already downloaded", "Info", wxOK | wxICON_INFORMATION);
+    // "Already downloaded" is a question about PROVENANCE, not about size.
+    //
+    // This was `if (isDiskDownloaded(...)) refuse`, and isDiskDownloaded is a
+    // size test - DiskCatalog.cpp, `size >= expectedSize`. Two images published
+    // under one name by two catalogs are the same size far more often than not
+    // (a 3.5.1 and a 3.6.0 hd1k_combo both being one hd1k slice set), so the one
+    // manual way out of a wrong file in the data folder was closed by the check
+    // that was supposed to save a redundant download. The freshness column knew
+    // the file was superseded and the button still said no.
+    //
+    // So: refuse only what the ledger says is genuinely the published image, and
+    // for anything superseded say what replacing it costs. The warning matters
+    // because a downloaded image is a MOUNTED VOLUME - the user's own writes
+    // live inside it, and the catalog cannot give those back.
+    const DiskFreshness fresh = m_catalog->getFreshness(filenameStr);
+    if (fresh == DiskFreshness::Current || fresh == DiskFreshness::UnknownProvenanceMatches) {
+        wxMessageBox("This disk is already downloaded, and it matches what the "
+                     "catalog publishes now.",
+                     "Info", wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    if (fresh == DiskFreshness::SupersededModified ||
+        fresh == DiskFreshness::UnknownProvenanceDiffers) {
+        const int answer = wxMessageBox(
+            "The copy of " + filename + " in the data folder is not the image "
+            "this catalog publishes, and its bytes have changed since it was "
+            "written - anything you have saved inside it is in those bytes.\n\n"
+            "Downloading replaces the file. That cannot be undone, and the "
+            "catalog cannot give your work back.\n\n"
+            "Replace it?",
+            "Replace a disk you have written to?", wxYES_NO | wxNO_DEFAULT | wxICON_WARNING, this);
+        if (answer != wxYES) return;
+    } else if (fresh == DiskFreshness::SupersededPristine) {
+        const int answer = wxMessageBox(
+            "The copy of " + filename + " in the data folder came from a "
+            "different catalog entry. Its bytes are still exactly as they were "
+            "downloaded, so replacing it discards nothing of yours.\n\n"
+            "Download the version this catalog publishes?",
+            "Replace a superseded disk?", wxYES_NO | wxYES_DEFAULT | wxICON_QUESTION, this);
+        if (answer != wxYES) return;
+    } else if (m_catalog->isDiskDownloaded(filenameStr)) {
+        // Unverifiable (the catalog gives no sha256) or NeedsMeasurement (not
+        // hashed yet). Nothing may be decided from provenance, so fall back to
+        // the size test that was here before rather than inventing an answer.
+        wxMessageBox("This disk is already downloaded", "Info", wxOK | wxICON_INFORMATION, this);
         return;
     }
 
@@ -1737,7 +1969,16 @@ void SettingsDialogWx::onCancel(wxCommandEvent& event) {
     // surprise, and nothing reads them without fetching first: this dialog
     // refetches from its constructor, and MainWindow's F5 default-disk path now
     // fetches before it downloads anything.
-    if (m_catalog) m_catalog->setPreferredRomwbwVersion(m_settings.romwbwVersion);
+    // And the catalog index, for exactly the same reason and by the same rule:
+    // Refresh pushed whatever was typed so the list underneath would be the one
+    // being asked about, and Cancel means none of it happened. Restored from the
+    // value the dialog OPENED with rather than from m_settings, which
+    // saveSettings() may have overwritten from the control on an earlier OK that
+    // was never reached here.
+    if (m_catalog) {
+        m_catalog->setPreferredRomwbwVersion(m_settings.romwbwVersion);
+        m_catalog->setCatalogIndexUrl(m_catalogIndexUrlOnOpen);
+    }
     EndModal(wxID_CANCEL);
 }
 

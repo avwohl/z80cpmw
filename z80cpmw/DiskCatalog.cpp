@@ -4,7 +4,6 @@
 
 #include "pch.h"
 #include "DiskCatalog.h"
-#include "Config.h"   // catalogIndexUrl, for the index actually in use
 #include "Version.h"
 #include <thread>
 #include <sstream>
@@ -146,6 +145,16 @@ void DiskCatalog::setDownloadDirectory(const std::string& dir) {
         m_ledger = DiskLedger();
         m_ledgerLoaded = false;
     }
+}
+
+void DiskCatalog::setCatalogIndexUrl(const std::string& configured) {
+    std::lock_guard<std::mutex> lock(m_indexMutex);
+    m_catalogIndexUrl = configured;
+}
+
+std::string DiskCatalog::getCatalogIndexUrl() const {
+    std::lock_guard<std::mutex> lock(m_indexMutex);
+    return m_catalogIndexUrl;
 }
 
 void DiskCatalog::setPreferredRomwbwVersion(const std::string& romwbwVersion) {
@@ -405,10 +414,20 @@ bool DiskCatalog::findDiskById(const std::string& id, DiskEntry& out) const {
 
 bool DiskCatalog::fetchIndex(std::vector<catalogv0::IndexEntry>& entries, std::string& error) {
     // The index in use, which is catalogv0::INDEX_URL unless this machine has
-    // been pointed somewhere else. Resolved here rather than cached, so that a
-    // setting changed in this session takes effect on the next fetch.
-    const std::string want =
-        catalogv0::indexUrl(config::ConfigManager::instance().get().catalogIndexUrl);
+    // been pointed somewhere else.
+    //
+    // Taken from THIS OBJECT and not from ConfigManager, for the reason
+    // m_preferredVersion is: the Settings dialog can change it and re-fetch
+    // without the configuration having been written yet, and the configuration
+    // is written only by OK. Reading the config here meant Refresh re-fetched
+    // the OLD index - the user typed a URL, pressed Refresh, and got the
+    // built-in catalog back with "Catalog loaded" and nothing to say the typed
+    // URL had been ignored, which is precisely the workflow the setting exists
+    // for. MainWindow::applyConfig seeds this, the dialog pushes the field, and
+    // Cancel puts it back, exactly as they all do for the release preference.
+    //
+    // This runs on the fetch worker; getCatalogIndexUrl takes m_indexMutex.
+    const std::string want = catalogv0::indexUrl(getCatalogIndexUrl());
 
     std::wstring url;
     if (!widenUrl(want, url)) {
@@ -702,15 +721,31 @@ void DiskCatalog::downloadDisk(const std::string& filename,
         // below cannot be derived differently from each other; see the note on
         // getLocalName for why it now maps nothing.
         const std::string localName = getLocalName(filename);
-        std::string localPath = downloadDir + "\\" + localName;
+        const std::string localPath = downloadDir + "\\" + localName;
+
+        // DOWNLOADED BESIDE THE REAL NAME and moved onto it only once every
+        // check that can be made has passed - the shape downloadRomInto and
+        // saveLedger already use, and for a stronger reason than either.
+        //
+        // This used to hand downloadToFile the real path. That truncates the
+        // file already there before a byte arrives, and every failure arm below
+        // then DeleteFileA()s it, so a cancelled download, a dead network, a
+        // short read or a checksum mismatch all destroyed whatever was under
+        // that name. The file under that name is NOT always a spare copy of the
+        // same image: with a custom catalog index two catalogs publish different
+        // bytes under one filename, and hd1k_combo-v0-3.6.0.img in the data
+        // folder may be a mounted volume the user has been writing to for
+        // months. Losing it to a failed transfer is not recoverable from the
+        // catalog, because the bytes that mattered were the user's.
+        const std::string tempPath = localPath + ".new";
         std::string error;
 
-        bool success = downloadToFile(url, localPath, progressCb, error);
+        bool success = downloadToFile(url, tempPath, progressCb, error);
 
         if (m_cancelRequested) {
             m_downloadState = DownloadState::Cancelled;
-            // Delete partial file
-            DeleteFileA(localPath.c_str());
+            // Only ever the partial file. The user's copy was never opened.
+            DeleteFileA(tempPath.c_str());
             if (completeCb) {
                 completeCb(false, "Download cancelled");
             }
@@ -720,11 +755,12 @@ void DiskCatalog::downloadDisk(const std::string& filename,
             // is a case that has to keep working: an older catalog than this
             // build expects must still install.
             std::string wanted;
-            if (DiskLedger::normalizedHash(wantedEntry.sha256, wanted)) {
+            const bool haveWanted = DiskLedger::normalizedHash(wantedEntry.sha256, wanted);
+            if (haveWanted) {
                 std::string actual;
-                if (!diskhash::sha256File(localPath, actual)) {
+                if (!diskhash::sha256File(tempPath, actual)) {
                     m_downloadState = DownloadState::Failed;
-                    DeleteFileA(localPath.c_str());
+                    DeleteFileA(tempPath.c_str());
                     if (completeCb) {
                         completeCb(false, "Downloaded file could not be read back");
                     }
@@ -737,16 +773,37 @@ void DiskCatalog::downloadDisk(const std::string& filename,
                     // provenance only for a download it VERIFIED - a recorded
                     // hash these bytes never had would read as Current for ever.
                     m_downloadState = DownloadState::Failed;
-                    DeleteFileA(localPath.c_str());
+                    DeleteFileA(tempPath.c_str());
                     if (completeCb) {
                         completeCb(false, "Downloaded image does not match the catalog checksum");
                     }
                     return;
                 }
+            }
 
-                // Verified. This is the one moment provenance can honestly be
-                // written: we know both which published image was asked for and
-                // that the bytes on disk are it.
+            // Onto the real name, now that everything that could be checked has
+            // been. An entry the catalog gives no sha256 arrives here unchecked
+            // - that case has to keep working, an older catalog than this build
+            // expects must still install - but it still goes through the rename,
+            // so a transfer that DIED is never what replaces the user's copy.
+            if (!MoveFileExA(tempPath.c_str(), localPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+                const DWORD err = GetLastError();
+                m_downloadState = DownloadState::Failed;
+                DeleteFileA(tempPath.c_str());
+                if (completeCb) {
+                    completeCb(false, "Could not put " + localName +
+                                      " into the data folder (error " +
+                                      std::to_string(err) + ")");
+                }
+                return;
+            }
+
+            if (haveWanted) {
+                // Verified AND in place. This is the one moment provenance can
+                // honestly be written: we know both which published image was
+                // asked for and that the bytes under that name are it. The stat
+                // is taken after the rename, because the facts have to describe
+                // the file that is there.
                 loadLedgerIfNeeded();
                 DiskFileFacts facts;
                 bool haveFacts = diskhash::statFile(localPath, facts);
@@ -769,8 +826,8 @@ void DiskCatalog::downloadDisk(const std::string& filename,
             }
         } else {
             m_downloadState = DownloadState::Failed;
-            // Delete partial file
-            DeleteFileA(localPath.c_str());
+            // Only ever the partial file; see the note on tempPath above.
+            DeleteFileA(tempPath.c_str());
             if (completeCb) {
                 completeCb(false, error);
             }

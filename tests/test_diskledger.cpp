@@ -412,6 +412,51 @@ static void test_plan_and_user_request() {
                "and for one that is not there - that is Download, not Update");
     checkFalse(DiskLedger::allowsUserRequestedUpdate(DiskFreshness::NeedsMeasurement),
                "and before it has been measured");
+
+    section("what the machine says at Start");
+
+    // The other half of the mismatch guard. The ROM gate refuses to boot 3.5.1
+    // disks under a 3.6.0 ROM by looking at the ROM; this is the case where the
+    // DISK is the one that does not belong, which one shared data folder makes
+    // possible - two catalogs publish different bytes under one filename and the
+    // second download is the file on disk.
+    checkTrue(DiskLedger::mountedCopyIsNotTheCatalogImage(DiskFreshness::SupersededPristine),
+              "a superseded image is not what the catalog publishes, and saying so costs nothing");
+    checkTrue(DiskLedger::mountedCopyIsNotTheCatalogImage(DiskFreshness::SupersededModified),
+              "nor is one the user has written to");
+    checkTrue(DiskLedger::mountedCopyIsNotTheCatalogImage(DiskFreshness::UnknownProvenanceDiffers),
+              "nor an ambiguous one - 'may be', because this cannot tell a stale image "
+              "from the user's own saved work");
+    checkFalse(DiskLedger::mountedCopyIsNotTheCatalogImage(DiskFreshness::Current),
+               "a current file is not worth interrupting a boot for");
+    checkFalse(DiskLedger::mountedCopyIsNotTheCatalogImage(DiskFreshness::UnknownProvenanceMatches),
+               "and neither is one that hashes to the catalog whoever fetched it");
+    checkFalse(DiskLedger::mountedCopyIsNotTheCatalogImage(DiskFreshness::NotInstalled),
+               "there is nothing mounted to complain about");
+
+    // THE TWO THAT MAKE THIS USABLE AT START AT ALL. Neither may be paid for on
+    // the path to a running machine: NeedsMeasurement wants a hash of a 50 MB
+    // image, and Unverifiable is what every entry looks like to a client that
+    // has not fetched a catalog in this process - so a cold launch says nothing
+    // rather than accusing all four disks of being wrong.
+    checkFalse(DiskLedger::mountedCopyIsNotTheCatalogImage(DiskFreshness::NeedsMeasurement),
+               "an unmeasured file is not accused - hashing 50 MB at F5 is not an option");
+    checkFalse(DiskLedger::mountedCopyIsNotTheCatalogImage(DiskFreshness::Unverifiable),
+               "and neither is one no catalog describes, which is EVERY file on a launch "
+               "that has not fetched - the notice is silent then rather than wrong");
+
+    const DiskFreshness everyVerdict[] = {
+        DiskFreshness::Unverifiable, DiskFreshness::NotInstalled,
+        DiskFreshness::Current, DiskFreshness::SupersededPristine,
+        DiskFreshness::SupersededModified, DiskFreshness::UnknownProvenanceMatches,
+        DiskFreshness::UnknownProvenanceDiffers, DiskFreshness::NeedsMeasurement,
+    };
+    int accused = 0;
+    for (DiskFreshness f : everyVerdict) {
+        if (DiskLedger::mountedCopyIsNotTheCatalogImage(f)) accused++;
+    }
+    check(accused == 3, "exactly three of the eight verdicts are worth saying at Start",
+          std::to_string(accused), "3");
 }
 
 //=============================================================================

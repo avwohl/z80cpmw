@@ -69,6 +69,19 @@ bool looksLikeV0Name(const std::string& filename) {
     return at != std::string::npos && at + tag.size() < stem.size();
 }
 
+bool releaseOfV0Name(const std::string& filename, std::string& out) {
+    const std::string folded = DiskLedger::fold(basenameOf(filename));
+    size_t dot = extensionDot(folded);
+    const std::string stem = dot == std::string::npos ? folded : folded.substr(0, dot);
+
+    const std::string tag = interfaceTag();
+    size_t at = stem.rfind(tag);
+    if (at == std::string::npos || at + tag.size() >= stem.size()) return false;
+
+    out = stem.substr(at + tag.size());
+    return true;
+}
+
 bool romIdForStoredName(const std::string& storedRom, std::string& out) {
     const std::string folded = DiskLedger::fold(storedRom);
     const size_t dot = extensionDot(folded);

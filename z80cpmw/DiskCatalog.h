@@ -298,6 +298,25 @@ public:
     void setPreferredRomwbwVersion(const std::string& romwbwVersion);
     std::string getPreferredRomwbwVersion() const;
 
+    // WHICH CATALOG INDEX TO FETCH, as Config::catalogIndexUrl holds it - the
+    // raw setting, empty meaning "the index this build ships with", NOT a
+    // resolved URL. fetchIndex resolves it through catalogv0::indexUrl(), so
+    // $ROMWBW_INDEX_URL still wins over whatever is set here and the precedence
+    // is decided in one place.
+    //
+    // Held on this object rather than read out of ConfigManager at fetch time
+    // for the same reason as the release preference above: the Settings dialog
+    // changes it and re-fetches while the dialog is still open, and the
+    // configuration is not written until OK. MainWindow::applyConfig seeds it,
+    // Settings pushes the field before each fetch, and Cancel puts it back.
+    //
+    // Changing it invalidates nothing here. The images already in the data
+    // folder stay where they are and keep their ledger entries; what changes is
+    // which document the next fetch reads. The freshness column is what reports
+    // an image the new catalog does not vouch for.
+    void setCatalogIndexUrl(const std::string& configured);
+    std::string getCatalogIndexUrl() const;
+
     // Which ROM of the release's `roms[]` to boot, as a catalog `id` and never
     // as a filename - a filename carries the release, an id does not, so only an
     // id survives the version switch above. Empty means "no preference", which
@@ -673,6 +692,10 @@ private:
     // release, and all three are read and written by the fetch worker.
     mutable std::mutex m_indexMutex;
     std::string m_preferredVersion;
+    // The catalog index setting, raw and unresolved - see setCatalogIndexUrl.
+    // Guarded by m_indexMutex with the rest: written on the UI thread from
+    // applyConfig and from the Settings dialog, read by the fetch worker.
+    std::string m_catalogIndexUrl;
     // The user's ROM choice, as a catalog `id`. Under this mutex rather than
     // m_catalogMutex even though it is read beside the roms[] it selects from,
     // because it is written on the UI thread from the Settings dialog exactly as

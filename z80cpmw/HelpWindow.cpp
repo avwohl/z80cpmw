@@ -325,9 +325,39 @@ and ^V. Paste works only while the emulator is running.
 | display.fontSize | Terminal font size, in points |
 | display.scrollbackLines | Lines of history kept for scrollback (0 = off) |
 | display.bell | Whether BEL (character 7) makes a sound (default true) |
-| core.rom | ROM image to load at startup |
+| core.rom | Which ROM to boot, as a catalog id - "emu_avw", not a filename |
+| core.romwbwVersion | Which RomWBW release to run - "3.6.0" |
+| core.catalogIndexUrl | Which catalog to read ROMs and disks from; empty = built in |
 | core.bootString | Text typed automatically at the boot menu |
 | disks | Disk images assigned to units 0-3 |
+
+core.rom and core.romwbwVersion name a CHOICE, not a file, and both are empty on
+a fresh install. Empty means "no preference", which is a real answer: the catalog
+is asked instead and the entry it marks as its default decides. They are not
+filenames because every published ROM and image carries its release in its own
+name - emu_avw-v0-3.5.1.rom sits beside emu_avw-v0-3.6.0.rom - so a preference
+stored as a filename would be forgotten the first time you changed release.
+
+## Reading a Different Catalog
+
+Every ROM and disk image comes from the romwbw_disks catalog at run time; this
+application ships none. core.catalogIndexUrl is WHICH catalog - the "Catalog
+index" field under the release picker on the Disk Images page. Set it to try a
+release before it is published, or to run your own catalog. Empty means the one
+this build ships with, and pasting that URL in is stored as empty so you cannot
+pin yourself to today's default by copying what the field shows you.
+
+ROMWBW_INDEX_URL in the environment beats the setting, for that run only:
+
+    set ROMWBW_INDEX_URL=https://example.com/my-catalog/index-v0.json
+    z80cpmw.exe
+
+Two things to know. Every catalog shares one data folder, so two catalogs that
+publish an image under the same name share one file - a failed download destroys
+nothing, and one that would replace a disk you have written to asks first, but if
+you say yes what was inside that disk is gone. And a catalog that does not
+publish the release you have selected cannot supply its ROM, however good the
+network is; the message says so and names the catalog.
 
 Most of these are easier to change from Emulator > Settings.
 )DOC";
