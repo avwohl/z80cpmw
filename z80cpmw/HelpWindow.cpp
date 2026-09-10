@@ -7,8 +7,10 @@
 #include "resource.h"
 #include "Version.h"
 #include "CatalogV0.h"
+#include "DiskHash.h"
 #include <thread>
 #include <sstream>
+#include <cctype>
 #include <commctrl.h>
 
 // THERE IS NO HELP URL IN THIS FILE, AND THAT IS THE WHOLE OF THIS CHANGE.
@@ -31,8 +33,9 @@
 // That is precisely the coupling the catalog exists to remove. The application
 // compiles in exactly ONE URL - catalogv0::INDEX_URL, the index - and reads
 // every other address out of a document. Help is now no different: the index's
-// `help` block names `index_url` and `base_url`, resolveHelpLocation() below
-// reads them, and romwbw_disks can move the help without anybody shipping
+// `help` block lists the topics themselves - id, filename, size and sha256
+// under one base_url, the same shape as disks[] - and resolveHelpCatalog()
+// below reads them, so romwbw_disks can move the help without anybody shipping
 // anything. A custom index gets it for free, so $ROMWBW_INDEX_URL redirects the
 // Help window along with the disk list.
 //
@@ -40,6 +43,20 @@
 // the index and all seven topics are compiled in from ..\ioscpm\release_assets,
 // so an index that predates the block, an index that omits it, and a dead
 // network all land in the same place - the bundled topics, with a note.
+
+// Both sides of a sha256 comparison are lowercase by contract - DiskHash emits
+// "0123456789abcdef" and CATALOG_SCHEMA says "64 lowercase hex characters" - so
+// this only exists so that the contract being broken is a mismatch nobody
+// notices rather than a topic that silently stops verifying.
+static bool sameHex(const std::string& a, const std::string& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t i = 0; i < a.size(); ++i) {
+        const unsigned char x = static_cast<unsigned char>(a[i]);
+        const unsigned char y = static_cast<unsigned char>(b[i]);
+        if (std::tolower(x) != std::tolower(y)) return false;
+    }
+    return true;
+}
 
 static const wchar_t* HELP_WINDOW_CLASS = L"Z80CPM_HelpWindow";
 static bool g_helpClassRegistered = false;
@@ -727,32 +744,23 @@ void HelpWindow::createControls() {
 
 // Read the catalog index and take the `help` block out of it.
 //
-// One extra fetch on the way to the topic list, of the same few-kilobyte
-// document the disk catalog reads, and it buys the property this file exists to
-// demonstrate: nothing here knows where the help is until a document says.
+// ONE FETCH, NOT TWO. This used to read the index, find an `index_url` in it,
+// and fetch a second document - help_index.json - to get the topic list. The
+// topics are in the index itself now, shaped like disks[] and roms[]: an id, a
+// filename, a size and a sha256 under one base_url. So the second document, the
+// second parse and the second thing to keep in step are all gone, and the topics
+// arrive checkable, which they never were before.
 //
-// It goes through catalogv0::indexUrl() rather than the constant, so the
-// environment variable and the Settings field steer the Help window exactly as
-// they steer the disk list - point the app at a test catalog and you get that
-// catalog's help. Failure is silent by design and every kind of failure is the
-// same kind: no network, an index that will not parse, an index with no `help`
-// key because it was published before the block existed. All three mean "no
-// live help location", the caller shows the bundled topics, and none of them is
-// worth a message of its own.
-bool HelpWindow::resolveHelpLocation() {
-    m_helpIndexUrl.clear();
-    m_helpBaseUrl.clear();
+// It goes through catalogv0::indexUrl(), so the environment variable and the
+// Settings field steer the Help window exactly as they steer the disk list -
+// point the app at a test catalog and you get that catalog's help. Failure is
+// silent by design and every kind of failure is the same kind: no network, an
+// index that will not parse, an index with no `help` key because it was
+// published before the block existed. All three mean "no live topics", the
+// caller shows the bundled ones, and none of them is worth a message of its own.
+bool HelpWindow::resolveHelpCatalog() {
+    m_helpCatalog = catalogv0::HelpCatalog();
 
-    // The configured index arrives from the caller rather than being read out
-    // of ConfigManager here, and that is deliberate: this file is in the help
-    // suite, which links HelpAssets.cpp and HelpWindow.cpp and nothing else, so
-    // a dependency on the configuration layer would have to be paid for by
-    // every future run of that suite. catalogv0 is small, portable and already
-    // under test; config is neither of the first two. Empty is the ordinary
-    // value and means "the index this build ships with".
-    //
-    // catalogv0::indexUrl() still applies $ROMWBW_INDEX_URL over it, so the
-    // environment steers the Help window without the caller doing anything.
     const std::string url = catalogv0::indexUrl(m_catalogIndexSetting);
     if (url.empty()) return false;
 
@@ -760,12 +768,7 @@ bool HelpWindow::resolveHelpLocation() {
     std::string error;
     if (!downloadToString(help_assets::toWide(url), body, error)) return false;
 
-    catalogv0::HelpLocation loc;
-    if (!catalogv0::parseHelpLocation(body, loc)) return false;
-
-    m_helpIndexUrl = help_assets::toWide(loc.indexUrl);
-    m_helpBaseUrl = help_assets::toWide(loc.baseUrl);
-    return true;
+    return catalogv0::parseHelp(body, m_helpCatalog);
 }
 
 void HelpWindow::fetchIndex() {
@@ -778,10 +781,9 @@ void HelpWindow::fetchIndex() {
         std::string json;
         std::string error;
 
-        // Where the help is, before what the help is. resolveHelpLocation()
-        // leaves both URLs empty when it cannot answer, and everything below
-        // treats that the same way it treats a failed download.
-        const bool located = resolveHelpLocation();
+        // The topics come out of the catalog index itself now, so "was the
+        // fetch good" and "is there a list" are one question rather than two.
+        const bool located = resolveHelpCatalog();
 
         // The index goes through the same three-step order fetchTopic uses for
         // a topic, minus the cache: the network first, then the copy compiled
@@ -796,10 +798,25 @@ void HelpWindow::fetchIndex() {
         // the reader to a download that 404s and a bundled copy that does not
         // exist; the compiled-in list, by contrast, names exactly the seven
         // this binary carries.
-        bool online = located && downloadToString(m_helpIndexUrl, json, error);
-
         std::vector<help_assets::HelpTopic> topics;
-        bool haveIndex = online && help_assets::parseIndexJson(json, topics, error);
+        bool online = located;
+        bool haveIndex = false;
+
+        if (located) {
+            // Straight across, with no JSON in between: the index has already
+            // been parsed by catalogv0, and re-serialising it into the shape
+            // help_assets::parseIndexJson expects only to parse it again would
+            // be a round trip for its own sake.
+            for (const auto& t : m_helpCatalog.topics) {
+                help_assets::HelpTopic h;
+                h.id = t.id;
+                h.title = t.name.empty() ? t.id : t.name;
+                h.description = t.description;
+                h.filename = t.filename;
+                topics.push_back(h);
+            }
+            haveIndex = !topics.empty();
+        }
 
         std::string note;
         if (!haveIndex) {
@@ -980,11 +997,43 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
         std::string error;
         bool downloaded = false;
 
-        if (!m_helpBaseUrl.empty()) {
-            std::wstring url = m_helpBaseUrl + help_assets::toWide(filename);
+        if (!m_helpCatalog.baseUrl.empty()) {
+            std::wstring url = help_assets::toWide(
+                catalogv0::assetUrl(m_helpCatalog.baseUrl, filename));
             downloaded = downloadToString(url, content, error);
+
+            // CHECKED ON ARRIVAL, like a ROM or a disk image. Help was the one
+            // kind of content this catalog published that nothing verified -
+            // not because it was decided to be safe, but because it came from a
+            // document that carried no hashes to check it against. It does now,
+            // so this costs one hash of a few kilobytes and closes the gap.
+            //
+            // A topic that fails falls through to the cache and then to the
+            // copy compiled into the binary, which is the same path a failed
+            // download takes - the reader gets the topic, from the last place
+            // that can still be trusted, rather than an error.
+            if (downloaded) {
+                const catalogv0::HelpTopic* want = nullptr;
+                for (const auto& t : m_helpCatalog.topics) {
+                    if (t.id == topicId) { want = &t; break; }
+                }
+                if (want) {
+                    if (want->size != 0 && content.size() != want->size) {
+                        downloaded = false;
+                        error = "The help topic is not the size the catalog publishes";
+                    } else if (!want->sha256.empty()) {
+                        std::string got;
+                        if (!diskhash::sha256Bytes(content.data(), content.size(), got) ||
+                            !sameHex(got, want->sha256)) {
+                            downloaded = false;
+                            error = "The help topic does not match the catalog's SHA-256";
+                        }
+                    }
+                }
+                if (!downloaded) content.clear();
+            }
         } else {
-            error = "No help location in the catalog index";
+            error = "No help topics in the catalog index";
         }
 
         // todo.txt's order, and the only place this window expresses it:

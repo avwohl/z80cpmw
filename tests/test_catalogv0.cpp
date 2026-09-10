@@ -114,10 +114,67 @@ static const char* const REAL_INDEX = R"JSON({
   "schema_version": 1,
   "interface": "v0",
   "repo": "https://github.com/avwohl/romwbw_disks",
-  "index_url": "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json",
+  "index_url": "https://github.com/avwohl/romwbw_disks/releases/latest/download/index-v0.json",
   "help": {
-    "index_url": "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/help_index.json",
-    "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/"
+    "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/",
+    "topics": [
+      {
+        "id": "quick_start",
+        "filename": "help_quick_start.md",
+        "name": "Quick Start Guide",
+        "description": "Getting started with the emulator",
+        "size": 3271,
+        "sha256": "6cd6822b1dec8ceaa1f87d8100c9eeb10dfad913891ffc4b9f48d2a93a7136e9"
+      },
+      {
+        "id": "cpm22",
+        "filename": "help_cpm22.md",
+        "name": "CP/M 2.2 User Guide",
+        "description": "Complete guide to CP/M 2.2 operating system",
+        "size": 5551,
+        "sha256": "a10d616b50dba09603b48d68db9da003f2af3ddf398e5487c646b5e383960373"
+      },
+      {
+        "id": "zsdos",
+        "filename": "help_zsdos.md",
+        "name": "ZSDOS User Guide",
+        "description": "Z-System DOS with date/time stamping",
+        "size": 4281,
+        "sha256": "b70feac3d4eb563394e9bcdaa247436da48273ad884ab22eb9d5ddeafba5e698"
+      },
+      {
+        "id": "nzcom",
+        "filename": "help_nzcom.md",
+        "name": "NZCOM User Guide",
+        "description": "Z-System for CP/M 2.2 environments",
+        "size": 3560,
+        "sha256": "d12d2c511df78d33f8539dd27be8d9deebe43952f6b574b377656da0f5a22e65"
+      },
+      {
+        "id": "zpm3",
+        "filename": "help_zpm3.md",
+        "name": "ZPM3 User Guide",
+        "description": "Z-System Plus/M3 enhanced CP/M 3",
+        "size": 3883,
+        "sha256": "5c6490726f2a0af49e44805fbe67243b956ff99886b42f46f212bf1c79adf6b0"
+      },
+      {
+        "id": "qpm",
+        "filename": "help_qpm.md",
+        "name": "QPM User Guide",
+        "description": "QP/M operating system",
+        "size": 4198,
+        "sha256": "81c4d65a243a21567cc77d049a7d2667f81dccfb1b5e8df2fec02c764b30f5ff"
+      },
+      {
+        "id": "disk_transfer",
+        "filename": "help_file_transfer.md",
+        "name": "File Transfer (R8/W8)",
+        "description": "Transfer files between host and CP/M",
+        "size": 3547,
+        "sha256": "59b9edf81869a9c8e23583e0ee09b8f69c79e92e61af8c4aa3db2cba28b6c9ce"
+      }
+    ]
   },
   "romwbw_versions": [
     {
@@ -1039,10 +1096,33 @@ static void test_the_url_that_is_compiled_in() {
     // document. If this string is ever wrong the application fetches nothing at
     // all, which is the failure mode worth having - a stale tag fetched the
     // wrong disks and said nothing.
+    //
+    // AND IT NAMES NO RELEASE TAG, which is the whole of the 1.0.32 round. It
+    // was ".../releases/download/catalog-v0/index-v0.json", and that pins the
+    // tag: romwbw_disks could add a RomWBW version freely, since that goes
+    // inside the index, but could never rename that release, move the index or
+    // publish a v1 anywhere a shipped client would look - because
+    // INTERFACE_V0.md's own migration plan is "a v1 lives alongside v0: new
+    // release tags, A NEW INDEX URL", and a new index URL is unreachable from a
+    // constant naming the old one. So the v1 plan read "and release Windows,
+    // Android, iOS and Linux, all at once", which is the coupling this catalog
+    // exists to remove.
+    //
+    // releases/latest/download/ instead: GitHub resolves it to whichever release
+    // carries the flag, so the entry point belongs to romwbw_disks and moving it
+    // costs nobody a build.
     checkStr(catalogv0::INDEX_URL,
-             "https://github.com/avwohl/romwbw_disks/releases/download/"
-             "catalog-v0/index-v0.json",
-             "index-v0.json on the catalog-v0 tag, and nothing else is compiled in");
+             "https://github.com/avwohl/romwbw_disks/releases/latest/"
+             "download/index-v0.json",
+             "index-v0.json through the Latest pointer, and nothing else is compiled in");
+
+    const std::string entry(catalogv0::INDEX_URL);
+    checkTrue(entry.find("/releases/latest/download/") != std::string::npos,
+              "it goes through the Latest pointer");
+    checkTrue(entry.find("catalog-v0") == std::string::npos,
+              "and no release tag appears in it, which is the assertion this "
+              "section exists to make");
+
     checkStr(catalogv0::INTERFACE, "v0", "the interface these documents describe");
 }
 
@@ -1403,77 +1483,106 @@ static std::string squeeze(const std::string& text) {
 }
 
 static void test_where_the_help_lives() {
-    section("the help location comes out of the index, not out of the binary");
+    section("the help topics are catalog entries in the index");
 
-    // THE POINT OF THE WHOLE BLOCK. Until 1.0.32 HelpWindow.cpp carried
+    // THE POINT. Until 1.0.32 HelpWindow.cpp carried
     //     ".../avwohl/ioscpm/releases/latest/download/help_index.json"
-    // and a base URL beside it, so in-app help was the last thing in this
-    // application that could only be moved by shipping a new client to Windows,
-    // Android, iOS and Linux at once. Reading it from the index means
-    // romwbw_disks can rename the tag, re-cut it or change host with no client
-    // release - the same promise catalog_url makes for a RomWBW release.
-    catalogv0::HelpLocation loc;
-    checkTrue(catalogv0::parseHelpLocation(REAL_INDEX, loc),
-              "the published index carries a help block");
-    checkStr(loc.indexUrl,
-             "https://github.com/avwohl/romwbw_disks/releases/download/"
-             "help-v0/help_index.json",
-             "help_index.json on the help-v0 tag");
-    checkStr(loc.baseUrl,
+    // and a base URL beside it, so in-app help was the last thing here that
+    // could only be moved by shipping a new client to four platforms at once.
+    // The first fix put a `help` block in the index naming a SECOND document;
+    // this is the second fix, which deleted that document - the topics are
+    // catalog entries now, the same shape as disks[] and roms[], so they carry
+    // a size and a sha256 and are checked on arrival like everything else.
+    catalogv0::HelpCatalog help;
+    checkTrue(catalogv0::parseHelp(REAL_INDEX, help),
+              "the published index carries the help topics");
+    checkStr(help.baseUrl,
              "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/",
-             "and the base a topic filename is appended to");
-    checkTrue(loc.ok(), "both halves present, so it is usable");
+             "one base_url for all of them");
+    check(help.topics.size() == 7, "seven topics",
+          std::to_string(help.topics.size()), "7");
+    checkTrue(help.ok(), "so the block is usable");
 
-    // base_url is concatenated with a filename and NOTHING is inserted between
-    // them - the schema's rule, and the exact spot section 6 says the three
-    // clients have disagreed before.
-    checkTrue(!loc.baseUrl.empty() && loc.baseUrl.back() == '/',
-              "base_url ends in a slash, so concatenation needs no separator");
-    checkStr(catalogv0::assetUrl(loc.baseUrl, "help_qpm.md"),
-             "https://github.com/avwohl/romwbw_disks/releases/download/"
-             "help-v0/help_qpm.md",
-             "a topic URL is base_url + filename");
+    // Keyed on id, never on position - the rule the schema states for disks[]
+    // and roms[], and it applies here for the same reason.
+    const catalogv0::HelpTopic* qs = nullptr;
+    for (const auto& t : help.topics) {
+        if (t.id == "quick_start") qs = &t;
+    }
+    checkTrue(qs != nullptr, "quick_start is found by id");
+    if (qs) {
+        checkStr(qs->filename, "help_quick_start.md", "and names its file");
+        checkStr(qs->name, "Quick Start Guide", "with a display name");
+        checkTrue(qs->size > 0, "a size to check a download against");
+        check(qs->sha256.size() == 64, "and a 64-character sha256",
+              std::to_string(qs->sha256.size()), "64");
+        checkStr(catalogv0::assetUrl(help.baseUrl, qs->filename),
+                 "https://github.com/avwohl/romwbw_disks/releases/download/"
+                 "help-v0/help_quick_start.md",
+                 "a topic URL is base_url + filename, with nothing inserted");
+    }
+
+    // Every topic has to be fetchable and checkable, not only the first.
+    bool allComplete = true;
+    for (const auto& t : help.topics) {
+        if (t.id.empty() || t.filename.empty() || t.size == 0 || t.sha256.size() != 64) {
+            allComplete = false;
+        }
+    }
+    checkTrue(allComplete, "every topic carries an id, a filename, a size and a hash");
 
     // AN INDEX WITHOUT THE BLOCK IS NOT AN ERROR, and this is the case that
-    // decides whether a shipped client survives the day the block is removed or
-    // meets an index published before it existed. The caller falls back to the
-    // topics compiled into the binary; nothing goes in front of a user.
-    catalogv0::HelpLocation none;
-    checkFalse(catalogv0::parseHelpLocation(
-                   R"({"schema":"romwbw-disks-index","romwbw_versions":[]})", none),
-               "an index with no help block simply has no location");
-    checkTrue(none.indexUrl.empty() && none.baseUrl.empty(),
+    // decides whether a shipped client survives meeting an index published
+    // before the block existed. The caller shows the topics compiled into the
+    // binary; nothing goes in front of a user.
+    catalogv0::HelpCatalog none;
+    checkFalse(catalogv0::parseHelp(
+                   "{\"schema\":\"romwbw-disks-index\",\"romwbw_versions\":[]}", none),
+               "an index with no help block simply has no topics");
+    checkTrue(none.topics.empty() && none.baseUrl.empty(),
               "and leaves nothing half-set behind");
 
-    // HALF A BLOCK IS NO BLOCK. A topic list with no way to fetch a topic reads
-    // to a user as help that is present and broken, which is worse than help
-    // that is offline, so neither half is taken without the other.
-    catalogv0::HelpLocation half;
-    checkFalse(catalogv0::parseHelpLocation(
-                   R"({"help":{"index_url":"https://example.invalid/help_index.json"}})", half),
-               "an index_url with no base_url is refused");
-    checkTrue(half.indexUrl.empty(), "and stores neither half");
-    checkFalse(catalogv0::parseHelpLocation(
-                   R"({"help":{"base_url":"https://example.invalid/"}})", half),
-               "a base_url with no index_url is refused too");
+    // Half a block is no block: a base with no topics is a list with nothing in
+    // it, and topics with no base cannot be fetched.
+    catalogv0::HelpCatalog half;
+    checkFalse(catalogv0::parseHelp(
+                   "{\"help\":{\"base_url\":\"https://example.invalid/\"}}", half),
+               "a base_url with no topics is refused");
+    checkFalse(catalogv0::parseHelp(
+                   "{\"help\":{\"topics\":[{\"id\":\"a\",\"filename\":\"a.md\"}]}}", half),
+               "topics with no base_url are refused");
 
-    // Wrong shapes rather than missing ones, since "ignore what you do not
+    // A topic missing what a client must have is SKIPPED, not fatal, so an index
+    // that grows a topic shaped differently does not take the usable ones with
+    // it. The same rule parseIndex follows for a version entry.
+    catalogv0::HelpCatalog mixed;
+    checkTrue(catalogv0::parseHelp(
+                  "{\"help\":{\"base_url\":\"https://example.invalid/\",\"topics\":["
+                  "{\"id\":\"\",\"filename\":\"nameless.md\"},"
+                  "{\"id\":\"ok\",\"filename\":\"ok.md\",\"name\":\"Fine\"},"
+                  "{\"id\":\"nofile\"}]}}", mixed),
+              "a block with one usable topic among three parses");
+    check(mixed.topics.size() == 1, "and keeps only the usable one",
+          std::to_string(mixed.topics.size()), "1");
+
+    // Wrong shapes rather than missing ones - "ignore what you do not
     // understand" has to cover a key whose VALUE is the surprise.
-    checkFalse(catalogv0::parseHelpLocation(R"({"help":"somewhere"})", half),
-               "a help that is a string is not a location");
-    checkFalse(catalogv0::parseHelpLocation(R"({"help":[]})", half),
+    checkFalse(catalogv0::parseHelp("{\"help\":\"somewhere\"}", half),
+               "a help that is a string is not a catalog");
+    checkFalse(catalogv0::parseHelp("{\"help\":[]}", half),
                "nor is a help that is an array");
-    checkFalse(catalogv0::parseHelpLocation("not json at all", half),
-               "and a document that will not parse has no location either");
+    checkFalse(catalogv0::parseHelp("not json at all", half),
+               "and a document that will not parse has none either");
 
-    // A FORK GETS THIS FOR FREE, which is the second reason it is in the index:
-    // a client pointed at another catalog reads that catalog's help block, so a
-    // test index serves its own topics with no patched client.
-    catalogv0::HelpLocation mine;
-    checkTrue(catalogv0::parseHelpLocation(
-                  R"({"help":{"index_url":"http://127.0.0.1:8731/help_index.json",)"
-                  R"("base_url":"http://127.0.0.1:8731/"}})", mine),
-              "a custom index names its own help");
+    // A FORK INHERITS IT, which is the second reason it is in the index: a
+    // client pointed at another catalog reads that catalog's topics, so a test
+    // index serves its own help with no patched client.
+    catalogv0::HelpCatalog mine;
+    checkTrue(catalogv0::parseHelp(
+                  "{\"help\":{\"base_url\":\"http://127.0.0.1:8731/\",\"topics\":["
+                  "{\"id\":\"quick_start\",\"filename\":\"help_quick_start.md\","
+                  "\"name\":\"LOCAL-HELP-TEST\"}]}}", mine),
+              "a custom index names its own topics");
     checkStr(mine.baseUrl, "http://127.0.0.1:8731/",
              "and that is what the Help window would fetch from");
 }

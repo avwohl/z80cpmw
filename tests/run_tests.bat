@@ -111,10 +111,11 @@ cl /nologo /EHsc /W3 /O2 /std:c++17 ^
     z80cpmw\HelpAssets.cpp ^
     z80cpmw\HelpWindow.cpp ^
     z80cpmw\CatalogV0.cpp ^
+    z80cpmw\DiskHash.cpp ^
     %HELPRES% ^
     /Fo:obj\tests\help\ ^
     /Fe:obj\tests\help\test_help.exe ^
-    /link /SUBSYSTEM:CONSOLE user32.lib gdi32.lib
+    /link /SUBSYSTEM:CONSOLE user32.lib gdi32.lib bcrypt.lib
 if errorlevel 1 (
     echo Build failed.
     exit /b 1

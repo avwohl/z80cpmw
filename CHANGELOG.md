@@ -52,6 +52,36 @@ that package must not be rebuilt at 1.0.31.
 
 ### Changed
 
+- **The one compiled-in URL no longer names a release tag.** It was
+  `.../releases/download/catalog-v0/index-v0.json`, and that pinned the tag.
+  Adding a RomWBW version was always free - that goes *inside* the index - but
+  romwbw_disks could never rename that release, move the index, or publish a v1
+  anywhere a shipped client would look, because `INTERFACE_V0.md`'s own migration
+  plan was *"a v1 lives alongside v0: new release tags, **a new index URL**"*. A
+  new index URL is unreachable from a constant naming the old one, so that plan
+  silently meant "and release Windows, Android, iOS and Linux, all at once" - the
+  exact coupling the catalog exists to remove, surviving in the one string that
+  cannot itself be read out of a document.
+
+      https://github.com/avwohl/romwbw_disks/releases/latest/download/index-v0.json
+
+  GitHub resolves `latest` to whichever release carries the flag, so where the
+  index lives is romwbw_disks' to change. A v1 now ships as `index-v1.json`
+  *beside* `index-v0.json` on that same release: v0 clients keep reading v0, v1
+  clients read v1, and nobody rebuilds anything.
+
+  **What it costs, and it already bit.** "Latest" is one flag on the whole
+  repository and `gh release create` claims it by default, so a release published
+  without `--latest=false` repoints every client at a release with no index on it.
+  Cutting the `help-v0` release did exactly that on 2026-09-10 and the URL above
+  answered 404 until the flag was put back. romwbw_disks' `tools/check_latest.py`
+  now fetches that URL and fails the repository if it is not the index.
+
+  **Already-shipped clients cannot be rescued by this.** 1.0.31 and earlier ask
+  for `catalog-v0/index-v0.json` and always will; a release asset URL cannot be
+  redirected, so that tag stays live for as long as those builds are in use. This
+  buys the next migration, not the last one.
+
 - **In-app help no longer knows where in-app help lives.** `HelpWindow.cpp`
   carried two constants —
 
@@ -93,8 +123,21 @@ that package must not be rebuilt at 1.0.31.
   paid for by every future run of it. The suite links `CatalogV0.cpp` now, which
   is portable and already under test.
 
-  On the romwbw_disks side: the eight files are published as the mutable
-  **`help-v0`** tag and committed under `help/`, and `docs/CATALOG_SCHEMA.md`
+  **And the topics are catalog entries, not a pointer at a second document.**
+  The first shape of the `help` block was `{"index_url", "base_url"}` naming a
+  separate `help_index.json` - a second document, a second fetch, a second parse
+  and a second thing to keep in step, to express a list of files that `disks[]`
+  and `roms[]` already express. It is `topics[]` now, each entry carrying an
+  `id`, a `filename`, a `size` and a `sha256` under one `base_url`, exactly like a
+  disk. So there is one fetch instead of two, and **a help topic is checked on
+  arrival** - it was the only content the catalog published that nothing
+  verified, because the document it came from carried no hashes. A topic that
+  fails falls through to the cache and then to the copy compiled into the binary,
+  which is where a failed download already went.
+
+  On the romwbw_disks side: the seven topics are published as the mutable
+  **`help-v0`** tag with `help/topics.json` as their authored source,
+  `gen_catalog.py` measures every size and hash, and `docs/CATALOG_SCHEMA.md`
   §2.2 documents the block. The assets are byte-identical to what ioscpm's Latest
   was serving on 2026-09-10 apart from `help_index.json`'s own `base_url`; no help
   text changed, and one unpublished ioscpm edit was deliberately not picked up,
@@ -107,7 +150,7 @@ that package must not be rebuilt at 1.0.31.
 ### Verified
 
 `MSBuild … -t:Rebuild`, **0 warnings, 0 errors**. All eight suites pass at
-**1,795 checks**, up 16: the interface-v0 catalog suite goes from 207 to 223 with
+**1,803 checks**, up 24: the interface-v0 catalog suite goes from 207 to 231 with
 `test_where_the_help_lives`, covering the real index's block, an index with no
 block, a half-written block, wrong shapes, and a custom index naming its own
 help. `test_the_fixture_is_not_stale` — which compares `REAL_INDEX` against
@@ -115,13 +158,22 @@ help. `test_the_fixture_is_not_stale` — which compares `REAL_INDEX` against
 block, and passes.
 
 **Driven, against a catalog served from this machine.** `$ROMWBW_INDEX_URL`
-pointed at a local `index-v0.json` whose `help` block named that same local
-server. The Help window came up listing **`LOCAL-HELP-TEST Quick Start`**, and the
-server log holds the two GETs in order — `/index-v0.json`, then
-`/help_index.json`, the location it learned from the first. Nothing was fetched
-from ioscpm. Control: with the variable unset the same driver got the real seven
-topics with no bundled-fallback note, so the published `help-v0` assets resolve.
-All eight `help-v0` URLs were also checked directly and return 200.
+pointed at a local `index-v0.json` carrying its own topics. The Help window came
+up listing **`LOCAL-HELP-TEST Quick Start`**, and the server log holds **one**
+request - `/index-v0.json` - with no second document fetched at all, which is the
+whole of the topics-in-the-index change. Selecting the topic then fetched
+`/help_quick_start.md` and the status line read *"(downloaded)"*.
+
+**The hash check was proved by breaking it**, since a passing check proves
+nothing. One byte of that topic was changed on the server with its length kept
+identical, so only the sha256 could catch it - and the client rejected the
+download and fell back, the status line changing to *"(offline copy, saved
+2026-09-10 05:20)"*.
+
+**Control, against the live catalog with no override:** the real nine-item list,
+and selecting a topic fetched it from the published `help-v0` tag and reported
+*"(downloaded)"* - so the whole chain works through
+`releases/latest/download/index-v0.json`, which is the shipping configuration.
 
 ## [1.0.31] - 2026-09-10
 

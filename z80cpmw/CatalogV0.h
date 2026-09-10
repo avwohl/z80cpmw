@@ -223,37 +223,51 @@ bool parseHexByte(const std::string& text, unsigned char& out);
 // shaped differently must not take the ones this build understands with it.
 bool parseIndex(const std::string& text, std::vector<IndexEntry>& out, std::string& error);
 
-// Where the in-app help lives, out of the index's optional `help` block.
+// One in-app help topic, out of the index's optional `help` block.
 //
-// THE POINT OF THIS BEING IN A DOCUMENT is that no client compiles in a help
-// URL. This application fetched help from
-// avwohl/ioscpm/releases/latest/download/ until 1.0.32, through two constants in
-// HelpWindow.cpp, and that kept ioscpm's Latest release load-bearing for every
-// port long after the disk images had moved to romwbw_disks - the one subsystem
-// still coupled to a name a client had to be rebuilt to change. Reading it from
-// the index means romwbw_disks can rename the tag, re-cut it or move it to
-// another host with no release of this client, which is the same promise
-// `catalogUrl` makes for a RomWBW release. A fork inherits it: a custom index
-// names its own help, so $ROMWBW_INDEX_URL redirects help too.
-//
-// BOTH FIELDS OR NEITHER. `ok()` is false for an index that predates the block
-// and for one whose block is half-written, and a caller with no location falls
-// back to the topics compiled into the binary rather than treating it as an
-// error - an older published index legitimately has no `help` key at all.
-struct HelpLocation {
-    std::string indexUrl;   // absolute URL of help_index.json
-    std::string baseUrl;    // prefix a topic's filename is appended to; ends in "/"
-
-    bool ok() const { return !indexUrl.empty() && !baseUrl.empty(); }
+// SHAPED LIKE A DISK OR A ROM ON PURPOSE. It carries an id, a filename, a size
+// and a sha256 under a shared base_url, because that is what every other asset
+// this catalog publishes carries, and help had been the one kind of content
+// nothing verified. The first version of this block was
+// {"index_url":..., "base_url":...} naming a SEPARATE help_index.json - a second
+// document, a second fetch, a second parse and a second thing to keep in step,
+// to express a list of files that disks[] and roms[] already know how to
+// express. There is no second document now.
+struct HelpTopic {
+    std::string id;            // "quick_start" - keyed on, never on position
+    std::string filename;      // appended to HelpCatalog::baseUrl
+    std::string name;          // "Quick Start Guide", for the list. Never parsed.
+    std::string description;
+    unsigned long long size = 0;
+    std::string sha256;        // 64 lowercase hex; what a fetched topic is checked against
 };
 
-// index-v0.json -> its `help` block. False when the document will not parse, or
-// carries no `help` object, or that object is missing either URL; `out` is left
-// empty and this is not an error condition for the caller. Separate from
-// parseIndex() rather than a member of it because the two are wanted at
-// different moments: the version list on the way to a ROM, this on the way to
-// the Help window, and neither should have to parse for the other's sake.
-bool parseHelpLocation(const std::string& text, HelpLocation& out);
+// The index's `help` block: where the topics live and what they are.
+//
+// IT IS IN THE INDEX AND NOT IN A PER-VERSION CATALOG, which is the other place
+// it could have gone. The topics are about CP/M and about the application, not
+// about RomWBW 3.5.1 versus 3.6.0; putting them in a per-version catalog would
+// copy them into every release and make fixing a typo mean re-cutting a 200 MB
+// tag. The index is the small mutable document, and re-cutting it is what
+// publishing is.
+//
+// EMPTY IS NOT AN ERROR. An index published before this block existed has no
+// `help` key at all, and the compatibility rules require a client to cope: the
+// Help window falls back to the topics compiled into the binary, exactly as it
+// does with no network.
+struct HelpCatalog {
+    std::string baseUrl;              // ends in "/"; see assetUrl()
+    std::vector<HelpTopic> topics;
+
+    bool ok() const { return !baseUrl.empty() && !topics.empty(); }
+};
+
+// index-v0.json -> its `help` block. False when the document will not parse,
+// carries no `help` object, or that object has no base_url or no usable topic;
+// `out` is left empty and the caller falls back to what it has compiled in.
+// A topic missing an id or a filename is SKIPPED rather than failing the block,
+// for the same reason parseIndex skips a malformed version entry.
+bool parseHelp(const std::string& text, HelpCatalog& out);
 
 // catalog-v0-<ver>.json -> the document. False, with `error` set, when it will
 // not parse or carries no `base_url` - without which no asset URL exists and

@@ -18,12 +18,38 @@ namespace catalogv0 {
 
 const char* const INTERFACE = "v0";
 
-// The one URL in the binary. The `catalog-v0` tag carries this single small file
-// and nothing else, so re-cutting it costs one upload of a few kilobytes - which
-// is what makes a floating entry point safe here where a floating release tag
-// full of 200 MB of images would not be.
+// THE ONE URL IN THE BINARY, and it deliberately names no tag.
+//
+// It was ".../releases/download/catalog-v0/index-v0.json" until 1.0.32, and that
+// was still a pin: a client that spells out the TAG can never be moved off it.
+// romwbw_disks could add a RomWBW version freely - that goes inside the index -
+// but it could not rename that release, reorganise its tags, or publish a v1
+// interface anywhere a shipped client would look, because INTERFACE_V0.md's own
+// migration plan is "a v1 lives alongside v0: new release tags, A NEW INDEX
+// URL". A new index URL is unreachable from a constant naming the old one, so
+// that plan read "and release Windows, Android, iOS and Linux, all at once" -
+// the exact coupling this catalog exists to remove.
+//
+// `releases/latest/download/` instead. GitHub resolves it to whichever release
+// carries the Latest flag, so the entry point belongs to romwbw_disks and moving
+// it costs nobody a build. A v1 then ships as index-v1.json ALONGSIDE
+// index-v0.json on that same release: old clients keep reading v0, new ones read
+// v1, and neither has to be told anything.
+//
+// WHAT IT COSTS, and it is worth knowing before trusting it: "Latest" is one
+// flag on the whole repository and `gh release create` claims it by default, so
+// a release published without --latest=false silently repoints every client at
+// a release with no index on it. That is not hypothetical - cutting the help-v0
+// release did exactly that on 2026-09-10, and this URL answered 404 until the
+// flag was put back. romwbw_disks' tools/check_latest.py fetches this URL and
+// fails the repository if it is not the index.
+//
+// Already-shipped clients cannot be rescued by any of this: 1.0.31 and earlier
+// ask for catalog-v0/index-v0.json and always will, and a GitHub release asset
+// URL cannot be redirected. That tag has to stay live for as long as those
+// builds are in use. This buys the NEXT migration, not the last one.
 const char* const INDEX_URL =
-    "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json";
+    "https://github.com/avwohl/romwbw_disks/releases/latest/download/index-v0.json";
 
 namespace {
 
@@ -279,28 +305,49 @@ bool parseIndex(const std::string& text, std::vector<IndexEntry>& out, std::stri
     return true;
 }
 
-bool parseHelpLocation(const std::string& text, HelpLocation& out) {
-    out = HelpLocation();
+bool parseHelp(const std::string& text, HelpCatalog& out) {
+    out = HelpCatalog();
 
     const json doc = json::parse(text, nullptr, false);
     if (doc.is_discarded() || !doc.is_object()) return false;
 
     // No `help` key is the ORDINARY case for an index published before this
     // block existed, so it returns false without a message and the caller shows
-    // the topics compiled into the binary. Nothing here is an error worth
-    // putting in front of a user: the Help window either has a live list or the
-    // built-in one, and both are usable.
+    // the topics compiled into the binary. Nothing here is worth putting in
+    // front of a user: the Help window either has a live list or the built-in
+    // one, and both are usable.
     const json* help = member(doc, "help");
     if (!help || !help->is_object()) return false;
 
-    out.indexUrl = str(*help, "index_url");
     out.baseUrl = str(*help, "base_url");
+    if (out.baseUrl.empty()) return false;
 
-    // Both or neither. A half-written block would otherwise give a topic list
-    // with no way to fetch a topic from it, which reads to a user as help that
-    // is there and broken rather than help that is offline.
-    if (!out.ok()) {
-        out = HelpLocation();
+    const json* topics = member(*help, "topics");
+    if (!topics || !topics->is_array()) {
+        out = HelpCatalog();
+        return false;
+    }
+
+    for (const auto& t : *topics) {
+        if (!t.is_object()) continue;
+
+        HelpTopic h;
+        h.id = str(t, "id");
+        h.filename = str(t, "filename");
+        // Skipped rather than fatal, exactly as parseIndex skips a version entry
+        // it cannot use: an index that grows a topic shaped differently must not
+        // take the six this build understands with it.
+        if (h.id.empty() || h.filename.empty()) continue;
+
+        h.name = str(t, "name");
+        h.description = str(t, "description");
+        h.size = u64(t, "size");
+        h.sha256 = str(t, "sha256");
+        out.topics.push_back(h);
+    }
+
+    if (out.topics.empty()) {
+        out = HelpCatalog();
         return false;
     }
     return true;

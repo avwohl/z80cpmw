@@ -1806,7 +1806,7 @@ void MainWindow::onHelpTopics() {
     // The configured index goes with it: HelpWindow reads the help location out
     // of that catalog's index, so a machine pointed at a test catalog gets that
     // catalog's help. HelpWindow itself has no configuration layer - see
-    // HelpWindow::resolveHelpLocation.
+    // HelpWindow::resolveHelpCatalog.
     ShowHelpWindow(m_hwnd, "", config::ConfigManager::instance().get().catalogIndexUrl);
 }
 

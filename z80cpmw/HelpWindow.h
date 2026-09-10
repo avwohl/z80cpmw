@@ -8,6 +8,7 @@
 #pragma once
 
 #include "HelpAssets.h"
+#include "CatalogV0.h"
 
 #include <windows.h>
 #include <winhttp.h>
@@ -71,7 +72,7 @@ public:
 
     // The Catalog index setting, empty for the index this build ships with.
     // Supplied by the caller so this class needs no configuration layer - see
-    // resolveHelpLocation(). $ROMWBW_INDEX_URL still wins over it, inside
+    // resolveHelpCatalog(). $ROMWBW_INDEX_URL still wins over it, inside
     // catalogv0::indexUrl().
     void setCatalogIndexSetting(const std::string& url) { m_catalogIndexSetting = url; }
 
@@ -98,11 +99,11 @@ private:
     bool downloadToString(const std::wstring& url, std::string& result, std::string& error);
 
     // Fetch the catalog index and take the `help` block out of it, filling
-    // m_helpIndexUrl / m_helpBaseUrl. False - with both left empty - for a dead
-    // network, an unparseable index, or an index with no `help` key, which are
-    // one case as far as this window is concerned: no live help location, show
-    // the bundled topics. Called on the worker thread from fetchIndex().
-    bool resolveHelpLocation();
+    // m_helpCatalog. False - leaving it empty - for a dead network, an
+    // unparseable index, or an index with no `help` key, which are one case as
+    // far as this window is concerned: no live topics, show the bundled ones.
+    // Called on the worker thread from fetchIndex().
+    bool resolveHelpCatalog();
 
     // Local (bundled) help topics, shown even when the online index is
     // unavailable. Served from the app rather than fetched over the network.
@@ -141,14 +142,13 @@ private:
     // location now comes out of the catalog index's `help` block, so
     // romwbw_disks can rename the tag, re-cut it or move hosts with no client
     // release - and a custom $ROMWBW_INDEX_URL redirects help along with
-    // everything else. See catalogv0::HelpLocation.
+    // everything else. See catalogv0::HelpCatalog.
     //
     // Empty until the index has been read, and legitimately still empty after:
     // an index published before the block existed has no `help` key. Empty
     // means the Help window shows the topics compiled into the binary, which is
     // the same thing it shows when the network is down.
-    std::wstring m_helpIndexUrl;
-    std::wstring m_helpBaseUrl;
+    catalogv0::HelpCatalog m_helpCatalog;
 
     // What Settings holds for the catalog index; empty means the built-in one.
     std::string m_catalogIndexSetting;
