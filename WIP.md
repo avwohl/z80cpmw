@@ -17,7 +17,8 @@ was this file's open question is answered, in source and in
 [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md).
 
 Version in the tree: **1.0.33** (`z80cpmw/Version.h`), packaged unsigned on
-2026-09-10 as `dist\z80cpmw.msix` for Partner Center and not yet submitted. Its
+2026-09-10 as `dist\z80cpmw-1.0.33-store.msix` for Partner Center and not yet
+submitted. Its
 signed sideload twin is **1.0.32-beta**, the same source and a different build,
 which is why the numbers differ. **1.0.30-beta** is an older signed package,
 superseded. The 1.0.31 Store package is **gone**: the Store output name carries

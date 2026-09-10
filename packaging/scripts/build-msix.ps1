@@ -86,15 +86,27 @@ Write-Host "Version $pkgVersion (from z80cpmw\Version.h)" -ForegroundColor Green
 # name. Only read when -Beta; the Store package name is fixed.
 $betaStem = if ($SkipSign) { "z80cpmw-$verShort-beta-unsigned" } else { "z80cpmw-$verShort-beta" }
 
-# What the .pdb kept in step 6 is called, on whichever arm ran.
+# THE ONE STEM THAT NAMES BOTH THE PACKAGE AND ITS SYMBOLS, on whichever arm ran.
 #
-# The Store package's own name carries no version - it is always
-# dist\z80cpmw.msix - so its symbols have to carry one instead. An unversioned
-# z80cpmw.pdb beside it would be overwritten by the next Store build, which is
-# precisely how a shipped version's symbols are lost, and losing them is not
-# recoverable: a rebuild has a different debug GUID and will not symbolicate a
-# stack from the binary that shipped.
-$pdbStem = if ($Beta) { $betaStem } else { "z80cpmw-$verShort-store" }
+# The Store package used to be plain dist\z80cpmw.msix, with no version in it at
+# all, and only its .pdb carried one. The reasoning was that nothing depends on
+# the Store package's name, so it may as well be fixed - which is true and misses
+# what a name is FOR. dist\ is a directory of versioned artifacts; one bare
+# z80cpmw.msix among them cannot be identified without unzipping it and reading
+# the manifest, so "is this the build I meant to upload?" had no answer you could
+# read. On 2026-09-10 that cost a round trip: a freshly built 1.0.33 Store package
+# was reported missing, because nothing in dist\ had 1.0.33 in its name.
+#
+# So both artifacts share a stem now - z80cpmw-<ver>-store.{msix,pdb} for the
+# Store arm, z80cpmw-<ver>-beta.{msix,pdb} for the sideload one - and a package
+# and its symbols cannot drift apart or be told apart by guesswork.
+#
+# The .pdb half of this was always load-bearing and still is: an unversioned
+# z80cpmw.pdb would be overwritten by the next build, which is precisely how a
+# shipped version's symbols are lost, and losing them is not recoverable - a
+# rebuild has a different debug GUID and will not symbolicate a stack from the
+# binary that shipped.
+$artifactStem = if ($Beta) { $betaStem } else { "z80cpmw-$verShort-store" }
 
 # Guard against packaging a stale binary: -SkipBuild over an old bin\Release
 # would otherwise label the package with a version the exe does not carry.
@@ -231,7 +243,7 @@ if (!$sdkPath) {
 $makeAppxPath = $sdkPath.FullName
 $signToolPath = Join-Path $sdkPath.Directory "signtool.exe"
 
-$msixName = if ($Beta) { "$betaStem.msix" } else { "z80cpmw.msix" }
+$msixName = "$artifactStem.msix"
 $msixPath = Join-Path $OutputDir $msixName
 
 # Remove existing package. This is the destructive step that -Beta -SkipSign has to
@@ -336,7 +348,7 @@ Remove-Item -Recurse -Force $stagingDir
 # having a rehearsal: the copy and its Write-Error are what a dry run is checking,
 # and an arm that skipped them would prove nothing about the run that ships.
 $pdbSource = Join-Path $BinDir "z80cpmw.pdb"
-$pdbPath = Join-Path $OutputDir "$pdbStem.pdb"
+$pdbPath = Join-Path $OutputDir "$artifactStem.pdb"
 if (Test-Path $pdbSource) {
     Copy-Item $pdbSource $pdbPath -Force
     Write-Host "Symbols kept: $pdbPath" -ForegroundColor Green
@@ -364,7 +376,7 @@ if ($Beta -and $SkipSign) {
     Write-Host "The Trusted Signing cert chains to a Microsoft public root, so no dev cert import is needed." -ForegroundColor Gray
 } else {
     Write-Host "Next step for Microsoft Store submission:" -ForegroundColor Yellow
-    Write-Host "Upload dist\z80cpmw.msix to Partner Center - the Z80CPM product is already reserved." -ForegroundColor Gray
+    Write-Host "Upload $msixName to Partner Center - the Z80CPM product is already reserved." -ForegroundColor Gray
     Write-Host "The Identity in AppxManifest.xml is the one Partner Center assigned and must not be" -ForegroundColor Gray
     Write-Host "edited; this build injected version $pkgVersion into the staged copy from z80cpmw\Version.h." -ForegroundColor Gray
 }

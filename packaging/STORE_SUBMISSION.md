@@ -194,7 +194,15 @@ cd packaging\scripts
 .\build-msix.ps1 -Configuration Release
 ```
 
-Output: `dist\z80cpmw.msix` — this is the **Store** package (Store identity,
+**The name changed on 2026-09-10.** It was plain `dist\z80cpmw.msix`, with no
+version in it, on the reasoning that nothing depends on the Store package's name.
+That is true and misses what a name is for: `dist\` is a directory of versioned
+artifacts, and one bare `z80cpmw.msix` among them could not be identified without
+unzipping it and reading the manifest. A freshly built 1.0.33 package was reported
+missing for exactly that reason. The package and its symbols now share a stem —
+`z80cpmw-<ver>-store.msix` and `z80cpmw-<ver>-store.pdb`.
+
+Output: `dist\z80cpmw-<ver>-store.msix` — this is the **Store** package (Store identity,
 unsigned). Upload it as-is; Microsoft signs it. For the signed **beta** package
 (sideloading), run `.\build-msix.ps1 -Beta` instead, which emits
 `dist\z80cpmw-<version>-beta.msix` (currently `dist\z80cpmw-1.0.23-beta.msix`,
@@ -347,10 +355,10 @@ upload.
 
 4. **Build the package**
    - `cd packaging\scripts` then `.\build-msix.ps1 -Configuration Release`,
-     which writes `dist\z80cpmw.msix`.
+     which writes `dist\z80cpmw-<ver>-store.msix`.
 
 5. **Upload Package**
-   - Partner Center > Z80CPM > New submission, and upload `dist\z80cpmw.msix`
+   - Partner Center > Z80CPM > New submission, and upload `dist\z80cpmw-<ver>-store.msix`
      **unsigned** — Microsoft validates and re-signs it.
 
 6. **Submit for Certification**
@@ -397,7 +405,7 @@ A `-beta` suffix names the signed sideload/GitHub package and a bare number name
 the Microsoft Store release. `build-msix.ps1 -Beta` rewrites the manifest
 `Publisher` to the signing-cert subject, so the two are separate package
 identities that install side by side. They share a version number only when they
-carry the same build — as 1.0.23 does, where `dist\z80cpmw.msix` and
+carry the same build — as 1.0.23 does, where the Store package of the day and
 `dist\z80cpmw-1.0.23-beta.msix` hold the same `z80cpmw.exe` (sha256
 `800715614bd5e20f…` inside both), because the beta was cut with `-SkipBuild` off
 the build the Store package was made from; where the builds differ, the numbers

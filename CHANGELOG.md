@@ -55,12 +55,18 @@ reserves bumping it for the moment something is packaged.
 help topics as catalog entries — rebuilt at a new number and packaged unsigned
 for Partner Center.
 
-**It supersedes the unsubmitted 1.0.31 package.** The Store output name carries
-no version, so `dist\z80cpmw.msix` is one file that each Store build overwrites;
-the 1.0.31 package that occupied it was never submitted and predates the
-entry-point work, so nothing is lost that anyone has. Its symbols stay as
-`dist\z80cpmw-1.0.31-store.pdb`, which is why the `.pdb` carries a version when
-the package cannot.
+**It supersedes the unsubmitted 1.0.31 package**, which was never submitted and
+predates the entry-point work, so nothing is lost that anyone has. Its symbols
+stay as `dist\z80cpmw-1.0.31-store.pdb`.
+
+**And the Store package carries its version in its name now.** It was always
+plain `dist\z80cpmw.msix`, on the reasoning that nothing depends on that name -
+which is true, and misses what a name is for. `dist\` is a directory of
+versioned artifacts, and one bare `z80cpmw.msix` among them could not be
+identified without unzipping it and reading the manifest; this very package was
+reported missing for that reason, minutes after it was built. The package and
+its symbols share a stem now - `z80cpmw-<ver>-store.{msix,pdb}` - which is the
+shape the sideload arm always had.
 
 **Why a new number rather than 1.0.32.** The rule is that the two channels share
 a number only when they carry the same binary, cut from one `bin\Release` with
@@ -81,9 +87,9 @@ The `-Beta` package is the signed one and Partner Center rejects it on identity.
 **Built and tested.** `MSBuild … -t:Rebuild`, **0 warnings, 0 errors**; all eight
 suites at **1,803 checks**: 516, 355, 50, 175, 231, 66, 36, 374.
 
-**The package was opened and read rather than trusted.** `dist\z80cpmw.msix`,
-6,701,644 bytes, sha256
-`4bba125b8143dd85b4b80b89f58446829ebc5c7b5e5990ad7bbecb9dec27d130`. Unzipped, its
+**The package was opened and read rather than trusted.**
+`dist\z80cpmw-1.0.33-store.msix`, 6,701,644 bytes, sha256
+`6903dfdf049d243569daeeba0e1f2c498992310213a23136485b28078071e532`. Unzipped, its
 `AppxManifest.xml` carries `Name="AaronWohl.Z80CPM"`, `Version="1.0.33.0"` and
 `Publisher="CN=724C9014-DD22-420E-9BB4-F2740D082EB0"` — the Partner Center
 identity, not the beta's. There is **no `AppxSignature.p7x`**, which is what
