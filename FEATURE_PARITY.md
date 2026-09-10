@@ -77,12 +77,49 @@ row 13 — the row this document said the Android parser was "the thinnest of th
 four" in — went ⬜ → ✅, with a qualifier stated in the row: that work is
 compiled and has never been run.
 
-**Three rows are not a column, so the `sibling-readings` line for `cpmdroid` is
-deliberately NOT advanced**, and the drift script will keep reporting that
-column as moved. That is the same rule the `ioscpm` line is held to a few
-paragraphs down: reading three rows is not reading a column, and that line is
-what certifies one. Rows 1, 2, 3, 5, 7, 8, 9, 10, 11 and 12 have not been
-re-read since 2026-08-27.
+Three rows were not a column, so the `sibling-readings` line was held back at
+`35873d0` until the rest caught up.
+
+**The Android column was re-read in full on 2026-09-10, at `6848615` — build
+33, versionName 1.31, the commit Play's current listing was built from**, and
+the line is advanced to it. Reading at the shipped commit rather than the tree
+tip is the same discipline the `ioscpm` paragraph below describes; the three
+commits `cpmdroid` has taken since touch `CLAUDE.md`, `todo.txt` and
+`tools/check-shipped-disks.sh` and no application source, so nothing in this
+column describes code a user does not have.
+
+The column mostly held. Every claim in all thirteen `cites: cpmdroid` regions
+was checked against the port, and the rot was concentrated exactly where
+`cpmdroid` builds 1.28 to 1.31 landed - the interface-v0 catalog migration:
+
+- **Row 5** was the worst and is rewritten. It called the port **pinned**, on a
+  `RELEASE_TAG = "v1.4.5"` that no longer exists; `cpmdroid` compiles in one
+  tagless index URL now and reads every other address out of the documents it
+  names.
+- **Row 6** claimed the bundled help was a second copy of `release_assets/` and
+  that `INDEX_URL` 404'd for every reader. `release_assets/` is deleted and
+  that URL with it; help is a block in the shared catalog.
+- **Row 4**'s help-fork paragraph said the Android fork was "still there". It
+  is gone, and all three ports read the same text again.
+- **Row 7** described a flat `nvram` preference; it is scoped per release and
+  per catalog now.
+- **Row 11** listed a stored ROM setting that `EmulatorSettings` has
+  deliberately dropped.
+- Four smaller corrections: the scrollback control is a `SeekBar` and not a
+  choice list, an "open item in cpmdroid's todo.txt" that is in no such file,
+  a `emu_host_path_basename()` citation for a symbol this port does not compile
+  (it calls `android_host_leaf()`), and a "closest thing to findability until a
+  UI exists" clause its own paragraph contradicts thirty lines earlier.
+- Row 13's "**has never been run**" qualifier is retired: 1.30 was built with
+  the real toolchain and installed on a tablet.
+- One correction goes the other way, and is about this port rather than
+  Android: row 13 credited z80cpmw's VT52 as "ported from `cpmdroid`".
+  `vt52Mode` first appears in `cpmdroid` at `167acbe` (2026-08-29) and this
+  port had VT52 by 2026-08-19, so the borrowing cannot have run in that
+  direction.
+
+Everything else - roughly 130 claims across the thirteen regions, including all
+of rows 1, 3, 9 and 12 - was confirmed still true against the port.
 
 **The iOS/macOS column was re-read in full on 2026-09-06, at `af0b9b2` —
 build 61, the commit the App Store's 1.5.1 was built from.** Reading it at a
@@ -371,8 +408,9 @@ long `DIR` listings).
   citation at a time; every symbol below resolves.
   - **Matches.** Capacity is a setting — `SettingsRepository.DEFAULT_SCROLLBACK_LINES`
     = **1000**, offered as `SCROLLBACK_CHOICES` (0, 100, 250, 500, 1000, 2000, 5000,
-    10000), where `0` disables.  It is a choice list, not the slider or edit field
-    the old block described.  Capture happens at a single scroll-off choke point —
+    10000), where `0` disables.  It is a `SeekBar` whose positions index that
+    fixed list — a slider over choices rather than over a range — and not the
+    edit field the old block described.  Capture happens at a single scroll-off choke point —
     `scrollUp`, which does the four `addLast` calls; `scrollRegionUp` delegates to
     it and captures nothing itself, so the old block named the wrong function.  The
     guard is `scrollTop == 0 && scrollBottom == rows - 1`: the region must be the
@@ -419,8 +457,8 @@ long `DIR` listings).
     clipboard limit, and the Binder-transaction reasoning under it, describe nothing
     in the code: neither number appears anywhere in cpmdroid, and
     `copyScreenToClipboard` applies no cap.  Whether one is *needed* is a real
-    question and is now an open item in cpmdroid's todo.txt; what is certain is that
-    none exists.
+    question, and re-read 2026-09-10 nothing in cpmdroid tracks it — it is in
+    neither todo.txt nor WIP.md.  What is certain is that none exists.
 
 <!-- /cites -->
 
@@ -746,14 +784,14 @@ to find them on every platform.
     and then discards the command line — see parity target (c).
     Containment is real, though, and as of 2026-08-25 it is asserted in the
     right layer. The guest path is reduced to a single leaf by
-    `emu_host_path_basename()` inside `emu_host_file_open_read/write()` in the
+    `android_host_leaf()` — a file-local copy of romwbw_emu's
+    shared `emu_host_path_basename()`, which this port does not compile — inside `emu_host_file_open_read/write()` in the
     C++ shim, and lowercased to match the CLI and browser convention; the Kotlin
     checks remain as a backstop and the write is now containment-checked against
     `Exports` before it happens. `emu_host_path_caps()` returns
     `EMU_HOST_CAP_SAFE_PATHS` on that basis, and
     `emu_host_file_get_write_name()` reports the full `Exports/` destination so
-    `W8` can print where the file went — which is the closest thing this port
-    has to findability until a UI exists.
+    `W8` can print where the file went.
     One real bug was fixed on the way: `R8` used to fall back to **the first
     file in `Imports/`** when the requested name was missing, and hand it to
     CP/M under the requested name while printing its usual success line.
@@ -829,17 +867,20 @@ to find them on every platform.
   is done.
   The shared iOS/Mac **`help_file_transfer.md`** was stale (wrong bundle id
   `com.awohl.iOSCPM`, wrong app name "iOSCPM", no mention of Import File…);
-  `ioscpm` commit `9a9d7fd` fixed it on 2026-07-23. `cpmdroid` has its own
+  `ioscpm` commit `9a9d7fd` fixed it on 2026-07-23. `cpmdroid` had its own
   Android-worded copy at `release_assets/help_file_transfer.md`, split off the
-  same day (`78e6ec6`), so the two no longer share that text — a change to one no
-  longer fixes the other. **That split is now meant to close.** `ioscpm`'s
-  `7569745` (2026-08-28) rewrote all eight files in `release_assets/` to stop
-  being written for iOS only: Folder Locations now has four platform
-  subsections and none of them is the default, one of them this port's, and the
-  commit's stated reason is that the Android fork can then go away and all three
-  ports read the same file again. As of 2026-09-02 the fork is still there —
-  `cpmdroid` still carries its own copy — so until it is deleted the sentence
-  above still describes the two trees.
+  same day (`78e6ec6`), so for a while the two did not share that text and a
+  change to one did not fix the other. **That split closed on 2026-09-10.**
+  `ioscpm`'s `7569745` (2026-08-28) rewrote all eight files to stop being
+  written for iOS only — Folder Locations gained four platform subsections,
+  none of them the default and one of them this port's — with the stated aim of
+  letting the Android fork go away; then `cpmdroid`'s `1936bab` deleted
+  `release_assets/` outright, and romwbw_disks' `5ac4afe` merged the Android
+  wording and ioscpm's iOS/macOS detail into the published text. Re-read
+  2026-09-10 at `6848615`: there is no fork left in any port. The one copy is
+  romwbw_disks' `help/help_file_transfer.md`, published in the catalog's `help`
+  block; what each port bundles is a byte-identical offline floor under it, and
+  a change to the text now needs no app release anywhere.
 
 ### 5. Remote disk catalog + downloader  — *z80cpmw is no longer on this row's pin axis*
 Download prebuilt disk images from the shared release host instead of bundling
@@ -902,13 +943,26 @@ copyrighted content.
   `WIP`/parity notes on the version-skew problem.
 - **Verified port behaviour (2026-08-07):**
 <!-- cites: cpmdroid -->
-  - **cpmdroid (Android)** *(re-verified 2026-09-02)* — **pinned**.
-    `data/DiskCatalogRepository.kt` builds both the catalog URL and the download
-    base from a single
-    `RELEASE_TAG = "v1.4.5"`, with the reason recorded in a comment (the core's
-    HBIOS reports RomWBW v3.5.1, and slices from other releases print an
-    HBIOS/CBIOS mismatch). Help deliberately stays on `releases/latest` — see
-    item 6 for why that choice is only safe with a bundled fallback.
+  - **cpmdroid (Android)** *(re-read 2026-09-10 at `6848615`)* — **not pinned
+    any more**, and it now stands where this row already puts z80cpmw. It was
+    pinned when this was last read: `data/DiskCatalogRepository.kt` built both
+    the catalog URL and the download base from a single
+    `RELEASE_TAG = "v1.4.5"`. That tag was moved to `v1.4.12` and then removed
+    outright. The only content address compiled in is
+    `SettingsRepository.DEFAULT_INDEX_URL` — romwbw_disks'
+    `releases/latest/download/index-v0.json`, which names no release tag —
+    re-exported as `DiskCatalogRepository.INDEX_URL` so there is one literal
+    rather than two, and overridable from a Settings field or `$ROMWBW_INDEX_URL`.
+    Every catalog URL and download base is read out of the documents that index
+    names.
+    The HBIOS-mismatch reason the old pin cited is still true and no longer
+    justifies a pin: which RomWBW releases the core can boot is asked of the
+    core at run time rather than assumed to be one, so the picker offers what
+    this build can actually run.
+    Help is no longer an exception either — since `1936bab` it is a `help`
+    block inside that same index, fetched from the same address as the disks,
+    so item 6's "only safe with a bundled fallback" now applies to the shared
+    catalog and not to a second URL of cpmdroid's own.
 <!-- /cites -->
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: 1f70c6b -->
@@ -1046,19 +1100,24 @@ In-app help fetched from GitHub, with offline bundled topics.
   **cpmdroid is out of the trap**, and the 2026-08-25 entry — which correctly
   found nothing bundled, no cache, and a `build.gradle.kts` that mentions help
   nowhere — is now the record of what was fixed rather than a live finding.
-  `1f70c6b` and `aee7276` closed it. All eight files (`help_index.json` plus
-  seven topics) ship inside the APK under `app/src/main/assets/help/`,
-  byte-identical to the copies in `release_assets/` that a release is meant to
-  carry, so there is no second copy to drift; no Gradle rule was needed
-  because AGP packages `src/main/assets/**` verbatim. **Nothing is attached
-  today, which is the trap seen from the other side.** The releases were listed
-  on 2026-09-02: `v1.14`, which is what `releases/latest` resolves to, carries
-  `app-release.apk` and nothing else; help assets were last attached to `v1.11`
-  and only two of the eight; `v1.0` is the one release that ever had all eight.
-  So `INDEX_URL` returns 404 for every reader, every time — exactly what the
-  comment above it predicts — and the bundled copy is doing the whole job. That
-  is not a defect in this port's fallback, it is what the fallback was built
-  for, but it does mean the download half has no live asset to be right about. The order is **download,
+  `1f70c6b` and `aee7276` closed it. The files ship inside the APK under
+  `app/src/main/assets/help/`; no Gradle rule was needed because AGP packages
+  `src/main/assets/**` verbatim.
+
+  **Re-read 2026-09-10 at `6848615`: cpmdroid publishes no help of its own any
+  more, and the whole "nothing is attached" finding below it is retired.** The
+  entry used to say that the bundled files were byte-identical to a second set
+  under `release_assets/`, that cpmdroid's own `releases/latest` carried no help
+  assets, and that `INDEX_URL` therefore 404'd for every reader while the
+  bundled copy did the whole job. `1936bab` deleted `release_assets/` outright
+  and deleted that URL with it: help is a `help` block inside romwbw_disks'
+  shared `index-v0.json`, reached through the same
+  `SettingsRepository.DEFAULT_INDEX_URL` the disk catalog uses, with a size and
+  a sha256 per topic that `HelpCatalog.kt` checks. So the download half has a
+  live asset again, there is no second copy of the text in this repository to
+  drift, and the seven bundled topics are the offline floor under the published
+  ones rather than a fork of them. All three GUI ports read the same documents
+  now. The order is **download,
   then the on-disk cache, then the shipped copy** — `resolveHelpIndex` and
   `resolveContent`, with a `HelpSource` enum that puts "offline copy, saved
   <date>" or "bundled with the app" in the action-bar subtitle so a reader can
@@ -1497,8 +1556,10 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     `todo.txt`. FF is still discarded — but so it is by both other ports, so it
     belongs on the list of things none of the three has rather than in this
     cell.
-    **The caveat.** `167acbe` was written on a machine with no Android SDK and
-    **has never been run**. It is compiled — the C++ by host `clang++` at `-Wall -Wextra`, and
+    **The caveat, as it stood.** `167acbe` was written on a machine with no
+    Android SDK and had not been run when this was written.  Re-read
+    2026-09-10: cpmdroid 1.30 has since been built with the real toolchain and
+    installed on a tablet over adb, so the terminal work has run. It is compiled — the C++ by host `clang++` at `-Wall -Wextra`, and
     `TerminalView.kt` by `kotlinc` against real Android framework classes — and
     that is a type-check, not a screen. Its `MANUAL_CHECKS.md` gained a section
     listing what to point at it. Read this ✅ as "the code is there and agrees
@@ -1509,7 +1570,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
 <!-- /cites -->
   - **z80cpmw (this repo)** — `TerminalView.cpp`
     (`processEscapeChar`, `processCSIChar`, `executeCSI`, `applySGR`).
-    **VT52 and the answerbacks landed**, ported from `cpmdroid`: the full VT52
+    **VT52 and the answerbacks landed** — not ported from `cpmdroid`, which is the direction this line used to claim: `vt52Mode` first appears in cpmdroid at `167acbe` (2026-08-29) and this port already had VT52 by 2026-08-19: the full VT52
     set (`ESC A B C D E F G H I J K Y Z <`, with `D`/`E`/`H` overloaded by mode),
     auto-detection from any VT52-exclusive sequence, `ESC <` and DECANM
     (`ESC[?2h`/`l`) to switch, and `n`/`c`/`ESC Z` answerback so a program that
@@ -1796,7 +1857,7 @@ does that writes to a sibling.
 ```sibling-readings
 z80cpmw    6496fd4  2026-09-09  shipped:1.0.29
 ioscpm     af0b9b2  2026-09-06  shipped:61
-cpmdroid   35873d0  2026-09-06  shipped:27
+cpmdroid   6848615  2026-09-10  shipped:33
 romwbw_emu 8bd38cd  2026-09-06  shipped:1.38
 ```
 
