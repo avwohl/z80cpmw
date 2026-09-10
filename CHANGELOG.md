@@ -72,6 +72,59 @@ in principle. The `-Beta` package is the one with our own signature and its
 Publisher was rewritten to `CN=Aaron Wohl, …`; **uploading that one to Partner
 Center is rejected on identity**, and it is not what this entry describes.
 
+### Verified
+
+**Built and tested.** `MSBuild z80cpmw.sln -p:Configuration=Release
+-p:Platform=x64 -t:Rebuild -m`, **0 warnings, 0 errors**, and all eight suites
+pass at **1,779 checks**: 516, 355, 50, 175, 207, 66, 36, 374.
+
+**The package was opened and read rather than trusted.** `dist\z80cpmw.msix`,
+6,698,878 bytes, sha256
+`e8252c5871db07db79cf22f50ccfae6387fc0f023b5a82f7f174992bcc31ab8f`. Unzipped, its
+`AppxManifest.xml` carries `Name="AaronWohl.Z80CPM"`, `Version="1.0.31.0"` and
+`Publisher="CN=724C9014-DD22-420E-9BB4-F2740D082EB0"` — the Partner Center
+identity, not the beta's. There is **no `AppxSignature.p7x`**, which is what
+unsigned means and what the Store requires. There is no `.rom`, no `.img` and no
+`disks\`. The committed `AppxManifest.xml` is untouched at its `0.0.0.0`
+placeholder.
+
+**Symbols kept** as `dist\z80cpmw-1.0.31-store.pdb`, md5-equal to
+`bin\Release\z80cpmw.pdb` (`d02596ba…`). The Store package's own name carries no
+version, so the `.pdb` carries one instead and the next Store build cannot
+overwrite it.
+
+### Fixed in the documents, not the code
+
+- **`PRIVACY.md` said network access was optional**, and closed "If you never use
+  these features, the app makes no network connections." Both were false from
+  2026-09-07, when the application stopped carrying a ROM: the ROM now comes from
+  the catalog, F5 always contacts the index host, and a machine that has never
+  reached the network does not start. The policy is dated August 23 and the tree
+  already knew it was stale — `STORE_SUBMISSION.md` records that the catalog
+  "stopped being optional on 2026-09-07". It now says the network is required,
+  lists all four request kinds, states plainly that no personal information is
+  sent and what an ordinary HTTPS download does reveal, and notes that a custom
+  catalog index sends those requests somewhere else. This matters here rather
+  than generally: a Store listing publishes this policy, and a reviewer who reads
+  it and then finds the app cannot start offline has a documented mismatch.
+
+- **`packaging/STORE_SUBMISSION.md` — the runbook this submission is run from —
+  had a version narrative four releases stale**, saying the Store carried 1.0.22
+  with 1.0.23 pending, and telling the reader the next bump takes "1.0.24 or
+  later", a number long since burned. Corrected, and pointed at
+  `tools/check-store-version.sh` rather than at itself: the paragraph has been
+  wrong four times because a submission leaves no trace in this repository.
+
+- **`KNOWN_PROBLEMS.md` listed three `.pdb` files in `dist\` that were not
+  there** — and the reason turned out to be worth writing down. See its new
+  paragraph: `dist\` is gitignored, nothing in the build scripts deletes anything
+  in it but their own outputs, and the missing files were all in the **Recycle
+  Bin**. They were restored and the restore was checked —
+  `z80cpmw-1.0.28-beta.msix` came back hashing the `d205be82…` this file records
+  for the published artifact. The `.pdb` rule is about not being able to
+  *rebuild* symbols, not about not being able to *recover* them; look in the
+  Recycle Bin before concluding a shipped version's symbols are gone.
+
 ## [1.0.30-beta] - 2026-09-10
 
 **The signed sideload package only.** The Store package of this same work is

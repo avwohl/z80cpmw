@@ -266,8 +266,13 @@ v1.0.14.
 
 ### Every update — the current flow
 
-The Store carried 1.0.14, then 1.0.19, and now **1.0.22**, published 2026-08-23.
-1.0.23 is packaged and awaiting submission.
+The Store carried 1.0.14, then 1.0.19, 1.0.22, 1.0.23, 1.0.25 and now **1.0.29**.
+**Do not trust that sentence either - MEASURE it.** `tools/check-store-version.sh`
+asks the Store what it actually serves, and a CI job runs it on every push; this
+paragraph has been wrong four times, because a submission going out leaves no
+trace in this repository. 1.0.29 is what it reported on 2026-09-10, and
+`z80cpmw/Version.h` is at **1.0.31**, whose unsigned package is built and awaiting
+upload.
 
 1. **Pick the version**
    - Bump `z80cpmw/Version.h` to a number free on both channels (see
@@ -396,10 +401,12 @@ carry the same build — as 1.0.23 does, where `dist\z80cpmw.msix` and
 `dist\z80cpmw-1.0.23-beta.msix` hold the same `z80cpmw.exe` (sha256
 `800715614bd5e20f…` inside both), because the beta was cut with `-SkipBuild` off
 the build the Store package was made from; where the builds differ, the numbers
-must differ too. As of 2026-09-03 the Store still carries **1.0.22** and
-1.0.23 is built on both vehicles but published on neither, so the next change on
-either channel takes 1.0.24 or later. Check both channels before
-bumping: the recent Store releases (1.0.19, 1.0.22) carry no git tag and no
+must differ too. As of 2026-09-10 the Store carries **1.0.29**, the newest published
+sideload package is **v1.0.28-beta**, and **1.0.30-beta** (signed) and **1.0.31**
+(the unsigned Store package) are both built and published on neither channel - so
+the next change on either channel takes 1.0.32 or later. Note that 1.0.30-beta and
+1.0.31 are the same SOURCE and different BUILDS, which is exactly why they carry
+different numbers. Check both channels before bumping, and measure the Store one: the recent Store releases (1.0.19, 1.0.22) carry no git tag and no
 GitHub release, while the older ones (1.0.10, 1.0.14) do, so `git tag` and
 `gh release list` are not evidence of what has shipped.
 

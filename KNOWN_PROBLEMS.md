@@ -33,11 +33,34 @@ for it exists anywhere — `dist\` holds `z80cpmw-1.0.21-beta.pdb`,
 rebuilt many times since, most recently on 2026-09-07. The choice this paragraph
 used to pose — submit `dist\z80cpmw-1.0.24-store.msix` and inherit 1.0.22's
 problem, or submit 1.0.25 and not — has since been made, and made the right way:
-the Store serves **1.0.25** (`tools/check-store-version.sh` on 2026-09-06 in
-`7ca073c`, re-run on 2026-09-07), and `z80cpmw-1.0.25-store.pdb` was kept beside
-the package it came from, so the version users actually have is symbolicated.
-The 1.0.24 package is still on disk and still has no symbols anywhere, and
-submitting it now would be choosing that problem rather than inheriting it.
+1.0.25 went to the Store with `z80cpmw-1.0.25-store.pdb` kept beside the package
+it came from, so the version users had was symbolicated. The Store has moved on
+twice since - it serves **1.0.29** as of 2026-09-10 - and every version since
+1.0.25 has kept its symbols on both arms. The 1.0.24 package has no symbols
+anywhere and submitting it would be choosing that problem rather than inheriting
+it; it is superseded four times over and there is no reason to.
+
+**A THIRD WAY TO LOSE A `.pdb` TURNED UP ON 2026-09-10, AND IT IS NOT THE
+SCRIPT'S FAULT.** The rule in CLAUDE.md is about what `build-msix.ps1` does at
+package time; it says nothing about RETENTION, and this file was being read as
+though it did. `dist\` is gitignored, so nothing in git protects it, and it was
+found mid-session to have lost `z80cpmw-1.0.28-beta.msix`, its `.pdb`, and
+`z80cpmw-1.0.29-store.pdb` - the symbols for the version the Store was serving at
+that moment. Nothing in `build-msix.ps1`, `run_tests.bat` or the `.vcxproj`
+deletes anything in `dist\` but its own outputs and the staging folder; all of
+them were found in the **Recycle Bin**, deleted from `C:\temp\src\z80cpmw\dist`,
+alongside `.pdb` and `.msix` files going back to 1.0.21. What deleted them was
+not established.
+
+They were all restored, and the restore was checked rather than assumed:
+`z80cpmw-1.0.28-beta.msix` came back hashing
+`d205be82ca783c2e51fb7596976c4001ac214b285f92dfd2f8ab66c9c075b2ca`, which is the
+sha256 CHANGELOG records for the published artifact. So the standing lesson is a
+cheerful one: **the Recycle Bin is the last line of defence, and it works.** Look
+there before concluding a `.pdb` is gone - the rule that it cannot be recreated is
+about rebuilding, not about recovery. `dist\` now holds symbols for 1.0.21-beta,
+1.0.23-beta, 1.0.25-store, 1.0.28-beta, 1.0.29-store, 1.0.30-beta and
+1.0.31-store.
 1.0.23 escapes by accident rather than by design: its beta was cut from the same
 build with `-SkipBuild`, so `z80cpmw-1.0.23-beta.pdb` symbolicates the Store
 binary too — which is a property of how that release happened to be cut, not a

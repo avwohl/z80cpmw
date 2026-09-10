@@ -1,6 +1,6 @@
 # Privacy Policy for Z80CPM
 
-**Last updated:** August 23, 2026
+**Last updated:** September 10, 2026
 
 ## Overview
 
@@ -37,17 +37,38 @@ install, whether from the Microsoft Store or the signed sideload beta):
 None of this data leaves your device unless you choose to send it — for example,
 by attaching a crash report to a bug report. The app never uploads it for you.
 
-## Optional Network Access
+## Network Access
 
-Z80CPM contacts the network only for two optional, on-demand features, both served
-from public GitHub release assets:
+**Z80CPM needs the network to run at all.** This section said the opposite until
+September 10, 2026 — that network access was optional and that "if you never use
+these features, the app makes no network connections" — and that stopped being
+true on September 7, when the application stopped carrying a ROM of its own.
 
-- **Disk catalog** — downloading prebuilt disk images.
-- **In-app help** — fetching the latest help topics (a bundled offline copy is used
-  if there is no network).
+Nothing bootable is installed with the app. Every request goes to public GitHub
+release assets, and there are three:
 
-No personal information is transmitted during either request. If you never use
-these features, the app makes no network connections.
+- **The catalog index and a release's catalog** — the documents that list what is
+  on offer. Read whenever the app needs to know what it can fetch, including on
+  the way to starting the machine.
+- **The ROM** — the firmware the emulated machine runs. It is downloaded the first
+  time you start the machine and checked against the size and SHA-256 the catalog
+  publishes; a ROM that does not match is not loaded. **A machine that has never
+  reached the network has no ROM it is allowed to load and will not start.**
+- **Disk images** — downloaded when you ask for them, and checked the same way.
+- **In-app help** — fetching the latest help topics (a bundled offline copy is
+  used if there is no network).
+
+**No personal information is transmitted in any of these requests.** They are
+ordinary anonymous HTTPS downloads of public files: no account, no identifier, no
+telemetry, and nothing about you or your machine beyond what any download sends —
+your IP address and a user-agent naming the app and its version. GitHub, as the
+host of those files, sees those requests; its privacy statement governs what
+GitHub does with them. Nothing is sent to the developer.
+
+You can point the app at a different catalog — a mirror, or your own — with the
+**Catalog index** setting under Settings → Disk Images, or the
+`ROMWBW_INDEX_URL` environment variable. It then contacts that host instead, and
+whoever runs it sees the requests in GitHub's place.
 
 ## Contact
 

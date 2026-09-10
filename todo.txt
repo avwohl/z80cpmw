@@ -7,18 +7,29 @@ Related: MANUAL_CHECKS.md (checks needing a person at a keyboard),
 KNOWN_PROBLEMS.md (standing facts that will never be "done"), WIP.md (handoff).
 
 
-- [RELEASE] publish v1.0.30-beta to the GitHub channel.  The package is BUILT
-AND SIGNED - dist\z80cpmw-1.0.30-beta.msix, sha256 80261ef2..., with its .pdb
-beside it, and CHANGELOG [1.0.30-beta] records the artifact - so what is left is
-the release itself: gh release create v1.0.30-beta --prerelease, with the msix
-attached.  README.md:8 links releases/latest/download/z80cpmw-1.0.28-beta.msix,
-which is a floating URL with a version-stamped asset name: it dies the moment
-v1.0.30-beta becomes Latest, so that line changes in the same commit.
+- [RELEASE] two packages are built and neither is published.  Both are the same
+SOURCE and different BUILDS, which is why they carry different numbers.
 
-  Do NOT upload this package to the Store.  -Beta rewrote its Publisher to
-  CN=Aaron Wohl, so Partner Center rejects it on identity.  And do not cut a
-  Store 1.0.30 from it either without a rebuild: the two channels share a number
-  only when they carry the same binary, and Store 1.0.29 is a different one.
+  * dist\z80cpmw.msix - the UNSIGNED 1.0.31 Store package, sha256 e8252c58...,
+  for upload to Partner Center.  Identity, version and the absence of a
+  signature were all read out of the packed manifest rather than assumed.  Its
+  symbols are dist\z80cpmw-1.0.31-store.pdb.
+
+  * dist\z80cpmw-1.0.30-beta.msix - SIGNED, sha256 80261ef2..., for the GitHub
+  channel: gh release create v1.0.30-beta --prerelease with the msix attached.
+  README.md:8 links releases/latest/download/z80cpmw-1.0.28-beta.msix, a floating
+  URL with a version-stamped asset name, so it dies the moment v1.0.30-beta
+  becomes Latest; that line changes in the same commit.
+
+  Do NOT upload the -beta package to the Store: its Publisher was rewritten to
+  CN=Aaron Wohl and Partner Center rejects it on identity.  Do not upload the
+  Store package to GitHub either - it is unsigned and will not sideload.
+
+  Before the Partner Center sitting, recapture the listing screenshot:
+  packaging/msix/Assets/screenshot1.png is 824x656 against a 1366x768 minimum,
+  and STORE_SUBMISSION.md:63 has said "recapture before uploading" for some time.
+  It also shows a booted CBIOS v3.5.1 session, which is neither the current
+  release nor a state a first launch can now reach.
 
 - 1.0.25 makes a superseded disk image visible and does not yet make it go away.
 Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:
