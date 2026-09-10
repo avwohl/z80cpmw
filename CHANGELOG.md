@@ -45,10 +45,19 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
-`Version.h` is still **1.0.31** and todo.txt reserves bumping it for the moment
-something is packaged. **`dist\z80cpmw.msix`, the 1.0.31 Store package, was built
-before the change below and does not contain it** — so this ships as 1.0.32, and
-that package must not be rebuilt at 1.0.31.
+Nothing yet. `Version.h` is the single source of the version and todo.txt
+reserves bumping it for the moment something is packaged.
+
+## [1.0.32-beta] - 2026-09-10
+
+**The signed sideload package only.** No Store package has been built at this
+number.
+
+**Why not 1.0.31.** `dist\z80cpmw.msix`, the 1.0.31 Store package, was built
+before everything below and does not contain any of it. Re-cutting 1.0.31 to
+include it would put two different binaries under one number, which is the one
+thing the version rules forbid outright — so 1.0.31 stays what it is, awaiting
+its Partner Center submission, and this work ships at its own number.
 
 ### Changed
 
@@ -174,6 +183,25 @@ download and fell back, the status line changing to *"(offline copy, saved
 and selecting a topic fetched it from the published `help-v0` tag and reported
 *"(downloaded)"* - so the whole chain works through
 `releases/latest/download/index-v0.json`, which is the shipping configuration.
+
+**Re-verified and packaged at 1.0.32 on 2026-09-10.** `MSBuild … -t:Rebuild`,
+**0 warnings, 0 errors**; all eight suites at **1,803 checks**. The packaged
+binary was then driven: Settings came up with the release picker on
+**RomWBW 3.6.0** and the note reading *"In use:
+https://github.com/avwohl/romwbw_disks/releases/latest/download/index-v0.json"* —
+the new entry point, resolving live — and the Help window listed nine topics and
+reported *"(downloaded)"* for one, so the topic fetch and its SHA-256 check both
+work against the published `help-v0` assets. The real `z80cpmw.json` was backed
+up first and restored byte-identical.
+
+**Packaged and signed.** `build-msix.ps1 -Beta -SkipBuild`, off that same
+`bin\Release`, produced `dist\z80cpmw-1.0.32-beta.msix` — 6,721,523 bytes,
+sha256 `baf0007d3fa5586c140844bb7c5b7afe952fd0137104859dd02c4bd1321ee279` —
+signed by Azure Trusted Signing and verified by `signtool`, the chain ending at
+`Aaron Wohl` under the Microsoft roots, timestamped 2026-09-10. Symbols are
+`dist\z80cpmw-1.0.32-beta.pdb`, md5-equal to `bin\Release\z80cpmw.pdb`
+(`e67edefa…`). The `-Beta -SkipBuild -SkipSign` rehearsal ran first and wrote a
+distinct `-unsigned` name; both `-unsigned` files were deleted afterwards.
 
 ## [1.0.31] - 2026-09-10
 

@@ -7,7 +7,7 @@ Related: MANUAL_CHECKS.md (checks needing a person at a keyboard),
 KNOWN_PROBLEMS.md (standing facts that will never be "done"), WIP.md (handoff).
 
 
-- [RELEASE] two packages are built and neither is published.  Both are the same
+- [RELEASE] three packages are built and none is published.  Both are the same
 SOURCE and different BUILDS, which is why they carry different numbers.
 
   * dist\z80cpmw.msix - the UNSIGNED 1.0.31 Store package, sha256 e8252c58...,
@@ -15,10 +15,16 @@ SOURCE and different BUILDS, which is why they carry different numbers.
   signature were all read out of the packed manifest rather than assumed.  Its
   symbols are dist\z80cpmw-1.0.31-store.pdb.
 
-  * dist\z80cpmw-1.0.30-beta.msix - SIGNED, sha256 80261ef2..., for the GitHub
-  channel: gh release create v1.0.30-beta --prerelease with the msix attached.
+  * dist\z80cpmw-1.0.32-beta.msix - SIGNED, sha256 baf0007d..., and the one to
+  publish: it is the only package carrying the catalog entry-point work, so it
+  supersedes 1.0.30-beta for the GitHub channel.  gh release create
+  v1.0.32-beta --prerelease with the msix attached.
+
+  * dist\z80cpmw-1.0.30-beta.msix - SIGNED, sha256 80261ef2..., superseded by
+  1.0.32-beta above and probably not worth publishing now.  Keep the .pdb
+  whatever is decided: it cannot be rebuilt.
   README.md:8 links releases/latest/download/z80cpmw-1.0.28-beta.msix, a floating
-  URL with a version-stamped asset name, so it dies the moment v1.0.30-beta
+  URL with a version-stamped asset name, so it dies the moment a newer beta
   becomes Latest; that line changes in the same commit.
 
   Do NOT upload the -beta package to the Store: its Publisher was rewritten to
