@@ -115,6 +115,10 @@ static const char* const REAL_INDEX = R"JSON({
   "interface": "v0",
   "repo": "https://github.com/avwohl/romwbw_disks",
   "index_url": "https://github.com/avwohl/romwbw_disks/releases/download/catalog-v0/index-v0.json",
+  "help": {
+    "index_url": "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/help_index.json",
+    "base_url": "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/"
+  },
   "romwbw_versions": [
     {
       "romwbw_version": "3.5.1",
@@ -1398,6 +1402,82 @@ static std::string squeeze(const std::string& text) {
     return out;
 }
 
+static void test_where_the_help_lives() {
+    section("the help location comes out of the index, not out of the binary");
+
+    // THE POINT OF THE WHOLE BLOCK. Until 1.0.32 HelpWindow.cpp carried
+    //     ".../avwohl/ioscpm/releases/latest/download/help_index.json"
+    // and a base URL beside it, so in-app help was the last thing in this
+    // application that could only be moved by shipping a new client to Windows,
+    // Android, iOS and Linux at once. Reading it from the index means
+    // romwbw_disks can rename the tag, re-cut it or change host with no client
+    // release - the same promise catalog_url makes for a RomWBW release.
+    catalogv0::HelpLocation loc;
+    checkTrue(catalogv0::parseHelpLocation(REAL_INDEX, loc),
+              "the published index carries a help block");
+    checkStr(loc.indexUrl,
+             "https://github.com/avwohl/romwbw_disks/releases/download/"
+             "help-v0/help_index.json",
+             "help_index.json on the help-v0 tag");
+    checkStr(loc.baseUrl,
+             "https://github.com/avwohl/romwbw_disks/releases/download/help-v0/",
+             "and the base a topic filename is appended to");
+    checkTrue(loc.ok(), "both halves present, so it is usable");
+
+    // base_url is concatenated with a filename and NOTHING is inserted between
+    // them - the schema's rule, and the exact spot section 6 says the three
+    // clients have disagreed before.
+    checkTrue(!loc.baseUrl.empty() && loc.baseUrl.back() == '/',
+              "base_url ends in a slash, so concatenation needs no separator");
+    checkStr(catalogv0::assetUrl(loc.baseUrl, "help_qpm.md"),
+             "https://github.com/avwohl/romwbw_disks/releases/download/"
+             "help-v0/help_qpm.md",
+             "a topic URL is base_url + filename");
+
+    // AN INDEX WITHOUT THE BLOCK IS NOT AN ERROR, and this is the case that
+    // decides whether a shipped client survives the day the block is removed or
+    // meets an index published before it existed. The caller falls back to the
+    // topics compiled into the binary; nothing goes in front of a user.
+    catalogv0::HelpLocation none;
+    checkFalse(catalogv0::parseHelpLocation(
+                   R"({"schema":"romwbw-disks-index","romwbw_versions":[]})", none),
+               "an index with no help block simply has no location");
+    checkTrue(none.indexUrl.empty() && none.baseUrl.empty(),
+              "and leaves nothing half-set behind");
+
+    // HALF A BLOCK IS NO BLOCK. A topic list with no way to fetch a topic reads
+    // to a user as help that is present and broken, which is worse than help
+    // that is offline, so neither half is taken without the other.
+    catalogv0::HelpLocation half;
+    checkFalse(catalogv0::parseHelpLocation(
+                   R"({"help":{"index_url":"https://example.invalid/help_index.json"}})", half),
+               "an index_url with no base_url is refused");
+    checkTrue(half.indexUrl.empty(), "and stores neither half");
+    checkFalse(catalogv0::parseHelpLocation(
+                   R"({"help":{"base_url":"https://example.invalid/"}})", half),
+               "a base_url with no index_url is refused too");
+
+    // Wrong shapes rather than missing ones, since "ignore what you do not
+    // understand" has to cover a key whose VALUE is the surprise.
+    checkFalse(catalogv0::parseHelpLocation(R"({"help":"somewhere"})", half),
+               "a help that is a string is not a location");
+    checkFalse(catalogv0::parseHelpLocation(R"({"help":[]})", half),
+               "nor is a help that is an array");
+    checkFalse(catalogv0::parseHelpLocation("not json at all", half),
+               "and a document that will not parse has no location either");
+
+    // A FORK GETS THIS FOR FREE, which is the second reason it is in the index:
+    // a client pointed at another catalog reads that catalog's help block, so a
+    // test index serves its own topics with no patched client.
+    catalogv0::HelpLocation mine;
+    checkTrue(catalogv0::parseHelpLocation(
+                  R"({"help":{"index_url":"http://127.0.0.1:8731/help_index.json",)"
+                  R"("base_url":"http://127.0.0.1:8731/"}})", mine),
+              "a custom index names its own help");
+    checkStr(mine.baseUrl, "http://127.0.0.1:8731/",
+             "and that is what the Help window would fetch from");
+}
+
 static void test_the_fixture_is_not_stale() {
     section("the fixtures still match the published documents");
 
@@ -1459,6 +1539,7 @@ int main() {
     test_the_release_a_v0_name_carries();
     test_the_one_equivalent_prior_image();
     test_the_stored_rom_becomes_an_id();
+    test_where_the_help_lives();
     test_the_fixture_is_not_stale();
 
     printf("\n===============================\n");

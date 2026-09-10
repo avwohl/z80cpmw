@@ -6,24 +6,40 @@
 #include "HelpWindow.h"
 #include "resource.h"
 #include "Version.h"
+#include "CatalogV0.h"
 #include <thread>
 #include <sstream>
 #include <commctrl.h>
 
-// Remote help intentionally tracks "latest": help text is low-risk content with
-// no ROM coupling, so improvements can ship without cutting a new release. The
-// disk catalog is the other way round and no longer comparable - it is fetched
-// from an immutable per-release tag in avwohl/romwbw_disks, named by a document
-// rather than by a constant here (see CatalogV0.h).
+// THERE IS NO HELP URL IN THIS FILE, AND THAT IS THE WHOLE OF THIS CHANGE.
 //
-// NOTE, and it is the reason this is not a detail: these two URLs are why
-// avwohl/ioscpm's Latest release stays load-bearing after every disk image has
-// moved to romwbw_disks. Migrating the catalog did not free that tag; only this
-// does.
-const std::wstring HelpWindow::INDEX_URL =
-    L"https://github.com/avwohl/ioscpm/releases/latest/download/help_index.json";
-const std::wstring HelpWindow::CONTENT_BASE_URL =
-    L"https://github.com/avwohl/ioscpm/releases/latest/download/";
+// Two constants stood here until 1.0.32:
+//
+//     INDEX_URL        = ".../avwohl/ioscpm/releases/latest/download/help_index.json"
+//     CONTENT_BASE_URL = ".../avwohl/ioscpm/releases/latest/download/"
+//
+// and the comment above them argued that tracking "latest" was right because
+// help text is low-risk content that should ship without cutting a release. That
+// argument was correct and the mechanism was wrong. Floating on `latest` buys
+// freedom to re-cut the CONTENT; it buys nothing against the tag NAME, the
+// repository or the host, all three of which were spelled out here - so
+// avwohl/ioscpm's Latest release stayed load-bearing for every port long after
+// the last disk image had moved to romwbw_disks, and moving the help anywhere
+// would have needed a new build of the Windows, Android, iOS and Linux clients
+// at once.
+//
+// That is precisely the coupling the catalog exists to remove. The application
+// compiles in exactly ONE URL - catalogv0::INDEX_URL, the index - and reads
+// every other address out of a document. Help is now no different: the index's
+// `help` block names `index_url` and `base_url`, resolveHelpLocation() below
+// reads them, and romwbw_disks can move the help without anybody shipping
+// anything. A custom index gets it for free, so $ROMWBW_INDEX_URL redirects the
+// Help window along with the disk list.
+//
+// The offline path is unchanged and is what makes the missing block harmless:
+// the index and all seven topics are compiled in from ..\ioscpm\release_assets,
+// so an index that predates the block, an index that omits it, and a dead
+// network all land in the same place - the bundled topics, with a note.
 
 static const wchar_t* HELP_WINDOW_CLASS = L"Z80CPM_HelpWindow";
 static bool g_helpClassRegistered = false;
@@ -709,6 +725,49 @@ void HelpWindow::createControls() {
     SendMessage(m_hwnd, WM_SIZE, 0, MAKELPARAM(rc.right, rc.bottom));
 }
 
+// Read the catalog index and take the `help` block out of it.
+//
+// One extra fetch on the way to the topic list, of the same few-kilobyte
+// document the disk catalog reads, and it buys the property this file exists to
+// demonstrate: nothing here knows where the help is until a document says.
+//
+// It goes through catalogv0::indexUrl() rather than the constant, so the
+// environment variable and the Settings field steer the Help window exactly as
+// they steer the disk list - point the app at a test catalog and you get that
+// catalog's help. Failure is silent by design and every kind of failure is the
+// same kind: no network, an index that will not parse, an index with no `help`
+// key because it was published before the block existed. All three mean "no
+// live help location", the caller shows the bundled topics, and none of them is
+// worth a message of its own.
+bool HelpWindow::resolveHelpLocation() {
+    m_helpIndexUrl.clear();
+    m_helpBaseUrl.clear();
+
+    // The configured index arrives from the caller rather than being read out
+    // of ConfigManager here, and that is deliberate: this file is in the help
+    // suite, which links HelpAssets.cpp and HelpWindow.cpp and nothing else, so
+    // a dependency on the configuration layer would have to be paid for by
+    // every future run of that suite. catalogv0 is small, portable and already
+    // under test; config is neither of the first two. Empty is the ordinary
+    // value and means "the index this build ships with".
+    //
+    // catalogv0::indexUrl() still applies $ROMWBW_INDEX_URL over it, so the
+    // environment steers the Help window without the caller doing anything.
+    const std::string url = catalogv0::indexUrl(m_catalogIndexSetting);
+    if (url.empty()) return false;
+
+    std::string body;
+    std::string error;
+    if (!downloadToString(help_assets::toWide(url), body, error)) return false;
+
+    catalogv0::HelpLocation loc;
+    if (!catalogv0::parseHelpLocation(body, loc)) return false;
+
+    m_helpIndexUrl = help_assets::toWide(loc.indexUrl);
+    m_helpBaseUrl = help_assets::toWide(loc.baseUrl);
+    return true;
+}
+
 void HelpWindow::fetchIndex() {
     if (m_loading) return;
     m_loading = true;
@@ -718,6 +777,11 @@ void HelpWindow::fetchIndex() {
     std::thread([this]() {
         std::string json;
         std::string error;
+
+        // Where the help is, before what the help is. resolveHelpLocation()
+        // leaves both URLs empty when it cannot answer, and everything below
+        // treats that the same way it treats a failed download.
+        const bool located = resolveHelpLocation();
 
         // The index goes through the same three-step order fetchTopic uses for
         // a topic, minus the cache: the network first, then the copy compiled
@@ -732,7 +796,7 @@ void HelpWindow::fetchIndex() {
         // the reader to a download that 404s and a bundled copy that does not
         // exist; the compiled-in list, by contrast, names exactly the seven
         // this binary carries.
-        bool online = downloadToString(INDEX_URL, json, error);
+        bool online = located && downloadToString(m_helpIndexUrl, json, error);
 
         std::vector<help_assets::HelpTopic> topics;
         bool haveIndex = online && help_assets::parseIndexJson(json, topics, error);
@@ -908,12 +972,20 @@ void HelpWindow::fetchTopic(const std::string& topicId) {
         // isSafeAssetName test above makes the two identical - a name that
         // passes it is ASCII by construction - so this is not a fix, it is the
         // file having one rule for narrow-to-wide instead of two.
-        std::wstring url = CONTENT_BASE_URL + help_assets::toWide(filename);
-
+        // The base URL came out of the catalog index, so it can be empty - an
+        // index with no `help` block, or one that could not be read at all. No
+        // base means no download to attempt and the resolve order below starts
+        // at the cache, which is exactly what it does for a failed one.
         std::string content;
         std::string error;
+        bool downloaded = false;
 
-        bool downloaded = downloadToString(url, content, error);
+        if (!m_helpBaseUrl.empty()) {
+            std::wstring url = m_helpBaseUrl + help_assets::toWide(filename);
+            downloaded = downloadToString(url, content, error);
+        } else {
+            error = "No help location in the catalog index";
+        }
 
         // todo.txt's order, and the only place this window expresses it:
         // download, then cache, then the copy in the binary. resolveTopic
@@ -1266,9 +1338,14 @@ void HelpWindow::cacheContent(const std::string& topicId, const std::string& con
 }
 
 // Global helper function
-void ShowHelpWindow(HWND parent, const std::string& topicId) {
+void ShowHelpWindow(HWND parent, const std::string& topicId,
+                    const std::string& catalogIndexSetting) {
     if (!g_helpWindow) {
         g_helpWindow = new HelpWindow();
     }
+    // Pushed on every open rather than once at construction, because the user
+    // can change the Catalog index in Settings between two openings of this
+    // window and the second one should read the catalog now in force.
+    g_helpWindow->setCatalogIndexSetting(catalogIndexSetting);
     g_helpWindow->show(parent, topicId);
 }

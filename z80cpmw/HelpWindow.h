@@ -69,6 +69,12 @@ public:
     // Check if window is visible
     bool isVisible() const;
 
+    // The Catalog index setting, empty for the index this build ships with.
+    // Supplied by the caller so this class needs no configuration layer - see
+    // resolveHelpLocation(). $ROMWBW_INDEX_URL still wins over it, inside
+    // catalogv0::indexUrl().
+    void setCatalogIndexSetting(const std::string& url) { m_catalogIndexSetting = url; }
+
 private:
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT handleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
@@ -90,6 +96,13 @@ private:
 
     // HTTP helper
     bool downloadToString(const std::wstring& url, std::string& result, std::string& error);
+
+    // Fetch the catalog index and take the `help` block out of it, filling
+    // m_helpIndexUrl / m_helpBaseUrl. False - with both left empty - for a dead
+    // network, an unparseable index, or an index with no `help` key, which are
+    // one case as far as this window is concerned: no live help location, show
+    // the bundled topics. Called on the worker thread from fetchIndex().
+    bool resolveHelpLocation();
 
     // Local (bundled) help topics, shown even when the online index is
     // unavailable. Served from the app rather than fetched over the network.
@@ -121,10 +134,27 @@ private:
     static constexpr DWORD CACHE_TTL_MS = 15 * 60 * 1000;
 
     // GitHub release URLs
-    static const std::wstring INDEX_URL;
-    static const std::wstring CONTENT_BASE_URL;
+    // WHERE THE HELP LIVES IS NOT COMPILED IN. These held
+    // avwohl/ioscpm/releases/latest/download/... until 1.0.32, and that pair of
+    // constants was the last thing in this application that could only be
+    // changed by shipping a new client to Windows, Android, iOS and Linux. The
+    // location now comes out of the catalog index's `help` block, so
+    // romwbw_disks can rename the tag, re-cut it or move hosts with no client
+    // release - and a custom $ROMWBW_INDEX_URL redirects help along with
+    // everything else. See catalogv0::HelpLocation.
+    //
+    // Empty until the index has been read, and legitimately still empty after:
+    // an index published before the block existed has no `help` key. Empty
+    // means the Help window shows the topics compiled into the binary, which is
+    // the same thing it shows when the network is down.
+    std::wstring m_helpIndexUrl;
+    std::wstring m_helpBaseUrl;
+
+    // What Settings holds for the catalog index; empty means the built-in one.
+    std::string m_catalogIndexSetting;
 };
 
 // Show help window (creates singleton instance if needed). Optionally open a
 // specific topic (e.g. help_topics::GettingStarted).
-void ShowHelpWindow(HWND parent, const std::string& topicId = "");
+void ShowHelpWindow(HWND parent, const std::string& topicId = "",
+                    const std::string& catalogIndexSetting = "");

@@ -223,6 +223,38 @@ bool parseHexByte(const std::string& text, unsigned char& out);
 // shaped differently must not take the ones this build understands with it.
 bool parseIndex(const std::string& text, std::vector<IndexEntry>& out, std::string& error);
 
+// Where the in-app help lives, out of the index's optional `help` block.
+//
+// THE POINT OF THIS BEING IN A DOCUMENT is that no client compiles in a help
+// URL. This application fetched help from
+// avwohl/ioscpm/releases/latest/download/ until 1.0.32, through two constants in
+// HelpWindow.cpp, and that kept ioscpm's Latest release load-bearing for every
+// port long after the disk images had moved to romwbw_disks - the one subsystem
+// still coupled to a name a client had to be rebuilt to change. Reading it from
+// the index means romwbw_disks can rename the tag, re-cut it or move it to
+// another host with no release of this client, which is the same promise
+// `catalogUrl` makes for a RomWBW release. A fork inherits it: a custom index
+// names its own help, so $ROMWBW_INDEX_URL redirects help too.
+//
+// BOTH FIELDS OR NEITHER. `ok()` is false for an index that predates the block
+// and for one whose block is half-written, and a caller with no location falls
+// back to the topics compiled into the binary rather than treating it as an
+// error - an older published index legitimately has no `help` key at all.
+struct HelpLocation {
+    std::string indexUrl;   // absolute URL of help_index.json
+    std::string baseUrl;    // prefix a topic's filename is appended to; ends in "/"
+
+    bool ok() const { return !indexUrl.empty() && !baseUrl.empty(); }
+};
+
+// index-v0.json -> its `help` block. False when the document will not parse, or
+// carries no `help` object, or that object is missing either URL; `out` is left
+// empty and this is not an error condition for the caller. Separate from
+// parseIndex() rather than a member of it because the two are wanted at
+// different moments: the version list on the way to a ROM, this on the way to
+// the Help window, and neither should have to parse for the other's sake.
+bool parseHelpLocation(const std::string& text, HelpLocation& out);
+
 // catalog-v0-<ver>.json -> the document. False, with `error` set, when it will
 // not parse or carries no `base_url` - without which no asset URL exists and
 // there is nothing this catalog could be used for. An empty `disks[]` is a

@@ -404,7 +404,8 @@ LRESULT MainWindow::handleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         if (!cfg.welcomeShown) {
             cfg.welcomeShown = true;
             config::ConfigManager::instance().save();
-            ShowHelpWindow(m_hwnd, help_topics::GettingStarted);
+            ShowHelpWindow(m_hwnd, help_topics::GettingStarted,
+                           config::ConfigManager::instance().get().catalogIndexUrl);
         }
         return 0;
     }
@@ -1802,7 +1803,11 @@ void MainWindow::onViewDazzler() {
 }
 
 void MainWindow::onHelpTopics() {
-    ShowHelpWindow(m_hwnd);
+    // The configured index goes with it: HelpWindow reads the help location out
+    // of that catalog's index, so a machine pointed at a test catalog gets that
+    // catalog's help. HelpWindow itself has no configuration layer - see
+    // HelpWindow::resolveHelpLocation.
+    ShowHelpWindow(m_hwnd, "", config::ConfigManager::instance().get().catalogIndexUrl);
 }
 
 void MainWindow::onHelpAbout() {

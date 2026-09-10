@@ -45,8 +45,83 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
-Nothing yet. `Version.h` is the single source of the version and todo.txt
-reserves bumping it for the moment something is packaged.
+`Version.h` is still **1.0.31** and todo.txt reserves bumping it for the moment
+something is packaged. **`dist\z80cpmw.msix`, the 1.0.31 Store package, was built
+before the change below and does not contain it** — so this ships as 1.0.32, and
+that package must not be rebuilt at 1.0.31.
+
+### Changed
+
+- **In-app help no longer knows where in-app help lives.** `HelpWindow.cpp`
+  carried two constants —
+
+      INDEX_URL        = ".../avwohl/ioscpm/releases/latest/download/help_index.json"
+      CONTENT_BASE_URL = ".../avwohl/ioscpm/releases/latest/download/"
+
+  — and they were the last thing in this application that could only be changed by
+  shipping a new client to Windows, Android, iOS and Linux at once. The comment
+  above them argued that floating on `latest` was right because help text should
+  ship without cutting a release. **That argument was correct and the mechanism
+  was wrong:** floating on `latest` buys freedom to re-cut the *content*, and
+  nothing at all against the tag name, the repository or the host, all three of
+  which were spelled out in this file. So `avwohl/ioscpm`'s Latest release stayed
+  load-bearing for every port long after the last disk image had moved to
+  `romwbw_disks` — the disk migration freed nothing there, which
+  `romwbw_disks/todo.txt` had been saying for some time.
+
+  The index now names it. `index-v0.json` carries an optional `help` block with
+  `index_url` and `base_url`, `catalogv0::parseHelpLocation()` reads it, and
+  `HelpWindow::resolveHelpLocation()` fetches the catalog index on the way to the
+  topic list. **There is no help URL in the binary.** romwbw_disks can rename the
+  tag, re-cut it or move it to another host with no release of any client, which
+  is the same promise `catalog_url` already made for a RomWBW release.
+
+  A custom catalog inherits it: the help block is read from whichever index is in
+  force, so `$ROMWBW_INDEX_URL` and the Settings field redirect the Help window
+  along with the disk list. A fork serves its own help with no patched client.
+
+  **An index with no `help` block is not an error.** One published before the
+  block existed has no such key, and a client must cope — the Help window falls
+  back to the seven topics compiled into the binary, exactly as it does when the
+  network is down. Both halves or neither: a block naming an index with no base
+  would give a topic list with no way to fetch a topic, which reads as help that
+  is present and broken rather than help that is offline.
+
+  `HelpWindow` gained the `catalogv0` dependency and deliberately **not** the
+  configuration one: the caller passes the Catalog index setting in, because
+  `HelpWindow.cpp` is in the help suite and a dependency on `Config.cpp` would be
+  paid for by every future run of it. The suite links `CatalogV0.cpp` now, which
+  is portable and already under test.
+
+  On the romwbw_disks side: the eight files are published as the mutable
+  **`help-v0`** tag and committed under `help/`, and `docs/CATALOG_SCHEMA.md`
+  §2.2 documents the block. The assets are byte-identical to what ioscpm's Latest
+  was serving on 2026-09-10 apart from `help_index.json`'s own `base_url`; no help
+  text changed, and one unpublished ioscpm edit was deliberately not picked up,
+  because moving the host is not the moment to change the content.
+
+  **This frees the tag for this client only.** ioscpm and cpmdroid still fetch
+  help from `avwohl/ioscpm/releases/latest`, and every already-shipped z80cpmw
+  does too, so that tag stays live. Each of those is its own repository's change.
+
+### Verified
+
+`MSBuild … -t:Rebuild`, **0 warnings, 0 errors**. All eight suites pass at
+**1,795 checks**, up 16: the interface-v0 catalog suite goes from 207 to 223 with
+`test_where_the_help_lives`, covering the real index's block, an index with no
+block, a half-written block, wrong shapes, and a custom index naming its own
+help. `test_the_fixture_is_not_stale` — which compares `REAL_INDEX` against
+`romwbw_disks/catalog/v0/index.json` — is what caught the fixture needing the new
+block, and passes.
+
+**Driven, against a catalog served from this machine.** `$ROMWBW_INDEX_URL`
+pointed at a local `index-v0.json` whose `help` block named that same local
+server. The Help window came up listing **`LOCAL-HELP-TEST Quick Start`**, and the
+server log holds the two GETs in order — `/index-v0.json`, then
+`/help_index.json`, the location it learned from the first. Nothing was fetched
+from ioscpm. Control: with the variable unset the same driver got the real seven
+topics with no bundled-fallback note, so the published `help-v0` assets resolve.
+All eight `help-v0` URLs were also checked directly and return 200.
 
 ## [1.0.31] - 2026-09-10
 

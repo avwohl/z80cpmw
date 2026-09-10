@@ -693,6 +693,18 @@ local test server usable on the desktop.
       says to choose a release it does publish or clear the field. It must not
       say "check the network connection" — the network is fine, and it was
       fetching the index a moment earlier.
+- [ ] **The Help window follows the catalog index too.** Give your local index a
+      `help` block naming your own server, open **Help → Topics**, and the topic
+      list is *your* topics. There is no help URL in the binary — the location
+      comes out of the index — so this is the check that the last compiled-in
+      content address really is gone. Driven on 2026-09-10 with a topic
+      relabelled `LOCAL-HELP-TEST Quick Start`; what a person adds is confirming
+      a topic **renders**, which the scripted run did not click through to.
+- [ ] Remove the `help` block from your local index and re-open Help. The list
+      falls back to the topics bundled with the app and says so; it must not be
+      empty and must not put up an error. An index published before the block
+      existed looks exactly like this, so this is the compatibility case, not an
+      edge case.
 - [ ] Mount an image, switch to a catalog that publishes a different image under
       the same name, download it — the warning about replacing a disk you have
       written to appears — then press F5. The boot output carries a line saying

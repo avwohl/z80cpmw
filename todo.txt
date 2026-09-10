@@ -71,19 +71,6 @@ Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:
   MainWindow.cpp and SettingsDialogWx.cpp are in no suite and cannot be, so both
   are verified by driving the built app.  See WIP.md.
 
-- HelpWindow.cpp still keeps ioscpm's Latest release load-bearing.  INDEX_URL
-(:23-24) and CONTENT_BASE_URL (:25-26) fetch help_index.json and every help asset
-from avwohl/ioscpm/releases/latest/download/, and the comment above them says the
-float onto Latest is deliberate.  Moving every disk to romwbw_disks therefore does NOT
-free that tag, which is the half of CLIENT_MIGRATION.md's "what must never
-happen" that only this client can answer.
-
-  The help TEXT has gone stale with the catalog too.  HelpWindow.cpp:37 names
-  hd1k_combo.img's sha256 as 89b8ae1a..., which is the v1.4.12 image; the v0 one
-  is 0ca4ec60....  The sentence at :46 about hd1k_games carrying neither R8 nor
-  W8 is still true, and the v0 catalog says so as data rather than leaving it to
-  be inferred: the hd1k_games entry carries host_transfer: false.
-
 - DiskCatalog::getLocalName() maps nothing any more and can go.  It was the
 scaffolding that let the storage migration rename the images in a release whose
 catalog still called them hd1k_combo.img; the catalog now serves the v0 names and

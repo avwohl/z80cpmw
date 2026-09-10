@@ -110,6 +110,7 @@ cl /nologo /EHsc /W3 /O2 /std:c++17 ^
     tests\test_help.cpp ^
     z80cpmw\HelpAssets.cpp ^
     z80cpmw\HelpWindow.cpp ^
+    z80cpmw\CatalogV0.cpp ^
     %HELPRES% ^
     /Fo:obj\tests\help\ ^
     /Fe:obj\tests\help\test_help.exe ^

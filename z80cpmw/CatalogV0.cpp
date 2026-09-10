@@ -279,6 +279,33 @@ bool parseIndex(const std::string& text, std::vector<IndexEntry>& out, std::stri
     return true;
 }
 
+bool parseHelpLocation(const std::string& text, HelpLocation& out) {
+    out = HelpLocation();
+
+    const json doc = json::parse(text, nullptr, false);
+    if (doc.is_discarded() || !doc.is_object()) return false;
+
+    // No `help` key is the ORDINARY case for an index published before this
+    // block existed, so it returns false without a message and the caller shows
+    // the topics compiled into the binary. Nothing here is an error worth
+    // putting in front of a user: the Help window either has a live list or the
+    // built-in one, and both are usable.
+    const json* help = member(doc, "help");
+    if (!help || !help->is_object()) return false;
+
+    out.indexUrl = str(*help, "index_url");
+    out.baseUrl = str(*help, "base_url");
+
+    // Both or neither. A half-written block would otherwise give a topic list
+    // with no way to fetch a topic from it, which reads to a user as help that
+    // is there and broken rather than help that is offline.
+    if (!out.ok()) {
+        out = HelpLocation();
+        return false;
+    }
+    return true;
+}
+
 bool parseCatalog(const std::string& text, Catalog& out, std::string& error) {
     out = Catalog();
 
