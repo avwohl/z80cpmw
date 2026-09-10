@@ -16,10 +16,11 @@ is `[1.0.20]`, `[1.0.21-beta]` and `[1.0.22]`. The W8-under-MSIX question that
 was this file's open question is answered, in source and in
 [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md).
 
-Version in the tree: **1.0.29** (`z80cpmw/Version.h`), which is the Store package
-`CHANGELOG.md` records for 2026-09-07. The version released on the Store is
-**1.0.25**, measured with `tools/check-store-version.sh`; this line said
-**1.0.22** until 2026-09-09 and was four releases behind. Since `31d01c6` the
+Version in the tree: **1.0.30** (`z80cpmw/Version.h`), packaged and signed on
+2026-09-10 as `dist\z80cpmw-1.0.30-beta.msix` and not yet published. The version
+released on the Store is **1.0.29**, measured with `tools/check-store-version.sh`
+on 2026-09-10; this line said **1.0.22** until 2026-09-09 and **1.0.25** until
+2026-09-10, and was four releases behind each time. Since `31d01c6` the
 version is edited only in `Version.h`; the MSIX and NSIS scripts derive theirs
 from it, and todo.txt reserves bumping it for the moment something is packaged —
 so a tree with unpackaged work in it sits under `[Unreleased]` at the number of
@@ -126,6 +127,30 @@ which looks exactly like `SetSize` being ignored.
 
 **wx's notebook tab control is class `_wx_SysTabCtl32`, not `SysTabControl32`.**
 A `FindWindowEx` on the documented name finds nothing.
+
+Two more from the 2026-09-10 pass, both of which looked like the application
+failing and were the driver failing.
+
+**`FindWindowW(null, "Settings")` does not reliably find the dialog from an
+`Add-Type -MemberDefinition` P/Invoke**, and the failure is silent: the handle
+comes back zero for twenty seconds and the obvious reading is that the dialog
+never opened. It opens in well under a second — measured by enumerating instead.
+Enumerate the process's own top-level windows (`EnumWindows` filtered on
+`GetWindowThreadProcessId`) and match on class `#32770` plus the title; that also
+gives you a list to print when the match fails, which a null handle does not.
+
+**`MF_BYCOMMAND` is `0x0000`; `0x0400` is `MF_BYPOSITION`.** Passing the latter to
+`GetMenuState` asks for a menu *position* of 2004, which does not exist, so it
+returns `0xFFFFFFFF` — the same value that means "this id is not in the menu at
+all". The check written to prove `Emulator > Settings` was clickable reported it
+missing instead, on a build where it was present and enabled.
+
+**Declare `SendMessageW` with `CharSet=CharSet.Unicode` when the last parameter is
+a `StringBuilder`.** The default marshalling is ANSI, so a `WM_GETTEXT` against a
+Unicode window reads the UTF-16 buffer as bytes and stops at the first `NUL`:
+the frame's title came back as `z`, one character of `z80cpmw - Z80 CP/M
+Emulator`. Every label and every combo selection read that way is truncated to
+its first character, which looks like empty controls rather than a broken read.
 
 Four more from the 2026-09-09 pass over the Settings dialog, which cost the same
 hour each.

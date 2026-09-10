@@ -8,25 +8,20 @@ signed GitHub / sideload package, and the bare number names the Microsoft Store
 release. The released Store version is **1.0.29** — measured with
 `tools/check-store-version.sh`, which the Store-version CI job runs on every
 push and which reported `AaronWohl.Z80CPM_1.0.29.0_x64__pyqcdeggzw67m`, catalog
-updated 2026-09-07, on 2026-09-09. This sentence read **1.0.23** until
-2026-09-06 and **1.0.25** until 2026-09-09; each time the number was overtaken
-by a submission the repository does not record, and each time the measurement is
-what caught it. The paragraph below still says 1.0.25 "is not yet built at all"
-while 1.0.25's own entry records the Release x64 build and a 7,090,707-byte
-`dist\z80cpmw.msix`. The newest sideload package
-is **1.0.22-beta**, which is the same binary as Store 1.0.22 signed under our
-own publisher. **1.0.20** was built and tagged but never published on any
-channel, and **1.0.21** shipped only as a signed sideload beta.
+updated 2026-09-07, re-measured on 2026-09-10. This sentence read **1.0.23**
+until 2026-09-06 and **1.0.25** until 2026-09-09; each time the number was
+overtaken by a submission the repository does not record, and each time the
+measurement is what caught it.
 
-**1.0.23 shipped to the Store; 1.0.24 is packaged and unsubmitted; 1.0.25 is a
-tree.** 1.0.23 went out carrying the old catalog pin, so `1.0.24` exists to
-deliver the repin that missed it, and `dist\z80cpmw.msix` is its unsigned Store
-package, still awaiting a Partner Center submission. `1.0.25` is the version
-number the work below it carries; it does not retire that package, because
-1.0.24 is built and verified at the artifact and 1.0.25 is not yet built at all.
-No `-beta` package has been cut for either. The Store channel leaves no git tag
-and no GitHub release behind, so the repository is not evidence of what has
-shipped - see the note below.
+**Where each channel stands, as of 2026-09-10.** The Store serves **1.0.29**.
+The newest *published* sideload package is **v1.0.28-beta**, which is what GitHub
+marks Latest. **1.0.30-beta** is built, signed and sitting in `dist\` unpublished
+— todo.txt carries the release. This paragraph said the newest sideload package
+was 1.0.22-beta, and named 1.0.24 as "packaged and unsubmitted" and 1.0.25 as
+"not yet built at all", all three of which had been overtaken; the standing
+lesson is the one directly below, that the repository is not evidence of what has
+shipped. **1.0.20** was built and tagged but never published on any channel, and
+**1.0.21** shipped only as a signed sideload beta.
 
 1.0.23's two packages carried **the same binary**, as 1.0.22's did:
 `z80cpmw.exe` hashed `800715614bd5e20f…` inside both, because the beta was cut
@@ -50,8 +45,17 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
-No version number yet: `Version.h` is the single source of it and todo.txt
-reserves bumping it for the moment something is packaged, which has not happened.
+Nothing yet. `Version.h` is the single source of the version and todo.txt
+reserves bumping it for the moment something is packaged; 1.0.30-beta below is
+what that bump produced.
+
+## [1.0.30-beta] - 2026-09-10
+
+**The signed sideload package only.** No Store package has been built at this
+number and none should be without a rebuild off this same `bin\Release` — the
+rule is that the two channels share a number only when they carry the same
+binary. 1.0.29 was not reused because the Store already serves it and this is a
+different binary: everything below landed after that package was made.
 
 ### Added
 
@@ -243,6 +247,77 @@ empty, since the note invites copying it and storing it would pin the install to
 today's default; and the field is read with `utf8_str()` rather than
 `ToStdString()`, which converts in the active code page.
 
+### Fixed after auditing it, before packaging it
+
+The pass above was driven against a catalog served from this machine and found
+ten faults. A second pass — six readers over the config layer, the dialog, the
+fetch sites, the new code, the release rules and the docs, each finding
+adversarially verified — found four more, and the first of them is the one the
+whole setting exists for.
+
+- **Opening Settings read the BUILT-IN catalog on a machine that had a custom one
+  stored.** The dialog's constructor ended with `onRefreshCatalog()`, whose first
+  act is `m_catalog->setCatalogIndexUrl(typedCatalogIndexUrl())` — and at that
+  point in construction the Catalog index field is the empty one
+  `createControls()` had just made. The stored URL does not arrive until
+  `loadSettings()`, which runs from `setSettings()`, which the caller invokes
+  only *after* the constructor returns. So every Settings open began by pushing
+  `""` over the index `applyConfig` had seeded, and fetched the built-in catalog.
+
+  What that looked like: the field showed the custom URL and the note said *"In
+  use: &lt;that URL&gt;"* — both are computed from the field — while the release
+  picker, the ROM list and the disk list underneath were the built-in catalog's.
+  Pressing Download took a built-in entry. Pressing OK, having touched nothing,
+  wrote the built-in catalog's release over the user's: a machine set to a
+  release only the custom catalog publishes had it silently replaced by the
+  index's `default: true`. That is the same silent overwrite the
+  `$ROMWBW_INDEX_URL` guard was added for, arriving by a route that guard cannot
+  see, because the environment is not involved.
+
+  Deterministic, not a race, and it is the one path nothing checked: MANUAL_CHECKS
+  section 11 exercised Refresh with a typed URL, and the environment variable, and
+  the stored setting only as far as *"re-opening Settings shows it"* — the field,
+  never which catalog the picker under it came from. The environment check passed
+  throughout, because `indexUrl()` consults the variable regardless of the empty
+  string pushed at it. `setSettings()` starts the fetch now, which is also where
+  it belongs: the list this fetch fills has to be the list the controls above it
+  describe.
+
+- **Start wrote down a release the user never chose, under the variable that
+  stores nothing.** The `$ROMWBW_INDEX_URL` guard covered the Settings-OK write
+  and not `loadCatalogRomForStart()`, which ends in an unguarded
+  `cfgMut.romwbwVersion = req.romwbwVersion` plus `saveSettings()`. On a machine
+  with no stored preference — a fresh install — `startRomwbwRelease()` falls
+  through to the catalog's selection, which under the variable is whatever the
+  test catalog offered. One run with the variable set that pressed F5 and got a
+  ROM therefore stored that release, and the next launch without the variable ran
+  the built-in catalog at it. The release still takes effect for the run; only
+  the writing down is withheld, which is what "stores nothing" has to mean.
+
+- **A URL with a non-ASCII byte in it blanked the whole note.** `hardWrap()` cuts
+  an over-long word on a BYTE count, which is right for the ASCII the note is made
+  of but not for the one part of it the user writes. A cut landing inside a UTF-8
+  sequence leaves the whole string invalid, and `wxString::FromUTF8` answers
+  invalid input with an EMPTY string — so the warning and the URL would have
+  vanished together, which is the same disappearance the hard wrap was written to
+  prevent, arriving through the wrap itself. It backs up over continuation bytes
+  now, which costs at most three of the 62 and cannot loop.
+
+- **The note reserved three lines for a note that needs seven.** The comment
+  claimed three "is what the longest form below needs once wrapped"; wrapping the
+  real literals at `kNoteCols` gives four lines for the DEFAULT state a fresh
+  install opens on, six for a typed URL and seven under the variable. The
+  placeholder's own sentence is shorter than all three, so `Fit()` measured the
+  page without the space the note actually needs, and the excess came out of the
+  disk list — the only proportion-1 item on the page. The wording now lives in one
+  builder, `catalogIndexNoteText()`, and the reservation is computed from the
+  longest form it can return rather than asserted in a comment.
+
+- The custom-catalog refusal built a sentence with a hole in it — *"does not
+  publish RomWBW &nbsp; cannot supply"* — whenever no release was known yet, which
+  is a first launch with no network, the dialog most likely to see it. It uses the
+  guarded phrase the same function already built for that case.
+
 ### Known limitation
 
 - **The downloads are still not isolated.** `catalogv0::indexScope()` computes the
@@ -293,8 +368,53 @@ catalog won and the field was disabled. Pressing OK there left
 stored as empty. The real `z80cpmw.json` was backed up first and restored
 byte-identical afterwards.
 
-**Not verified:** nothing here has been packaged, and `Version.h` is untouched —
-todo.txt reserves the bump for the moment something is packaged.
+**Re-verified after the four fixes above, on 2026-09-10.** `MSBuild z80cpmw.sln
+-p:Configuration=Release -p:Platform=x64 -t:Rebuild -m`, **0 warnings, 0 errors**.
+All eight suites pass again at the same **1,779 checks**: 516, 355, 50, 175, 207,
+66, 36, 374.
+
+**Driven, and this time against the case that was broken.** `SettingsDialogWx.cpp`
+and `MainWindow.cpp` are in no suite, so the fix was proved by driving the built
+app. A doctored `index-v0.json` on `http://127.0.0.1:8731` publishing exactly one
+release, relabelled `RomWBW 3.5.1 LOCAL-TEST`, was put in `core.catalogIndexUrl`
+— the stored setting, not the field, not the variable — against a
+`core.romwbwVersion` of `3.6.0`. `Emulator > Settings` was confirmed **enabled**
+by `GetMenuState` before the `WM_COMMAND` was posted, per WIP.md.
+
+The freshly opened dialog came up with the release picker reading **`RomWBW 3.5.1
+LOCAL-TEST`** and the disk list holding that catalog's images, having fetched
+nothing but the local index. That is the assertion the bug denied. Control: with
+`core.catalogIndexUrl` cleared and nothing else changed, the same driver got
+`RomWBW 3.6.0` and the built-in URL — so the picker tracks the index rather than
+showing whatever it finds.
+
+**Read off a bitmap, not off `WM_GETTEXT`.** `PrintWindow(PW_RENDERFULLCONTENT)`
+over the 900x1210 dialog shows the custom-catalog note drawn in full — five lines
+of warning and `In use: http://127.0.0.1:8731/index-v0.json` complete on its own
+line — with room to spare under it. A text dump cannot see a clipped label, which
+is how the clipped note shipped in the first place. The real `z80cpmw.json` was
+backed up first and restored **byte-identical** afterwards (md5 `4cb72c29…`).
+
+**Packaged and signed.** `build-msix.ps1 -Beta -SkipBuild`, off the same
+`bin\Release` the run above was driven from, produced
+`dist\z80cpmw-1.0.30-beta.msix` — 6,718,759 bytes, sha256
+`80261ef2f8c6a4537a7651f99e20e86373ca3585ef0f072db1f3527a6495c0a1` — signed by
+Azure Trusted Signing and verified by `signtool`, timestamped 2026-09-10. Its
+symbols are `dist\z80cpmw-1.0.30-beta.pdb`, which md5-matches
+`bin\Release\z80cpmw.pdb` (`f5618c55…`) so it is the shipped binary's own.
+
+The rehearsal came first, as the rule says: `-Beta -SkipBuild -SkipSign` wrote a
+distinct `-unsigned` name, reached neither `sign.ps1` nor the network, and proved
+the manifest injection (`Version="1.0.30.0"`, `Publisher="CN=Aaron Wohl, …"`,
+the committed manifest untouched at its `0.0.0.0` placeholder) and the symbol
+copy. Unzipping it also **measured** the no-bundling rule rather than asserting
+it: the payload is `z80cpmw.exe`, the DLLs and `Assets\`, with no `.rom`, no
+`.img` and no `disks\`. Both `-unsigned` files were deleted afterwards.
+
+**Not built for the Store at this number, and it must not be** without a rebuild:
+the two channels share a version only when they carry the same binary, and Store
+1.0.29 is a different one. `-Beta` also rewrote the Publisher, so Partner Center
+would reject this package on identity.
 
 ## [1.0.29] - 2026-09-07
 

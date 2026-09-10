@@ -662,6 +662,19 @@ local test server usable on the desktop.
       picker is back on the built-in catalog's releases.
 - [ ] Type it again and press **OK**. `z80cpmw.json` gains
       `core.catalogIndexUrl` with that URL, and re-opening Settings shows it.
+- [ ] **Re-open Settings and look at the RELEASE PICKER, not the field.** It must
+      hold *your* catalog's releases — the `LOCAL-TEST` label again — and the
+      disk list must be your catalog's, on the freshly opened dialog, before
+      pressing Refresh. This is the check whose absence let the bug through: the
+      item above asserts only that the FIELD shows the URL, and the field is
+      drawn from the setting while the lists are drawn from whatever was
+      fetched. Until 1.0.30 the constructor started that fetch before the field
+      existed, so it pushed an empty URL and every one of these lists came from
+      the built-in catalog while the note above them named yours.
+- [ ] Press **OK** on that re-opened dialog having **touched nothing**.
+      `core.romwbwVersion` is unchanged. It used to be overwritten with the
+      built-in catalog's default, because the picker OK reads had been filled
+      from the wrong catalog.
 - [ ] Paste the **built-in** URL into the field, with a space or two around it,
       and press OK. `core.catalogIndexUrl` is stored **empty**, not as that
       string. Storing it would pin the install to today's default, and the note

@@ -25,7 +25,7 @@
 // ============================================
 #define VERSION_MAJOR 1
 #define VERSION_MINOR 0
-#define VERSION_PATCH 29
+#define VERSION_PATCH 30
 #define VERSION_BUILD 0
 
 // ============================================

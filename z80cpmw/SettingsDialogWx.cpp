@@ -49,10 +49,13 @@ SettingsDialogWx::SettingsDialogWx(wxWindow* parent, DiskCatalog* catalog)
     : wxDialog(parent, wxID_ANY, "Settings", wxDefaultPosition, wxDefaultSize,
                wxDEFAULT_DIALOG_STYLE | wxRESIZE_BORDER)
     , m_catalog(catalog)
-    // Built here, in the init list, because the body's onRefreshCatalog() call
-    // below hands a copy of it to a worker thread before the constructor has
-    // finished. A gate created in the body would be a null shared_ptr at the
-    // one moment it is first needed.
+    // Built here, in the init list, and kept here now that the fetch it was for
+    // has moved to setSettings(). It was needed here because the body's
+    // onRefreshCatalog() handed a copy to a worker thread before the constructor
+    // had finished; the object is fully built before setSettings() runs, so that
+    // reason has lapsed. Constructing it first is still the right shape - it is
+    // what every worker-posting path assumes - and a gate created later would be
+    // a null shared_ptr for anything that reached for it in between.
     , m_postGate(std::make_shared<WorkerPostGate>())
 {
     OutputDebugStringA("[Settings] Constructor: creating controls\n");
@@ -187,10 +190,30 @@ SettingsDialogWx::SettingsDialogWx(wxWindow* parent, DiskCatalog* catalog)
               place.minWidth, place.minHeight);
     OutputDebugStringA(sizeMsg);
 
-    OutputDebugStringA("[Settings] Constructor: starting catalog refresh\n");
-    // Start loading catalog
-    wxCommandEvent evt;
-    onRefreshCatalog(evt);
+    // THE CATALOG FETCH IS NOT STARTED HERE. It used to be, and it read the
+    // wrong catalog every time a machine had one stored.
+    //
+    // onRefreshCatalog's first act is
+    // m_catalog->setCatalogIndexUrl(typedCatalogIndexUrl()), which reads the
+    // Catalog index field - and at this point in construction that field is the
+    // empty one createControls() just made. The stored URL does not arrive until
+    // loadSettings(), which runs from setSettings(), which the caller invokes
+    // only AFTER the constructor returns. So the first fetch of every Settings
+    // open pushed "" over the index MainWindow::applyConfig had seeded and
+    // resolved to the BUILT-IN catalog, while the field underneath correctly
+    // showed the custom URL and the note correctly said "In use: <that URL>".
+    // The release picker, the ROM list and the disk list were the built-in
+    // catalog's, and pressing OK then wrote the built-in catalog's release over
+    // the user's - the same silent overwrite the $ROMWBW_INDEX_URL guard in
+    // MainWindow was added for, arriving by a route that guard cannot see.
+    //
+    // It is the one path nothing checked: MANUAL_CHECKS section 11 exercises
+    // Refresh with a typed URL, and the environment variable, and the stored
+    // setting only as far as "the field shows it again" - never as far as which
+    // catalog the picker under it came from. Deterministic, not a race.
+    //
+    // setSettings() starts it instead, which is also where it belongs: the list
+    // this fetch fills in has to be the list the controls above it describe.
     OutputDebugStringA("[Settings] Constructor: done\n");
 }
 
@@ -421,11 +444,29 @@ static std::string hardWrap(const std::string& text, size_t cols) {
         i = (end == std::string::npos) ? text.size() : end;
 
         // The unbreakable case, taken in whole lines until what is left fits.
+        //
+        // ON A CHARACTER BOUNDARY, NOT A BYTE ONE. The budget is counted in
+        // bytes, which is right for the ASCII this note is made of, but the one
+        // part of it the USER writes - the index URL - need not be ASCII. A cut
+        // landing inside a UTF-8 sequence leaves the whole wrapped string
+        // invalid, and wxString::FromUTF8 answers invalid input with an EMPTY
+        // string: the SetLabel at the end of updateCatalogIndexNote() would draw
+        // as nothing at all, warning and URL together. That is the same
+        // disappearance the hard wrap was written to prevent, arriving through
+        // the wrap itself. Named rather than cited by line, because the line
+        // moved once already while this comment was being written.
+        //
+        // Backing up over continuation bytes (0b10xxxxxx) costs at most three of
+        // the 62, and cannot loop: a sequence is at most four bytes, so the cut
+        // always lands at 59 or more and the word always gets shorter.
         while (word.size() > cols) {
+            size_t cut = cols;
+            while (cut > 0 && (static_cast<unsigned char>(word[cut]) & 0xC0) == 0x80) cut--;
+            if (cut == 0) cut = cols;   // not UTF-8 at all; take the bytes as they are
             if (lineLen != 0) { out += '\n'; lineLen = 0; }
-            out += word.substr(0, cols);
+            out += word.substr(0, cut);
             out += '\n';
-            word = word.substr(cols);
+            word = word.substr(cut);
         }
 
         if (lineLen == 0) {
@@ -440,6 +481,36 @@ static std::string hardWrap(const std::string& text, size_t cols) {
         }
     }
     return out;
+}
+
+// The sentence part of the Catalog index note - everything except the "In use:"
+// line - in ONE place, so that the height reserved for the label in
+// createControls() is computed from the same words updateCatalogIndexNote()
+// will put in it. Having the wording in two places is how the reservation came
+// to be three lines for a note that needs seven.
+static std::string catalogIndexNoteText(bool haveEnv, bool custom) {
+    std::string note;
+    if (haveEnv) {
+        note = "ROMWBW_INDEX_URL is set for this run and wins over this field. ";
+    } else if (custom) {
+        note = "Using a custom catalog. ";
+    } else {
+        note = "Leave empty for the catalog this build ships with. ";
+    }
+    if (custom) {
+        // Said on BOTH custom paths, the environment one included.
+        note += "Downloads are still checked against that catalog's own SHA-256, "
+                "but the catalog is the thing being trusted. Every catalog reads "
+                "and writes this one data folder, so downloading an image whose "
+                "name is already there replaces it - save your work out of a "
+                "downloaded disk first. ";
+    }
+    return note;
+}
+
+// Lines in a string hardWrap() has already broken.
+static int wrappedLineCount(const std::string& s) {
+    return 1 + (int)std::count(s.begin(), s.end(), '\n');
 }
 
 // How the terminal behaves rather than what the machine is: the scrollback
@@ -860,9 +931,24 @@ void SettingsDialogWx::buildDiskImagesPage() {
 
     // Created with a neutral sentence for the same reason as the note above: the
     // page is laid out before any of this is known, and a label that grows
-    // afterwards grows into a page measured without it. It is sized for THREE
-    // lines because that is what the longest form below needs once wrapped, and
-    // updateCatalogIndexNote() replaces the text.
+    // afterwards grows into a page measured without it. updateCatalogIndexNote()
+    // replaces the text.
+    //
+    // THE HEIGHT IS COMPUTED, NOT ASSERTED. This comment used to say the label
+    // "is sized for THREE lines because that is what the longest form below
+    // needs once wrapped", and that was arithmetic nobody had done: wrapping the
+    // real literals at kNoteCols gives four lines for the DEFAULT state a fresh
+    // install opens on, six for a typed URL and seven under $ROMWBW_INDEX_URL.
+    // The placeholder's own sentence is shorter than all three, so Fit()
+    // measured this page without the space the note actually needs. The excess
+    // comes out of the disk list, which is the only proportion-1 item on the
+    // page - and the constructor already records that this page starts to
+    // overlap at the dialog's minimum height, which is where that ends.
+    //
+    // So the reservation is taken from the longest form the builder above can
+    // produce, wrapped exactly as the runtime wraps it, over the built-in URL.
+    // A user-typed URL longer than that one still grows the label; nothing can
+    // reserve for an arbitrary string, and the sizer absorbs the difference.
     //
     // It said "Each catalog keeps its own downloads and settings, so switching
     // never costs your library." That describes ioscpm, which gives each index
@@ -874,6 +960,13 @@ void SettingsDialogWx::buildDiskImagesPage() {
         "and writes the same data folder, so an image published under a name "
         "already there is replaced when you download it.");
     m_catalogIndexNote->Wrap(kPageTextWrap);
+    {
+        const std::string longest =
+            hardWrap(catalogIndexNoteText(true, true), kNoteCols) + "\n" +
+            hardWrap("In use: " + std::string(catalogv0::INDEX_URL), kNoteCols);
+        m_catalogIndexNote->SetMinSize(
+            wxSize(-1, m_catalogIndexNote->GetCharHeight() * wrappedLineCount(longest)));
+    }
     content->Add(m_catalogIndexNote, 0, wxEXPAND | wxBOTTOM, 10);
 
     // Catalog section header
@@ -1215,22 +1308,10 @@ void SettingsDialogWx::updateCatalogIndexNote() {
     const std::string inUse = haveEnv ? fromEnv : catalogv0::indexUrl(typed);
     const bool custom = inUse != std::string(catalogv0::INDEX_URL);
 
-    std::string note;
-    if (haveEnv) {
-        note = "ROMWBW_INDEX_URL is set for this run and wins over this field. ";
-    } else if (custom) {
-        note = "Using a custom catalog. ";
-    } else {
-        note = "Leave empty for the catalog this build ships with. ";
-    }
-    if (custom) {
-        // Said on BOTH custom paths now, the environment one included.
-        note += "Downloads are still checked against that catalog's own SHA-256, "
-                "but the catalog is the thing being trusted. Every catalog reads "
-                "and writes this one data folder, so downloading an image whose "
-                "name is already there replaces it - save your work out of a "
-                "downloaded disk first. ";
-    }
+    // The wording lives in catalogIndexNoteText(), beside hardWrap, because
+    // createControls() has to reserve height for the longest form it can return
+    // and cannot do that from a copy of the words kept here.
+    const std::string note = catalogIndexNoteText(haveEnv, custom);
     // The URL on a line of its own: it is one unbreakable word, so leaving it in
     // the flow would push the sentence before it onto a short line for nothing,
     // and it is the line most likely to be read and copied.
@@ -1323,6 +1404,16 @@ void SettingsDialogWx::setSettings(const WxEmulatorSettings& settings) {
     // loadDiskSelections() instead.
     rebuildKeyRows();
     populateKeyList();
+
+    // NOW the catalog fetch, and not one line earlier. This is the first moment
+    // the Catalog index field holds the stored URL, and onRefreshCatalog reads
+    // that field to decide which index to fetch - see the constructor for what
+    // starting it there cost. setSettings() is called exactly once per dialog
+    // (ShowWxSettingsDialogInternal, immediately after construction), so this
+    // starts one fetch, as the constructor did.
+    OutputDebugStringA("[Settings] setSettings: starting catalog refresh\n");
+    wxCommandEvent evt;
+    onRefreshCatalog(evt);
 }
 
 void SettingsDialogWx::loadDiskSelections() {

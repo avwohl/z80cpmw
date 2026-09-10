@@ -13,10 +13,12 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
   against the size and SHA-256 it publishes, so **the first run needs a network
   connection**.
 - **Microsoft Store:** search for **Z80CPM**. Microsoft signs it and it updates
-  itself, which makes it the easiest way in — but it is currently **behind**:
-  the Store serves **1.0.25**, measured with `tools/check-store-version.sh` on
-  2026-09-07, and **1.0.29** (the same code as the build above) is packaged and
-  waiting on submission.
+  itself, which makes it the easiest way in. The Store serves **1.0.29**,
+  measured with `tools/check-store-version.sh` on 2026-09-10. This entry said
+  1.0.25 "and 1.0.29 is packaged and waiting on submission" until then; 1.0.29
+  had since shipped, and the measurement is what caught it — the Store channel
+  leaves no git tag and no GitHub release behind, so nothing in this repository
+  records a submission going out.
 - The two packages carry different publishers, so the sideload build installs
   **side-by-side** with a Store install rather than replacing it, and it updates
   in place over any earlier beta. Uninstall whichever you do not want.

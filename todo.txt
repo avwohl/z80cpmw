@@ -7,46 +7,18 @@ Related: MANUAL_CHECKS.md (checks needing a person at a keyboard),
 KNOWN_PROBLEMS.md (standing facts that will never be "done"), WIP.md (handoff).
 
 
-- [RELEASE] Version.h must be bumped before anything else is packaged.  1.0.25
-IS SHIPPED - tools/check-store-version.sh, run 2026-09-07, reports the Store
-serving 1.0.25 as AaronWohl.Z80CPM_1.0.25.0_x64__pyqcdeggzw67m with a catalog
-date of 2026-09-04.  The submission this item used to ask for has happened, and
-the line that said "the Store is on 1.0.23, which serves the v1.4.5 catalog" was
-already wrong when it was written.
-
-  What is left is the opposite problem.  The shipped 1.0.25 was built at
-  211488b, where DiskCatalog.cpp still compiled in RELEASE_TAG = L"v1.4.12" and
-  the ioscpm download URLs.  Everything since landed after it: f91c3a3 (the
-  romwbw_disks index), 17c72fa (the ROM gate), cd1fb2b (the 4b11402a ROM), and
-  now the deletion of every ROM in this repository together with the
-  catalog-driven ROM picker and core.rom becoming an id.  Version.h still says
-  25, so the number now names two builds that do not even have the same package
-  CONTENTS - the shipped one carries roms\ and the tree ships nothing - which is
-  the one thing CHANGELOG.md forbids outright.
-
-  So: bump Version.h, rebuild, and package that.  Do not send dist\z80cpmw.msix,
-  which is the old build under the shipped number.  dist\z80cpmw-1.0.24-store.msix
-  can be deleted: 1.0.24 was never submitted, it was packaged before
-  build-msix.ps1 kept the Store arm's symbols so no .pdb for it exists anywhere,
-  and 1.0.25 superseded it on the Store.
-
-- [RELEASE] publish 1.0.28-beta to the GitHub channel.  The package is BUILT
-AND SIGNED - dist\z80cpmw-1.0.28-beta.msix, sha256 d205be82..., with its .pdb
-beside it, and CHANGELOG [1.0.28-beta] records the artifact - so what is left is
-the release itself: gh release create v1.0.28-beta --prerelease, with the msix
-attached.
-
-  That closes the older half of this item.  v1.0.14 is what GitHub still marks
-  Latest, and DiskCatalog.cpp at that tag built both URLs from
-  releases/latest/download/, so the stable download floated onto whatever ioscpm
-  marked Latest.  1.0.28 has no such float: the only compiled-in URL is the
-  romwbw_disks index, and every other address is read out of a document.  The
-  newest thing on the GitHub channel is still v1.0.22-beta until this is
-  published.
+- [RELEASE] publish v1.0.30-beta to the GitHub channel.  The package is BUILT
+AND SIGNED - dist\z80cpmw-1.0.30-beta.msix, sha256 80261ef2..., with its .pdb
+beside it, and CHANGELOG [1.0.30-beta] records the artifact - so what is left is
+the release itself: gh release create v1.0.30-beta --prerelease, with the msix
+attached.  README.md:8 links releases/latest/download/z80cpmw-1.0.28-beta.msix,
+which is a floating URL with a version-stamped asset name: it dies the moment
+v1.0.30-beta becomes Latest, so that line changes in the same commit.
 
   Do NOT upload this package to the Store.  -Beta rewrote its Publisher to
-  CN=Aaron Wohl, so Partner Center rejects it on identity; a Store package is a
-  separate unsigned build off the same bin\Release.
+  CN=Aaron Wohl, so Partner Center rejects it on identity.  And do not cut a
+  Store 1.0.30 from it either without a rebuild: the two channels share a number
+  only when they carry the same binary, and Store 1.0.29 is a different one.
 
 - 1.0.25 makes a superseded disk image visible and does not yet make it go away.
 Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:

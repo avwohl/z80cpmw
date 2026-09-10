@@ -2402,11 +2402,31 @@ bool MainWindow::loadCatalogRomForStart(std::string& reason, RomBlock& block) {
     // RELEASE is written here and never the ROM: cfg.rom is the user's choice
     // among the release's roms[], and chooseRom having fallen back to the
     // default is not the user choosing it.
+    // EXCEPT UNDER $ROMWBW_INDEX_URL, for the same reason the Settings-OK write
+    // is guarded at the top of this file - and this is the OTHER door into that
+    // failure, which that guard could not see.
+    //
+    // The variable is documented as winning "for a single run" and storing
+    // nothing. On a machine with no stored preference - a fresh install, where
+    // Config defaults the release to "" - startRomwbwRelease() falls through to
+    // the catalog's selection, which under the variable is whatever the TEST
+    // catalog offered. So one run with the variable set that presses F5 and gets
+    // a ROM loaded left core.romwbwVersion holding a release the user never
+    // chose, and the next launch without the variable ran the built-in catalog
+    // at it. The Settings guard does not help: this path never opens Settings.
+    //
+    // The release still takes effect for this run - m_diskCatalog is told, so the
+    // session stays coherent - it is only the writing DOWN that is withheld,
+    // which is exactly what "stores nothing" has to mean.
+    std::string envIndexUrl;
+    const bool indexFromEnv = catalogv0::indexUrlFromEnvironment(envIndexUrl);
     auto& cfgMut = config::ConfigManager::instance().get();
     if (cfgMut.romwbwVersion != req.romwbwVersion) {
-        cfgMut.romwbwVersion = req.romwbwVersion;
         m_diskCatalog->setPreferredRomwbwVersion(req.romwbwVersion);
-        saveSettings();
+        if (!indexFromEnv) {
+            cfgMut.romwbwVersion = req.romwbwVersion;
+            saveSettings();
+        }
     }
     return true;
 }
@@ -2483,7 +2503,12 @@ bool MainWindow::offerRomChoice(const std::string& want, const std::string& why,
             msg += "That is $ROMWBW_INDEX_URL, set for this run, and it wins over\n"
                    "the Catalog index field in Settings.\n\n";
         }
-        msg += "A catalog that does not publish RomWBW " + want + " cannot supply\n"
+        // `release`, not a second "RomWBW " + want: want is empty on the arm
+        // above this one - no stored preference and no index read yet - and
+        // spelling it out here produced "does not publish RomWBW  cannot
+        // supply", a sentence with a hole in it, in the dialog a first launch
+        // with no network is most likely to see.
+        msg += "A catalog that does not publish " + release + " cannot supply\n"
                "its ROM, however good the network is. Choose a release that\n"
                "catalog does publish, or clear the catalog index, under\n"
                "Emulator > Settings > Disk Images.";
