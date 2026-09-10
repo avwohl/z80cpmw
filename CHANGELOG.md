@@ -46,15 +46,37 @@ therefore not evidence of what has shipped.
 ## [Unreleased]
 
 Nothing yet. `Version.h` is the single source of the version and todo.txt
-reserves bumping it for the moment something is packaged; 1.0.30-beta below is
-what that bump produced.
+reserves bumping it for the moment something is packaged.
+
+## [1.0.31] - 2026-09-10
+
+**The Store package, and no source change of its own.** Everything this version
+does is in `[1.0.30-beta]` below: it is that work rebuilt at a new number and
+packaged unsigned for Partner Center. No feature, no fix and no behaviour is
+added here, and the entry exists because a package exists.
+
+**Why a new number rather than 1.0.30.** The rule is that the two channels share
+a number only when they carry the same binary, cut from one `bin\Release` with
+`-SkipBuild`. That is not what happened: `1.0.30-beta` was built, signed and
+driven, and this Store package is a **rebuild** of the same source, so it is a
+different binary with a different debug GUID and it must carry a different
+number. The wrinkle worth knowing is the other side of that coin — the binary
+testers have in `z80cpmw-1.0.30-beta.msix` is not literally the one submitted,
+only its source twin. Cutting both off one build is the cheaper shape when both
+channels are wanted at once.
+
+**Not signed, deliberately.** Microsoft re-signs at ingestion and the package
+keeps the Partner-Center-assigned `Publisher="CN=724C9014-…"`, which is a
+certificate only Microsoft holds — so a Store package cannot be self-signed even
+in principle. The `-Beta` package is the one with our own signature and its
+Publisher was rewritten to `CN=Aaron Wohl, …`; **uploading that one to Partner
+Center is rejected on identity**, and it is not what this entry describes.
 
 ## [1.0.30-beta] - 2026-09-10
 
-**The signed sideload package only.** No Store package has been built at this
-number and none should be without a rebuild off this same `bin\Release` — the
-rule is that the two channels share a number only when they carry the same
-binary. 1.0.29 was not reused because the Store already serves it and this is a
+**The signed sideload package only.** The Store package of this same work is
+`[1.0.31]` above, rebuilt at its own number for the reason recorded there.
+1.0.29 was not reused because the Store already serves it and this is a
 different binary: everything below landed after that package was made.
 
 ### Added
