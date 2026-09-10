@@ -48,6 +48,60 @@ therefore not evidence of what has shipped.
 Nothing yet. `Version.h` is the single source of the version and todo.txt
 reserves bumping it for the moment something is packaged.
 
+## [1.0.33] - 2026-09-10
+
+**The Store package, and no source change of its own.** Everything it contains is
+`[1.0.32-beta]` below — the catalog entry point that names no release tag, and
+help topics as catalog entries — rebuilt at a new number and packaged unsigned
+for Partner Center.
+
+**It supersedes the unsubmitted 1.0.31 package.** The Store output name carries
+no version, so `dist\z80cpmw.msix` is one file that each Store build overwrites;
+the 1.0.31 package that occupied it was never submitted and predates the
+entry-point work, so nothing is lost that anyone has. Its symbols stay as
+`dist\z80cpmw-1.0.31-store.pdb`, which is why the `.pdb` carries a version when
+the package cannot.
+
+**Why a new number rather than 1.0.32.** The rule is that the two channels share
+a number only when they carry the same binary, cut from one `bin\Release` with
+`-SkipBuild`. This is a rebuild, so it is a different binary with a different
+debug GUID and must carry a different number. The wrinkle is the other side of
+that coin, and it is worth stating plainly: what testers exercised as
+`1.0.32-beta` is this build's source twin, not the binary being submitted.
+Cutting both off one build is the cheaper shape whenever both channels are wanted
+at once, and it remains available for the next round.
+
+**Not signed, deliberately.** The package keeps the Partner-Center-assigned
+`Publisher="CN=724C9014-…"`, a certificate only Microsoft holds, so a Store
+package cannot be self-signed even in principle; Microsoft re-signs at ingestion.
+The `-Beta` package is the signed one and Partner Center rejects it on identity.
+
+### Verified
+
+**Built and tested.** `MSBuild … -t:Rebuild`, **0 warnings, 0 errors**; all eight
+suites at **1,803 checks**: 516, 355, 50, 175, 231, 66, 36, 374.
+
+**The package was opened and read rather than trusted.** `dist\z80cpmw.msix`,
+6,701,644 bytes, sha256
+`4bba125b8143dd85b4b80b89f58446829ebc5c7b5e5990ad7bbecb9dec27d130`. Unzipped, its
+`AppxManifest.xml` carries `Name="AaronWohl.Z80CPM"`, `Version="1.0.33.0"` and
+`Publisher="CN=724C9014-DD22-420E-9BB4-F2740D082EB0"` — the Partner Center
+identity, not the beta's. There is **no `AppxSignature.p7x`**, which is what
+unsigned means and what the Store requires, and no `.rom`, no `.img` and no
+`disks\`. The committed `AppxManifest.xml` is untouched at its `0.0.0.0`
+placeholder.
+
+**Symbols kept** as `dist\z80cpmw-1.0.33-store.pdb`, md5-equal to
+`bin\Release\z80cpmw.pdb` (`9bd38efa…`).
+
+**Not driven, and it did not need to be.** The identical source was driven at
+1.0.32-beta a few minutes earlier — Settings resolving through
+`releases/latest/download/index-v0.json` and the Help window downloading and
+hash-checking a topic — and the only difference between the two builds is the
+version number and the debug GUID. What has *not* been done, on either build, is
+an install from the packaged MSIX; `MANUAL_CHECKS.md` still carries file transfer
+under an installed package as open.
+
 ## [1.0.32-beta] - 2026-09-10
 
 **The signed sideload package only.** No Store package has been built at this

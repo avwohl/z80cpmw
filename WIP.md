@@ -16,13 +16,14 @@ is `[1.0.20]`, `[1.0.21-beta]` and `[1.0.22]`. The W8-under-MSIX question that
 was this file's open question is answered, in source and in
 [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md).
 
-Version in the tree: **1.0.32** (`z80cpmw/Version.h`), packaged and signed on
-2026-09-10 as `dist\z80cpmw-1.0.32-beta.msix` and not yet published. Two earlier
-packages are also built and unpublished: **1.0.31**, the unsigned Store package
-in `dist\z80cpmw.msix` awaiting Partner Center, and **1.0.30-beta**, signed.
-All three are different builds, which is exactly why they carry different
-numbers — 1.0.31 predates the catalog entry-point work and must not be re-cut to
-include it. The version released on the Store is **1.0.29**, measured with
+Version in the tree: **1.0.33** (`z80cpmw/Version.h`), packaged unsigned on
+2026-09-10 as `dist\z80cpmw.msix` for Partner Center and not yet submitted. Its
+signed sideload twin is **1.0.32-beta**, the same source and a different build,
+which is why the numbers differ. **1.0.30-beta** is an older signed package,
+superseded. The 1.0.31 Store package is **gone**: the Store output name carries
+no version, so this build overwrote it — it was never submitted and predated the
+catalog entry-point work, and its symbols remain as
+`dist\z80cpmw-1.0.31-store.pdb`. The version released on the Store is **1.0.29**, measured with
 `tools/check-store-version.sh` on 2026-09-10; this line said **1.0.22** until
 2026-09-09 and **1.0.25** until 2026-09-10, and was four releases behind each
 time, so measure it rather than reading it here. Since `31d01c6` the

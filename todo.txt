@@ -10,10 +10,14 @@ KNOWN_PROBLEMS.md (standing facts that will never be "done"), WIP.md (handoff).
 - [RELEASE] three packages are built and none is published.  Both are the same
 SOURCE and different BUILDS, which is why they carry different numbers.
 
-  * dist\z80cpmw.msix - the UNSIGNED 1.0.31 Store package, sha256 e8252c58...,
+  * dist\z80cpmw.msix - the UNSIGNED 1.0.33 Store package, sha256 4bba125b...,
   for upload to Partner Center.  Identity, version and the absence of a
   signature were all read out of the packed manifest rather than assumed.  Its
-  symbols are dist\z80cpmw-1.0.31-store.pdb.
+  symbols are dist\z80cpmw-1.0.33-store.pdb.
+    It REPLACED the 1.0.31 package that used to sit at this path: the Store
+    output name carries no version, so each Store build overwrites the last.
+    1.0.31 was never submitted and predated the catalog entry-point work, so
+    nothing anybody has was lost; z80cpmw-1.0.31-store.pdb is still there.
 
   * dist\z80cpmw-1.0.32-beta.msix - SIGNED, sha256 baf0007d..., and the one to
   publish: it is the only package carrying the catalog entry-point work, so it
