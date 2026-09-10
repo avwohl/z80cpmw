@@ -121,6 +121,28 @@ was checked against the port, and the rot was concentrated exactly where
 Everything else - roughly 130 claims across the thirteen regions, including all
 of rows 1, 3, 9 and 12 - was confirmed still true against the port.
 
+**The romwbw_emu column was re-read in full on 2026-09-10, at `5724350` — the
+commit tagged v1.41**, which is also that repository's tip, so for once the
+shipped commit and the tree are the same thing. Forty-five commits had landed
+since the last reading at `8bd38cd` (v1.38), and v1.39 and v1.40 were never
+tagged, so all of it reached users at once.
+
+Three of the four `cites: romwbw_emu` regions held completely — item 4's
+R8/W8 block (seventeen claims), item 10's Dazzler (eight) and item 13's
+terminal (ten). The upheaval did not reach them: the files those rows rest on
+are byte-identical to the last reading.
+
+**Item 5 was wholly rotted and is rewritten.** It said "there is no catalog here
+at all" and described two hardcoded five-name `<select>`s fetched by bare
+relative URL, a tracked duplicate ROM, and an open `DECISIONS.md` question about
+whether to ship a 49 MB image. romwbw_emu deleted every artifact from its tree,
+added a hash-verifying catalog client, and taught the page to build its lists
+from a same-origin mirror — so twelve of that cell's claims were not stale but
+flatly wrong, asserting the opposite of what the code does. Four more were
+stale. Five survived and are kept. This is the failure mode the whole document
+was rewritten to prevent, arriving through a port that changed underneath a
+cell nobody had re-read.
+
 **The iOS/macOS column was re-read in full on 2026-09-06, at `af0b9b2` —
 build 61, the commit the App Store's 1.5.1 was built from.** Reading it at a
 SHIPPED commit rather than at the tree tip is the point: builds 62-65 exist in
@@ -604,7 +626,7 @@ to find them on every platform.
 <!-- /cites -->
 - **Verified port behaviour:**
 <!-- cites: romwbw_emu -->
-  - **romwbw_emu (CLI)** *(2026-09-02, at `fce8f87`)* — **both halves, since `98eb6a1`.** `R8`
+  - **romwbw_emu (CLI)** *(re-read 2026-09-10 at `5724350`; unchanged since `fce8f87`)* — **both halves, since `98eb6a1`.** `R8`
     copies the command tail at 0x80 and the backend `fopen`s it verbatim
     (`emu_io_cli.cc`, `emu_host_file_open_read`), with a case-insensitive
     per-component retry (`resolve_path_case_insensitive`) to undo the CCP's
@@ -1003,48 +1025,49 @@ copyrighted content.
 <!-- /cites -->
 <!-- cites: romwbw_emu -->
 <!-- cites-elsewhere: disks.xml -->
-  - **romwbw_emu (web)** *(re-read 2026-09-02, at `fce8f87`)* — **there is no catalog
-    here at all**, and the cell in the table above used to read "hardcoded list,
-    unpinned; 4 of 5 images ship nowhere", which understated it in the one
-    direction that matters. Nothing fetches `disks.xml`, nothing names a release
-    tag, and there is no downloaded-state or delete UI: `disk0Select` and
-    `disk1Select` in `web/romwbw.html-template` are two hardcoded `<select>`s
-    listing the same five names — `hd1k_combo.img`, `z80cpm_tools.img`,
-    `hd1k_games.img`, `hd1k_cpm22.img`, `hd1k_zsdos.img` — and the page fetches
-    the chosen one by **bare relative URL** (`fetchWithProgress(disk0Selection)`),
-    so it resolves next to the page and nowhere else. "Unpinned" is true but
-    beside the point: there is no remote to pin to.
-    **Nothing puts an image next to the page.** `web/makefile`'s two deploy
-    targets (`deploy-romwbw-PRODUCTION-ASK-HUMAN-FIRST` and `deploy-dev`) copy
-    the rendered `index.html`, `romwbw.js`, `romwbw.wasm` and `vendor/` — no
-    `.img`, and no `.rom` either. `.github/workflows/release.yml`'s staging step
-    copies the page, the wasm, `vendor/`, `roms/*.rom` into `roms/` and
-    `roms/emu_avw.rom` next to the page — and no `.img`. `web/` itself carries
-    none. So it is not four of five that ship nowhere, it is **five of five**,
-    in every vehicle: the deb, the rpm, either deploy, and `make serve` out of
-    the source tree. Both selects come up preselected — disk 0 on
-    `hd1k_combo.img`, disk 1 on `hd1k_games.img` — so the failure is what a
-    first-time visitor gets, not something they have to go looking for. It is at
-    least *reported*: the loader collects `diskFailures` and puts the HTTP
-    status on screen rather than starting a machine with no disk in silence.
-    Two smaller facts from the same read. The repository has exactly two disk
-    images outside `archive/`, `disks/hd1k_combo.img` and
-    `disks/hd1k_infocom.img`; of the five names the
-    page offers, four exist nowhere in the tree, and the one image it does have
-    besides the combo is not offered. And the ROM select has the same shape but
-    was already fixed on the packaged path only: it offers one ROM,
-    `emu_avw.rom`, fetched the same bare relative way, and the release workflow
-    stages it beside the page with a comment recording exactly that lesson —
-    while the two makefile deploy targets, which nothing checks, still do not
-    copy it. `web/emu_romwbw.rom` is tracked and referenced by nothing.
-    **The missing image and the duplicated ROM are a ruling nobody has made,
-    not work nobody has noticed**, and since `41565a1` the tree says so:
-    `DECISIONS.md` carries "What a package ships: the duplicated ROM, and the
-    missing disk" as one item, and states the same two facts this row does -
-    that no `.img` is staged by `release.yml` or by `web/makefile`'s deploy
-    targets, and that `z80cpm_tools.img` exists nowhere in this tree.  Shipping
-    the 49 MB combo image in a deb is what the answer costs, which is why it is
-    a question rather than a chore.
+  - **romwbw_emu (CLI and web)** *(re-read 2026-09-10, at `5724350` — v1.41,
+    the released tag)* — **it has a catalog now, and this cell used to say the
+    opposite of everything below.** Read at `fce8f87` it said "there is no
+    catalog here at all", described two hardcoded five-name `<select>`s fetched
+    by bare relative URL, a tracked duplicate ROM, and an open `DECISIONS.md`
+    question about whether to ship a 49 MB image. v1.39–v1.41 deleted that tree
+    wholesale, so all of it is gone rather than merely dated.
+
+    **The CLI fetches.** `tools/romwbw-get` compiles in one URL —
+    `avwohl/romwbw_disks`' `releases/latest/download/index-v0.json`, which names
+    no release tag — and walks index → per-release catalog → assets, checking
+    every byte against the size and SHA-256 the catalog publishes, and refusing
+    to parse a catalog document before its own hash matches. `romwbw-get run`
+    fetches what is needed and boots. A non-default index (a fork) gets its own
+    cache namespace.
+
+    **The page reads a same-origin mirror.** The three `<select>`s ship empty on
+    purpose — RomWBW release, ROM and disk lists are built at load time from
+    `catalog/manifest.json` beside the page, written by `romwbw-get mirror`, and
+    each download is checked against the size and SHA-256 the manifest carries.
+    A browser cannot fetch these from GitHub — release assets send no
+    `access-control-allow-origin` — which is why the mirror exists. Both
+    `web/makefile` deploy targets and `make serve` depend on a mirror target, so
+    something *does* put images beside the page now; an install with no mirror
+    says so in its status line rather than 404ing on names nobody chose.
+
+    **No artifact is in the repository or in a package.** No `.rom` or `.img` is
+    tracked outside `archive/`; `web/emu_romwbw.rom` and `web/emu_avw.rom` are
+    both deleted; `release.yml` stages no ROM, and a later job fails the build if
+    one reaches the staging area. Every `.deb` and `.rpm` up to v1.39 carried
+    about 3.7 MB of ROM in a package whose binary is 400 KB. Verified against
+    the published v1.41 `amd64.deb`: zero `.rom` or `.img` entries.
+
+    **The `DECISIONS.md` question this cell cited is answered and deleted.**
+    "What a package ships: the duplicated ROM, and the missing disk" was open at
+    the last reading; the answer was neither "ship the image" nor "ship nothing
+    and 404" — it was to publish the artifacts elsewhere and fetch them, which
+    is what `ed289ee` did.
+
+    What survives from the old reading: nothing fetches `disks.xml`, nothing
+    names a release tag, there is still no downloaded-state or delete UI on the
+    page, and a failed fetch is still reported on screen with its HTTP status
+    rather than starting a machine with no disk in silence.
 
 <!-- /cites -->
 ### 6. Remote help system + bundled fallback
@@ -1858,7 +1881,7 @@ does that writes to a sibling.
 z80cpmw    6496fd4  2026-09-09  shipped:1.0.29
 ioscpm     af0b9b2  2026-09-06  shipped:61
 cpmdroid   6848615  2026-09-10  shipped:33
-romwbw_emu 8bd38cd  2026-09-06  shipped:1.38
+romwbw_emu 5724350  2026-09-10  shipped:1.41
 ```
 
 What each of those three readings is, because they are not the same kind of
