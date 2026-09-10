@@ -45,15 +45,22 @@
 # romwbw_disks/docs/RELEASING.md carries the family-wide inventory; correct it
 # there when this changes, rather than in four headers that drift apart.
 #
-# KNOWN FALSE ALARM, measured 2026-09-10 in all four copies: every one of them
-# exits 1 reporting NO v0 INDEX URL for ioscpm and for cpmdroid, and both of
-# those ports are correct.  Each moved its index URL behind a re-export -
-# ioscpm's EmulatorViewModel returns CatalogMigration.indexURL, cpmdroid's
-# DiskCatalogRepository returns SettingsRepository.DEFAULT_INDEX_URL - and
-# index_url_of(), still byte-identical in all four copies, greps only the one
-# file the table names.  It is the table's file column that is stale, not the
-# ports.  Nothing runs this script in CI in any of the four repositories, so
-# that exit 1 turns nothing red.
+# THE FALSE ALARM THAT WAS HERE IS FIXED, 2026-09-10.  All four copies used to
+# exit 1 reporting NO v0 INDEX URL for ioscpm and cpmdroid, and both ports were
+# correct: each had moved its literal behind a re-export and index_url_of()
+# greped only the one file the table named, so it was the table's file column
+# that was stale.  index_url_of() asks the checkout now.  Two things had to go
+# with it, both the same shape - a gate naming a path a port had legitimately
+# stopped having:
+#   - the checkout scan reached cpmdroid's IndexUrlTest, which carries fixture
+#     URLs on a deliberately fake fork, so the checker fetched
+#     github.com/someone/... and called the port's index UNREACHABLE.  Tests
+#     are excluded now, and so is this script, which quotes the pattern itself.
+#   - bundled_rom_of() still named emu_avw.rom for cpmdroid and ioscpm after
+#     both deleted theirs, so the gate printed CANNOT READ for two working
+#     ports.  No port bundles a ROM any more.
+# All four copies exit 0 as of that date.  Nothing runs this script in CI in
+# any of the four repositories, which is why it could sit red.
 #
 # WHY MIGRATED PORTS ARE ASKED A DIFFERENT QUESTION.  cpmdroid no
 # longer pins an ioscpm release tag: it fetches romwbw_disks' index-v0.json and
@@ -168,11 +175,38 @@ pin_of() { # $1 = port dir, $2 = file, $3 = pattern -> prints vX.Y.Z
 # Comment lines are dropped for both of these, because the file that replaced
 # the pin explains in prose what it replaced - "RELEASE_TAG = \"v1.4.12\"" is
 # still written there, and matching it would report a leftover pin forever.
-index_url_of() { # $1 = port dir, $2 = file -> prints the v0 index URL
-    f="$1/$2"
-    [ -f "$f" ] || return 1
-    grep -v '^[[:space:]]*[/*#]' "$f" 2>/dev/null |
-        sed -n 's|.*"\(https://[^"]*index-v0\.json\)".*|\1|p' | head -1
+index_url_of() { # $1 = port dir -> prints the v0 index URL the port compiles in
+    # ASK THE CHECKOUT, NOT THE TABLE.  This used to grep one file named in the
+    # ports table, and every port that moved its literal - ioscpm behind
+    # CatalogMigration, cpmdroid behind SettingsRepository - was reported as
+    # "NO v0 INDEX URL ... repointed back, or renamed?" for having exactly one
+    # source of truth.  The table's file column was what had gone stale.
+    #
+    # TESTS ARE EXCLUDED, and that is not tidiness.  cpmdroid's IndexUrlTest
+    # asserts the default names no release tag, and to do it carries fixture
+    # URLs on a deliberately fake fork - "github.com/someone/romwbw_disks/...".
+    # grep -r reaches it before the real source, so the checker fetched the
+    # fake one and reported the port's index UNREACHABLE.  That is the
+    # cry-wolf failure this file's header spends thirty lines warning about,
+    # arriving through the scan that was meant to end it.
+    #
+    # This script is excluded too: it quotes the URL pattern itself.
+    #
+    # Prose is excluded for the same reason detect_kind excludes it: every one
+    # of these repositories documents the URL in a README or a changelog, and
+    # matching that would report an index URL for a port that compiles in none.
+    for f in $(grep -rlE '"https://[^"]*index-v0[.]json"' "$1" \
+            --exclude-dir=.git --exclude-dir=build --exclude-dir=DerivedData \
+            --exclude-dir=.gradle --exclude-dir=node_modules \
+            --exclude='*.md' --exclude='*.txt' --exclude='*.json' \
+            --exclude='check-shipped-disks.sh' 2>/dev/null |
+            grep -vE '/([Tt]ests?|androidTest)/' | sort); do
+        u=$(grep -hE '"https://[^"]*index-v0[.]json"' "$f" 2>/dev/null |
+            grep -v '^[[:space:]]*[/*#]' |
+            sed -n 's|.*"\(https://[^"]*index-v0\.json\)".*|\1|p' | head -1)
+        if [ -n "$u" ]; then printf '%s\n' "$u"; return 0; fi
+    done
+    return 1
 }
 
 legacy_pin_in() { # $1 = port dir, $2 = file -> prints a vX.Y.Z still in the source
@@ -211,12 +245,21 @@ rom_release_of() { # $1 = rom file -> prints e.g. 3.5.1
 # one is an edit here rather than a new function.
 bundled_rom_of() { # $1 = port name, $2 = checkout -> prints a path
     case "$1" in
-        cpmdroid) echo "$2/app/src/main/assets/emu_avw.rom" ;;
-        ioscpm)   echo "$2/iOSCPM/Resources/emu_avw.rom" ;;
-        # z80cpmw deliberately prints NOTHING.  It deleted roms/ on 2026-09-07
-        # and bundles no ROM at all, so the empty string is its answer and the
-        # caller reports that rather than reading it as a file it could not find.
-        z80cpmw)  ;;
+        # NO PORT BUNDLES A ROM ANY MORE, so every one prints NOTHING here and
+        # the caller reports that rather than reading it as a file it could not
+        # find.  If one starts bundling again, add its case back.
+        #
+        # z80cpmw deleted roms/ on 2026-09-07 and was handled first; cpmdroid
+        # (app/src/main/assets/emu_avw.rom, whose .gitignore now refuses *.rom
+        # outright) and ioscpm (iOSCPM/Resources/emu_avw.rom) went the same way,
+        # and this function kept naming both - so the gate printed CANNOT READ
+        # and exited 1 for two ports that were working correctly, which is
+        # verbatim the cry-wolf failure this file's header was written after.
+        # Measured 2026-09-10: neither repository tracks a .rom or has one on
+        # disk.
+        #
+        #     git -C <port> ls-files | grep -ci '[.]rom$'      -> 0
+        *) : ;;
     esac
 }
 
