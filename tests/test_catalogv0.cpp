@@ -123,56 +123,56 @@ static const char* const REAL_INDEX = R"JSON({
         "filename": "help_quick_start.md",
         "name": "Quick Start Guide",
         "description": "Getting started with the emulator",
-        "size": 3271,
-        "sha256": "6cd6822b1dec8ceaa1f87d8100c9eeb10dfad913891ffc4b9f48d2a93a7136e9"
+        "size": 7387,
+        "sha256": "5948d8f451cc80761c3234caaff8d12cb7c30e7b7b6b4a4ee0f7c86ef2d1486d"
       },
       {
         "id": "cpm22",
         "filename": "help_cpm22.md",
         "name": "CP/M 2.2 User Guide",
         "description": "Complete guide to CP/M 2.2 operating system",
-        "size": 5551,
-        "sha256": "a10d616b50dba09603b48d68db9da003f2af3ddf398e5487c646b5e383960373"
+        "size": 6035,
+        "sha256": "4f457c250b984f37a0468ccf99aa22c9223562f55385da93071e7ad46c9572a7"
       },
       {
         "id": "zsdos",
         "filename": "help_zsdos.md",
         "name": "ZSDOS User Guide",
         "description": "Z-System DOS with date/time stamping",
-        "size": 4281,
-        "sha256": "b70feac3d4eb563394e9bcdaa247436da48273ad884ab22eb9d5ddeafba5e698"
+        "size": 4401,
+        "sha256": "0fe9ed9b58c0544b883debb1a108a7995ba70fd26c6b74f579b31e0e290372e0"
       },
       {
         "id": "nzcom",
         "filename": "help_nzcom.md",
         "name": "NZCOM User Guide",
         "description": "Z-System for CP/M 2.2 environments",
-        "size": 3560,
-        "sha256": "d12d2c511df78d33f8539dd27be8d9deebe43952f6b574b377656da0f5a22e65"
+        "size": 3643,
+        "sha256": "f6da5f16d34a329c2f95fcf02fa1f551015318ff719440ada20e1154fc1ed7f5"
       },
       {
         "id": "zpm3",
         "filename": "help_zpm3.md",
         "name": "ZPM3 User Guide",
         "description": "Z-System Plus/M3 enhanced CP/M 3",
-        "size": 3883,
-        "sha256": "5c6490726f2a0af49e44805fbe67243b956ff99886b42f46f212bf1c79adf6b0"
+        "size": 3966,
+        "sha256": "2313d75b1d9cd6b779f827ae8b3ed601b1bba5b65b185872923bba2248b0c4e7"
       },
       {
         "id": "qpm",
         "filename": "help_qpm.md",
         "name": "QPM User Guide",
         "description": "QP/M operating system",
-        "size": 4198,
-        "sha256": "81c4d65a243a21567cc77d049a7d2667f81dccfb1b5e8df2fec02c764b30f5ff"
+        "size": 4281,
+        "sha256": "313bb7feaa4f9ba06ab882a1a2de291f68a1428aef8239149f1ef4e69669a9cf"
       },
       {
         "id": "disk_transfer",
         "filename": "help_file_transfer.md",
         "name": "File Transfer (R8/W8)",
         "description": "Transfer files between host and CP/M",
-        "size": 3547,
-        "sha256": "59b9edf81869a9c8e23583e0ee09b8f69c79e92e61af8c4aa3db2cba28b6c9ce"
+        "size": 4934,
+        "sha256": "ae33d7ab8e81d63438015f86749a58fe1b851a5e95aad103826845f718664641"
       }
     ]
   },
