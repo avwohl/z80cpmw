@@ -1933,6 +1933,22 @@ if anything has - including a recorded commit that is not an object in the tree
 it names, which is the `c26aeb7` failure caught mechanically instead of by
 argument. Re-read what it reports, correct the column, then update this block.
 
+**Nothing mechanical checks the `shipped:` field any more.** Until 2026-09-13
+`check-sibling-drift.sh` compared it with the build number in the sibling tree,
+both directions, and failed on a disagreement — that is what forced the 1.0.29
+and 1.6.1 re-readings, and the scheduled store workflows that measured the
+stores fed it. All of that was removed on the same day, deliberately: what a
+store serves is a fact about Apple, Microsoft or Google, it cannot be fixed by a
+commit, and a job that stays red until somebody re-reads a thirteen-row column
+is a job that gets ignored. Every claim the gate still makes is decidable from
+the four checkouts alone.
+
+The field stays, and is still the thing every column is scored against — it is
+just hand-maintained end to end now. Each port's `tools/check-store-version.sh`
+survives and still reads it, but only when a person runs it. So treat the DATE
+on each line as the whole of its authority: a `shipped:` value is a measurement
+somebody took on that day, and nothing will tell you when it stops being true.
+
 It compares against **`origin`**, not against the local checkout. It used to
 compare against local `HEAD`, and that let a stale checkout certify a column as
 current: on 2026-08-27 the `ioscpm` line read "current" while the checkout on

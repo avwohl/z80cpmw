@@ -15,31 +15,27 @@
 #   * checks the recorded sha is a real object in it.  A cite naming a commit
 #     nobody has is the c26aeb7 failure this document was rewritten to undo,
 #     and it is worth catching mechanically rather than by argument,
-#   * lists the commits that have landed since,
-#   * compares the build number in the tree at the recorded sha against the
-#     build the port actually SHIPS, and
+#   * lists the commits that have landed since, and
 #   * checks that every symbol the document cites about that port resolves in
 #     that port's tree.
 #
-# The last two exist because of what 2026-09-02 turned up, and neither was
-# visible to a check that only counted commits.
+# The last exists because of what 2026-09-02 turned up, and it was not visible
+# to a check that only counted commits.
 #
-# Shipped-build.  A tick means "this is in the tree", which is not what a user
-# has.  ioscpm's row 2 was a tick from 2026-07-25 over scrollback that had never
-# captured a line, and even after that was fixed the App Store served build 37
-# while the tree was at 57 - twenty builds and six months of ticks describing
-# software nobody could install.  The shipped: field is hand-maintained, because
-# no tree knows what a store is serving; what the script does is compare it to
-# the build in the tree and say so.  shipped:unknown is a failure, not a pass -
-# an unmeasured claim about what ships is the thing this is here to stop.
-#   The comparison runs BOTH WAYS, which it did not until 2026-09-06.  A reading
-# AHEAD of what ships is the fault above: ticks over software nobody can install.
-# A reading BEHIND what ships is a different fault with the same cause - the
-# column was read at an older build than users are running, so its ticks are all
-# true and its GAPS are stale, understating the port.  Until 2026-09-06 the test
-# was a bare string inequality that printed the ahead message for both, so
-# correcting ioscpm's shipped: from 37 to 61 - a build the column was BEHIND -
-# produced a true failure with a false explanation.
+# THE shipped: FIELD IS PARSED AND IGNORED.  This script used to compare it with
+# the build number in the sibling tree, both ways, and fail on any disagreement.
+# That check was removed on 2026-09-13.  The reason is not that it was wrong -
+# it was right, and it caught real staleness twice - but that it does not belong
+# in CI.  What a store is serving is a fact about Apple, Microsoft or Google; it
+# cannot be fixed by a commit, and a job that goes red until a person re-reads a
+# thirteen-row column is a job people learn to ignore.  The store-version
+# workflows went the same day and for the same reason.
+#   The field STAYS in the document and is still worth maintaining: each port's
+# tools/check-store-version.sh reads it when run by hand, and it is what records
+# which build a column was read against.  Nothing mechanical checks it now, so
+# it is only as good as the date beside the reading.
+#   Removed with it, as dead code: tree_build(), ver_cmp(), version_bump_commit()
+# and tree_release_name(), which existed solely to answer this question.
 #
 # Citations.  On 2026-09-02 the block describing Android cited NINE symbols that
 # existed nowhere in cpmdroid, in its tree or anywhere in its history, and four
@@ -87,16 +83,15 @@
 # --fetch to update the remote-tracking refs first, which is the only thing here
 # that writes to a sibling, and is off by default for exactly that reason.
 #
-# Exit status: 0 when every column is current against origin, its shipped build
-# is recorded and level with the tree it was read from, and every symbol it cites
-# resolves.  1 when any has drifted, any recorded sha is missing or unreadable,
-# any shipped build is unknown or behind, any cited symbol resolves nowhere, or
-# any column could not be checked at all.  So it can gate a sweep.  "Could not
+# Exit status: 0 when every column is current against origin and every symbol it
+# cites resolves.  1 when any has drifted, any recorded sha is missing or
+# unreadable, any cited symbol resolves nowhere, or any column could not be
+# checked at all.  So it can gate a sweep.  "Could not
 # check" counts as a failure on purpose: a gate that cannot verify must not say
 # yes.
 #
-# --no-cites skips the citation pass, which is the slow half; the drift and
-# shipped-build checks are cheap and always run.
+# --no-cites skips the citation pass, which is the slow half; the drift check is
+# cheap and always runs.
 #
 # Run it from anywhere; it locates the repository from its own path.
 # It reads only, unless --fetch is given.
@@ -114,8 +109,8 @@ set -u
 #
 # That makes the exit code useless in CI: a gate that is red on every run for a
 # reason nobody can fix gets ignored, and this one conflates that with the faults
-# that ARE actionable - a recorded sha nobody has, an unrecorded or contradicted
-# shipped build, a cited symbol that resolves nowhere.  With this flag DRIFTED is
+# that ARE actionable - a recorded sha nobody has, a cited symbol that resolves
+# nowhere.  With this flag DRIFTED is
 # still reported in full, and still counted in the summary, but does not decide
 # the exit status.  Everything else still does.
 #
@@ -275,119 +270,6 @@ docs_only_range() {
 	return 0
 }
 
-# The human-facing release name in a tree, which is not always the build number:
-# cpmdroid ships versionCode 25 as "1.24" and tags the name, not the code.
-tree_release_name() {
-	_repo=$1 _tree=$2 _sha=$3
-	case "$_repo" in
-		ioscpm)
-			git -C "$_tree" show "$_sha:iOSCPM.xcodeproj/project.pbxproj" 2>/dev/null |
-				sed -n 's/.*MARKETING_VERSION = \([0-9.]*\);.*/\1/p' | head -1
-			;;
-		cpmdroid)
-			git -C "$_tree" show "$_sha:app/build.gradle.kts" 2>/dev/null |
-				sed -n 's/.*versionName *= *"\([^"]*\)".*/\1/p' | head -1
-			;;
-		romwbw_emu)
-			git -C "$_tree" show "$_sha:VERSION" 2>/dev/null | head -1 | tr -d ' \t\r'
-			;;
-	esac
-}
-
-# Where the shipped artefact was cut from, as "<sha> <label>".
-#
-# A release tag is the better answer where there is one: it names the commit an
-# artefact was built from, where the version-bump commit only names when the
-# number changed - romwbw_emu bumps VERSION and tags a commit later, so measuring
-# from the bump overstates the gap.  Tags are looked up by BOTH the build number
-# and the release name, because ports differ about which they tag.  Without a tag
-# the bump commit is all there is, and the caller says so rather than passing an
-# upper bound off as the artefact.
-version_bump_commit() {
-	_repo=$1 _tree=$2 _sha=$3 _built=$4
-	_name=$(tree_release_name "$_repo" "$_tree" "$_sha")
-	for _t in "v$_built" "$_built" "v$_name" "$_name"; do
-		[ -n "${_t#v}" ] || continue
-		if git -C "$_tree" rev-parse --verify --quiet "$_t^{commit}" >/dev/null 2>&1; then
-			echo "$(git -C "$_tree" rev-parse "$_t^{commit}") $_t"
-			return 0
-		fi
-	done
-	# Ports suffix their tags differently - z80cpmw ships 1.0.22 as the signed
-	# sideload v1.0.22-beta - so fall back to the newest tag that NAMES this
-	# version before giving up on tags entirely.
-	_t=$(git -C "$_tree" tag --list "*$_built*" --sort=-v:refname 2>/dev/null | head -1)
-	if [ -n "${_t:-}" ] &&
-	   git -C "$_tree" rev-parse --verify --quiet "$_t^{commit}" >/dev/null 2>&1; then
-		echo "$(git -C "$_tree" rev-parse "$_t^{commit}") $_t"
-		return 0
-	fi
-	case "$_repo" in
-		ioscpm)     _f=iOSCPM.xcodeproj/project.pbxproj ;;
-		cpmdroid)   _f=app/build.gradle.kts ;;
-		romwbw_emu) _f=VERSION ;;
-		z80cpmw)    _f=z80cpmw/Version.h ;;
-		*)          return 1 ;;
-	esac
-	_c=$(git -C "$_tree" log --format=%H -S"$_built" "$_sha" -- "$_f" 2>/dev/null | tail -1)
-	[ -n "$_c" ] || return 1
-	echo "$_c the-commit-that-set-the-number"
-}
-
-# The build number in a sibling's tree at a given commit.  Every port keeps it
-# somewhere different and none of them is guessable, so the knowledge lives here
-# rather than in the document; a port whose file moves must be corrected here,
-# and prints "unknown" until it is, which fails.  Read at the recorded sha, not
-# at HEAD: the question is what build the reading described.
-tree_build() {
-	_repo=$1 _tree=$2 _sha=$3
-	case "$_repo" in
-		ioscpm)
-			git -C "$_tree" show "$_sha:iOSCPM.xcodeproj/project.pbxproj" 2>/dev/null |
-				sed -n 's/.*CURRENT_PROJECT_VERSION = \([0-9][0-9]*\);.*/\1/p' | head -1
-			;;
-		cpmdroid)
-			git -C "$_tree" show "$_sha:app/build.gradle.kts" 2>/dev/null |
-				sed -n 's/.*versionCode *= *\([0-9][0-9]*\).*/\1/p' | head -1
-			;;
-		romwbw_emu)
-			git -C "$_tree" show "$_sha:VERSION" 2>/dev/null | head -1 | tr -d ' \t\r'
-			;;
-		z80cpmw)
-			# This repo's own version, composed from four #defines rather than
-			# written out, so it is assembled the way Version.h's own comment
-			# says the packaging scripts do it.
-			git -C "$_tree" show "$_sha:z80cpmw/Version.h" 2>/dev/null |
-				awk '/^#define VERSION_MAJOR/ {a=$3}
-				     /^#define VERSION_MINOR/ {b=$3}
-				     /^#define VERSION_PATCH/ {c=$3}
-				     END { if (a != "") printf "%s.%s.%s", a, b, c }'
-			;;
-		*)
-			;;
-	esac
-}
-
-# Compare two build identifiers.  Prints -1, 0 or 1 for a<b, a==b, a>b.
-# These are not all the same shape - ioscpm's CURRENT_PROJECT_VERSION and
-# cpmdroid's versionCode are plain integers, romwbw_emu's VERSION is "1.38" and
-# z80cpmw's is "1.0.25" - so compare component by component.  A plain numeric
-# test would fail on the dotted ones and a string test would put 1.0.9 above
-# 1.0.22.
-ver_cmp() {
-	awk -v a="$1" -v b="$2" 'BEGIN {
-		n = split(a, x, "."); m = split(b, y, ".")
-		k = (n > m ? n : m)
-		for (i = 1; i <= k; i++) {
-			p = (i <= n ? x[i] + 0 : 0)
-			q = (i <= m ? y[i] + 0 : 0)
-			if (p < q) { print -1; exit }
-			if (p > q) { print  1; exit }
-		}
-		print 0
-	}'
-}
-
 status=0
 
 # The citation loop runs in a pipeline, hence a subshell, so it cannot set
@@ -491,71 +373,6 @@ while read -r repo sha date shipped rest; do
 	fi
 	fi
 
-	# What the reading describes, against what a user can install.  A tick over
-	# a build nobody has is still a lie about the product even when it is a true
-	# statement about the tree.
-	case "${shipped:-}" in
-		shipped:*) ship=${shipped#shipped:} ;;
-		*)         ship= ;;
-	esac
-	built=$(tree_build "$repo" "$tree" "$sha")
-	if [ -z "$ship" ]; then
-		echo "$repo	SHIPPED BUILD NOT RECORDED - add 'shipped:<build>' to its sibling-readings line"
-		echo "		The tree at $sha is build ${built:-unknown}.  What users have is"
-		echo "		not in this repository and has to be measured, not inferred."
-		status=1
-	elif [ "$ship" = unknown ]; then
-		echo "$repo	SHIPPED BUILD UNKNOWN - tree at $sha is build ${built:-unknown}"
-		echo "		Measure it and record it; an unmeasured claim about what ships"
-		echo "		is what this field exists to stop."
-		status=1
-	elif [ -z "$built" ]; then
-		echo "$repo	CANNOT READ THE BUILD NUMBER at $sha - tree_build() has no rule for this port, or its file moved"
-		status=1
-	elif [ "$(ver_cmp "$built" "$ship")" = 1 ]; then
-		echo "$repo	READ AT BUILD $built, SHIPS $ship - every tick in this column describes software no user has"
-		status=1
-	elif [ "$built" != "$ship" ]; then
-		# The other direction, and it is not the same fault.  The reading is
-		# BEHIND what ships, so every tick describes software users do have
-		# and nothing here overstates the product.  What is wrong is the
-		# absences: the column has never been read against the builds that
-		# shipped since, so whatever those gained is recorded as a gap that
-		# is no longer there.  Same remedy - re-read the column - but do not
-		# report it as ticks over software nobody has, because it is not.
-		echo "$repo	READ AT BUILD $built, SHIPS $ship - the reading is BEHIND what ships, so this column's GAPS are stale"
-		status=1
-	else
-		# Same number is not the same software.  Say how much has landed since
-		# the number was set, because that is the part a version match hides.
-		ref=$(version_bump_commit "$repo" "$tree" "$sha" "$built") || ref=
-		bump=${ref%% *}
-		label=${ref#* }
-		since=
-		[ -n "${bump:-}" ] &&
-			since=$(git -C "$tree" rev-list --count "$bump..$sha" 2>/dev/null)
-		if [ -n "${since:-}" ] && [ "$since" != "0" ] &&
-		   docs_only_range "$tree" "$bump..$sha"; then
-			echo "$repo		build $built ships, and the $since commit(s) since $label are documentation only"
-		elif [ -n "${since:-}" ] && [ "$since" != "0" ]; then
-			case "$label" in
-				the-commit-that-set-the-number)
-					echo "$repo	build $built matches what ships, BUT $since commit(s) landed after the number was set"
-					echo "		No release tag to measure from, so this counts from the"
-					echo "		bump and is an upper bound, not the artefact.  Tag on"
-					echo "		release and it becomes exact."
-					;;
-				*)
-					echo "$repo	build $built matches what ships, BUT $since commit(s) landed after $label"
-					echo "		The column is read against a tree that is not the tagged"
-					echo "		release, even though the numbers agree."
-					;;
-			esac
-			status=1
-		else
-			echo "$repo		build $built, and that is what ships"
-		fi
-	fi
 done <<SIBLINGS
 $Readings
 SIBLINGS
@@ -729,8 +546,8 @@ if [ "$status" -eq 0 ] && [ "$drifted" -gt 0 ]; then
 	echo "$drifted column(s) DRIFTED, reported above and not counted against"
 	echo "the exit status (--allow-drift).  A column read at its shipped commit"
 	echo "is behind a moving tree by definition; that is the intended state, not"
-	echo "a fault.  Nothing else disagrees: the recorded shas exist, the shipped"
-	echo "builds are recorded, and every cited symbol resolves."
+	echo "a fault.  Nothing else disagrees: the recorded shas exist and every"
+	echo "cited symbol resolves.  What ships is NOT checked here any more."
 elif [ "$status" -eq 0 ]; then
 	echo "every column is as current as its recorded reading, and every"
 	echo "checkout is level with its origin."
