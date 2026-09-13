@@ -2026,7 +2026,9 @@ thing:
   **1.0.29**, re-read on 2026-09-09 - and this is the third reading of this
   column, made for the same reason as the second: `check-store-version.sh` found
   the Store serving 1.0.29 while this block still said 1.0.25, which is the CI
-  failure that forced it. The measurement did its job twice; what did not happen
+  failure that forced it. *(That job no longer exists — the Store-version
+  workflows were removed from all four repositories on 2026-09-13. Nothing now
+  forces this block; the readings below are the last ones a machine prompted.)* The measurement did its job twice; what did not happen
   either time was anybody re-reading the column before the number went stale.
 
   All thirteen rows were read again at `6496fd4`. **Eight came back unchanged** -

@@ -17,6 +17,14 @@
 #
 #   sh tools/check-store-version.sh
 #
+# HOW THIS RUNS: BY HAND.  Nothing schedules this.  A GitHub Actions workflow
+# used to run it daily and mail on failure; it was removed on 2026-09-13,
+# because CI is for building and testing this repository and what a store is
+# serving is neither.  The consequence is the thing to keep in mind: a claim
+# this script would have caught now goes stale silently until somebody runs it.
+# Run it before writing any number down about what users have, and when you do,
+# record the DATE beside the number - that date is the whole of its authority.
+#
 # Exit 0 = measured, and nothing recorded here claims a version the Store does
 #          not serve.  The tree being AHEAD of the Store is normal - you always
 #          build before you ship - and is reported, not failed.

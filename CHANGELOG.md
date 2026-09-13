@@ -6,10 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use a simple `MAJOR.MINOR.PATCH` scheme: a `-beta` suffix names the
 signed GitHub / sideload package, and the bare number names the Microsoft Store
 release. The released Store version is **1.0.33** — measured with
-`tools/check-store-version.sh`, which the Store-version CI job runs on every
-push and on a schedule, and which reported
+`tools/check-store-version.sh`, **run by hand**, which reported
 `AaronWohl.Z80CPM_1.0.33.0_x64__pyqcdeggzw67m`, catalog updated 2026-09-10,
-measured 2026-09-13. This sentence read **1.0.23** until 2026-09-06, **1.0.25**
+measured 2026-09-13. There is no longer a CI job behind that sentence: the
+Store-version workflow was removed on 2026-09-13 because CI is for building and
+testing this repository, and what a store serves is neither. So this number has
+no machine keeping it honest — re-measure before trusting it, and treat its date
+as the whole of its authority. This sentence read **1.0.23** until 2026-09-06, **1.0.25**
 until 2026-09-09 and **1.0.29** until 2026-09-13; each time the number was
 overtaken by a submission the repository does not record, and each time the
 measurement is what caught it — the last time as a red CI job on the scheduled

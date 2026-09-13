@@ -106,26 +106,6 @@ one line shorter.
   against a configuration whose rename did not complete, and that path is in no
   suite - so it is the path to drive when this is done.
 
-- DONE 2026-09-13: the ioscpm column was re-read, because the condition this
-item set was met.  It said the drift report "should keep reporting until ioscpm
-ships a build above 61.  Budget for the re-read when it does."  It did: the App
-Store moved to 1.6.1 on 2026-09-12 and ioscpm's tools/check-store-version.sh
-went red in the stale direction, reporting shipped:61 as BEHIND the floor of
-what Apple serves.
-  The column is now read at a68e320, build 69, and sibling-readings says
-`shipped:69`.  1.6.1 heads builds 67-70, all four compiled, so the shipped build
-is a bracket; the iTunes release notes name the custom-catalog setting, which
-first exists at build 69, so it is 69 or 70 and the column is read at the floor.
-  The budgeted re-read was smaller than feared.  Three rows moved - 4, 5 and 11 -
-all of them because the interface-v0 migration deleted releaseTag, which puts
-ioscpm off item 5's pin axis exactly where this port went at 1.0.29, and row 5
-gains the delete and cancel it was ◐ for.  Ten held, five provably:
-TerminalView.swift and the profile, terminal and window test suites are
-byte-identical between af0b9b2 and a68e320, as is the whole of iOSCPM/Core/.
-  The stale RATIONALE this item was really about is gone with the rewrite: the
-column is no longer held for "builds 62-65 have never been compiled" but for the
-bracket the release notes narrow, which is a reason that stays true.
-
 - tools/check-shipped-disks.sh EXITS 1 ON A FAMILY THAT IS CORRECT, and the
 cause is one missing test.  Measured 2026-09-08 by running all five copies:
 cpmdroid and ioscpm exit 0; this one, romwbw_emu's and cpmemu's exit 1.  This
