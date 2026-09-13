@@ -30,9 +30,14 @@ SOURCE and different BUILDS, which is why they carry different numbers.
   * dist\z80cpmw-1.0.30-beta.msix - SIGNED, sha256 80261ef2..., superseded by
   1.0.32-beta above and probably not worth publishing now.  Keep the .pdb
   whatever is decided: it cannot be rebuilt.
-  README.md:8 links releases/latest/download/z80cpmw-1.0.28-beta.msix, a floating
-  URL with a version-stamped asset name, so it dies the moment a newer beta
-  becomes Latest; that line changes in the same commit.
+  README.md no longer has to change when you publish.  It used to link
+  releases/latest/download/z80cpmw-1.0.28-beta.msix - a floating URL with a
+  version-stamped asset name, dead the moment a newer beta became Latest - and
+  this item used to say "that line changes in the same commit".  Fixed
+  2026-09-13: it links the releases/latest PAGE, which 302s to whatever carries
+  the flag, so publishing is one step shorter and cannot silently 404 the
+  README.  Do not put a filename back into that URL; every package here carries
+  its version in its name, so there is no stable name for /download/ to resolve.
 
   Do NOT upload the -beta package to the Store: its Publisher was rewritten to
   CN=Aaron Wohl and Partner Center rejects it on identity.  Do not upload the

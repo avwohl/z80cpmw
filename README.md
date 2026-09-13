@@ -5,20 +5,34 @@ Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulato
 ## Download
 
 - **Signed sideload build — newest:**
-  [z80cpmw-1.0.28-beta.msix](https://github.com/avwohl/z80cpmw/releases/latest/download/z80cpmw-1.0.28-beta.msix)
-  — the release GitHub marks **Latest**. Download and double-click; the Azure
-  Trusted Signing certificate chains to a Microsoft public root, so no developer
-  mode and no certificate import are needed. This is the first build that ships
-  **no ROM and no disk image**: both come from the RomWBW catalog and are checked
-  against the size and SHA-256 it publishes, so **the first run needs a network
-  connection**.
+  [the latest release](https://github.com/avwohl/z80cpmw/releases/latest), and
+  take the `.msix` attached to it. Download and double-click; the Azure Trusted
+  Signing certificate chains to a Microsoft public root, so no developer mode and
+  no certificate import are needed.
+
+  **This link deliberately does not name the file.** It used to be
+  `releases/latest/download/z80cpmw-1.0.28-beta.msix` — a floating URL carrying a
+  version-stamped asset name, which works only while `v1.0.28-beta` happens to be
+  the release GitHub marks Latest and 404s the moment any newer beta takes that
+  flag. Every package here carries its version in its name on purpose, so there
+  is no stable filename for `releases/latest/download/` to resolve, and the
+  honest form is the release page. The point is that publishing a beta no longer
+  has to remember to edit this line.
+
+  From **1.0.28-beta** on, the sideload package ships **no ROM and no disk
+  image**: both come from the RomWBW catalog and are checked against the size and
+  SHA-256 it publishes, so **the first run needs a network connection**.
 - **Microsoft Store:** search for **Z80CPM**. Microsoft signs it and it updates
-  itself, which makes it the easiest way in. The Store serves **1.0.29**,
-  measured with `tools/check-store-version.sh` on 2026-09-10. This entry said
-  1.0.25 "and 1.0.29 is packaged and waiting on submission" until then; 1.0.29
-  had since shipped, and the measurement is what caught it — the Store channel
-  leaves no git tag and no GitHub release behind, so nothing in this repository
-  records a submission going out.
+  itself, which makes it the easiest way in. The Store serves **1.0.33**,
+  measured with `tools/check-store-version.sh` on 2026-09-13. This entry said
+  **1.0.29** until then, and before that 1.0.25 "and 1.0.29 is packaged and
+  waiting on submission"; each time the number was overtaken by a submission the
+  repository does not record, because the Store channel leaves no git tag and no
+  GitHub release behind. Note what did **not** catch it this time: no gate reads
+  this file. `check-store-version.sh` measures the Store and compares it against
+  `Version.h`, `FEATURE_PARITY.md` and `CHANGELOG.md`, so the same sentence went
+  stale here while the CI job was red about it three lines' worth of prose
+  away.
 - The two packages carry different publishers, so the sideload build installs
   **side-by-side** with a Store install rather than replacing it, and it updates
   in place over any earlier beta. Uninstall whichever you do not want.
