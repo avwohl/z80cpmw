@@ -49,7 +49,9 @@ commits BEHIND the build users actually have, which was built at `211488b`.
 guessing is what this document exists to stop: at `dbd53b1` `RELEASE_TAG` reads
 `v1.4.5`, and at `211488b` it reads `v1.4.12`, so the shipped Windows build is
 on the SAME pin as ioscpm's shipped build rather than behind it. This column
-needs re-reading at `211488b`.
+needs re-reading at `211488b`. *(It was, later the same day, and three times
+since — at `6496fd4` for 1.0.29 and at `9df0d01` for 1.0.33. This paragraph is
+kept as the record of how the error was found, not as an open instruction.)*
 
 **The Android (`cpmdroid`) column was rewritten from source on 2026-08-25**, at
 `origin/master` — every row, because the branch the previous review described
@@ -143,8 +145,21 @@ stale. Five survived and are kept. This is the failure mode the whole document
 was rewritten to prevent, arriving through a port that changed underneath a
 cell nobody had re-read.
 
-**The iOS/macOS column was re-read in full on 2026-09-06, at `af0b9b2` —
-build 61, the commit the App Store's 1.5.1 was built from.** Reading it at a
+**The iOS/macOS column was re-read on 2026-09-13, at `a68e320` — build 69,
+inside the App Store's 1.6.1.** The Store moved to 1.6.1 on 2026-09-12 and the
+store gate went red, this block still saying `shipped:61`. 1.6.1 heads builds 67
+to 70 and all four are compiled, so the shipped build is a bracket rather than a
+number; the release notes name the custom-catalog setting, which first exists at
+build 69, so it is 69 or 70 and the column is read at **69, the floor**. Three
+rows moved — 4, 5 and 11 — all because the interface-v0 catalog migration took
+`releaseTag` out of that port, which puts ioscpm off item 5's pin axis exactly
+where z80cpmw went at 1.0.29. Ten held, five of them provably:
+`TerminalView.swift` and the profile, terminal and window test suites are
+byte-identical between the two readings, as is the whole of `iOSCPM/Core/`.
+
+The reading it supersedes, and the discipline that reading established: **the
+column was read in full on 2026-09-06, at `af0b9b2` — build 61, the commit the
+App Store's 1.5.1 was built from.** Reading it at a
 SHIPPED commit rather than at the tree tip is the point: builds 62-65 exist in
 `ioscpm` and none has ever been compiled, so a tick taken from HEAD would
 describe software nobody can install. Seven of the thirteen rows changed and
@@ -355,7 +370,7 @@ written as termcap-style escape strings.
     to compete with `^R`, which `setupToolbar` now carries a comment to protect.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ◐, and closer than it was.
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — ◐, and closer than it was.
     The map moved out to `iOSCPM/Views/KeyMap.swift` in build 51 and it has the
     same termcap escape schema (`KeyMap.expand`; it has no explicit `\^` case but
     its default arm emits the same literal `^`, so every documented escape
@@ -537,7 +552,7 @@ Drag to select terminal text, right-click for Copy/Paste.
 - **Verified port behaviour:**
 <!-- cites: ioscpm -->
 <!-- cites-withdrawn: selectionSpan -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ✅ on both now: the Mac
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — ✅ on both now: the Mac
     pointer drag arrived in build 57 and iOS press-and-hold-then-drag in build
     61, which is what this entry used to record as the ◐. Before build 57 there
     was no selection at all - Copy All, ⌘C and ⌘V were all there,
@@ -602,8 +617,9 @@ to find them on every platform.
   the `w8.com` and `r8.com` that ask (`HBF_HOST_GETNAME` `0xE8`,
   `HBF_HOST_GETRNAME` `0xEA`); the package carries no images at all, by design,
   and **which combo a download gets is decided by the catalog, not by the
-  build**. Re-read 2026-09-09 at `6496fd4`, the Store's 1.0.29: there is no
-  `RELEASE_TAG` in this port. The only content address compiled in is
+  build**. Re-read 2026-09-13 at `9df0d01`, the Store's 1.0.33, and at `6496fd4`,
+  its 1.0.29, before that: there is no `RELEASE_TAG` in this port. The only
+  content address compiled in is
   `catalogv0::INDEX_URL`, from which the client reads the releases on offer and
   fetches the selected one's own catalog for `base_url`, `roms[]` and `disks[]`.
   The previous reading — that `RELEASE_TAG` alone decides, and at `211488b` read
@@ -676,7 +692,7 @@ to find them on every platform.
 <!-- /cites -->
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: emu_io_windows.cpp w8.com 98eb6a1 -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — `W8` always writes `Documents/Exports`, `R8` always reads
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — `W8` always writes `Documents/Exports`, `R8` always reads
     `Documents/Imports` (no per-transfer dialog). As of **v1.4.11 / build 41** an **Import File…** picker (enabled on
     iOS *and* Mac Catalyst) stages an arbitrary-location file into `Imports` for a
     later `R8`; the old opt-in per-transfer picker was removed. So arbitrary-path
@@ -904,7 +920,7 @@ to find them on every platform.
   block; what each port bundles is a byte-identical offline floor under it, and
   a change to the text now needs no app release anywhere.
 
-### 5. Remote disk catalog + downloader  — *z80cpmw is no longer on this row's pin axis*
+### 5. Remote disk catalog + downloader  — *neither z80cpmw nor ioscpm is on this row's pin axis any more*
 Download prebuilt disk images from the shared release host instead of bundling
 copyrighted content.
 - **Behaviour/spec:** fetch the catalog, list it (name/desc/status), download with
@@ -924,9 +940,12 @@ copyrighted content.
   whether the image already on the machine is still the one the catalog names,
   and `z80cpmw/DiskMigrationV0.{h,cpp}` is the rename that put the release into
   every stored filename.
-- **z80cpmw itself, re-read 2026-09-09 at `6496fd4`** — the commit the Store's
-  **1.0.29** was built from, measured with `tools/check-store-version.sh` rather
-  than taken from this repository's own prose. This cell has now been wrong in
+- **z80cpmw itself, re-read 2026-09-13 at `9df0d01`** — the commit the Store's
+  **1.0.33** was built from, measured with `tools/check-store-version.sh` rather
+  than taken from this repository's own prose. The verdict below is the one the
+  1.0.29 reading reached and is unchanged by the move; what 1.0.33 adds is that
+  the index this row says is the only compiled-in address can now be pointed
+  somewhere else, which is section 14. This cell has now been wrong in
   both directions and both times for the same reason. It was first written at
   `dbd53b1` on the CHANGELOG's word that 1.0.23 was released, which was three
   source commits and the whole provenance ledger too early; it was then re-read
@@ -988,40 +1007,53 @@ copyrighted content.
 <!-- /cites -->
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: 1f70c6b -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — **pinned**,
-    since build 42 — but the value is **`v1.4.12`**, repinned by `0010591` in
-    build 59 and shipped in 61; this entry read `v1.4.5` when it was taken at
-    build 58. `EmulatorViewModel.swift:162` holds the single `releaseTag` from
-    which both `catalogURL` and `releaseBaseURL` are built, with the reason in a comment (the core reports RomWBW v3.5.1;
-    slices from another release print an HBIOS/CBIOS mismatch). Like cpmdroid,
-    help deliberately stays on `releases/latest`, which item 6 explains is only
-    safe behind a bundled fallback — and both ports now have one, `ioscpm` since
-    build 51 and `cpmdroid` since `1f70c6b`. (This clause read "unlike cpmdroid,
-    without a bundled fallback" until 2026-08-29; both halves of that contrast
-    are now false.)
-    **Three things the downloader gained after that reading**, all at builds 55
-    and 56 and all inside what this row's spec calls download and delete. Every
-    download is now verified against the catalog's hash before it is installed:
-    the check existed but sat in a function whose only callers were its own
-    retry arms, so no real download ever entered it, and it now lives in
-    `downloadDiskFromSettings`, which hashes the temp file before moving it into
-    place - so an installed disk is a passed check. The cached catalog is
-    stamped with the pin it was fetched under (`catalogCacheTagKey`), because
-    the cache carries one tag's hashes while `parseDiskCatalogXML` always
-    rebuilds the URLs from the tag this build is pinned to, so a cache from an
-    older pin would pair the wrong hashes with the right URLs; on a mismatch
-    `loadCachedCatalog` keeps exactly the entries whose file is already on disk,
-    which are never re-downloaded, rather than emptying the catalog on a device
-    that has no network to refetch with. And a catalog version bump no longer
-    deletes the whole library: `checkCatalogVersionAndInvalidate` now calls
-    `deleteCatalogDisks`, which removes only the images the NEW catalog lists,
-    so a disk the user imported, a disk `createNewDisk` made, and an image
-    dropped from the catalog in the same bump are all kept - nothing can
-    re-fetch any of those. The match is case-insensitive because `Documents` is
-    published to the Files app on a case-insensitive volume. None of this
-    reaches a user yet: that repo records the App Store as serving 1.4.9, builds
-    36/37, which predate the pin and all of the above and still fetch from
-    `releases/latest`.
+<!-- cites-withdrawn: releaseBaseURL catalogCacheTagKey parseDiskCatalogXML checkCatalogVersionAndInvalidate -->
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — **this port is
+    off this row's pin axis too, and the previous reading is kept below as the
+    history it is rather than adjusted.** It read **pinned** to `v1.4.12`, one
+    `releaseTag` at `EmulatorViewModel.swift:162` building both `catalogURL` and
+    a `releaseBaseURL`. All three are gone. `releaseTag` survives only in two
+    comments explaining its removal, `releaseBaseURL`, `catalogCacheTagKey` and
+    `parseDiskCatalogXML` are not in the tree at all, and the drift gate is what
+    found them: at the new sha those four names stopped resolving, which is the
+    whole reason this region is a citation.
+    **What replaces the pin is two hops, and only the first is compiled in.**
+    `CatalogMigration.defaultIndexURL` names
+    `romwbw_disks/releases/download/catalog-v0/index-v0.json` — an interface tag,
+    not a RomWBW release — and that index lists every release with an absolute
+    `catalogURL` and that catalog's own hash and size; the selected release's
+    catalog is verified against both before it is parsed, and carries the
+    `base_url` every asset URL is built from, so this app interpolates no tag
+    anywhere. The user picks the release in Settings, so which `r8.com` a Windows
+    or iOS user is running is a property of what `romwbw_disks` publishes for
+    their selection and not of the build — the same sentence this row now makes
+    about z80cpmw. The old tags stay live regardless: every build already in
+    service is hardwired to `v1.4.12`, and a GitHub release asset URL cannot be
+    redirected.
+    **The cache stamp is gone because the bug it guarded cannot happen now.**
+    `catalogCacheURL(for:)` puts the release in the cache FILENAME and the cache
+    holds the whole document, `base_url` included, so a cached catalog is
+    self-consistent by construction rather than by a `UserDefaults` key that
+    could drift from it; the old `catalogCacheTag` key is deliberately left
+    behind unread so a downgrade finds its settings intact. `checkCatalogVersionAndInvalidate` is gone
+    outright — build 66 deleted the wipe and the function with it — and
+    `catalogGenerationKey(for:)` only records what the last fetch saw. `deleteCatalogDisks` is still there and still removes only what
+    the new catalog lists.
+    **The two spec items this row withheld from ioscpm are both present at build
+    69.** Delete is a swipe action calling `deleteDownloadedDisk`, and cancel is
+    a button calling `cancelDownload`; at build 61 the row could say neither.
+    Hash verification is unchanged from that reading — `downloadDiskFromSettings`
+    hashes the temp file and moves it into place only on a match — and build 60's
+    `DiskLedger` Update control survives the migration, resolving by catalog id
+    rather than by exact filename.
+    **Help is the one thing that did not move**, and the previous reading's
+    clause stands: it deliberately stays on `releases/latest`, which item 6
+    explains is only safe behind a bundled fallback — and both ports have one,
+    `ioscpm` since build 51 and `cpmdroid` since `1f70c6b`. (That clause read
+    "unlike cpmdroid, without a bundled fallback" until 2026-08-29; both halves
+    of that contrast were already false then.) Build 70 moves help into the
+    catalog as well, and build 70 is not certainly what ships, so it is not
+    claimed here.
 <!-- /cites -->
 <!-- cites: romwbw_emu -->
 <!-- cites-elsewhere: disks.xml -->
@@ -1079,11 +1111,14 @@ In-app help fetched from GitHub, with offline bundled topics.
 - **Where:** `z80cpmw/HelpWindow.{h,cpp}` and `HelpAssets.{h,cpp}` — the
   state-free half (index parsing, the markdown→text renderer, and the cache) was
   split out on 2026-08-28 in `392df97` so it could be put under test, and is
-  **355** checks in the shipped 1.0.29, one of the **eight** suites making
-  **1,705** — re-read 2026-09-09 at `6496fd4`, where `run_tests.bat` builds eight
-  suites and the CHANGELOG records the total in three places. The 355 itself has
-  not moved since 1.0.25; what moved is the count around it, and this row said
-  "one of the seven suites making 1467" until 2026-09-09. 244 was the figure
+  **355** checks in the shipped 1.0.33, one of the **eight** suites making
+  **1,803** — re-read 2026-09-13 at `9df0d01`, where `run_tests.bat` builds eight
+  suites and the CHANGELOG records the total with its per-suite breakdown. The
+  355 itself has not moved since 1.0.25, `HelpAssets.cpp` and `HelpAssets.h`
+  being byte-identical at `6496fd4` and `9df0d01`; what moves is the count
+  around it, which this row has now carried wrong at three separate store
+  releases — "one of the seven suites making 1467" until 2026-09-09, then 1,705
+  until this reading. 244 was the figure
   before the bundled-asset section existed; **353 was 1.0.23's, and this row
   carried it until 2026-09-06 because 1.0.23 had been taken for the shipped
   build.** `help_assets::resolveTopic` is the one place the topic order
@@ -1106,6 +1141,18 @@ In-app help fetched from GitHub, with offline bundled topics.
   **index is deliberately not cached on disk** — `HelpWindow::fetchIndex` is
   network then compiled-in copy, with no cache step, so a stale list cannot name
   a topic neither the release nor this binary carries.
+  **This port left `releases/latest` between 1.0.29 and 1.0.33, and is the first
+  of the three to do it.** The reading at `6496fd4` still had help fetched from
+  `avwohl/ioscpm/releases/latest/download/`, which is the trap the section below
+  describes and the reason the bundled fallback was not optional. At `9df0d01`
+  the only content address this application compiles in is `catalogv0::INDEX_URL`
+  and the topics are a `help` block inside that catalog, each with its own size
+  and `sha256`, so a fetched topic is checked against what the catalog published
+  and `romwbw_disks` can re-cut or rename its help tag without a release on any
+  platform. The bundled half is unchanged by it: still seven topics in
+  `kBundledTopics` plus this port's own two, still guarded at build time by
+  `NO_BUNDLED_HELP_ASSETS`. `ioscpm` does the same thing in its build 70, which
+  is not certainly what the App Store serves and so is not claimed in its column.
 <!-- /cites -->
 - **Why the fallback is not optional — a trap every port shares.** cpmdroid
   fetched its index from `releases/latest/download/help_index.json` with **no**
@@ -1200,8 +1247,8 @@ In-app help fetched from GitHub, with offline bundled topics.
   This row said "an optional `bootString` is auto-typed at the boot menu" until
   2026-09-06, and that described **1.0.7**: `eb97c64` ("v1.0.8: Fix boot option
   using NVRAM switches") deleted the `emu_console_queue_char` loop as broken on
-  2026-01-08, nineteen releases before the build the Store serves (1.0.8 to the
-  1.0.29 it serves now, counting the release headings CHANGELOG.md carries
+  2026-01-08, twenty-three releases before the build the Store serves (1.0.8 to the
+  1.0.33 it serves now, counting the release headings CHANGELOG.md carries
   between them; 1.0.11 has no entry, so this is not the version-number distance). **No port has
   the auto-type, this one included**, so the ⬜ it was creating in the other
   three columns was scored against software that has not existed since 1.0.8.
@@ -1280,7 +1327,7 @@ In-app help fetched from GitHub, with offline bundled topics.
 <!-- /cites -->
 <!-- cites: ioscpm -->
 <!-- cites-withdrawn: NSUserActivity -->
-- **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ◐ on Catalyst, no
+- **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — ◐ on Catalyst, no
   longer absent. `8e7587f` added `WindowFrame` and `CatalystWindow`: four numbers
   under a `catalystWindowFrame` default, saved when the scene deactivates and
   restored a runloop turn after `onAppear`, with a restored frame clamped to the
@@ -1384,14 +1431,19 @@ Emulated retro graphics card in a separate window.
 
 <!-- /cites -->
 <!-- cites: ioscpm -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — ✅, and this row was
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — ✅, and this row was
     ⬜ for it until the re-read. `ProfileSection` in Settings is ungated, so iOS
     and Catalyst both have it: named `EmulatorProfile`s carrying ROM, four disk
     slots, boot string, key profile with its custom bindings, scrollback
     capacity, bell, manifest warning, key row and new-disk size, with save,
     tap-to-apply, swipe-to-delete and update-in-place, the whole `ProfileStore`
     persisted as one JSON value under the `emulatorProfiles` default, and 66
-    checks in `EmulatorProfileTests`. It landed in `8e7587f`, which is still
+    checks in `EmulatorProfileTests` — a count that still holds, that suite being
+    one of the files builds 62-69 never touched. Build 69 adds `romwbwVersion` to
+    the record and matches ROM and disk slots by catalog id rather than by exact
+    filename, since a catalog name now carries the release; applying a profile
+    does not move the release, so a slot the current one does not publish is
+    reported as saved under another rather than as an unresolved name. It landed in `8e7587f`, which is still
     stamped build 58 — the same number as the commit the previous reading was
     taken at — which is how it went unrecorded. Font size is the one setting a
     profile does not carry, living alone in `@AppStorage("terminalFontSize")`;
@@ -1474,7 +1526,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
 - **Where (per port):**
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: cpmdroid TerminalView.kt c0b3bf7 978b623 -->
-  - **ioscpm** *(re-read 2026-09-06 at `af0b9b2`, build 61 — the shipped 1.5.1)* — `iOSCPM/Views/TerminalScreen.swift` since `8e7587f`, with the whole of SGR now in `TerminalRendition.swift`.
+  - **ioscpm** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — `iOSCPM/Views/TerminalScreen.swift` since `8e7587f`, with the whole of SGR now in `TerminalRendition.swift`.
     The origin of the parser: full VT52, scrolling region, answerbacks, deferred
     autowrap, charset consumption. **Build 51 closed the gap this entry used to
     name.** `@` (ICH), `P` (DCH), `X` (ECH), `S` (SU) and `T` (SD) are all
@@ -1623,20 +1675,22 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     landed in `tests/`. It drives the terminal through the public interface
     only: cursor state is read back with `ESC [ 6 n`, which puts the answerback
     under test rather than assuming it, and screen content through `cellAt()`.
-    `tests\run_tests.bat` runs it first of **eight suites, 1,705 checks** —
-    re-read 2026-09-09 at `6496fd4`, the commit the Store's **1.0.29** was built
+    `tests\run_tests.bat` runs it first of **eight suites, 1,803 checks** —
+    re-read 2026-09-13 at `9df0d01`, the commit the Store's **1.0.33** was built
     from, where `run_tests.bat` builds eight suites and the CHANGELOG records
-    that total in three separate places.
+    that total and its per-suite breakdown (516, 355, 50, 175, 231, 66, 36, 374).
 
     This sentence has now been re-dated twice and the shape of the error was the
     same both times. It said "six suites, 1323 checks" (1.0.23's figure) while
     1.0.25 shipped; it was corrected to "seven suites, 1467 checks" on 2026-09-06
     and said the eighth suite "has shipped nowhere" — and 1.0.29, carrying that
     eighth suite, was already what the Store served by the time anybody read it
-    again. The evidence figure has only ever moved up, and this row's parser
-    claims have never turned on it: `TerminalView.cpp`, `TerminalView.h`,
-    `tests/test_vt52.cpp` and `tests/test_render.cpp` are byte-identical at
-    `211488b` and `6496fd4`, so what changes here is the count and nothing else.
+    again. It has now been re-dated a third time, for the third store move, and
+    the shape held: 1,705 was 1.0.29's and the Store serves 1.0.33. The evidence
+    figure has only ever moved up, and this row's parser claims have never turned
+    on it: `TerminalView.cpp`, `TerminalView.h`, `tests/test_vt52.cpp` and
+    `tests/test_render.cpp` are byte-identical at `211488b`, `6496fd4` and
+    `9df0d01`, so what changes here is the count and nothing else.
     The
     one beside it is not a model check at all — `tests/test_render.cpp` opens a
     real window, drives it with real bytes, asks the DWM for it with
@@ -1760,24 +1814,28 @@ inventing one, so that a single set of instructions covers every client.
   over the URL's UTF-8 bytes, 64-bit, folded `hash ^ (hash >> 32)` to 32 bits and
   printed `%08x`. One index URL therefore produces one tag on every client, so a
   bug report naming a scope means the same thing in each.
-- **Where — and NOT inside a citation region, deliberately.** Everything named
-  in this bullet post-dates `211488b`, the shipped 1.0.25 commit the z80cpmw
-  column is read at, so a `cites: z80cpmw` block around it fails the gate — and
-  fails it correctly, because that is the gate saying "this document is
-  describing a build nobody has". Measured: wrapping this bullet took
-  `check-sibling-drift.sh --allow-drift` from 0 to 1, every symbol reported as
-  *arrived after the recorded reading*. It becomes a citation when the column is
-  re-read at a build that ships it.
-
-  CatalogV0.h / CatalogV0.cpp — indexUrl, isCustomIndex, indexScope, fnv1a32,
-  indexUrlFromEnvironment (the single reader of the variable) and
-  normalizedIndexSetting (what a typed URL is stored as). Config.h —
-  catalogIndexUrl. DiskCatalog.h — setCatalogIndexUrl / getCatalogIndexUrl, with
-  fetchIndex resolving through indexUrl so the variable still wins.
-  SettingsDialogWx.cpp — updateCatalogIndexNote, typedCatalogIndexUrl,
-  onCatalogIndexUrlChanged: the field, its live note, and the push into the
-  catalog before every fetch. MainWindow.cpp — applyConfig seeds it,
-  onEmulatorSettings stores it.
+- **Where — and it is a citation region now, which it could not be before.**
+  This bullet spent two readings outside one on purpose: everything it names
+  post-dated the commit the z80cpmw column was read at, so a `cites: z80cpmw`
+  block around it failed the gate, and failed it correctly — that was the gate
+  saying "this document is describing a build nobody has". Measured at the time:
+  wrapping it took `check-sibling-drift.sh --allow-drift` from 0 to 1, every
+  symbol reported as *arrived after the recorded reading*. The condition written
+  down for lifting it was "when the column is re-read at a build that ships it",
+  and **1.0.33 is that build**: the work went out as `1.0.32-beta` and then as
+  the Store's 1.0.33, the column is re-read at `9df0d01`, and every name below
+  resolves there.
+<!-- cites: z80cpmw -->
+  `CatalogV0.h` / `CatalogV0.cpp` — `indexUrl`, `isCustomIndex`, `indexScope`,
+  `fnv1a32`, `indexUrlFromEnvironment` (the single reader of the variable) and
+  `normalizedIndexSetting` (what a typed URL is stored as). `Config.h` —
+  `catalogIndexUrl`. `DiskCatalog.h` — `setCatalogIndexUrl` /
+  `getCatalogIndexUrl`, with `fetchIndex` resolving through `indexUrl` so the
+  variable still wins. `SettingsDialogWx.cpp` — `updateCatalogIndexNote`,
+  `typedCatalogIndexUrl`, `onCatalogIndexUrlChanged`: the field, its live note,
+  and the push into the catalog before every fetch. `MainWindow.cpp` —
+  `applyConfig` seeds it, `onEmulatorSettings` stores it.
+<!-- /cites -->
 - **Config:** `core.catalogIndexUrl` in the JSON config, or **Settings → Disk
   Images → Catalog index**, which reads and writes that same member. Documented
   for users in `docs/CONFIGURATION.md` and in the in-app Configuration topic.
@@ -1800,19 +1858,26 @@ inventing one, so that a single set of instructions covers every client.
   that has to match, because it is what the instructions describe. The scope hash
   matters only for a port that isolates storage, and a port that does isolate
   should use the same hash so the folder names agree.
-- **Port status — NOT re-read at a commit that carries this work.** Both sibling
-  columns below were read at shas that predate it (`ioscpm` at build 61,
-  `cpmdroid` on 2026-09-06), and both trees have moved 20-odd commits since; the
-  sibling-readings block is not advanced by this entry and the drift script will
-  keep saying so. What is recorded here is only what the current checkouts show,
-  which is a reading of a tree, not of a column — no symbols are cited for either
-  port for that reason:
-  - **ioscpm (iOS/macOS)** — has the setting, a UI for it, and storage scoped per
-    index, which is the thing this port lacks. Its most recent commit at the time
-    of writing is titled *"Build 69: point the catalog index somewhere else, and
-    take its storage with it"*. It also restricts the URL's scheme, which z80cpmw
-    does not — a plain `http://` index is accepted here, and that is what makes a
-    local test server usable on the desktop.
+- **Port status — one of the two siblings is now read at a commit that carries
+  this work, and one is not.** `ioscpm` is re-read at `a68e320`, which IS build
+  69, so its bullet is a column reading and carries citations. `cpmdroid` is
+  still read at `6848615` (2026-09-10, build 33), which predates its own version
+  of this, so its bullet stays a reading of a tree and cites nothing.
+<!-- cites: ioscpm -->
+  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* —
+    has the setting, a UI for it, and storage scoped per index, which is the
+    thing this port lacks. `CatalogMigration.indexURL` resolves the same three
+    levels in the same order — `ROMWBW_INDEX_URL`, then the stored
+    `indexURLOverrideKey`, then `defaultIndexURL` — and `indexScope` is the same
+    FNV-1a tag, **empty for the built-in index** for the same reason it is empty
+    here, so that pointing a device at a test catalog and back again cannot
+    strand a library behind a name nothing reads. Unlike this port, it has
+    callers: the scoping reaches the keys and the paths, which is the gap the
+    bullet above records against z80cpmw. It also restricts the URL's scheme —
+    `applyCatalogIndexURL` takes https and http only, and says iOS would refuse a
+    plain-http index under ATS anyway — where z80cpmw accepts `http://`, and that
+    is what makes a local test server usable on the desktop.
+<!-- /cites -->
   - **cpmdroid (Android)** — has the resolution in its model, with the same
     three-level precedence, and **no UI**: that port's own `todo.txt` says so.
   - **romwbw_emu (CLI)** — the origin of the precedence rule, with a
@@ -1838,10 +1903,14 @@ cancel. This supersedes the 2026-08-25 reading of the whole column (`9b68ab1`,
 made after the `c26aeb7` citations turned out to describe code that was never
 pushed), its 2026-08-27 re-verification at `c6756af`, and the 2026-08-29 re-read
 of rows 4, 6 and 13. See the note at the head of this file.
-The **iOS/macOS column was re-read from `ioscpm` source on 2026-09-06**, at
-**`af0b9b2`, build 61** — deliberately not at HEAD, because build 61 is the
-commit the App Store's 1.5.1 was built from and builds 62-65 have never been
-compiled. Every row was re-derived. **Seven of the thirteen changed and all
+The **iOS/macOS column was re-read from `ioscpm` source on 2026-09-13**, at
+**`a68e320`, build 69** — deliberately not at HEAD, because the App Store serves
+1.6.1 and builds 67-70 are what 1.6.1 heads; 69 is the floor the release notes
+narrow that bracket to. Rows 4, 5 and 11 moved and the other ten held; the detail
+is in the readings block above. The reading it supersedes was taken on
+**2026-09-06** at **`af0b9b2`, build 61** — deliberately not at HEAD for the same
+reason, build 61 being the commit the App Store's 1.5.1 was built from while
+builds 62-65 had never been compiled. Every row was re-derived. **Seven of the thirteen changed and all
 seven in the same direction: the column understated what ships.** Six of those
 had gone unrecorded because the work landed in `8e7587f`, which is still stamped
 build 58 — the same number as `e33beea`, the commit the previous reading was
@@ -1878,8 +1947,8 @@ when that was; `--fetch` updates them first and is the only thing the script
 does that writes to a sibling.
 
 ```sibling-readings
-z80cpmw    6496fd4  2026-09-09  shipped:1.0.29
-ioscpm     af0b9b2  2026-09-06  shipped:61
+z80cpmw    9df0d01  2026-09-13  shipped:1.0.33
+ioscpm     a68e320  2026-09-13  shipped:69
 cpmdroid   6848615  2026-09-10  shipped:33
 romwbw_emu 5724350  2026-09-10  shipped:1.41
 ```
@@ -1887,7 +1956,41 @@ romwbw_emu 5724350  2026-09-10  shipped:1.41
 What each of those three readings is, because they are not the same kind of
 thing:
 
-- **`ioscpm` `af0b9b2`** - a full re-read of all thirteen rows on 2026-09-06,
+- **`ioscpm` `a68e320`, build 69 — and the shipped build is a BRACKET this time,
+  not a number.** The line was advanced on 2026-09-13 because
+  `ioscpm/tools/check-store-version.sh` went red: the App Store had moved to
+  **1.6.1**, released 2026-09-12, while this block still said `shipped:61`. That
+  is the stale direction of the same error the z80cpmw line hit twice — users
+  running something NEWER than the claim, so every tick this column withheld was
+  being withheld from software they already had.
+
+  1.6.1 heads **four** builds, 67 to 70, and unlike the 62-65 case none of them
+  carries a `**NOT COMPILED` marker, so the script brackets rather than answers:
+  "at most build 70". Nothing in that tree records which was submitted — the
+  upload is done by a person, not from a session. What narrows it is the method
+  that tree's own `todo.txt` used to pin build 61: the iTunes lookup's release
+  notes. They read *"Add a setting to load a custom catalog of ROM and disk
+  images"*, and `catalogIndexURL` — the key behind that setting — first exists at
+  `a68e320`, which IS build 69. So the shipped build is 69 or 70, and the column
+  is read at **69, the floor of that bracket**: what is claimed here is true of
+  the oldest build a 1.6.1 user can be on. Build 70's one user-visible change,
+  help moving into the catalog, is named where it belongs and claimed nowhere.
+
+  **Three rows moved, all for one cause, and all in the same direction: this
+  column was understating the port.** Rows 4, 5 and 11 are corrected. Row 5 is
+  the one that changed in kind rather than in detail — the interface-v0 migration
+  deleted `releaseTag` and the two URLs built from it, so ioscpm is off this
+  row's pin axis exactly as z80cpmw went off it at 1.0.29, and the same row now
+  gains the delete and cancel it had been marked ◐ for. Row 4's `0xEA` caveat
+  stopped being a pin question for the same reason. Row 11's profiles learned a
+  release. **Ten came back unchanged**, and four of them provably so rather than
+  by inspection: `TerminalView.swift`, `EmulatorProfileTests.swift`,
+  `TerminalScreenTests.swift` and `WindowFrameTests.swift` are byte-identical at
+  `af0b9b2` and `a68e320`, so rows 1, 2, 3, 8 and 13 and the 262/66/34 check
+  counts they carry could not have moved. The whole of `iOSCPM/Core/` is
+  untouched between the two, which is why row 4's R8/W8 mechanics stand.
+
+  The reading it supersedes: **`af0b9b2`** - a full re-read of all thirteen rows on 2026-09-06,
   and the first one taken at a SHIPPED commit rather than at whatever the tree
   happened to be. That is the point: `af0b9b2` is build 61, which is the 1.5.1
   the App Store serves, so every tick in this column now describes software a
@@ -1942,9 +2045,32 @@ thing:
   description of `sendString` - and are corrected here rather than left because
   they were found.
 
-  Section 14 was added after this reading and is deliberately NOT inside a
-  citation region: everything it names post-dates `6496fd4`, so asserting it
-  against this reading would be the error the gate exists to catch.
+  **AND THE STORE MOVED AGAIN, four days later.** The line now reads `9df0d01`
+  / **1.0.33**, re-read on 2026-09-13, and this is the fourth reading of this
+  column and the third forced the same way: `check-store-version.sh` found the
+  Store serving 1.0.33 while this block still said 1.0.29 and `CHANGELOG.md`
+  still said so in prose. Three store moves, three readings taken only after a
+  gate went red — the measurement has now done its job three times and nobody has
+  yet re-read a column before the number went stale.
+
+  `9df0d01` is titled *"1.0.33: the Store package of the catalog entry-point
+  work"*, and it is a clean commit to read at: the six commits after it touch
+  `.gitattributes`, documents, the packaging script, one test file and
+  `tools/`, and **no application source at all**, so the tree tip and the
+  shipped build are the same software for every purpose this column has.
+
+  What moved is narrower than last time. `TerminalView.cpp`, `TerminalView.h`,
+  `HelpAssets.cpp`, `HelpAssets.h`, `tests/test_vt52.cpp` and
+  `tests/test_render.cpp` are byte-identical at `6496fd4` and `9df0d01`, so rows
+  6 and 13 could only move in their evidence figures, and they did: eight suites
+  went from **1,705** checks to **1,803**. Row 6 gained a real change beside the
+  count — help left `avwohl/ioscpm/releases/latest` for the shared catalog, which
+  makes this the first of the three ports out of the trap the section under item
+  6 describes. And **section 14 becomes a citation region**, which is the part
+  worth recording: it was written outside one on purpose, with the condition for
+  lifting that stated in the bullet itself — "when the column is re-read at a
+  build that ships it". This is that build, every symbol it names resolves at
+  `9df0d01`, and the gate checks them now instead of taking them on trust.
 - **`cpmdroid` `35873d0`** - a full re-read of all thirteen rows on 2026-09-06,
   taken at the SHIPPED bundle rather than at a tree: versionCode 27 is what Play
   serves, and `a24ca9a` records that 35873d0 is what was uploaded. It stacks on
@@ -1965,15 +2091,15 @@ thing:
 | --- | :---: | :---: | :---: |
 | 1. Configurable keymap (termcap) | ◐ (26 keys: F1–F12 since build 51, the four Ctrl+arrows since `0165dac`, and all 26 reachable without a hardware keyboard from a three-page on-screen key row since `8e7587f` — shipped in build 61, suppressible in Settings, and on Catalyst the only way to send Ctrl+arrow at all; no other modifier bindings, lower-camel names, WordStar default) | ⬜ (no map at all: no key-map source file, no bindings, no Settings → Keyboard Map — `handleKeyDown` is a fixed `when` over keycodes with the bytes compiled in. That table is the VT220 set: F1–F12 out of `sendFunctionKey` and the Ctrl `'@'`–`'_'` window out of `controlByteFor` since `a523d40`; the nav cluster and Ctrl+arrow out of `sendArrow` since `c0b3bf7` — **not** all three at `c0b3bf7`, which is what this cell said. Hardware keyboard only: the on-screen strip offers Ctrl, Esc and Tab as keys (its other two buttons are Copy and Paste), so with no keyboard attached no F-key, arrow or nav key is reachable at all. Four of the nav presses are the app's rather than the guest's, also since `c0b3bf7` — Ctrl+Home/End and Shift+PageUp/PageDown scroll history) | ➖ CLI (host terminal), and the delegation is real rather than a way of not answering: there is no map to configure — zero hits for keymap/termcap/keybinding under `src` at v1.38 — because `emu_io_init` in `src/emu_io_cli.cc` clears `ICRNL`, `IXON`, `IEXTEN`, `ISIG` and `ISTRIP` so the terminal's own bytes reach the guest untranslated and 8-bit clean, and the pty test `tests/cli_console.cc` asserts that key by key (Enter vs Ctrl+J, ^S/^Q, ^V/^O, ^C/^Z, an 8th-bit byte, the WordStar diamond). One key IS taken, which is this row's `ctrlRToCpm` question in CLI form: the `sim>` escape, default `^E` — WordStar cursor-up — latched by `emu_console_check_escape` and surrenderable with `--escape=none` or the settings file's `escape` (`parse_escape_char`, whose comment names z80cpmw's flag); nothing is reserved when stdin is a pipe, and the startup banner says which case you are in · ⬜ web, **not the ◐ this cell carried**: nothing about the map is configurable — no bindings, no key UI, no key option on `new Terminal`, and the six persisted `localStorage` values are ROM, boot string, two disks and two Don't-warn boxes — which is the same answer this row gives cpmdroid for a complete-but-compiled-in table. Read from the shipped deb's `web/romwbw.html`, which is v1.38's `web/romwbw.html-template` byte-for-byte after the three @VERSION@ substitutions, since `web/` has held no built wasm since `2096ea2` and `95d422a`. The bytes come from the vendored `web/vendor/xterm.js` 5.3.0 (`5920681`; the deb's copy is sha256-identical to the tag's) and its `evaluateKeyboardEvent` is this document's VT220 table: `\E[A`–`\E[D`, `\E[1;5A`–`\E[1;5D` for Ctrl+arrow, `\E[H`, `\E[F`, `\E[2~`, `\E[5~`, `\E[6~`, `\EOP`–`\EOS` then `\E[15~`…`\E[24~` skipping 16 and 22, and the whole Ctrl `@`–`_` window. Two divergences: Delete sends `\E[3~` where z80cpmw and cpmdroid send `^?`, the same split this row records against ioscpm's VT100/ANSI profile; and Shift+PageUp/PageDown are xterm's own scroll and never reach the guest. `term.onData` → `sendToGuest` → `_romwbw_key_input` forwards the rest unchanged, dropping only code points above 0xFF, and the one hand-written key decision is `attachCustomKeyEventHandler`: Ctrl+Shift+letter is cancelled and delivered as the plain control byte, except the ten in `BROWSER_OWNED_CTRL_SHIFT`, and only while there is a session to lose. No on-screen key row (six buttons, all emulator controls) and no auto-focus on `pointer: coarse` |
 | 2. Scrollback | ✅ since ioscpm build 57 (2026-09-02), cleared at both fresh-session paths since build 58 (⬜ before 57: the LF path called `scrollRegion`, which does not capture, so no line ever entered the buffer from build 42 on) | ✅ since `e9436a5` (2026-09-02), and right in the case it advertises only since `35873d0` — the shipped 1.25 (capacity choices incl. Off, capture at `scrollUp`, both chord pairs, the view anchors, the cursor hides, and history draws with the soft keyboard up; keeping history across a cold boot is deliberate there, not a defect). `e9436a5` added `maxScrollLines()` and then used it in only some of the paths that move the view: `scrollUp`'s follow-along anchor still clamped to `historyChars`, so above the history — the only range a fresh boot with the keyboard up has — the first captured line pulled the view *forward*; and dismissing the keyboard *grew* the viewport, which shrank `maxScrollLines()` past an offset nothing re-clamped, so the next captured line pinned the view to the oldest history line with the cursor suppressed, the terminal looking frozen while CP/M kept printing — with Ctrl+Home/End still measured the same wrong way, a no-op on a fresh boot and, from that state, landing on the clamped maximum rather than back at live. `35873d0` bounds all of those on `maxScrollLines()`, adds `clampScrollToViewport()` at the three places the geometry changes, and lifts `sendChar`'s snap-back out as a public `returnToLive()` that the Esc and Tab buttons call — the control strip being the nearest keyboard in exactly the case the feature exists for. Never watched on a screen either way: the windowing arithmetic was swept in a scratch model, not driven on a device | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
-| 3. Mouse/native Copy-Paste | ✅ iOS + Mac Catalyst in the shipped build 61 (`af0b9b2`, 1.5.1) — Mac pointer drag since build 57, iOS press-and-hold-then-drag since 61 (before it `handleSelectPan`'s sole call site sat inside `#if targetEnvironment(macCatalyst)`, so no iOS gesture could set an anchor and the menu's Copy silently took the whole screen). Linear span incl. scrollback, ⌘C and the menu's Copy take the selection, Copy All is the no-selection fallback; 61 also made the span inclusive (57–60 copied one character short of the drag) and put Paste in the long-press menu, gated on `hasStrings`. Two gaps on both platforms: paste is not gated on the emulator running, and a pasted CRLF never becomes Enter — `pasteText` maps a bare LF to CR, but Swift iterates CRLF as ONE `Character` matching neither branch, so `sendKey`'s `asciiValue` folds it to 10 (LF), not the CR CP/M needs. The iOS gesture has never met a real finger: synthetic simulator events only, `MANUAL_CHECKS.md` §17 unticked, no grab handles and no autoscroll past an edge, so one gesture never selects more than a screen | ◐ (control strip; `copyScreenToClipboard` takes history and screen, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
-| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52; build 61 made `emu_host_file_open_read()` synchronous and moved the case-insensitive scan into it, so R8's `Reading:` line can at last carry the absolute path in the file's own spelling — but only for a disk carrying the `r8.com` that asks `0xEA`, which is the `v1.4.12` combo build 59 repinned to and **not** the `v1.4.5` one every earlier build shipped; an installed v1.4.5 image with no ledger entry is offered a lossy Update rather than refreshed, so an upgrading user still sees the shouted name. Same edit: a missing name or a directory now fails the open instead of leaving a zero-byte CP/M file, and a new 8 MiB cap refuses an import build 58 took in full. Unrun either way — `MANUAL_CHECKS.md` §14/§15 unticked, and the core checks use their own fake backends) | ✅ (File transfer screen, save-as, share sheet, import picker and an inbound share target since `71465cb`; folders still fixed, import capped at 16 MiB) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
-| 5. Disk catalog + **pinned** tag | ✅ / ✅ pinned (`v1.4.12` since build 59 — **not** `v1.4.5`, which is what this cell said when it was read at build 58; one `releaseTag` at `EmulatorViewModel.swift:162` still builds both `catalogURL` and `releaseBaseURL`). Shipped build 61 = 1.5.1 carries the repin, so an installed client fetches the fixed-R8 catalog, and the builds 55/56 work is live rather than queued: every download hashed against the catalog inside `downloadDiskFromSettings` before it replaces anything and refused outright when an entry carries no `<sha256>` (all 20 do), the cache stamped with `catalogCacheTagKey` and salvaged down to already-installed entries on a pin mismatch, and `checkCatalogVersionAndInvalidate` → `deleteCatalogDisks` clearing only what the new catalog can give back. Build 60's `DiskLedger` adds per-file provenance and acts on it two ways: an Update control, allowed on any network but refused while the emulator holds the disk, and an automatic refresh of superseded images that additionally defers off Wi-Fi, on a constrained link, or while that disk is mounted. Help still floats on `releases/latest`, behind the bundled fallback of build 51 | ◐ / ✅ pinned (`v1.4.5` — still, in the shipped `35873d0` = versionCode 27 = 1.25: one `RELEASE_TAG` in `DiskCatalogRepository.kt` builds both `CATALOG_URL` and `DOWNLOAD_BASE_URL`, with the RomWBW v3.5.1 reason in the comment above it. `642b3b0` repins to `v1.4.12` for the R8 `F_DELETE` wildcard fix and is **not** an ancestor of the shipped commit, so an installed client still fetches the v1.4.5 images that ioscpm repinned away from at build 59; the interface-v0 migration `41829cb` and the ROM-from-catalog work `bb0ac74` are later still and have shipped nowhere). ◐ rather than ✅ because two of this row's spec items are missing from the app, and were missing at 25 too: **delete** — `deleteDisk` and `deletePersistedDisk` have no caller anywhere under `app/`, there are no menu resources, `DiskCatalogAdapter` binds no long-press, and the Settings slot ✕ is `clearDiskSlot`, which unassigns the slot and leaves the image on the device with nothing in the app able to remove it — and **cancel**, which is only the side effect of the Activity dying (`ensureActive()` inside `downloadDisk`'s read loop); the Settings progress dialog is `setCancelable(false)` and the first-launch overlay has no button. The downloader itself is stronger than this cell ever admitted, and all of it is live: `downloadDisk` hashes the stream as it writes and refuses on a SHA-256 mismatch, refuses a short transfer against the catalog `size` and `contentLength()` separately, publishes by renaming a nonce-named scratch file and checks `renameTo`'s answer, sweeps abandoned scratch by age, and `claimDownload` is static so Settings and `MainActivity` cannot pull the same disk at once. Two gaps beside ioscpm: the hash gate is `diskInfo.sha256.isNotEmpty()`, so an entry carrying no hash installs unverified where ioscpm refuses outright, and there is no cached catalog to stamp with the pin — `cachedCatalog` is one in-memory field in `SettingsActivity` that dies with it, so no cache-tag mismatch and no version-bump invalidation exist to get wrong. No provenance ledger, no Update control. Help still floats on `releases/latest`, behind the bundled fallback of `1f70c6b` | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
+| 3. Mouse/native Copy-Paste | ✅ iOS + Mac Catalyst, and still shipped at build 69 (`a68e320`, 1.6.1); read at build 61 (`af0b9b2`, 1.5.1) and unchanged since, `TerminalView.swift` not having been touched between them — Mac pointer drag since build 57, iOS press-and-hold-then-drag since 61 (before it `handleSelectPan`'s sole call site sat inside `#if targetEnvironment(macCatalyst)`, so no iOS gesture could set an anchor and the menu's Copy silently took the whole screen). Linear span incl. scrollback, ⌘C and the menu's Copy take the selection, Copy All is the no-selection fallback; 61 also made the span inclusive (57–60 copied one character short of the drag) and put Paste in the long-press menu, gated on `hasStrings`. Two gaps on both platforms: paste is not gated on the emulator running, and a pasted CRLF never becomes Enter — `pasteText` maps a bare LF to CR, but Swift iterates CRLF as ONE `Character` matching neither branch, so `sendKey`'s `asciiValue` folds it to 10 (LF), not the CR CP/M needs. The iOS gesture has never met a real finger: synthetic simulator events only, `MANUAL_CHECKS.md` §17 unticked, no grab handles and no autoscroll past an edge, so one gesture never selects more than a screen | ◐ (control strip; `copyScreenToClipboard` takes history and screen, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
+| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52; build 61 made `emu_host_file_open_read()` synchronous and moved the case-insensitive scan into it, so R8's `Reading:` line can at last carry the absolute path in the file's own spelling — but only for a disk carrying the `r8.com` that asks `0xEA`. At build 61 that was a pin question — the `v1.4.12` combo build 59 repinned to, and **not** the `v1.4.5` one every earlier build shipped. It is not a pin question at build 69, because there is no pin: it is a property of the image the user's selected release publishes, and **both published v0 combos qualify** — `MANUAL_CHECKS.md` §14 records the bytes `06 ea cf` occurring once in `hd1k_combo-v0-3.5.1.img` and once in `hd1k_combo-v0-3.6.0.img`, measured on the published files. An image carried over from a pre-v0 install with no ledger entry is still offered a lossy Update rather than refreshed, so a user upgrading onto an old image still sees the shouted name. Same edit: a missing name or a directory now fails the open instead of leaving a zero-byte CP/M file, and a new 8 MiB cap refuses an import build 58 took in full. Unrun either way — `MANUAL_CHECKS.md` §14/§15 unticked, and the core checks use their own fake backends) | ✅ (File transfer screen, save-as, share sheet, import picker and an inbound share target since `71465cb`; folders still fixed, import capped at 16 MiB) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
+| 5. Disk catalog + **pinned** tag | ✅ / ➖ **no pin any more** — read at build 69, where this port left the axis exactly as z80cpmw did. `releaseTag`, the `releaseBaseURL` built from it and the XML parser that rebuilt every URL from it are all deleted; the one address compiled in is `CatalogMigration.defaultIndexURL`, an interface tag (`catalog-v0`) and not a RomWBW release, and the user picks the release from the index in Settings. This cell said **pinned `v1.4.12`** when it was read at build 61, and that is history now rather than a correction — it was true of the build it was read at. What the downloader keeps across the migration: every download hashed against the catalog inside `downloadDiskFromSettings` before it replaces anything and refused outright when an entry carries no hash, and build 60's `DiskLedger` provenance with its Update control (allowed on any network, refused while the emulator holds the disk) and its automatic refresh of superseded images (deferred off Wi-Fi, on a constrained link, or while that disk is mounted), both now resolving by catalog id rather than by exact filename. What it gains: the cache is self-consistent by construction — the release is in the cache filename and the cached document carries its own `base_url` — so the pin-stamp/salvage machinery this cell used to describe has no job left, and **delete and cancel are both present**, which is the pair this row withheld from ioscpm at build 61. Help still floats on `releases/latest`, behind the bundled fallback of build 51; build 70 moves it into the catalog and is not certainly shipped | ◐ / ✅ pinned (`v1.4.5` — still, in the shipped `35873d0` = versionCode 27 = 1.25: one `RELEASE_TAG` in `DiskCatalogRepository.kt` builds both `CATALOG_URL` and `DOWNLOAD_BASE_URL`, with the RomWBW v3.5.1 reason in the comment above it. `642b3b0` repins to `v1.4.12` for the R8 `F_DELETE` wildcard fix and is **not** an ancestor of the shipped commit, so an installed client still fetches the v1.4.5 images that ioscpm repinned away from at build 59; the interface-v0 migration `41829cb` and the ROM-from-catalog work `bb0ac74` are later still and have shipped nowhere). ◐ rather than ✅ because two of this row's spec items are missing from the app, and were missing at 25 too: **delete** — `deleteDisk` and `deletePersistedDisk` have no caller anywhere under `app/`, there are no menu resources, `DiskCatalogAdapter` binds no long-press, and the Settings slot ✕ is `clearDiskSlot`, which unassigns the slot and leaves the image on the device with nothing in the app able to remove it — and **cancel**, which is only the side effect of the Activity dying (`ensureActive()` inside `downloadDisk`'s read loop); the Settings progress dialog is `setCancelable(false)` and the first-launch overlay has no button. The downloader itself is stronger than this cell ever admitted, and all of it is live: `downloadDisk` hashes the stream as it writes and refuses on a SHA-256 mismatch, refuses a short transfer against the catalog `size` and `contentLength()` separately, publishes by renaming a nonce-named scratch file and checks `renameTo`'s answer, sweeps abandoned scratch by age, and `claimDownload` is static so Settings and `MainActivity` cannot pull the same disk at once. Two gaps beside ioscpm: the hash gate is `diskInfo.sha256.isNotEmpty()`, so an entry carrying no hash installs unverified where ioscpm refuses outright, and there is no cached catalog to stamp with the pin — `cachedCatalog` is one in-memory field in `SettingsActivity` that dies with it, so no cache-tag mismatch and no version-bump invalidation exist to get wrong. No provenance ledger, no Update control. Help still floats on `releases/latest`, behind the bundled fallback of `1f70c6b` | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
 | 6. Help system + offline fallback | ✅ / ✅ bundled since build 51 (download, cache, then the shipped copy) | ✅ / ✅ bundled since `1f70c6b` (download, cache, then the shipped copy; all eight files in `assets/help/`) | ◐ CLI (two offline surfaces, no topics and nothing fetched: `print_usage`'s `--help`/`-h`, 75 lines, run out of the .deb's own binary rather than inferred, and `print_console_help`'s fourteen-command list behind the `--escape` key, which `emu_console_check_escape`'s `!stdin_is_tty` early return withholds on piped stdin. The one outward pointer in those 75 lines, `docs/CONFIGURATION.md`, is not in the package — 19 files, `README.md` and `LICENSE` under usr/share/doc and no docs/ directory, release.yml copying only those two, with the README's own `docs/CONFIGURATION.md` and `CHANGELOG.md` links dangling the same way and no man page. That is this row's trap one level down: help that points at a document the shipped copy has not got) · ◐ web (a static `.instructions` panel, six `<h3>` from Quick Start to Drive Letters, always rendered with no toggle and no topics — read out of the deb's own romwbw.html, the tree keeping no built web/ at all, and byte-identical to `web/romwbw.html-template` at the tag bar three `@VERSION@` substitutions). The `releases/latest` trap is structurally absent rather than merely unsprung: the emulator's own `src` links no HTTP client (its single URL is a comment in `src/romwbw_pin.h`, the rest being vendored nlohmann banners; no curl, no sockets) and the shipped binary is static with no curl/socket/getaddrinfo symbols, while the page's only fetches are `fetchChecked`/`fetchWithProgress` at same-origin ROM and disk paths, with no absolute URL in the shipped `romwbw.js` or `romwbw.wasm` either. |
 | 7. NVRAM autoboot / bootString | ✅ NVRAM / ⬜ bootString (`setBootString` is in the vendored core and on the bridge; no Swift caller ever passes it a value, and there is no setting for one) | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
 | 8. Window state / DPI | ◐ Mac Catalyst (position and size remembered across quits since build 61, landed in `8e7587f`: `WindowFrame`/`CatalystWindow` keep four numbers under `catalystWindowFrame`, clamp a restored frame to the display, drag an off-screen one back on and hold a 640×480 minimum through `sizeRestrictions`; saved on `scenePhase` deactivate, restored a turn after `onAppear`. Placement needs iOS 16's `requestGeometryUpdate` and `IPHONEOS_DEPLOYMENT_TARGET` is 15.0, below which neither position nor size comes back and only the minimum applies. Only the testable half is tested: `WindowFrame` has 34 checks, `CatalystWindow` none, and MANUAL_CHECKS §10's move/quit/relaunch and off-screen-restore boxes are both unticked — compiled for Catalyst, never driven on a Mac. Still no auto-size to the 80×25 grid on a font change, font size being a fixed 14–28 pt menu, and no per-monitor DPI scaling) · ➖ iPhone/iPad | ➖ | ➖ |
 | 9. Font size setting | ✅ (menu, 14–28pt) | ✅ (Settings slider, 8–24pt; the range is enforced on the slider only, and API 24–25 ignore `android:min`) | ➖ CLI (host terminal; no font flag and no font config key) · ◐ web (fixed `fontSize: 16` in the `new Terminal` options, no control on the page and no font key among the six it persists, so only browser zoom moves it) |
 | 10. Dazzler | ⬜ | ⬜ (explicit no-op stubs) | ⬜ (no Dazzler code; the core only offers the hooks this repo uses) |
-| 11. Config profiles | ✅ since build 61 (`ProfileSection` in Settings, ungated so iOS and Catalyst alike: named `EmulatorProfile`s carrying ROM, four disk slots, boot string, key profile plus custom bindings, scrollback capacity, bell, manifest warning, key row and new-disk size; save, tap-to-apply, swipe-to-delete and update-in-place, the whole `ProfileStore` as one JSON value under the `emulatorProfiles` default, 66 checks in `EmulatorProfileTests`. ⬜ before 61 — the code landed in `8e7587f`, still stamped build 58, the same number as the `e33beea` reading that missed it, and the two builds that then carried it, 59 and 60, never became a binary anybody could install, so the changelog renumbers the entry to 61. Font size is the one setting a profile does not carry, living alone in `@AppStorage("terminalFontSize")`; file-backed local disks are recorded empty on purpose, a bookmark being a token and not a name, at the cost that an empty slot clears only the catalog selection so applying a profile can never detach a local disk; and `renameProfile` exists with no UI to reach it) | ⬜ (flat SharedPreferences, no named profiles) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
+| 11. Config profiles | ✅ since build 61 (`ProfileSection` in Settings, ungated so iOS and Catalyst alike: named `EmulatorProfile`s carrying ROM, four disk slots, boot string, key profile plus custom bindings, scrollback capacity, bell, manifest warning, key row and new-disk size; save, tap-to-apply, swipe-to-delete and update-in-place, the whole `ProfileStore` as one JSON value under the `emulatorProfiles` default, 66 checks in `EmulatorProfileTests`. Build 69 adds a `romwbwVersion` to the record and resolves ROM and disk slots by catalog id rather than by exact name, because a catalog filename now carries the release (`hd1k_combo-v0-3.5.1.img`) and an exact match would resolve a profile only under the release it was saved on. Applying a profile deliberately does **not** move the release — that would empty and refill four slots and re-fetch a catalog behind a one-tap action — so a slot the current release does not publish is reported as saved under the other one instead of as a bare unresolved name. `EmulatorProfileTests` is untouched between builds 61 and 69, so the 66 still holds. ⬜ before 61 — the code landed in `8e7587f`, still stamped build 58, the same number as the `e33beea` reading that missed it, and the two builds that then carried it, 59 and 60, never became a binary anybody could install, so the changelog renumbers the entry to 61. Font size is the one setting a profile does not carry, living alone in `@AppStorage("terminalFontSize")`; file-backed local disks are recorded empty on purpose, a bookmark being a token and not a name, at the cost that an empty slot clears only the catalog selection so applying a profile can never detach a local disk; and `renameProfile` exists with no UI to reach it) | ⬜ (flat SharedPreferences, no named profiles) | ◐ CLI (one JSON settings file, v1.34; no named profiles) · ◐ web (one UI selection set) |
 | 12. Manifest write warning | ✅ (suppressible, once per session) | ✅ (suppressible, once per session) | ➖ CLI · ✅ web (*Don't warn* kept across a reload since `108856c`) |
 | 13. Terminal emulation (VT100 + VT52) | ✅ the origin of the parser (full VT52, DECSTBM, DECSC/DECRC, `@ P X L M S T`, the answerbacks, deferred autowrap, charset consumption, per-cell bold/underline/blink and the bright SGR halves since build 55) — and since build 61 the best-evidenced *shipped* parser of the four: at `af0b9b2`, the commit the App Store's 1.5.1 was built from, the whole parser has moved out of `EmulatorViewModel.swift` into a Foundation-only `TerminalScreen.swift` (`8e7587f`) with no final byte, mode or dispatch arm changed, and `TerminalScreenTests.swift` drives it headlessly in 262 checks, almost all through `receive(_:)`, the one door a guest has. CP/M 2.2 booted through the view on the simulator; nothing on hardware, and `MANUAL_CHECKS.md` §4's per-cell-face boxes are still unticked | ✅ **and shipped** — 1.25 = versionCode 27 (`35873d0`) carries the whole parser, so this is the one cell in this column where a Play user has what the tick describes. VT52 with auto-detection, DECSTBM, DECSC/DECRC (rendition and reverse travel with the position), `@ P X L M S T`, `G`/`` ` ``/`d`, `s`/`u`, the query replies with the private forms silent, DECANM/DECAWM/DECTCEM, deferred autowrap, `MAX_CSI_PARAMS` 16 / `MAX_CSI_PARAM_DIGITS` 6, and per-cell bold/underline/blink — bold and underline pick one of four `Paint`s through `CELL_FACE_MASK`, which is `CELL_BOLD or CELL_UNDERLINE` and deliberately does *not* include blink; a blinking cell keeps its face and collapses the glyph into its own background on the off phase. Reverse is resolved into the two colours at the write rather than kept as a cell bit, as in this repo. Written 2026-08-29: `167acbe` for the parser and the faces, `c0b3bf7` for the bounds, both ancestors of the uploaded bundle. **Built and served, still unwatched:** `MANUAL_CHECKS.md` §5 "first sighting" survives intact at all nine items, `todo.txt` still heads a list "NOBODY HAS SEEN THE NEW TERMINAL RUN", and there is no test source set in the tree, so nothing headless covers it either. Prints every byte from 0x20 up where both siblings stop at 0x7E | ➖ CLI (host terminal, and the delegation is real - one `putchar` per byte, no parser, `c_oflag` deliberately untouched so OPOST/ONLCR still stand; `emu_console_write_char` in `emu_io_cli.cc` drops every CR, not just the CR of a CR LF, and masks to 0x7F) · ◐ web, read from the shipped 1.38 deb, whose `romwbw.html` is the tag's `romwbw.html-template` rendered at 1.38 and md5-identical to it: `2dbf6f2` did ship, so every byte reaches `term.write` with LF → CR LF the one rewrite (`tests/web_console_output.js`, 12/12 re-run against the shipped page), but `emu_io_wasm.cc` still drops CR and masks to 0x7F a layer down, and the vendored xterm 5.3.0 (`web/vendor/xterm.js`, `5920681`, sha384-identical to the npm tarball) has **no VT52 at all** - its whole ESC table is `7 8 = > D E H M \ c n o \| } ~` plus `#8`, `%@`, `%G` and the charset designators, with no `ESC <`, no VT52 final, and no `case 2` in DECRST to enter the mode - so the shipped web build lacks the half of this row's title that all three native ports implement |
 

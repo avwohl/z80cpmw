@@ -5,18 +5,23 @@ All notable changes to **z80cpmw** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use a simple `MAJOR.MINOR.PATCH` scheme: a `-beta` suffix names the
 signed GitHub / sideload package, and the bare number names the Microsoft Store
-release. The released Store version is **1.0.29** — measured with
+release. The released Store version is **1.0.33** — measured with
 `tools/check-store-version.sh`, which the Store-version CI job runs on every
-push and which reported `AaronWohl.Z80CPM_1.0.29.0_x64__pyqcdeggzw67m`, catalog
-updated 2026-09-07, re-measured on 2026-09-10. This sentence read **1.0.23**
-until 2026-09-06 and **1.0.25** until 2026-09-09; each time the number was
+push and on a schedule, and which reported
+`AaronWohl.Z80CPM_1.0.33.0_x64__pyqcdeggzw67m`, catalog updated 2026-09-10,
+measured 2026-09-13. This sentence read **1.0.23** until 2026-09-06, **1.0.25**
+until 2026-09-09 and **1.0.29** until 2026-09-13; each time the number was
 overtaken by a submission the repository does not record, and each time the
-measurement is what caught it.
+measurement is what caught it — the last time as a red CI job on the scheduled
+run, which is the job doing exactly what it was added for.
 
-**Where each channel stands, as of 2026-09-10.** The Store serves **1.0.29**.
-The newest *published* sideload package is **v1.0.28-beta**, which is what GitHub
-marks Latest. **1.0.30-beta** is built, signed and sitting in `dist\` unpublished
-— todo.txt carries the release. This paragraph said the newest sideload package
+**Where each channel stands, as of 2026-09-13.** The Store serves **1.0.33**.
+The newest *published* sideload package is still **v1.0.28-beta**, which is what
+GitHub marks Latest. **1.0.30-beta** and **1.0.32-beta** are both built, signed
+and sitting in `dist\` unpublished, the latter superseding the former for that
+channel because it is the one carrying the catalog entry-point work — todo.txt
+carries the release. The gap between the channels is therefore five versions
+wide now rather than one. This paragraph said the newest sideload package
 was 1.0.22-beta, and named 1.0.24 as "packaged and unsubmitted" and 1.0.25 as
 "not yet built at all", all three of which had been overtaken; the standing
 lesson is the one directly below, that the repository is not evidence of what has

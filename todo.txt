@@ -101,32 +101,25 @@ one line shorter.
   against a configuration whose rename did not complete, and that path is in no
   suite - so it is the path to drive when this is done.
 
-- The ioscpm column's READING is correct and its RATIONALE is stale.
-FEATURE_PARITY.md records the iOS/macOS column re-read at af0b9b2 - build 61,
-the commit the App Store's 1.5.1 was built from - and holds it there
-deliberately, because "builds 62-65 exist in ioscpm and none has ever been
-compiled, so a tick taken from HEAD would describe software nobody can install".
-Holding at the shipped commit is still right, and sibling-readings `shipped:61`
-still matches what the Store serves: ioscpm's tools/check-store-version.sh, run
-2026-09-08, reports 1.5.1 served since 2026-09-05, which is at most build 61.
-Do NOT advance either one.
-  What has gone stale is the reason.  ioscpm builds 62 through 67 HAVE now been
-compiled: build 67 was made on a Mac with Xcode 26.6 and succeeded for the iOS
-Simulator, for generic/platform=iOS at arm64 and for Mac Catalyst, and it was
-then installed on an iPhone 17 simulator and driven to a CP/M prompt under
-CBIOS v3.6.0 [WBW].  So "none has ever been compiled" is no longer why the
-column is held; "none has ever been RELEASED" is.  Reword it, because the next
-reader will check the stated reason, find it false, and may take that as licence
-to move the column.
-  tools/check-sibling-drift.sh reporting the column DRIFTED at 21 commits
-(af0b9b2 -> 342612f) is correct and should keep reporting until ioscpm ships a
-build above 61.  Budget for the re-read when it does: the whole interface-v0
-migration is inside that range - no bundled ROM at all, a RomWBW Release picker,
-per-release UserDefaults and NVRAM keys, and ROM and disk lists driven entirely
-from the catalog.
-  Raised from ioscpm, whose todo.txt had been carrying this as "a z80cpmw-side
-re-read, not an ioscpm task".  Per this file's own header, a note about what
-another repository ought to do belongs in that repository's list.
+- DONE 2026-09-13: the ioscpm column was re-read, because the condition this
+item set was met.  It said the drift report "should keep reporting until ioscpm
+ships a build above 61.  Budget for the re-read when it does."  It did: the App
+Store moved to 1.6.1 on 2026-09-12 and ioscpm's tools/check-store-version.sh
+went red in the stale direction, reporting shipped:61 as BEHIND the floor of
+what Apple serves.
+  The column is now read at a68e320, build 69, and sibling-readings says
+`shipped:69`.  1.6.1 heads builds 67-70, all four compiled, so the shipped build
+is a bracket; the iTunes release notes name the custom-catalog setting, which
+first exists at build 69, so it is 69 or 70 and the column is read at the floor.
+  The budgeted re-read was smaller than feared.  Three rows moved - 4, 5 and 11 -
+all of them because the interface-v0 migration deleted releaseTag, which puts
+ioscpm off item 5's pin axis exactly where this port went at 1.0.29, and row 5
+gains the delete and cancel it was ◐ for.  Ten held, five provably:
+TerminalView.swift and the profile, terminal and window test suites are
+byte-identical between af0b9b2 and a68e320, as is the whole of iOSCPM/Core/.
+  The stale RATIONALE this item was really about is gone with the rewrite: the
+column is no longer held for "builds 62-65 have never been compiled" but for the
+bracket the release notes narrow, which is a reason that stays true.
 
 - tools/check-shipped-disks.sh EXITS 1 ON A FAMILY THAT IS CORRECT, and the
 cause is one missing test.  Measured 2026-09-08 by running all five copies:
