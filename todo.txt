@@ -147,3 +147,5 @@ re-fetched" was in this item and in Config.h, and it was FALSE: every diskhash::
 call is in DiskCatalog.cpp, and the mount path never hashes.  Nothing re-fetches
 an image already on disk except a user clicking Download.  The notice above is
 what stands in for it.
+
+- [RELEASE] Store serves 1.0.33; 14 commits since it, one touching z80cpmw/ - next submission.
