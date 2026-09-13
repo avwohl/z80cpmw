@@ -89,6 +89,17 @@ Two pieces are missing, and CHANGELOG [1.0.25] has the design behind both:
   MainWindow.cpp and SettingsDialogWx.cpp are in no suite and cannot be, so both
   are verified by driving the built app.  See WIP.md.
 
+- A v1.4.5-era image still on a machine keeps the destructive R8, and the Update
+path that would replace it is the unwired one above.  That r8.com copies the host
+basename into the FCB unfiltered, so '?' and '*' make it ambiguous and F_DELETE runs
+before F_MAKE: importing a?b.txt erases every CP/M file matching A?B.TXT first and
+says nothing (romwbw_emu CHANGELOG, "R8 erased unrelated CP/M files", verified live).
+This port pinned v1.4.5 from e6813e0 until 211488b repinned to v1.4.12, so anyone who
+downloaded in that window has it.  The item above covers the v0-migration pair, which
+isEquivalentPriorImage() records as Current; a v1.4.5 image is NOT that pair, so it
+reads SupersededPristine, wants RefreshNow, and nothing calls it.  Wiring the Update
+button closes both cases at once - that is the same work, not a second job.
+
 - DiskCatalog::getLocalName() maps nothing any more and can go.  It was the
 scaffolding that let the storage migration rename the images in a release whose
 catalog still called them hd1k_combo.img; the catalog now serves the v0 names and
