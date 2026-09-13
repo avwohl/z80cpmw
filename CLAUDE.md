@@ -109,17 +109,22 @@ run or the symbol that was grepped, it is a guess and must say so.
 **Cross-port claims need a citation that resolves.** `FEATURE_PARITY.md` marks
 prose about a sibling with `<!-- cites: repo -->`, and every backticked
 identifier inside must resolve by `git grep` in that port at the recorded
-commit. `tools/check-sibling-drift.sh` checks it and also reports how far each
-port's tree has moved past what its column was read at.
+commit, and the `sibling-readings` block records which commit that is.
 
-**Nothing runs it for you.** A Parity gate workflow ran it on every push and
-daily until 2026-09-13, when it was removed along with the store-version jobs
-and the `shipped:` field. This repository now has **no CI at all** — which costs
-less than it sounds, because no workflow here ever built or tested anything
-(`MSBuild` and `run_tests.bat` need Windows and the runners are Linux), but it
-does mean a fabricated citation will sit in that document until a person runs the
-script. Run it before trusting `FEATURE_PARITY.md`, and run it before pushing a
-change to one.
+**Nothing checks this any more, and there is no longer a tool that could.**
+`tools/check-sibling-drift.sh` resolved every one of those identifiers and
+confirmed every recorded sha; it was deleted on 2026-09-13, after the Parity
+gate workflow that ran it, the store-version jobs, and the `shipped:` field.
+This repository has **no CI at all** and no parity tooling. That costs no test
+coverage — no workflow here ever built or tested anything, `MSBuild` and
+`run_tests.bat` needing Windows while the runners are Linux — but it does mean
+the rule above is now enforced by nothing but whoever is writing.
+
+So: **a citation is a promise you are making by hand.** The convention exists
+because nine symbols were once cited for `cpmdroid` that existed nowhere in it,
+four of the claims resting on them asserting the opposite of what that code
+does. Before adding or editing a `cites:` region, `git grep` each identifier in
+that port at the sha the block records, and say in the prose that you did.
 
 ## Searching this tree without a permission prompt
 

@@ -36,7 +36,8 @@ help topics bundled into the binary and a refusal to keep a truncated download -
 was measured from the 1.0.22 build, which is **31** commits back, and most of it
 shipped in 1.0.23.  It is not repeated, because repeating it would assert the
 same gap from a baseline two releases stale.  What is needed is a re-read of
-this column, which `tools/check-sibling-drift.sh` has been asking for.
+this column, which `tools/check-sibling-drift.sh` had been asking for. *(That
+script was deleted on 2026-09-13; nothing asks now.)*
 
 **And note how that Store number is known — it was wrong.** This paragraph used
 to say that nothing here queries the Store and that **1.0.23** was this
@@ -1819,9 +1820,10 @@ inventing one, so that a single set of instructions covers every client.
   This bullet spent two readings outside one on purpose: everything it names
   post-dated the commit the z80cpmw column was read at, so a `cites: z80cpmw`
   block around it failed the gate, and failed it correctly — that was the gate
-  saying "this document is describing a build nobody has". Measured at the time:
-  wrapping it took `check-sibling-drift.sh --allow-drift` from 0 to 1, every
-  symbol reported as *arrived after the recorded reading*. The condition written
+  saying "this document is describing a build nobody has". Measured at the time,
+  when there was still something to measure with: wrapping it took
+  `check-sibling-drift.sh --allow-drift` from 0 to 1, every symbol reported as
+  *arrived after the recorded reading*. The condition written
   down for lifting it was "when the column is re-read at a build that ships it",
   and **1.0.33 is that build**: the work went out as `1.0.32-beta` and then as
   the Store's 1.0.33, the column is re-read at `9df0d01`, and every name below
@@ -1925,24 +1927,32 @@ The **Linux/Web `romwbw_emu` column was re-read row by row at `a95db9f`** on
 down no commit. Twelve of its thirteen cells stood as written and row 5 did not
 — see item 5.
 
-**Which commit each column was read at, and what reports the drift.** A column
-is only as current as the last person who read that tree, and three of the four
-trees moved the same afternoon this document was written. The commits actually
-read are recorded below, and `tools/check-sibling-drift.sh` compares them with
-the checkouts beside this one, lists what has landed since, and exits non-zero
-if anything has - including a recorded commit that is not an object in the tree
-it names, which is the `c26aeb7` failure caught mechanically instead of by
-argument. Re-read what it reports, correct the column, then update this block.
-**Run it yourself** — the workflow that ran it on every push and daily was
-removed on 2026-09-13, so nothing checks this document unless somebody asks it
-to.
+**Which commit each column was read at.** A column is only as current as the
+last person who read that tree, and three of the four trees moved the same
+afternoon this document was written. The commits actually read are recorded
+below. Compare them with the checkouts beside this one by hand — in each
+sibling, `git log <recorded-sha>..origin/HEAD` is the list of what has landed
+since, and `git cat-file -e <recorded-sha>` is whether the recorded commit is
+something that repository actually has.
+
+**Nothing does that for you any more, and the tooling is gone rather than
+merely unscheduled.** `tools/check-sibling-drift.sh` compared the recorded shas
+with the checkouts, listed what had landed, resolved every backticked identifier
+in every `cites:` region, and exited non-zero on a sha nobody had — which is the
+`c26aeb7` failure caught mechanically instead of by argument. It was deleted on
+2026-09-13, after the Parity gate workflow that ran it. The `<!-- cites: repo -->`
+markers below are still worth reading and still mean what they meant — this
+prose is about that port, and its symbols were verified at that sha when it was
+written — but they are now a record of a promise somebody made, not a thing that
+is checked. **If you edit a `cites:` region, `git grep` each identifier in that
+port at the recorded sha yourself.**
 
 **There used to be a fourth field, and it is gone.** Each line carried
-`shipped:<build>` — the build that port's store was serving — and
-`check-sibling-drift.sh` compared it with the build number in the sibling tree,
-both directions, failing on any disagreement. That is what forced the 1.0.29 and
-1.6.1 re-readings, and the scheduled store workflows fed it. All of it was
-removed on 2026-09-13: the workflows, the check, and then the field. What a
+`shipped:<build>` — the build that port's store was serving — and the drift
+script compared it with the build number in the sibling tree, both directions,
+failing on any disagreement. That is what forced the 1.0.29 and 1.6.1
+re-readings, and the scheduled store workflows fed it. All of it was removed on
+2026-09-13: the workflows, the check, the field, and then the script. What a
 store serves is a fact about Apple, Microsoft or Google; it cannot be fixed by a
 commit, and a job that stays red until somebody re-reads a thirteen-row column is
 a job that gets ignored. Every claim this block now makes is decidable from the

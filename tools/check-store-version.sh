@@ -14,7 +14,8 @@
 # CONSULTED below.  What this script measures is unchanged; what changed is that
 # nothing compares the answer to a document for you.)
 #
-# It is the companion to check-shipped-disks.sh and check-sibling-drift.sh: those ask
+# It is the companion to check-shipped-disks.sh (check-sibling-drift.sh was the
+# third until it was deleted on 2026-09-13): those ask
 # what the tree and the images say, this one asks the store.  Like them it goes
 # out to the network, and like them it exits 2 rather than 0 when it cannot.
 #

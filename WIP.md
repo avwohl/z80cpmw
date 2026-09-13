@@ -57,7 +57,9 @@ compiled with MSVC — links. Nobody wrote down which sibling shas that build wa
 taken against, which is worth doing next time. The last reading this file
 recorded is `romwbw_emu` `17cd380` (`v1.36-1`) and `cpmemu` `9fee3c2`, and both
 checkouts stand five commits past it as of 2026-08-28.
-`tools/check-sibling-drift.sh` reports where the siblings stand.
+Checking where the siblings stand is a `git log <recorded-sha>..origin/HEAD` in
+each of them by hand; `tools/check-sibling-drift.sh` used to do it and was
+deleted on 2026-09-13.
 
 **Four of the seven suites need none of that.** `tests\run_tests.bat` runs the
 terminal conformance suite, then the help renderer and asset suite, then the
