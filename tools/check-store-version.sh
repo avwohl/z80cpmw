@@ -6,10 +6,13 @@
 # number in Version.h all describe the TREE.  None of them knows what a user can
 # install.  ioscpm has had tools/check-store-version.sh since 2026-09-03 and it
 # is the reason that port's claims are measured; this repository had no
-# equivalent, so `shipped:` in FEATURE_PARITY.md's sibling-readings block was an
-# assertion copied out of our own changelog.  On 2026-09-06 the first run of this
-# script disagreed with that changelog, which is the whole argument for having
-# it.
+# equivalent, so the shipped-build figure in FEATURE_PARITY.md's sibling-readings
+# block was an assertion copied out of our own changelog.  On 2026-09-06 the
+# first run of this script disagreed with that changelog, which is the whole
+# argument for having it.  (That figure was a `shipped:` field until 2026-09-13,
+# when it and every check on it were removed - see FEATURE_PARITY.md NOT
+# CONSULTED below.  What this script measures is unchanged; what changed is that
+# nothing compares the answer to a document for you.)
 #
 # It is the companion to check-shipped-disks.sh and check-sibling-drift.sh: those ask
 # what the tree and the images say, this one asks the store.  Like them it goes
@@ -48,7 +51,6 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here" && git rev-parse --show-toplevel 2>/dev/null) || root=$(dirname "$here")
 
 VERSION_H="$root/z80cpmw/Version.h"
-PARITY="$root/FEATURE_PARITY.md"
 CHANGELOG="$root/CHANGELOG.md"
 
 tmp=$(mktemp -d 2>/dev/null || mktemp -d -t store)
@@ -146,32 +148,13 @@ else
 fi
 
 # --- what this repository records ----------------------------------------------
-# FEATURE_PARITY.md's sibling-readings block carries this port's own shipped:
-# field, and check-sibling-drift.sh scores the whole z80cpmw column against it.
-# That field is hand-maintained because no tree knows what a store is serving -
-# this is the measurement it is supposed to be set from.
-if [ -f "$PARITY" ]; then
-    claim=$(awk '/^z80cpmw[[:space:]]/ { for (i = 1; i <= NF; i++)
-                    if ($i ~ /^shipped:/) { print substr($i, 9); exit } }' "$PARITY")
-    echo
-    if [ -z "$claim" ]; then
-        echo "FEATURE_PARITY.md  no shipped: field on the z80cpmw line"
-    elif [ "$claim" = "$live" ]; then
-        echo "FEATURE_PARITY.md  shipped:$claim agrees with what the Store serves"
-    else
-        echo "FEATURE_PARITY.md  CLAIMS shipped:$claim, BUT the Store serves $live"
-        if [ "$(vnum "$claim")" -gt "$(vnum "$live")" ] 2>/dev/null; then
-            echo "  Every tick in the z80cpmw column is scored against software no"
-            echo "  user has - and this is the column the other three are measured"
-            echo "  against, so the error propagates to all of them."
-        else
-            echo "  The column is read against a build OLDER than what ships, so"
-            echo "  its recorded gaps understate this port and overstate the rest."
-        fi
-        echo "  Re-read the column at the shipped build, then set this field."
-        status=1
-    fi
-fi
+# FEATURE_PARITY.md is NOT consulted.  It used to carry a shipped:<build> field
+# per port in its sibling-readings block, and this script compared the store's
+# answer against it - which is how a stale column was caught twice.  The field
+# was removed on 2026-09-13 along with the CI jobs that checked it, because what
+# a store serves is not something a repository can be gated on.  So this script
+# now reports the measurement and stops: comparing it with what any document
+# claims is a job for the person reading the output.
 
 # CHANGELOG.md states the released version in prose.  It is the thing this
 # script exists to stop being taken on trust.

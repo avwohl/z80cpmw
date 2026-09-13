@@ -147,7 +147,8 @@ cell nobody had re-read.
 
 **The iOS/macOS column was re-read on 2026-09-13, at `a68e320` — build 69,
 inside the App Store's 1.6.1.** The Store moved to 1.6.1 on 2026-09-12 and the
-store gate went red, this block still saying `shipped:61`. 1.6.1 heads builds 67
+store gate went red, this block still recording build 61 as what shipped (in a
+`shipped:` field that no longer exists — see the block itself). 1.6.1 heads builds 67
 to 70 and all four are compiled, so the shipped build is a bracket rather than a
 number; the release notes name the custom-catalog setting, which first exists at
 build 69, so it is 69 or 70 and the column is read at **69, the floor**. Three
@@ -1933,21 +1934,31 @@ if anything has - including a recorded commit that is not an object in the tree
 it names, which is the `c26aeb7` failure caught mechanically instead of by
 argument. Re-read what it reports, correct the column, then update this block.
 
-**Nothing mechanical checks the `shipped:` field any more.** Until 2026-09-13
+**There used to be a fourth field, and it is gone.** Each line carried
+`shipped:<build>` — the build that port's store was serving — and
 `check-sibling-drift.sh` compared it with the build number in the sibling tree,
-both directions, and failed on a disagreement — that is what forced the 1.0.29
-and 1.6.1 re-readings, and the scheduled store workflows that measured the
-stores fed it. All of that was removed on the same day, deliberately: what a
-store serves is a fact about Apple, Microsoft or Google, it cannot be fixed by a
-commit, and a job that stays red until somebody re-reads a thirteen-row column
-is a job that gets ignored. Every claim the gate still makes is decidable from
-the four checkouts alone.
+both directions, failing on any disagreement. That is what forced the 1.0.29 and
+1.6.1 re-readings, and the scheduled store workflows fed it. All of it was
+removed on 2026-09-13: the workflows, the check, and then the field. What a
+store serves is a fact about Apple, Microsoft or Google; it cannot be fixed by a
+commit, and a job that stays red until somebody re-reads a thirteen-row column is
+a job that gets ignored. Every claim this block now makes is decidable from the
+four checkouts alone.
 
-The field stays, and is still the thing every column is scored against — it is
-just hand-maintained end to end now. Each port's `tools/check-store-version.sh`
-survives and still reads it, but only when a person runs it. So treat the DATE
-on each line as the whole of its authority: a `shipped:` value is a measurement
-somebody took on that day, and nothing will tell you when it stops being true.
+**Which build each column was read at is in the prose below, not in a token.**
+That is a real improvement rather than only a subtraction, because the field was
+always slightly a lie: it had to print one exact build for answers that are not
+all the same kind. `ioscpm`'s is a BRACKET — 1.6.1 heads builds 67 to 70 and
+nothing records which shipped — and `cpmdroid`'s is reported by that port rather
+than measured, because nothing queries Google Play. As a field those read as
+equally precise. As sentences they can say what they are.
+
+**What this costs, stated rather than discovered.** A column can now be read at a
+commit older than what users are running and nothing at all will say so. The
+`tools/check-store-version.sh` in each port still measures its store — that is
+the one surviving way to find out — but it no longer compares the answer to this
+document, and it only runs when somebody runs it. Treat the DATE on each line as
+the whole of its authority.
 
 It compares against **`origin`**, not against the local checkout. It used to
 compare against local `HEAD`, and that let a stale checkout certify a column as
@@ -1963,10 +1974,10 @@ when that was; `--fetch` updates them first and is the only thing the script
 does that writes to a sibling.
 
 ```sibling-readings
-z80cpmw    9df0d01  2026-09-13  shipped:1.0.33
-ioscpm     a68e320  2026-09-13  shipped:69
-cpmdroid   6848615  2026-09-10  shipped:33
-romwbw_emu 5724350  2026-09-10  shipped:1.41
+z80cpmw    9df0d01  2026-09-13
+ioscpm     a68e320  2026-09-13
+cpmdroid   6848615  2026-09-10
+romwbw_emu 5724350  2026-09-10
 ```
 
 What each of those three readings is, because they are not the same kind of
@@ -1975,7 +1986,7 @@ thing:
 - **`ioscpm` `a68e320`, build 69 — and the shipped build is a BRACKET this time,
   not a number.** The line was advanced on 2026-09-13 because
   `ioscpm/tools/check-store-version.sh` went red: the App Store had moved to
-  **1.6.1**, released 2026-09-12, while this block still said `shipped:61`. That
+  **1.6.1**, released 2026-09-12, while this block still recorded build 61. That
   is the stale direction of the same error the z80cpmw line hit twice — users
   running something NEWER than the claim, so every tick this column withheld was
   being withheld from software they already had.
@@ -2097,7 +2108,7 @@ thing:
   2026-08-29 re-read of rows 4, 6 and 13, and supersedes all three. Unlike
   ioscpm's, this column was wrong in BOTH directions - see the snapshot above.
   Its shipped build is not measured but reported: nothing here queries Google
-  Play, so `shipped:27` rests on cpmdroid's own record that Play refuses an
+  Play, so the build-27 figure rested on cpmdroid's own record that Play refuses an
   upload at a versionCode it has seen and 27 is spent.
 - **`romwbw_emu` `a95db9f`** - a row-by-row re-read of the whole column, which
   it had not had since 2026-08-24, fifteen commits earlier. That sweep never

@@ -9,7 +9,7 @@
 # that report.
 #
 # It reads the sibling-readings block in FEATURE_PARITY.md - one line per
-# sibling, "<repo> <sha> <date> shipped:<build>" - and for each one:
+# sibling, "<repo> <sha> <date>" - and for each one:
 #
 #   * finds the checkout at ../<repo> beside this repository,
 #   * checks the recorded sha is a real object in it.  A cite naming a commit
@@ -22,20 +22,22 @@
 # The last exists because of what 2026-09-02 turned up, and it was not visible
 # to a check that only counted commits.
 #
-# THE shipped: FIELD IS PARSED AND IGNORED.  This script used to compare it with
-# the build number in the sibling tree, both ways, and fail on any disagreement.
-# That check was removed on 2026-09-13.  The reason is not that it was wrong -
-# it was right, and it caught real staleness twice - but that it does not belong
-# in CI.  What a store is serving is a fact about Apple, Microsoft or Google; it
-# cannot be fixed by a commit, and a job that goes red until a person re-reads a
-# thirteen-row column is a job people learn to ignore.  The store-version
-# workflows went the same day and for the same reason.
-#   The field STAYS in the document and is still worth maintaining: each port's
-# tools/check-store-version.sh reads it when run by hand, and it is what records
-# which build a column was read against.  Nothing mechanical checks it now, so
-# it is only as good as the date beside the reading.
-#   Removed with it, as dead code: tree_build(), ver_cmp(), version_bump_commit()
-# and tree_release_name(), which existed solely to answer this question.
+# THERE IS NO shipped: FIELD.  A fourth field used to carry the build each port
+# was serving, and this script compared it with the build number in the sibling
+# tree, both ways, and failed on any disagreement.  The check went on 2026-09-13
+# and the field itself went with it, along with the store-version workflows that
+# measured the stores.  The reason is not that any of it was wrong - it was
+# right, and it caught real staleness twice - but that what a store serves is a
+# fact about Apple, Microsoft or Google.  It cannot be fixed by a commit, and a
+# job that stays red until a person re-reads a thirteen-row column is a job
+# people learn to ignore.
+#   A line is "<repo> <sha> <date>" now, and a trailing field would be read into
+# $rest and ignored rather than rejected.  WHICH BUILD a column was read at is
+# recorded in the prose under the block, where it is a sentence a reader can
+# qualify - "the floor of a bracket", "reported and not measured" - rather than
+# a token that has to pretend to be exact.
+#   Removed with the check, as dead code: tree_build(), ver_cmp(),
+# version_bump_commit() and tree_release_name().
 #
 # Citations.  On 2026-09-02 the block describing Android cited NINE symbols that
 # existed nowhere in cpmdroid, in its tree or anywhere in its history, and four
@@ -281,17 +283,18 @@ echo "FEATURE_PARITY.md vs the checkouts in $SiblingDir"
 echo
 
 # The read loop runs in this shell, not a subshell, so $status survives it.
-while read -r repo sha date shipped rest; do
+while read -r repo sha date rest; do
 	[ -n "${repo:-}" ] || continue
 	case "$repo" in \#*) continue ;; esac
 
 	tree="$SiblingDir/$repo"
 	# This repository describes itself in the same table it describes the others
 	# in, and its column is maintained in place rather than read at a commit - so
-	# there is no drift to measure, only a shipped state.  It was left out of this
-	# block entirely until 2026-09-03, which meant the one column every other
-	# column is scored against was the only one whose shipped state nothing
-	# checked.  The asymmetry the prose had, reproduced in the mechanism.
+	# there is no drift to measure here.  It was left out of this block entirely
+	# until 2026-09-03, which meant the one column every other column is scored
+	# against was the only one nothing checked at all: the asymmetry the prose
+	# had, reproduced in the mechanism.  It is listed rather than skipped so that
+	# the line exists and its sha is confirmed to be a real commit.
 	home=no
 	[ "$tree" = "$RootDir" ] && home=yes
 
@@ -317,8 +320,8 @@ while read -r repo sha date shipped rest; do
 
 	if [ "$home" = yes ]; then
 		# No reading to drift: this column is edited in the same commit as the
-		# code it describes.  Only the shipped question is open, and it falls
-		# through to the check below.
+		# code it describes, so the line is acknowledged and nothing more is
+		# asked of it.
 		echo "$repo	this repository - column maintained in place, HEAD $head"
 	else
 
