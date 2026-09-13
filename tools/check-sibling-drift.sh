@@ -88,9 +88,9 @@
 # Exit status: 0 when every column is current against origin and every symbol it
 # cites resolves.  1 when any has drifted, any recorded sha is missing or
 # unreadable, any cited symbol resolves nowhere, or any column could not be
-# checked at all.  So it can gate a sweep.  "Could not
-# check" counts as a failure on purpose: a gate that cannot verify must not say
-# yes.
+# checked at all.  So it can still gate a sweep, though nothing in CI runs it:
+# see --allow-drift below.  "Could not check" counts as a failure on purpose - a
+# check that cannot verify must not say yes.
 #
 # --no-cites skips the citation pass, which is the slow half; the drift check is
 # cheap and always runs.
@@ -102,22 +102,26 @@ set -u
 
 # --allow-drift: a reading BEHIND origin is expected, not a fault.
 #
-# Every column in FEATURE_PARITY.md is now read at the commit its store actually
-# ships - ioscpm at build 61, cpmdroid at versionCode 27, z80cpmw at 1.0.25,
-# romwbw_emu at v1.38 - because a tick that describes the tree describes software
-# nobody can install.  A shipped commit is by definition behind a tree that has
-# moved on, so DRIFTED fires for three of the four columns permanently and will
-# fire for the fourth the moment anything lands after its release.
+# Every column in FEATURE_PARITY.md is read at the commit its store actually
+# ships, because a tick that describes the tree describes software nobody can
+# install.  A shipped commit is by definition behind a tree that has moved on, so
+# DRIFTED fires for three of the four columns permanently and will fire for the
+# fourth the moment anything lands after its release.
 #
-# That makes the exit code useless in CI: a gate that is red on every run for a
-# reason nobody can fix gets ignored, and this one conflates that with the faults
-# that ARE actionable - a recorded sha nobody has, a cited symbol that resolves
-# nowhere.  With this flag DRIFTED is
+# The flag exists because that made the exit code useless to the GitHub Actions
+# job that used to run this: red on every run for a reason nobody can fix, which
+# conflates the expected state with the faults that ARE actionable - a recorded
+# sha nobody has, a cited symbol that resolves nowhere.  With this flag DRIFTED is
 # still reported in full, and still counted in the summary, but does not decide
 # the exit status.  Everything else still does.
 #
-# Do not pass it interactively.  Locally the drift list is the reading list: it
-# is what tells you which column to re-read next.
+# THAT JOB IS GONE.  The parity gate was removed on 2026-09-13, after the
+# store-version workflows and the shipped: field, and this script is run by hand
+# now.  The flag is kept for anything that still wants an exit code it can
+# branch on - a release sweep, a pre-commit hook somebody writes later - but the
+# normal way to run this is WITHOUT it.  Locally the drift list is the reading
+# list: it is what tells you which column to re-read next, and suppressing it is
+# the opposite of what you want when you are the one reading.
 
 # Citations are claims about code, so only code is searched.  Excluding
 # documentation is not tidiness: cpmdroid's own todo.txt now quotes the nine

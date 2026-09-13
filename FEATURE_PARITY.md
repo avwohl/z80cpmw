@@ -1933,6 +1933,9 @@ the checkouts beside this one, lists what has landed since, and exits non-zero
 if anything has - including a recorded commit that is not an object in the tree
 it names, which is the `c26aeb7` failure caught mechanically instead of by
 argument. Re-read what it reports, correct the column, then update this block.
+**Run it yourself** — the workflow that ran it on every push and daily was
+removed on 2026-09-13, so nothing checks this document unless somebody asks it
+to.
 
 **There used to be a fourth field, and it is gone.** Each line carried
 `shipped:<build>` — the build that port's store was serving — and

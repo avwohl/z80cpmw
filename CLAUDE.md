@@ -109,9 +109,17 @@ run or the symbol that was grepped, it is a guess and must say so.
 **Cross-port claims need a citation that resolves.** `FEATURE_PARITY.md` marks
 prose about a sibling with `<!-- cites: repo -->`, and every backticked
 identifier inside must resolve by `git grep` in that port at the recorded
-commit. `tools/check-sibling-drift.sh` enforces it and also reports how far each
-port's tree has moved past what its column was read at. Run it before trusting
-that document.
+commit. `tools/check-sibling-drift.sh` checks it and also reports how far each
+port's tree has moved past what its column was read at.
+
+**Nothing runs it for you.** A Parity gate workflow ran it on every push and
+daily until 2026-09-13, when it was removed along with the store-version jobs
+and the `shipped:` field. This repository now has **no CI at all** — which costs
+less than it sounds, because no workflow here ever built or tested anything
+(`MSBuild` and `run_tests.bat` need Windows and the runners are Linux), but it
+does mean a fabricated citation will sit in that document until a person runs the
+script. Run it before trusting `FEATURE_PARITY.md`, and run it before pushing a
+change to one.
 
 ## Searching this tree without a permission prompt
 
