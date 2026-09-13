@@ -157,3 +157,20 @@ job.
 Related files: `MANUAL_CHECKS.md` (checks needing a person at a keyboard),
 `KNOWN_PROBLEMS.md` (standing facts that will never be "done"), `WIP.md`
 (longer-form handoff notes).
+
+## What is finished but not shipped
+
+`tools/unreleased.sh` reports the gap between written, built, submitted and
+served. It measures the Microsoft Store with `check-store-version.sh`, anchors
+on the commit that set `VERSION_PATCH` to the served value (the Store channel
+leaves no tag behind, so that is the best anchor there is), and lists what has
+landed since — counting the ones touching `z80cpmw/` separately, since those are
+the ones a Store user does not have. It also reads the sideload channel, which
+*does* leave GitHub releases behind, but cannot see `dist\` on the Windows
+machine and says so.
+
+**It is not a gate and must not become one.** No exit 1: 0 even when the answer
+is "fourteen commits unreleased", 2 only when it could not measure. Four jobs in
+this family went red daily for that normal state and all four were deleted on
+2026-09-13.
+
