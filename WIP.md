@@ -17,17 +17,17 @@ was this file's open question is answered, in source and in
 [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md).
 
 Version in the tree: **1.0.33** (`z80cpmw/Version.h`), packaged unsigned on
-2026-09-10 as `dist\z80cpmw-1.0.33-store.msix` for Partner Center and not yet
-submitted. Its
+2026-09-10 as `dist\z80cpmw-1.0.33-store.msix`, submitted to Partner Center and
+**now what the Store serves**. Its
 signed sideload twin is **1.0.32-beta**, the same source and a different build,
 which is why the numbers differ. **1.0.30-beta** is an older signed package,
 superseded. The 1.0.31 Store package is **gone**: the Store output name carries
 no version, so this build overwrote it — it was never submitted and predated the
 catalog entry-point work, and its symbols remain as
-`dist\z80cpmw-1.0.31-store.pdb`. The version released on the Store is **1.0.29**, measured with
-`tools/check-store-version.sh` on 2026-09-10; this line said **1.0.22** until
-2026-09-09 and **1.0.25** until 2026-09-10, and was four releases behind each
-time, so measure it rather than reading it here. Since `31d01c6` the
+`dist\z80cpmw-1.0.31-store.pdb`. The version released on the Store is **1.0.33**, measured with
+`tools/check-store-version.sh` on 2026-09-13; this line said **1.0.22** until
+2026-09-09, **1.0.25** until 2026-09-10 and **1.0.29** until 2026-09-13, and was
+several releases behind each time, so measure it rather than reading it here. Since `31d01c6` the
 version is edited only in `Version.h`; the MSIX and NSIS scripts derive theirs
 from it, and todo.txt reserves bumping it for the moment something is packaged —
 so a tree with unpackaged work in it sits under `[Unreleased]` at the number of

@@ -176,9 +176,29 @@ struct AppConfig {
     // NOT YET ISOLATED HERE, and that is the difference from ioscpm, which gives
     // each index its own Disks folder and its own settings keys.
     // catalogv0::indexScope() computes the suffix and is tested, but nothing
-    // calls it; emu_io_windows.cpp's getDataFolder() is the R8/W8 transfer
-    // folder as well as the catalog's, and moving that is not this setting's to
-    // do. See todo.txt.
+    // calls it. See todo.txt.
+    //
+    // THE OBSTACLE RECORDED HERE UNTIL 2026-09-13 WAS NOT REAL, and it was the
+    // reason nobody started. It said that scoping the catalog's download
+    // directory alone "would have the emulator read a folder the catalog does
+    // not write", because emu_io_windows.cpp's getDataFolder() is the R8/W8
+    // transfer folder as well as the catalog's. Measured, that is false: the
+    // emulator never resolves a disk through the data folder at all.
+    // emu_disk_open() fopen()s the path it is handed (emu_io_windows.cpp:527),
+    // and what hands it one is MainWindow::loadDisk with an ABSOLUTE path built
+    // by DiskCatalog::getDiskPath(). getDataFolder() has exactly two readers -
+    // resolveHostPath(), for a BARE R8/W8 filename, and
+    // emu_io_get_data_folder_display(), for the label on the Settings page - and
+    // neither is a disk. So the transfer folder can stay exactly where it is
+    // while the catalog's images move under a suffix, which is the split the old
+    // note said was impossible.
+    //
+    // What is genuinely left is smaller and is still work: existing installs
+    // have their images in the unscoped folder under absolute paths stored in
+    // this config, so a migration is needed; the Settings label says "disks and
+    // R8/W8 transfers" and would be naming two folders rather than one; and the
+    // per-index settings keys ioscpm also scopes are a separate decision from
+    // the files.
     //
     // The consequence: two catalogs publishing an image of the same name share
     // one file, so downloading from the second replaces the first.

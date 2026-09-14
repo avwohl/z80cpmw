@@ -35,10 +35,10 @@ used to pose — submit `dist\z80cpmw-1.0.24-store.msix` and inherit 1.0.22's
 problem, or submit 1.0.25 and not — has since been made, and made the right way:
 1.0.25 went to the Store with `z80cpmw-1.0.25-store.pdb` kept beside the package
 it came from, so the version users had was symbolicated. The Store has moved on
-twice since - it serves **1.0.29** as of 2026-09-10 - and every version since
-1.0.25 has kept its symbols on both arms. The 1.0.24 package has no symbols
+three times since - it serves **1.0.33** as of 2026-09-13 - and every version
+since 1.0.25 has kept its symbols on both arms. The 1.0.24 package has no symbols
 anywhere and submitting it would be choosing that problem rather than inheriting
-it; it is superseded four times over and there is no reason to.
+it; it is superseded five times over and there is no reason to.
 
 **A THIRD WAY TO LOSE A `.pdb` TURNED UP ON 2026-09-10, AND IT IS NOT THE
 SCRIPT'S FAULT.** The rule in CLAUDE.md is about what `build-msix.ps1` does at
@@ -179,7 +179,7 @@ that image by hand and put the utilities on it deliberately; nothing will go red
 if they forget, and the sentence about it in the in-app File Transfer topic is
 the only place a user is told.
 
-## The first shipped build to read the romwbw_disks index spends its respin
+## The respin has been spent: shipped builds read the romwbw_disks index
 
 `romwbw_disks` corrects an already-published RomWBW version by **overwriting the
 assets in place and bumping a content-derived `generation`**, never by renaming
@@ -188,16 +188,21 @@ saved state on the filename, so a `-r2` name would strand every user's
 downloaded library under a name nothing fetches.
 
 That was exercised once, on 2026-09-06: generation 2, four rebuilt ROMs, both
-releases. It was safe only because no shipped client could see those URLs — the
-migration to the index (`f91c3a3`) has never been in a released build, and the
-build the Store serves still fetches
-`avwohl/ioscpm/releases/download/v1.4.12/disks.xml`. That build is **1.0.25**,
-not 1.0.23, and its pin is `v1.4.12`, not `v1.4.5`:
-`tools/check-store-version.sh` answers `AaronWohl.Z80CPM_1.0.25.0_x64`, on
-2026-09-06 in `7ca073c` and again on 2026-09-07, and `git show
-211488b:z80cpmw/DiskCatalog.cpp` reads `RELEASE_TAG = L"v1.4.12"`. What survives
-that correction is the half that matters here: `git merge-base --is-ancestor
-f91c3a3 211488b` answers no, so nothing users have can see the index.
+releases. It was safe, and it was the last time it will be. The build the Store
+served that day was **1.0.25**, whose pin is `v1.4.12` (`git show
+211488b:z80cpmw/DiskCatalog.cpp` reads `RELEASE_TAG = L"v1.4.12"`, and
+`git merge-base --is-ancestor f91c3a3 211488b` answers no), so nothing users had
+could see the index URLs at all.
+
+**That stopped being true the next day, and this entry said otherwise until
+2026-09-13.** The first shipped build carrying the migration is **1.0.29**
+(`6496fd4`), live on the Store since 2026-09-07; **1.0.33** (`9df0d01`) carries
+it too and is what the Store serves now. Measured:
+`git merge-base --is-ancestor f91c3a3 6496fd4` succeeds, as does the same
+question against `9df0d01`, and `tools/check-store-version.sh` answers
+`AaronWohl.Z80CPM_1.0.33.0_x64__pyqcdeggzw67m` on 2026-09-13. So the respin is
+spent: users are now holding assets fetched from those URLs and verified against
+the sha256 the index published at the time.
 
 **Do not check that with `git tag --contains`.** This family releases without
 tagging: ioscpm 1.5.1 went live on 2026-09-05 and has no `v1.5.1` tag at all, so
@@ -205,9 +210,9 @@ an empty `git tag --contains` proves nothing about what users have. The question
 is what the *shipped source* fetches — `git show <shipped-commit>:z80cpmw/DiskCatalog.cpp`,
 or the `RELEASE_TAG` string in the artifact, where it is UTF-16LE.
 
-Whichever release first carries `f91c3a3` ends this. From then on a correction
-upstream is a new RomWBW version entry, not a quiet re-upload, and a user who
-already verified a SHA-256 would otherwise get different bytes at the same URL.
+1.0.29 ended it. From here on a correction upstream has to be a new RomWBW
+version entry, not a quiet re-upload: a user who already verified a SHA-256 gets
+different bytes at the same URL, and this client refuses them.
 Since 2026-09-07 that covers the ROM as well as the images: this application
 fetches every ROM from those same URLs and verifies its sha256 each time it
 loads one (`loadCatalogRomForStart()` calls `DiskCatalog::verifyRom()` before
@@ -215,8 +220,9 @@ loads one (`loadCatalogRomForStart()` calls `DiskCatalog::verifyRom()` before
 that already holds the old bytes, and that machine needs another download
 before it will start.
 
-This is not an action for this repository; it is a cost that this repository's
-next release imposes on another, and worth knowing before spending it.
+This is not an action for this repository; it is a cost this repository has
+already imposed on another, and worth knowing before `romwbw_disks` reaches for
+an in-place correction again.
 
 ## A first launch with no network cannot start the machine
 

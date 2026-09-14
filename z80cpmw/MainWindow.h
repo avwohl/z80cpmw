@@ -257,6 +257,10 @@ private:
         DefaultRom,   // loadDefaultROM(): no usable emu_avw.rom
         SavedRom,     // applyConfig(): the ROM named by the config is not the one running
         StorageMigration,  // migrateStorageToInterfaceV0(): a file it could not rename
+        // startEmulator(): a superseded image in the library that is in no slot,
+        // so the machine is about to boot correctly and the user would never
+        // hear about it. Before MountedDisk because it is the weaker statement.
+        LibrarySuperseded,
         // startEmulator(): a mounted image in the data folder that the catalog
         // in hand does not vouch for. LAST because the enumerator order is the
         // print order and this is the one about the disks the machine is about
@@ -281,6 +285,11 @@ private:
     // before its callback - which is the session in which somebody changed the
     // catalog index.
     void reportMountedDiskProvenance();
+
+    // Raise or clear Notice::LibrarySuperseded: downloaded images that are in no
+    // slot and that the catalog has moved past. Called by the function above,
+    // under the same no-fetch rule - see its definition.
+    void reportSupersededLibrary();
 
     void setNotice(Notice which, const std::string& text);
     // Retract a notice. Erasing a notice that was never raised is a no-op, so a

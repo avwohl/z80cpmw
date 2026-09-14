@@ -729,9 +729,12 @@ static void test_v0_names() {
     checkStr(out, COMBO_V0, "onto the catalog's own spelling");
 
     // Refusing an already-migrated name is what makes the whole thing
-    // idempotent, and it is also what retires DiskCatalog::getLocalName: that
-    // function is v0NameFor-or-the-name-itself, so the moment the catalog
-    // serves v0 filenames it becomes the identity and can be deleted.
+    // idempotent, and it is also what retired DiskCatalog::getLocalName: that
+    // function was v0NameFor-or-the-name-itself, so once the catalog served v0
+    // filenames it was the identity for every name out of a catalog entry, and
+    // its four such call sites pass the filename straight through now. The
+    // resolution survives only inside DiskCatalog::getDiskPath, for the one
+    // caller that can still hand it a pre-v0 name out of an old configuration.
     checkFalse(diskv0::v0NameFor(COMBO_V0, out),
                "a name that has already been migrated is left alone");
     checkTrue(diskv0::looksLikeV0Name("hd1k_games-v0-3.6.0.img"),

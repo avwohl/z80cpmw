@@ -22,6 +22,7 @@
 // has to agree with it about a name. Already reachable through DiskCatalog.h;
 // named here for the same reason.
 #include "DiskMigrationV0.h"
+#include <set>
 #include "resource.h"
 #include "Version.h"
 #include "CrashHandler.h"
@@ -2057,6 +2058,23 @@ void MainWindow::reportMountedDiskProvenance() {
         // want opposite reactions. The release is omitted when the catalog has
         // not named one yet, so the sentence cannot read "the catalog for
         // publishes".
+        // SupersededPristine is not the same statement as the other two and used
+        // to be given the same words. Pristine means the bytes are provably the
+        // ones this application downloaded, so "it may be your own changes" is
+        // exactly what it is NOT, and the honest sentence is that the publisher
+        // has moved on and replacing it costs nothing.
+        if (m_diskCatalog->getFreshness(name) == DiskFreshness::SupersededPristine) {
+            block += "Disk " + std::to_string(unit) + ": " + name + "\r\n"
+                     "  has been superseded - the catalog" +
+                     (release.empty() ? "" : " for RomWBW " + release) +
+                     " publishes newer bytes\r\n"
+                     "  under that name, and this copy is untouched since it was "
+                     "downloaded.\r\n"
+                     "  Settings > Disk Images > Update replaces it; nothing of "
+                     "yours is in it.\r\n";
+            continue;
+        }
+
         block += "Disk " + std::to_string(unit) + ": " + name + "\r\n"
                  "  is not the image the catalog" +
                  (release.empty() ? "" : " for RomWBW " + release) +
@@ -2067,6 +2085,74 @@ void MainWindow::reportMountedDiskProvenance() {
 
     if (block.empty()) clearNotice(Notice::MountedDisk);
     else               setNotice(Notice::MountedDisk, block + "\r\n");
+
+    reportSupersededLibrary();
+}
+
+// The other half of "a user who never opens Settings is never told": the notice
+// above speaks only about the four slots, so a superseded image that is in no
+// slot was announced nowhere at all. The machine boots correctly in that case,
+// which is exactly why nothing ever mentioned it.
+//
+// SAME NO-FETCH RULE AS THE NOTICE ABOVE, and it is the whole design of this
+// function. It reads DiskCatalog::getFreshness(), which is the verdict the last
+// fetch left behind, so it hashes nothing, opens nothing and reaches no network.
+// A launch that never fetched a catalog has every verdict Unverifiable or
+// NeedsMeasurement, allowsUserRequestedUpdate() is false for both, and this says
+// nothing - which is the decision taken on 2026-09-13 rather than the accident
+// it would otherwise be: telling every user at every launch would have meant
+// fetching the catalog at every launch, including the offline ones.
+//
+// One line for the whole library, not one per image. The count is the actionable
+// part; which ones they are is what the Settings column is for, and a library of
+// twenty superseded images must not push the boot output off the screen.
+void MainWindow::reportSupersededLibrary() {
+    if (!m_diskCatalog) {
+        clearNotice(Notice::LibrarySuperseded);
+        return;
+    }
+
+    // The slots are already covered by the notice above, and saying it twice
+    // about one file reads as two problems.
+    std::set<std::string> mounted;
+    if (m_emulator) {
+        for (int unit = 0; unit < 4; unit++) {
+            if (!m_emulator->isDiskLoaded(unit)) continue;
+            mounted.insert(diskv0::basenameOf(m_emulator->getDiskPath(unit)));
+        }
+    }
+
+    int count = 0;
+    std::string first;
+    for (const auto& entry : m_diskCatalog->getCatalogEntries()) {
+        if (!entry.isDownloaded) continue;
+        if (mounted.count(entry.filename)) continue;
+        if (!DiskLedger::allowsUserRequestedUpdate(m_diskCatalog->getFreshness(entry.filename))) {
+            continue;
+        }
+        if (count == 0) first = entry.filename;
+        count++;
+    }
+
+    if (count == 0) {
+        clearNotice(Notice::LibrarySuperseded);
+        return;
+    }
+
+    // Hand-wrapped to 80 columns, as the notice above is: printNotices() writes
+    // these straight through and nothing folds them for us.
+    std::string text;
+    if (count == 1) {
+        text = "A downloaded disk is out of date: " + first + "\r\n"
+               "  It is in no slot, so this boot is unaffected.\r\n"
+               "  Settings > Disk Images > Update replaces it.\r\n";
+    } else {
+        text = std::to_string(count) + " downloaded disks are out of date, "
+               "including " + first + ".\r\n"
+               "  None is in a slot, so this boot is unaffected.\r\n"
+               "  Settings > Disk Images > Update replaces them one at a time.\r\n";
+    }
+    setNotice(Notice::LibrarySuperseded, text + "\r\n");
 }
 
 void MainWindow::setNotice(Notice which, const std::string& text) {

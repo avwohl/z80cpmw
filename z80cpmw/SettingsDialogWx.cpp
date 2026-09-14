@@ -32,6 +32,7 @@ wxBEGIN_EVENT_TABLE(SettingsDialogWx, wxDialog)
     EVT_CHOICE(ID_ROMWBW_VERSION, SettingsDialogWx::onRomwbwVersionChanged)
     EVT_TEXT(ID_CATALOG_INDEX_URL, SettingsDialogWx::onCatalogIndexUrlChanged)
     EVT_BUTTON(ID_DOWNLOAD_DISK, SettingsDialogWx::onDownloadDisk)
+    EVT_BUTTON(ID_UPDATE_DISK, SettingsDialogWx::onUpdateDisk)
     EVT_BUTTON(ID_DELETE_DISK, SettingsDialogWx::onDeleteDisk)
     EVT_BUTTON(ID_OPEN_DATA_FOLDER, SettingsDialogWx::onOpenDataFolder)
     EVT_LIST_ITEM_SELECTED(ID_KEY_LIST, SettingsDialogWx::onKeySelected)
@@ -1011,10 +1012,12 @@ void SettingsDialogWx::buildDiskImagesPage() {
     // Catalog action buttons and progress. All three are only ever touched by
     // handlers on this page, so unlike m_statusText they can live here.
     m_downloadBtn = new wxButton(page, ID_DOWNLOAD_DISK, "Download");
+    m_updateBtn = new wxButton(page, ID_UPDATE_DISK, "Update");
     m_deleteBtn = new wxButton(page, ID_DELETE_DISK, "Delete");
     m_progressBar = new wxGauge(page, wxID_ANY, 100, wxDefaultPosition, wxSize(-1, 20));
     wxBoxSizer* actionSizer = new wxBoxSizer(wxHORIZONTAL);
     actionSizer->Add(m_downloadBtn, 0, wxRIGHT, 5);
+    actionSizer->Add(m_updateBtn, 0, wxRIGHT, 5);
     actionSizer->Add(m_deleteBtn, 0, wxRIGHT, 15);
     actionSizer->Add(m_progressBar, 1, wxALIGN_CENTER_VERTICAL);
     content->Add(actionSizer, 0, wxEXPAND | wxBOTTOM, 10);
@@ -1339,12 +1342,13 @@ void SettingsDialogWx::populateDiskLists() {
         m_diskChoices[i]->Clear();
         m_diskChoices[i]->Append("(None)");
 
-        // Add downloaded disks from the catalog, under the name the FILE has
-        // rather than the name the catalog gives it. The two are the same string
-        // now that the catalog serves interface-v0 names, and they were not for
-        // the one release in which the images had been renamed and the catalog
-        // had not - which is what getLocalName is for. This list has to say the
-        // name of the file either way, because what MainWindow seeds these
+        // Add downloaded disks from the catalog, under the name the FILE has -
+        // which is the name the catalog gives it. The two were different strings
+        // for the one release in which the images had been renamed to their
+        // interface-v0 names and the catalog had not, and a
+        // DiskCatalog::getLocalName() stood here to bridge them; the catalog
+        // serves v0 names now, so it mapped nothing and is gone. This list still
+        // has to say the name of the FILE, because what MainWindow seeds these
         // controls with is the basename of the configured path and what it reads
         // back out of them is a filename it resolves through
         // DiskCatalog::getDiskPath: offering a name the file does not have makes
@@ -1353,8 +1357,7 @@ void SettingsDialogWx::populateDiskLists() {
         if (m_catalog) {
             for (const auto& entry : m_catalog->getCatalogEntries()) {
                 if (entry.isDownloaded) {
-                    m_diskChoices[i]->Append(
-                        wxString::FromUTF8(m_catalog->getLocalName(entry.filename)));
+                    m_diskChoices[i]->Append(wxString::FromUTF8(entry.filename));
                 }
             }
         }
@@ -1865,8 +1868,14 @@ void SettingsDialogWx::onDownloadDisk(wxCommandEvent& event) {
         return;
     }
 
+    beginDiskDownload(filenameStr, filename);
+}
+
+void SettingsDialogWx::beginDiskDownload(const std::string& filenameStr,
+                                         const wxString& filename) {
     m_statusText->SetLabel("Downloading " + filename + "...");
     m_downloadBtn->Enable(false);
+    m_updateBtn->Enable(false);
     m_progressBar->SetValue(0);
 
     // Gated for exactly the reason onRefreshCatalog is, because this is the
@@ -1879,7 +1888,7 @@ void SettingsDialogWx::onDownloadDisk(wxCommandEvent& event) {
     // be a free access violation.
     // The only reason the catalog fetch is the one with dumps behind it is that
     // it starts by itself from the constructor, where downloading needs a user
-    // to have clicked Download first.
+    // to have clicked Download or Update first.
     SettingsDialogWx* dlg = this;
     auto gate = m_postGate;
 
@@ -1898,12 +1907,112 @@ void SettingsDialogWx::onDownloadDisk(wxCommandEvent& event) {
     );
 }
 
+bool SettingsDialogWx::diskIsInASlot(const std::string& filename) const {
+    const wxString wanted = wxString::FromUTF8(filename);
+    for (int i = 0; i < 4; ++i) {
+        if (!m_diskChoices[i]) continue;
+        if (m_diskChoices[i]->GetStringSelection() == wanted) return true;
+    }
+    return false;
+}
+
+// The Update button. Everything it decides comes out of DiskLedger, which is in
+// a suite; nothing here re-derives a verdict.
+//
+// This is the caller those functions were written for and did not have.
+// DiskLedger::action(), plan(), RefreshNow, RefreshAutomatically and
+// allowsUserRequestedUpdate appeared nowhere outside DiskLedger and
+// tests/test_diskledger.cpp until this handler, so the Settings column could say
+// "Update available" and the application had no way to act on it. Download could
+// be made to replace a superseded file, but only by a user who already knew that
+// is what Download now means.
+void SettingsDialogWx::onUpdateDisk(wxCommandEvent& event) {
+    (void)event;
+    if (!m_catalog) return;
+
+    long sel = m_catalogList->GetNextItem(-1, wxLIST_NEXT_ALL, wxLIST_STATE_SELECTED);
+    if (sel < 0) {
+        wxMessageBox("Please select a disk to update", "Info",
+                     wxOK | wxICON_INFORMATION, this);
+        return;
+    }
+    if ((size_t)sel >= m_catalogRowFilenames.size()) return;
+    const std::string filenameStr = m_catalogRowFilenames[sel];
+    const wxString filename = wxString::FromUTF8(filenameStr);
+
+    const DiskFreshness fresh = m_catalog->getFreshness(filenameStr);
+
+    // Say WHICH no it is. "Nothing to update" over a file the column has just
+    // called Unverifiable reads as a bug in the button, and the three noes are
+    // three different situations.
+    if (!DiskLedger::allowsUserRequestedUpdate(fresh)) {
+        if (fresh == DiskFreshness::NotInstalled) {
+            wxMessageBox("This disk is not downloaded yet - use Download.",
+                         "Info", wxOK | wxICON_INFORMATION, this);
+        } else if (fresh == DiskFreshness::Unverifiable) {
+            wxMessageBox("This catalog publishes no SHA-256 for " + filename +
+                         ", so there is nothing to compare the copy on disk "
+                         "against and no way to check a replacement. Update "
+                         "cannot say whether it would be an improvement.",
+                         "Nothing to compare", wxOK | wxICON_INFORMATION, this);
+        } else if (fresh == DiskFreshness::NeedsMeasurement) {
+            wxMessageBox("This copy has not been hashed yet, so its provenance "
+                         "is not known. Press Refresh and try again.",
+                         "Not measured yet", wxOK | wxICON_INFORMATION, this);
+        } else {
+            wxMessageBox(filename + " already matches what this catalog "
+                         "publishes.", "Up to date", wxOK | wxICON_INFORMATION, this);
+        }
+        return;
+    }
+
+    switch (DiskLedger::plan(fresh, diskIsInASlot(filenameStr))) {
+    case DiskRefreshPlan::DeferredMounted:
+        // isMounted is why this decision cannot live in DiskCatalog. Replacing
+        // the file under a slot the machine holds is undone by the next flush,
+        // so the honest answer is to say what to clear rather than to write
+        // bytes that will be overwritten.
+        wxMessageBox(filename + " is selected in one of the four disk slots. "
+                     "Set that slot to (None) first, or the machine writes its "
+                     "own copy back over the new file when it next flushes.",
+                     "In use", wxOK | wxICON_INFORMATION, this);
+        return;
+
+    case DiskRefreshPlan::RefreshNow:
+        // SupersededPristine and not in a slot: the bytes are provably still
+        // the ones this application downloaded, so nothing of the user's is in
+        // them and there is nothing to warn about.
+        break;
+
+    case DiskRefreshPlan::OfferUpdate:
+    case DiskRefreshPlan::OfferUpdateLossy: {
+        const int answer = wxMessageBox(
+            "The copy of " + filename + " in the data folder is not the image "
+            "this catalog publishes, and its bytes have changed since it was "
+            "written - anything you have saved inside it is in those bytes.\n\n"
+            "Updating replaces the file. That cannot be undone, and the catalog "
+            "cannot give your work back.\n\n"
+            "Replace it?",
+            "Replace a disk you have written to?",
+            wxYES_NO | wxNO_DEFAULT | wxICON_WARNING, this);
+        if (answer != wxYES) return;
+        break;
+    }
+
+    case DiskRefreshPlan::DoNothing:
+        return;
+    }
+
+    beginDiskDownload(filenameStr, filename);
+}
+
 void SettingsDialogWx::onDownloadProgress(wxCommandEvent& event) {
     m_progressBar->SetValue(event.GetInt());
 }
 
 void SettingsDialogWx::onDownloadComplete(wxCommandEvent& event) {
     m_downloadBtn->Enable(true);
+    m_updateBtn->Enable(true);
     m_progressBar->SetValue(event.GetInt() ? 100 : 0);
 
     if (event.GetInt()) {

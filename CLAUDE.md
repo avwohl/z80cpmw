@@ -75,6 +75,11 @@ Two consequences worth knowing before answering a bug report:
   selected release cannot supply its ROM however good the connection is, and the
   "Cannot start" dialog now names the index rather than blaming the network.
 
+**Neither package can go down the other channel.** The `-Beta` package's
+`Publisher` is rewritten to `CN=Aaron Wohl`, and Partner Center rejects it on
+identity; the Store package is unsigned, so it will not sideload. Each goes to
+its own channel and nowhere else.
+
 **Never sign a `-Beta` package run on a version that is already published.**
 `build-msix.ps1` names its output from `Version.h`, so such a run re-mints the
 published artifact under its own name and nothing in the script objects. It has

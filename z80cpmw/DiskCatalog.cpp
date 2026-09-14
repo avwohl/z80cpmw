@@ -714,13 +714,14 @@ void DiskCatalog::downloadDisk(const std::string& filename,
         // Create download directory if needed
         CreateDirectoryA(downloadDir.c_str(), nullptr);
 
-        // getLocalName rather than the catalog's own filename, which is the same
-        // string now that the catalog serves v0 names and was not while the
-        // storage migration had renamed the images and the catalog had not. Kept
-        // as one call so that the path written to and the ledger key recorded
-        // below cannot be derived differently from each other; see the note on
-        // getLocalName for why it now maps nothing.
-        const std::string localName = getLocalName(filename);
+        // The catalog's own filename, which is also the name the file takes in
+        // the data folder. Those were two different strings while the storage
+        // migration had renamed the images to their v0 names and the catalog had
+        // not, and a getLocalName() mapped between them here; the catalog serves
+        // v0 names now, so it mapped nothing and is gone. Still bound once
+        // rather than spelled twice, so that the path written to and the ledger
+        // key recorded below cannot be derived differently from each other.
+        const std::string localName = filename;
         const std::string localPath = downloadDir + "\\" + localName;
 
         // DOWNLOADED BESIDE THE REAL NAME and moved onto it only once every
@@ -893,7 +894,7 @@ bool DiskCatalog::deleteDownloadedDisk(const std::string& filename) {
         DiskLedger updated;
         {
             std::lock_guard<std::mutex> lock(m_ledgerMutex);
-            m_ledger.removeRecord(getLocalName(filename));
+            m_ledger.removeRecord(filename);
             updated = m_ledger;
         }
         saveLedger(updated);
@@ -902,13 +903,17 @@ bool DiskCatalog::deleteDownloadedDisk(const std::string& filename) {
     return false;
 }
 
-std::string DiskCatalog::getLocalName(const std::string& catalogFilename) const {
-    std::string v0;
-    return diskv0::v0NameFor(catalogFilename, v0) ? v0 : catalogFilename;
-}
-
 std::string DiskCatalog::getDiskPath(const std::string& filename) const {
-    return getDownloadDirectory() + "\\" + getLocalName(filename);
+    // For a name out of a catalog entry this is the identity - v0NameFor()
+    // refuses a name that already carries the suffix, and the catalog serves
+    // only those. It earns its keep on the one caller that can still pass a
+    // pre-v0 name, MainWindow::applySettings reading a bare name back out of
+    // the Settings dialog against an old configuration; see the note on the
+    // declaration for why answering with the v0 name is the wanted outcome
+    // there.
+    std::string v0;
+    const std::string local = diskv0::v0NameFor(filename, v0) ? v0 : filename;
+    return getDownloadDirectory() + "\\" + local;
 }
 
 DiskCatalog::V0FileMigration DiskCatalog::migrateFilesToInterfaceV0() {
@@ -1427,7 +1432,7 @@ void DiskCatalog::updateFreshness() {
         // catalog serves v0 names, and they were not for one release - mixing
         // them up then was what would have made a migrated library read as
         // twenty unmeasured files and re-hash 211 MB.
-        const std::string localName = getLocalName(entry.filename);
+        const std::string localName = entry.filename;
         const std::string path = getDiskPath(entry.filename);
 
         DiskFileFacts facts;

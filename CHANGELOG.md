@@ -19,14 +19,16 @@ measurement is what caught it — the last time as a red CI job on the scheduled
 run, which is the job doing exactly what it was added for.
 
 **Where each channel stands, as of 2026-09-13.** The Store serves **1.0.33**.
-The newest *published* sideload package is still **v1.0.28-beta**, which is what
-GitHub marks Latest. **1.0.30-beta** and **1.0.32-beta** are both built, signed
-and sitting in `dist\` unpublished, the latter superseding the former for that
-channel because it is the one carrying the catalog entry-point work — todo.txt
-carries the release. The gap between the channels is therefore five versions
-wide now rather than one. This paragraph said the newest sideload package
+The newest *published* sideload package is **v1.0.32-beta**, released on
+2026-09-13 and what GitHub marks Latest; it carries the catalog entry-point work
+and supersedes **v1.0.28-beta** on that channel. **1.0.30-beta** is still built,
+signed and sitting in `dist\` unpublished, superseded before it ever went out.
+The two channels are one version apart again - 1.0.33 on the Store and
+1.0.32-beta on GitHub - which is the expected shape: same source, two builds,
+two numbers. This paragraph said the newest sideload package
 was 1.0.22-beta, and named 1.0.24 as "packaged and unsubmitted" and 1.0.25 as
-"not yet built at all", all three of which had been overtaken; the standing
+"not yet built at all", all three of which had been overtaken; it then said the
+Store served 1.0.29 for three days after it served 1.0.33. The standing
 lesson is the one directly below, that the repository is not evidence of what has
 shipped. **1.0.20** was built and tagged but never published on any channel, and
 **1.0.21** shipped only as a signed sideload beta.
@@ -53,8 +55,162 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
-Nothing yet. `Version.h` is the single source of the version and todo.txt
-reserves bumping it for the moment something is packaged.
+`Version.h` is the single source of the version and todo.txt reserves bumping it
+for the moment something is packaged, so this sits at 1.0.33 until then.
+
+### Added
+
+- **An Update button on Settings → Disk Images, and the refresh planner it was
+  written for.** `DiskLedger::action()`, `plan()`, `RefreshNow`,
+  `RefreshAutomatically` and `allowsUserRequestedUpdate` were complete, tested
+  and **called by nothing**: `git grep` found them only in `DiskLedger.cpp/.h`
+  and `tests/test_diskledger.cpp`. The Settings column could therefore say an
+  image was superseded and the application had no way to act on it — Download
+  could be made to replace one, but only by a user who already knew that is what
+  Download now means.
+
+  The decision lives in the dialog rather than in `DiskCatalog` for the reason
+  the design always gave: whether an image is in a slot is the dialog's fact, and
+  replacing a file the machine holds open is undone by the next flush.
+  `SettingsDialogWx::diskIsInASlot()` reads the four dropdowns — what OK will
+  mount — and hands that to `DiskLedger::plan()` as `isMounted`. `DeferredMounted`
+  says which slot to clear instead of writing bytes that will be overwritten;
+  `RefreshNow` replaces a `SupersededPristine` copy with no further questions,
+  because its bytes are provably the ones this application downloaded;
+  `OfferUpdate`/`OfferUpdateLossy` put up the same lossy warning Download uses.
+  A refusal says *which* no it is — not downloaded, no published SHA-256 to
+  compare against, not hashed yet, or already current — because "nothing to
+  update" over a file the column has just called Unverifiable reads as a bug in
+  the button.
+
+  The download tail is now `beginDiskDownload()`, shared by both buttons rather
+  than copied: both have to disable the same two controls and both have to post
+  through `m_postGate`, and a second hand-written copy of that is the access
+  violation that was already reported once.
+
+- **A boot notice for a superseded image that is in no slot**
+  (`MainWindow::reportSupersededLibrary()`, `Notice::LibrarySuperseded`). The
+  existing notice speaks only about the four slots, so an out-of-date image the
+  machine was not about to boot was announced nowhere at all, and a user who
+  never opens Settings never heard about it.
+
+  **It fetches nothing, and that is the decision rather than an accident.** It
+  reads `DiskCatalog::getFreshness()`, the verdict the last fetch left behind, so
+  it hashes nothing, opens nothing and reaches no network. A launch that never
+  fetched a catalog has every verdict `Unverifiable` or `NeedsMeasurement`,
+  `allowsUserRequestedUpdate()` is false for both, and it says nothing. The
+  alternative — telling every user at every launch — meant fetching the catalog
+  at every launch, including the offline ones, and was rejected on 2026-09-13.
+  One line for the whole library, not one per image: the count is the actionable
+  part and a library of twenty must not push the boot output off the screen.
+
+### Changed
+
+- **`SupersededPristine` no longer borrows the wrong sentence at boot.** The
+  mounted-disk notice gave all three "not what the catalog publishes" verdicts
+  one wording, "It may be your own changes" — which is exactly what a pristine
+  copy is *not*, its bytes being provably the ones that were downloaded. That
+  case now says the publisher has moved on and that replacing it costs nothing.
+
+- **`DiskCatalog::getLocalName()` is gone.** It mapped a catalog filename onto
+  the name the file has in the data folder, and existed because the storage
+  migration renamed the images to their interface-v0 names in a release whose
+  catalog still called them `hd1k_combo.img`. The catalog serves v0 names now and
+  `diskv0::v0NameFor()` refuses a name that already carries the suffix, so for a
+  name out of a catalog entry it was the identity; its four such call sites —
+  `downloadDisk`'s local path and ledger key, `deleteDownloadedDisk`'s
+  `removeRecord`, `updateFreshness` and the Settings dropdown seed — pass the
+  filename straight through now.
+
+  **The resolution survives inside `getDiskPath()`, and deleting it there would
+  have been a regression rather than a cleanup.** That is the one entry point a
+  pre-v0 name can still reach: `MainWindow::applySettings` resolves a bare name
+  read back out of the dialog, and an old configuration can still carry one. With
+  the resolution, a machine whose rename did not complete gets the v0 name, finds
+  no file and drops the slot; without it, it gets the legacy name, finds the
+  pre-migration image and mounts it — which is the 3.5.1-disk-under-a-3.6.0-ROM
+  pairing the migration exists to prevent. todo.txt asked for the function to be
+  deleted outright; it was measured first.
+
+- **`tools/check-shipped-disks.sh` was repaired and then retired, in that order.**
+  It exited 1 reporting `NO v0 INDEX URL` for ioscpm and cpmdroid, both of which
+  were correct: each had moved its index URL behind a re-export, so it was the
+  ports table's file column that was stale, not the ports. The fix was to take
+  ioscpm's copy, which asks the checkout rather than the table — measured at exit
+  0, every port's tree naming the current catalog. That repair is **not in this
+  release**: the script was deleted here in `1ff15be`, finishing the sweep cpmemu
+  started, and the diagnosis is recorded only because the next person to wonder
+  why four ports dropped a gate should know it was answerable rather than broken
+  beyond use.
+
+- **`FEATURE_PARITY.md`'s stale rationale for holding the ioscpm column is
+  corrected.** The paragraph justifying a read at build 61 said "builds 62-65
+  exist in `ioscpm` and none has ever been compiled", in the present tense. That
+  was true when written and had expired: builds 66 through 70 have all been
+  compiled and 1.6.1 is released. Both column readings had already been advanced
+  to `9df0d01` and `a68e320` in this repository, and the reason underneath them
+  had not moved with them — so the next reader would have checked the stated
+  reason, found it false, and been entitled to conclude the rule had lapsed with
+  it. The rule stands; only its justification was out of date, and it now reads
+  in the past tense and says so.
+
+  Arrived at independently, which is worth recording because it is the only
+  corroboration either reading has: a separate re-read of both columns on
+  2026-09-13 landed on the same two anchors, `9df0d01` for this port and
+  `a68e320` for ioscpm — the latter confirmed by
+  `git show a68e320:iOSCPM.xcodeproj/project.pbxproj`, which gives
+  `CURRENT_PROJECT_VERSION = 69` and `MARKETING_VERSION = 1.6.1`. It also agreed
+  that row 5 changes in kind rather than degree, ioscpm being off the pin axis
+  entirely: at `a68e320` `releaseTag` survives in three comments, one of which
+  opens "There is no release tag any more", and `releaseBaseURL`,
+  `parseDiskCatalogXML`, `catalogCacheTagKey` and
+  `checkCatalogVersionAndInvalidate` return no hits at all.
+
+- **A defect in ioscpm came out of that re-read and was filed there, not here.**
+  Build 69's per-index scoping reaches every reader through `downloadsDirectory`,
+  which appends `CatalogMigration.indexScope`, but the install writes to a
+  literal `Documents/Disks`; under a custom index the download lands in the
+  default library and is then reported as not downloaded. `indexScope` is empty
+  for the built-in index, which is why nothing shows in ordinary use.
+
+### Fixed
+
+- **Five documents claimed the Store served 1.0.29 while it served 1.0.33.**
+  `dist\z80cpmw-1.0.33-store.msix` was submitted and accepted, and nothing in
+  this repository recorded it — the Store channel leaves no git tag and no GitHub
+  release behind. `tools/check-store-version.sh`, run on 2026-09-13, reports
+  `AaronWohl.Z80CPM_1.0.33.0_x64__pyqcdeggzw67m`, catalog updated 2026-09-10.
+  Corrected here, in `README.md`, `WIP.md`, `KNOWN_PROBLEMS.md` and
+  `packaging/STORE_SUBMISSION.md`. This is the fourth time that sentence has been
+  overtaken and the fourth time the measurement is what caught it.
+
+- **`KNOWN_PROBLEMS.md` said the index migration had never been in a released
+  build.** It had, since 2026-09-07. `git merge-base --is-ancestor f91c3a3 6496fd4`
+  succeeds, and `6496fd4` is the 1.0.29 the Store served from that date, so the
+  respin that entry was written to warn about has been spent: an in-place
+  correction upstream now reaches users who have already verified a SHA-256.
+
+### Verified
+
+- **The Update button was driven in the built application on 2026-09-13**, not
+  merely compiled. `SettingsDialogWx.cpp` is in no suite and cannot be, so this
+  is the check CLAUDE.md asks for. The driver read the menu state as well as
+  posting the command, because a posted `WM_COMMAND` bypasses the menu's enabled
+  state and so cannot tell you whether a user could have done the same thing:
+  `GetMenuState(..., ID_EMU_SETTINGS, MF_BYCOMMAND)` answered `0x0` — present,
+  not greyed — and the dialog opened. On the Disk Images page the button row
+  reads **Download, Update, Delete** left to right (x = 1516, 1673, 1830 at 200%
+  scaling), and `Update` is both visible and enabled with a catalog loaded. The
+  page was captured with `PrintWindow(PW_RENDERFULLCONTENT)` and read off the
+  bitmap rather than off `WM_GETTEXT`, because a `wxStaticText` returns its whole
+  label even when the screen shows a fraction of it — which is how a clipped
+  warning shipped once before. The real `z80cpmw.json` was backed up first and
+  restored, and the restore was checked rather than assumed: the SHA-256 before
+  and after are equal.
+
+- **All eight headless suites pass** after the `getLocalName` removal and the
+  notice changes — the last of them 374 checks, 0 failed — and the Release build
+  is clean at 0 warnings.
 
 ## [1.0.33] - 2026-09-10
 

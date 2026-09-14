@@ -502,29 +502,29 @@ public:
     // Delete a downloaded disk
     bool deleteDownloadedDisk(const std::string& filename);
 
-    // The name a catalog entry's file has IN THE DATA FOLDER, which was not
-    // always the name the catalog gave it.
+    // Get path to downloaded disk.
     //
-    // IT IS NOW THE IDENTITY FUNCTION FOR EVERYTHING THE CATALOG SERVES, and
-    // that is by design rather than by accident: it exists because the storage
-    // migration renamed the images to their interface-v0 names in a release
-    // where the catalog still called them hd1k_combo.img, so for one release
-    // "hd1k_combo.img" and "hd1k_combo-v0-3.5.1.img" were two names for one
-    // file. Everything local went through here - the path, the ledger key, the
-    // stat behind isDiskDownloaded - so that the two could not drift apart and
-    // report a library that was all missing. The catalog now serves v0 names and
-    // v0NameFor() refuses a name that already carries the suffix, so it maps
-    // nothing.
+    // There used to be a getLocalName() beside this, mapping a catalog filename
+    // onto the name that file has in the data folder, and every local operation
+    // went through it: the path, the ledger key, the stat behind
+    // isDiskDownloaded. It existed because the storage migration renamed the
+    // images to their interface-v0 names in a release whose catalog still called
+    // them hd1k_combo.img, so for one release "hd1k_combo.img" and
+    // "hd1k_combo-v0-3.5.1.img" were two names for one file, and the two must
+    // not drift apart and report a library that is all missing.
     //
-    // What still reaches it with a pre-v0 name is MainWindow's Settings
-    // write-back, which resolves a BARE NAME out of the dialog and can be handed
-    // one from a configuration whose rename did not complete. It answers with
-    // the v0 name there, finds no file, and leaves the slot alone - which is the
-    // safe outcome and the same one it had before. It can be deleted; todo.txt
-    // carries that.
-    std::string getLocalName(const std::string& catalogFilename) const;
-
-    // Get path to downloaded disk
+    // The catalog serves v0 names now and v0NameFor() refuses a name that
+    // already carries the suffix, so for a name out of a catalog entry the
+    // mapping was the identity, and its four such call sites now pass the
+    // filename straight through.
+    //
+    // THIS ONE IS NOT ONE OF THEM, which is why the resolution survives inside
+    // it. MainWindow::applySettings resolves a BARE NAME read back out of the
+    // Settings dialog (MainWindow.cpp:1547), and an old configuration can still
+    // carry a pre-v0 one. Answering with the v0 name finds no file on a machine
+    // whose rename did not complete, so the slot is dropped; answering with the
+    // legacy name would find the pre-migration image and mount it, which is the
+    // 3.5.1-disk-under-a-3.6.0-ROM case the migration exists to prevent.
     std::string getDiskPath(const std::string& filename) const;
 
     // What migrateFilesToInterfaceV0() did to the data folder.

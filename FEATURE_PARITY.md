@@ -162,9 +162,14 @@ byte-identical between the two readings, as is the whole of `iOSCPM/Core/`.
 The reading it supersedes, and the discipline that reading established: **the
 column was read in full on 2026-09-06, at `af0b9b2` — build 61, the commit the
 App Store's 1.5.1 was built from.** Reading it at a
-SHIPPED commit rather than at the tree tip is the point: builds 62-65 exist in
-`ioscpm` and none has ever been compiled, so a tick taken from HEAD would
-describe software nobody can install. Seven of the thirteen rows changed and
+SHIPPED commit rather than at the tree tip is the point, and the reason given
+at the time has since expired: builds 62-65 existed in `ioscpm` and **none had
+then been compiled**, so a tick taken from HEAD would have described software
+nobody could install. That is no longer why the column is read at a shipped
+commit - builds 66 through 70 have all been compiled and 1.6.1 is released - so
+read the rule from the discipline and not from that reason. It stood in the
+present tense until 2026-09-13, where the next reader would have checked it,
+found it false, and been entitled to conclude the rule had lapsed with it. Seven of the thirteen rows changed and
 every one in the same direction — the column understated what ships. Six of them
 had gone unrecorded because the work landed in `8e7587f`, which is still stamped
 build 58, the same number as the commit the previous reading was taken at, so no

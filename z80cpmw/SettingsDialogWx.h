@@ -213,6 +213,28 @@ private:
     // dialog was opened with.
     void onCatalogIndexUrlChanged(wxCommandEvent& event);
     void onDownloadDisk(wxCommandEvent& event);
+
+    // Update: the user-requested arm of DiskLedger's refresh planner, which had
+    // no caller at all until this button existed. The planner deliberately
+    // lives in DiskLedger, where it is in a suite, and the DECISION to act on it
+    // has to be taken here rather than in DiskCatalog, because whether an image
+    // is in a slot is the dialog's fact and not the catalog's - replacing a file
+    // the machine holds open is undone by the next flush.
+    void onUpdateDisk(wxCommandEvent& event);
+
+    // Is this catalog image named by one of the four slot dropdowns? That is
+    // this dialog's answer to DiskLedger::plan()'s isMounted, and it is read off
+    // the controls rather than off the emulator on purpose: the dropdowns are
+    // what OK will mount, so they are what a replacement has to be safe against.
+    bool diskIsInASlot(const std::string& filename) const;
+
+    // The tail shared by Download and Update, from the progress bar through the
+    // gated callbacks. Extracted when Update arrived rather than copied: both
+    // arms have to disable the same two buttons and both have to post through
+    // m_postGate, and a second hand-written copy of that is a crash waiting to
+    // be reported.
+    void beginDiskDownload(const std::string& filenameStr, const wxString& filename);
+
     void onDeleteDisk(wxCommandEvent& event);
     void onOpenDataFolder(wxCommandEvent& event);
     void onCatalogLoaded(wxCommandEvent& event);
@@ -367,6 +389,7 @@ private:
     std::vector<std::string> m_catalogRowFilenames;
     wxButton* m_refreshBtn;
     wxButton* m_downloadBtn;
+    wxButton* m_updateBtn;
     wxButton* m_deleteBtn;
     wxGauge* m_progressBar;
     // Deliberately parented to the dialog, below the notebook, and NOT to any
@@ -393,6 +416,7 @@ private:
         ID_ROMWBW_VERSION,
         ID_CATALOG_INDEX_URL,
         ID_DOWNLOAD_DISK,
+        ID_UPDATE_DISK,
         ID_DELETE_DISK,
         ID_CATALOG_LOADED,
         ID_DOWNLOAD_PROGRESS,

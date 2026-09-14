@@ -710,3 +710,55 @@ local test server usable on the desktop.
       written to appears — then press F5. The boot output carries a line saying
       that slot is not the image the catalog publishes, and the machine starts
       anyway.
+
+---
+
+## 12. The Store listing's screenshot
+
+`packaging/msix/Assets/screenshot1.png` is **824x656** against the 1366x768
+minimum at `packaging/STORE_SUBMISSION.md:121`, and that file's line 63 has
+carried "recapture before uploading" for some time. It is not waiting for a
+submission: it is the listing's only screenshot and it is live now, served for
+product 9NZN870X9P6Z.
+
+Its content is stale as well as its size. It shows a booted `CBIOS v3.5.1 [WBW]`
+session, which is neither the release the catalog now serves nor a state a first
+launch can reach at all — this build ships no ROM, so a first run downloads one
+before it can boot anything.
+
+- [ ] Capture a new screenshot at 1366x768 or larger, of a session booted under
+      the RomWBW release the catalog currently serves.
+- [ ] Replace `packaging/msix/Assets/screenshot1.png`, correct the size cell at
+      `packaging/STORE_SUBMISSION.md:63`, and upload it to the listing.
+
+---
+
+## 13. The Update button, and the notice for a disk in no slot
+
+Both landed on 2026-09-13. The button was driven in the built app — it is there,
+it is enabled, and it sits between Download and Delete — but driving proves
+presence, not that a replacement happens, and nothing headless can cover either
+(`SettingsDialogWx.cpp` and `MainWindow.cpp` are in no suite and cannot be).
+
+Set `Catalog index` to a catalog that publishes different bytes under a name you
+already hold; that is what makes a copy superseded without your touching it.
+
+- [ ] Select a superseded disk that is **not** in any of the four slots and press
+      **Update**. It replaces the file without asking - a pristine copy has
+      nothing of yours in it - and the Status column reads current afterwards.
+- [ ] Select a superseded disk that **is** in a slot and press **Update**. It
+      refuses, names the slot, and says to set it to (None) first. Nothing is
+      downloaded. This is the case that matters: replacing a file the machine
+      holds is undone by the next flush.
+- [ ] Write to a downloaded disk from inside CP/M, then press **Update** on it.
+      The lossy warning appears, defaults to No, and says the catalog cannot give
+      your work back.
+- [ ] Press **Update** on a disk that is not downloaded, and on one that is
+      current. Each gets its own sentence; neither says "nothing to update".
+- [ ] With a superseded disk in **no** slot, open Settings once (so a catalog is
+      fetched), close it, and press F5. The boot output carries one line saying a
+      downloaded disk is out of date and that this boot is unaffected.
+- [ ] Now quit, relaunch, and press F5 **without** opening Settings. It must say
+      **nothing** - the notice reads only verdicts a previous fetch left behind,
+      and a launch that fetched nothing has none. If it speaks here, it is
+      fetching at every launch, which is the cost that was deliberately not paid.
