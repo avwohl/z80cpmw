@@ -16,11 +16,14 @@ is `[1.0.20]`, `[1.0.21-beta]` and `[1.0.22]`. The W8-under-MSIX question that
 was this file's open question is answered, in source and in
 [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md).
 
-Version in the tree: **1.0.33** (`z80cpmw/Version.h`), packaged unsigned on
-2026-09-10 as `dist\z80cpmw-1.0.33-store.msix`, submitted to Partner Center and
-**now what the Store serves**. Its
-signed sideload twin is **1.0.32-beta**, the same source and a different build,
-which is why the numbers differ. **1.0.30-beta** is an older signed package,
+Version in the tree: **1.0.34** (`z80cpmw/Version.h`), packaged unsigned on
+2026-09-13 as `dist\z80cpmw-1.0.34-store.msix` and **submitted to Partner Center,
+in review**. It has no signed sideload twin: one would have to be cut with
+`-SkipBuild` off the same `bin\Release`, or take a different number.
+The Store still serves **1.0.33**, whose package was submitted on 2026-09-10.
+Its signed sideload twin is **1.0.32-beta**, published on 2026-09-13 and what
+GitHub marks Latest - the same source as 1.0.33 and a different build, which is
+why the numbers differ. **1.0.30-beta** is an older signed package,
 superseded. The 1.0.31 Store package is **gone**: the Store output name carries
 no version, so this build overwrote it — it was never submitted and predated the
 catalog entry-point work, and its symbols remain as

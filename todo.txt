@@ -6,6 +6,8 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   KNOWN_PROBLEMS.md  standing facts that will never be done
   WIP.md             longer handoff notes
 
-- [RELEASE] Store serves 1.0.33; unreleased work in the tree - next submission.
+- [RELEASE] 1.0.34 is in review; measure the Store before believing it shipped.
+
+- MANUAL_CHECKS 12: the listing screenshot is undersized and shows CBIOS 3.5.1.
 
 - catalogv0::indexScope() still has no caller; the plan is in Config.h.

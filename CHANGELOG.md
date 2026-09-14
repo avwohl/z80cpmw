@@ -55,6 +55,72 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
+Nothing unpackaged. `Version.h` is at **1.0.34**, which is built, submitted and
+awaiting review - see below. todo.txt reserves bumping the version for the moment
+something is packaged, so this section is empty exactly when the tree and the
+newest package agree.
+
+## [1.0.34] - 2026-09-13
+
+**The Store package of the Update-button work, submitted and in review.** It is
+recorded here at submission time rather than after the fact, because this
+repository's documented failure mode is the other way round: a submission goes
+out, nothing writes it down, and prose across several files keeps asserting the
+old number until somebody re-measures. That has happened with 1.0.23, 1.0.25,
+1.0.29 and 1.0.33. **The Store still serves 1.0.33 as this is written** - do not
+read 1.0.34 here as what users have; measure it with
+`tools/check-store-version.sh` before believing any sentence about it, this one
+included.
+
+### Verified
+
+- `dist\z80cpmw-1.0.34-store.msix`, **6,706,601 bytes**, sha256
+  `1a2a6316c42ddbfeeb3db3b3cc2a8cacd09ba246c3f691efb623035f8bf70c1e`.
+- Identity, version and the absence of a signature were **read out of the packed
+  manifest** rather than taken from the build script's own report:
+  `Name="AaronWohl.Z80CPM"`, `Version="1.0.34.0"`,
+  `Publisher="CN=724C9014-DD22-420E-9BB4-F2740D082EB0"` - the identity Partner
+  Center assigned, which must not be edited - and **no `AppxSignature.p7x`**,
+  which is correct for this channel: Microsoft re-signs it.
+- **Nothing is bundled**: zero `.rom` and zero `.img` entries in the package.
+- **The packaged binary really is this work**, checked rather than assumed.
+  `z80cpmw.exe` was extracted from the `.msix` and carries the new strings -
+  "already matches what this catalog", "is selected in one of the four disk
+  slots", "downloaded disks are out of date" - so this is not a stale
+  `bin\Release` repackaged under a new number.
+- Symbols kept as `dist\z80cpmw-1.0.34-store.pdb`. The name carries the version
+  because the Store package's own name did not until 2026-09-10, and 1.0.22 and
+  1.0.24 shipped with no symbols anywhere; their crash dumps cannot be read and
+  never will be.
+
+### What a user gets
+
+Everything below in this entry, which is one commit - `009f519`.
+The part that matters to somebody who installed in the summer: **a v1.4.5-era
+disk image carries the destructive `r8.com`**, which copies the host basename
+into the FCB unfiltered, so importing `a?b.txt` runs `F_DELETE` on `A?B.TXT`
+first and silently erases every matching CP/M file. This port pinned `v1.4.5`
+from `e6813e0` (2026-06-29) to `211488b` (2026-09-04), a window spanning Store
+**1.0.19, 1.0.22 and 1.0.23**, so anyone who installed then and downloaded disks
+still has that image unless they have replaced it.
+
+**Replacing it was already possible and invisible, which is the honest framing.**
+1.0.33 carries `cf113af`, so pressing Download on a superseded image already
+asks "Replace a superseded disk?" and does it. What 1.0.33 has no way to do is
+*tell* you: its button row is Refresh, Open Folder, Download, Delete, so the
+Status column can read "Update available" beside no control that appears to act
+on it. This release adds the control that does, and a boot notice for a
+superseded image sitting in no slot at all.
+
+### Not yet done
+
+No signed sideload twin exists at this number. One has to be cut with
+`-SkipBuild` off the same `bin\Release` this package was made from, or the two
+channels must carry different numbers - a rebuild is a different binary with a
+different debug GUID. And `MANUAL_CHECKS.md` section 12 is open: the listing's
+only screenshot is 824x656 against a 1366x768 minimum and shows a `CBIOS v3.5.1`
+session that a first launch can no longer reach.
+
 `Version.h` is the single source of the version and todo.txt reserves bumping it
 for the moment something is packaged, so this sits at 1.0.33 until then.
 
