@@ -85,8 +85,10 @@ the two default disk images (`hd1k_combo` and `hd1k_games`) and then the ROM
 (about 512 KB); it starts when that ROM has arrived and matched. With no network
 and nothing cached it says so and asks you to check the connection and press F5
 again. After one success everything is cached, and later starts cost one small
-catalog request and one checksum - and if the catalog cannot be read but the
-default disks are already cached, it starts on those rather than stopping.
+catalog request and one checksum. If the catalog cannot be read later on, it
+mounts whichever default disks are already cached and tries to start on those;
+whether it gets there depends on the ROM gate, which needs a cached ROM for the
+selected release. With neither, it says so instead of running empty banks.
 
 A ROM placed by hand is searched for before the data folder's copy, in this
 order: `<appDir>\roms\`, `<appDir>\`, `<appDir>\..\roms\`, then the data folder.
@@ -100,7 +102,8 @@ the published size and checksum.
 2. **Emulator > Start** (F5). With no disks mounted this is also where the ROM
    and the two default disk images are fetched, so the first start needs a
    network connection and takes longer than the ones after it
-3. At the RomWBW boot menu, type a device number and press Enter
+3. At the RomWBW boot menu, type `2` and press Enter to boot the first hard
+   disk
 
 To change ROM or RomWBW release, open **Emulator > Settings**. **File > Load
 Disk 0/1** mounts images into the first two units; **Settings > Machine** has
@@ -108,10 +111,15 @@ all four slots, each with its own Browse and New buttons.
 
 ### Boot Menu Keys
 
-- `h` - Help
-- `l` - List ROM applications
-- `d` - List devices
-- `0-9` - Boot from device number
+Every command is a line, so it needs Enter.
+
+- `2` - boot the first hard disk, slice 0; `2.3` for slice 3
+- `d` - list the devices
+- `h` - the command set. On RomWBW 3.6.0 this lists the ROM applications too;
+  on 3.5.1 they are under `l`, which 3.6.0 answers with `*** Invalid command`
+
+Units 0 and 1 are the on-board RAM and ROM memory disks and carry no operating
+system, so they boot nothing.
 
 ### Keyboard
 
@@ -160,10 +168,12 @@ the `%LOCALAPPDATA%\z80cpmw\` write is redirected into the package's
 `LocalCache`, which is why the app shows the resolved path and an **Open
 Folder** button rather than printing a path you would have to translate.
 
-The file holds the keyboard map (`keyboard.keys`, termcap-style escape strings),
-the `f1ToCpm` / `f5ToCpm` / `ctrlRToCpm` toggles, fonts, and ROM and disk
-assignments. **`rom` and `romwbwVersion` are nested under `core`**, not at the
-top level - a top-level `"rom"` is read by nothing and silently does nothing.
+The file is nested rather than flat. `rom` and `romwbwVersion` live under
+`core`; `f1ToCpm`, `f5ToCpm`, `ctrlRToCpm` and the termcap-style `keys` map live
+under `keyboard`; fonts and disk assignments have their own objects. Putting a
+key at the top level does not work, but it is not silent either - the loader
+compares the document against a reference and reports anything the reference
+lacks as an unknown member.
 `rom` holds the catalog's **id** (`emu_avw`, not a filename), because a filename
 carries the release and would be forgotten the first time you switched releases;
 an empty `rom` means "whichever ROM the catalog marks as its default". A file
