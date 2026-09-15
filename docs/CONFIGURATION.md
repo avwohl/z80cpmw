@@ -308,7 +308,8 @@ running.
 
 | Setting | Meaning |
 | --- | --- |
-| `display.fontSize` | Terminal font size, in points |
+| `core.warnManifestWrites` | Warn when writing to a downloaded catalog disk (the Settings checkbox) |
+| `display.fontSize` | Terminal font height in logical units - device pixels, DPI-scaled - not points; it is passed to `CreateFontW` as its height |
 | `display.scrollbackLines` | Lines of terminal history kept for scrollback (0 = off) |
 | `display.bell` | Whether `BEL` (character 7) makes a sound (default `true`) |
 | `core.rom`         | Which ROM to boot, as a catalog **id** — `emu_avw`, not a filename |

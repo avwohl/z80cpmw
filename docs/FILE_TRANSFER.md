@@ -64,9 +64,10 @@ download, and until you have downloaded the combo there is no `W8` to run.
 
 There is no compiled-in pin deciding which copy you get any more. `RELEASE_TAG`
 is gone from `DiskCatalog.cpp`; the only address compiled in for anything the
-catalog serves is the index itself, `catalogv0::INDEX_URL` (the in-app help
-fetches its own text from elsewhere, and the crash dialog links to the issue
-tracker — neither carries a ROM or a disk image). Which release's
+catalog serves is the index itself, `catalogv0::INDEX_URL`. Since 1.0.32 the
+in-app help has no URL of its own either: its `base_url` and per-topic sha256
+come out of that same index, so the one address covers help as well. (The crash
+dialog links to the issue tracker; that carries no ROM or disk image.) Which release's
 combo you download is the *RomWBW release:* picker on *Emulator → Settings →
 Disk Images*. That choice does not change the utilities, though, and it is not
 supposed to: `tools/build_utils.sh` takes no version argument — one build serves
@@ -81,7 +82,7 @@ the probe's three bytes, `06 e9 cf`.
 
 (The catalog also marks which images carry the pair — `"host_transfer": true`,
 which is set on `hd1k_combo` and on nothing else in either published release —
-and z80cpmw parses it into `DiskItem::hostTransfer` at `CatalogV0.cpp:279`. But
+and z80cpmw parses it into `DiskItem::hostTransfer` at `CatalogV0.cpp` (`host_transfer` in the disk loop). But
 no code in this application reads that flag yet, so it is not why the combo is
 the disk you want; it just happens to agree.)
 
@@ -97,11 +98,10 @@ a combo image older than the one the catalog now serves. An install that
 predates the move keeps the copy it already had: `DiskMigrationV0` renames
 `hd1k_combo.img` onto the v0 name `hd1k_combo-v0-3.5.1.img` rather than
 replacing it, deliberately, and while the disk ledger can tell that such an
-image is *superseded*, nothing in this application calls `getFreshness()` yet —
-so no automatic refresh will happen and no control offers one. Replace it by
-hand: select it on *Emulator → Settings → Disk Images*, press **Delete**, then
-**Download**. Do that knowing what it costs — a downloaded disk is a writable
-CP/M volume, so any file you have saved inside that combo goes with it.
+image is *superseded*. The **Update** button on *Emulator → Settings → Disk
+Images* is the control that acts on it, and the boot notice points at it.
+Updating replaces the image, so any file you have saved inside that combo goes
+with it — a downloaded disk is a writable CP/M volume.
 
 **A bare name goes to the app's data folder.** `W8 out.com` (no path) lands in:
 
@@ -161,7 +161,8 @@ Folder** / **Open Imports Folder** jump to the Files app there, and **Import Fil
 `R8`. File Sharing over a cable (Finder/iTunes) reaches the same folders.
 
 To import: stage the file in `Imports/` — via **Import File…**, Files, AirDrop,
-etc. — then run `R8 name` (or plain `R8` to pull the first file in the folder).
+etc. — then run `R8 name`. `R8` with no argument prints its usage line and
+returns to CP/M; there is no first-file fallback.
 
 ## Android (`cpmdroid`)
 
@@ -172,9 +173,10 @@ etc. — then run `R8 name` (or plain `R8` to pull the first file in the folder)
 
 **Finding these is the catch on Android.** Since Android 11, the `Android/data/…`
 tree is **hidden from the built-in Files app / document picker**, even though the
-app writes there without needing any storage permission. After `W8`, the app just
-shows a toast ("W8: Saved …"); it does **not** offer a Share sheet or a "save as"
-picker. To get an exported file off the device you currently need one of:
+app writes there without needing any storage permission. CPMDroid answers this
+with its own **File transfer** screen: a listing of `Imports/` and `Exports/`
+with **Save as…**, **Share**, **Delete** and an import picker, so an exported
+file can be moved off the device without leaving the app. Failing that:
 
 - a **third-party file manager** that can browse `Android/data/…` (many can), or
 - a **PC over USB** (MTP), navigating to `Android/data/com.awohl.cpmdroid/files/Exports`, or

@@ -33,7 +33,7 @@ The `Publisher` is a Microsoft-assigned GUID, **not** a certificate you own — 
 
 The assets in `packaging/msix/Assets` are final, not placeholders. The package
 logos were produced by `packaging\scripts\convert-icons.ps1` from the shared app
-icon and are the ones in the current 1.0.22 build. Do **not** run
+icon and have shipped from 1.0.22 onward. Do **not** run
 `generate-icons.ps1` over that folder: its default output directory is that same
 folder and it writes placeholders on top of the real artwork. `build-msix.ps1`
 generates icons only when `Assets\StoreLogo.png` is missing.
@@ -205,7 +205,7 @@ missing for exactly that reason. The package and its symbols now share a stem �
 Output: `dist\z80cpmw-<ver>-store.msix` — this is the **Store** package (Store identity,
 unsigned). Upload it as-is; Microsoft signs it. For the signed **beta** package
 (sideloading), run `.\build-msix.ps1 -Beta` instead, which emits
-`dist\z80cpmw-<version>-beta.msix` (currently `dist\z80cpmw-1.0.23-beta.msix`,
+`dist\z80cpmw-<version>-beta.msix` (the newest published sideload build - check the releases page rather than this line,
 the same binary as the 1.0.23 Store package signed under our own publisher) — do **not**
 upload that one to the Store (see [Signing](#signing-who-signs-what)).
 
@@ -277,10 +277,12 @@ v1.0.14.
 The Store carried 1.0.14, then 1.0.19, 1.0.22, 1.0.23, 1.0.25, 1.0.29 and now
 **1.0.33**.
 **Do not trust that sentence either - MEASURE it.** `tools/check-store-version.sh`
-asks the Store what it actually serves, and a CI job runs it on every push; this
+asks the Store what it actually serves. **Nothing runs it for you** - this
+repository has no CI at all, and the store-version workflow was deleted on
+2026-09-13, so the number below is only as fresh as the last hand-run. This
 paragraph has been wrong five times, because a submission going out leaves no
 trace in this repository. 1.0.33 is what it reported on 2026-09-13, and
-`z80cpmw/Version.h` is at **1.0.33** as well - the tree and the Store are on the
+`z80cpmw/Version.h` has since moved to **1.0.34** - the tree and the Store are on the
 same number, which is not the same thing as the same software: commits made since
 that package was cut are in the tree and not in it.
 
