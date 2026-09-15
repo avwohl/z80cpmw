@@ -11,3 +11,11 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
 - MANUAL_CHECKS 12: the listing screenshot is undersized and shows CBIOS 3.5.1.
 
 - catalogv0::indexScope() still has no caller; the plan is in Config.h.
+
+- the C4267 suppression on hbios_dispatch.cc is removable: romwbw_emu cast all
+  six sites in 8eeb227, so the file is clean at /W3 from its v1.37 on.  Still
+  present at z80cpmw.vcxproj:297.  Grep the MSBuild spelling
+  `<DisableSpecificWarnings>4267`, not `/wd4267` - searching for the compiler
+  flag reports it gone when it is not, which is how this nearly got deleted as
+  stale.  Refiled from romwbw_emu 2026-09-15: the precondition landed there and
+  shipped, and the line deletion is here.
