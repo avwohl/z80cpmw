@@ -109,9 +109,27 @@ take — it means the geometry is not one of these.
 
 A `./diskdefs` in the current directory also shadows the system file completely
 rather than adding to it, so a partial local copy makes every other format
-"unknown". Copy `romwbw_emu/disks/diskdefs` whole — it carries the entire
-`wbw_hd1k` family and is the definition of record — rather than writing out the
-one definition you think you need.
+"unknown".
+
+**The fix is not a better diskdef, and the file this used to name is gone.** It
+said to copy `romwbw_emu/disks/diskdefs` whole, as the definition of record;
+romwbw_emu deleted it on 2026-09-10 in `c940ac8`, "Read disk images with
+cpm_disk.py, and stop prescribing cpmtools", and `disks/` there now holds one
+shell script. The images this entry was measured against are gone from that
+directory too — they come from the catalog now.
+
+Use `cpm_disk.py` (cpmemu, `util/cpm_disk.py`). It detects the format from the
+file size, so there is no diskdef to pick wrong and none of the above can
+happen:
+
+```bash
+python3 ~/src/cpmemu/util/cpm_disk.py list hd1k_combo.img
+python3 ~/src/cpmemu/util/cpm_disk.py list --slice 3 hd1k_combo.img
+```
+
+It also reaches combo slices 1-5, which libdsk cannot address at all — they sit
+past 8 MB from the start of the file. Everything above is kept as the record of
+why cpmtools is not the tool here, not as instructions for using it.
 
 ## An unarmed W8 cannot be told from an armed one by its usage string
 
@@ -196,13 +214,19 @@ could see the index URLs at all.
 
 **That stopped being true the next day, and this entry said otherwise until
 2026-09-13.** The first shipped build carrying the migration is **1.0.29**
-(`6496fd4`), live on the Store since 2026-09-07; **1.0.33** (`9df0d01`) carries
-it too and is what the Store serves now. Measured:
-`git merge-base --is-ancestor f91c3a3 6496fd4` succeeds, as does the same
-question against `9df0d01`, and `tools/check-store-version.sh` answers
-`AaronWohl.Z80CPM_1.0.33.0_x64__pyqcdeggzw67m` on 2026-09-13. So the respin is
-spent: users are now holding assets fetched from those URLs and verified against
-the sha256 the index published at the time.
+(`6496fd4`), live on the Store since 2026-09-07; every Store version since
+carries it. Measured: `git merge-base --is-ancestor f91c3a3 6496fd4` succeeds,
+as does the same question against `9df0d01` (1.0.33), and
+`tools/check-store-version.sh` answered
+`AaronWohl.Z80CPM_1.0.33.0_x64__pyqcdeggzw67m` on 2026-09-13 and
+`AaronWohl.Z80CPM_1.0.34.0_x64__pyqcdeggzw67m`, catalog updated 2026-09-14, on
+2026-09-15. So the respin is spent: users are now holding assets fetched from
+those URLs and verified against the sha256 the index published at the time.
+
+Which Store version it is does not change the conclusion and is not worth
+pinning here — 1.0.29 is the floor and it shipped. Re-measure rather than
+reading a number out of this paragraph; the one above has already been overtaken
+once since it was written.
 
 **Do not check that with `git tag --contains`.** This family releases without
 tagging: ioscpm 1.5.1 went live on 2026-09-05 and has no `v1.5.1` tag at all, so

@@ -5,27 +5,33 @@ All notable changes to **z80cpmw** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use a simple `MAJOR.MINOR.PATCH` scheme: a `-beta` suffix names the
 signed GitHub / sideload package, and the bare number names the Microsoft Store
-release. The released Store version is **1.0.33** — measured with
+release. The released Store version is **1.0.34** — measured with
 `tools/check-store-version.sh`, **run by hand**, which reported
-`AaronWohl.Z80CPM_1.0.33.0_x64__pyqcdeggzw67m`, catalog updated 2026-09-10,
-measured 2026-09-13. There is no longer a CI job behind that sentence: the
+`AaronWohl.Z80CPM_1.0.34.0_x64__pyqcdeggzw67m`, catalog updated 2026-09-14,
+measured 2026-09-15. There is no longer a CI job behind that sentence: the
 Store-version workflow was removed on 2026-09-13 because CI is for building and
 testing this repository, and what a store serves is neither. So this number has
 no machine keeping it honest — re-measure before trusting it, and treat its date
 as the whole of its authority. This sentence read **1.0.23** until 2026-09-06, **1.0.25**
-until 2026-09-09 and **1.0.29** until 2026-09-13; each time the number was
-overtaken by a submission the repository does not record, and each time the
-measurement is what caught it — the last time as a red CI job on the scheduled
-run, which is the job doing exactly what it was added for.
+until 2026-09-09, **1.0.29** until 2026-09-13 and **1.0.33** until 2026-09-15;
+each time the number was overtaken by a submission the repository does not
+record, and each time the measurement is what caught it — on 2026-09-13 as a red
+CI job on the scheduled run, which is the job doing exactly what it was added
+for, and on 2026-09-15 by the script itself printing
+`CHANGELOG.md says "The released Store version is 1.0.33", Store serves 1.0.34`
+and `Correct the sentence, not this script`. Five times now. The number in this
+paragraph is worth exactly the date beside it.
 
-**Where each channel stands, as of 2026-09-13.** The Store serves **1.0.33**.
-The newest *published* sideload package is **v1.0.32-beta**, released on
-2026-09-13 and what GitHub marks Latest; it carries the catalog entry-point work
-and supersedes **v1.0.28-beta** on that channel. **1.0.30-beta** is still built,
-signed and sitting in `dist\` unpublished, superseded before it ever went out.
-The two channels are one version apart again - 1.0.33 on the Store and
-1.0.32-beta on GitHub - which is the expected shape: same source, two builds,
-two numbers. This paragraph said the newest sideload package
+**Where each channel stands, as of 2026-09-15.** The Store serves **1.0.34**,
+catalog updated 2026-09-14 — the submission recorded below under
+`[1.0.34] - 2026-09-13` has been approved and is live. The newest *published*
+sideload package is **v1.0.32-beta**, released on 2026-09-13 and what GitHub
+marks Latest; it carries the catalog entry-point work and supersedes
+**v1.0.28-beta** on that channel. **1.0.30-beta** is still built, signed and
+sitting in `dist\` unpublished, superseded before it ever went out.
+The two channels are now two apart - 1.0.34 on the Store and 1.0.32-beta on
+GitHub - where they are usually one: same source, two builds, two numbers, and
+the Store has moved twice since that beta went out. This paragraph said the newest sideload package
 was 1.0.22-beta, and named 1.0.24 as "packaged and unsubmitted" and 1.0.25 as
 "not yet built at all", all three of which had been overtaken; it then said the
 Store served 1.0.29 for three days after it served 1.0.33. The standing
@@ -71,6 +77,12 @@ old number until somebody re-measures. That has happened with 1.0.23, 1.0.25,
 read 1.0.34 here as what users have; measure it with
 `tools/check-store-version.sh` before believing any sentence about it, this one
 included.
+
+**Approved since.** Measured 2026-09-15:
+`AaronWohl.Z80CPM_1.0.34.0_x64__pyqcdeggzw67m`, catalog updated 2026-09-14. The
+sentence above was correct on the day it was written and is now history; this
+line is here rather than an edit to it, because recording a submission at
+submission time only works if the approval is recorded too.
 
 ### Verified
 
