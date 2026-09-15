@@ -53,10 +53,12 @@ Store's is whatever `tools/check-store-version.sh` last measured, and neither is
 ## 2. Keystroke delivery, mouse copy/paste, and the first-run Help window
 
 Never watched by a person, and nothing here can automate them.
-`tests\run_tests.bat` is **1779 checks in eight suites** now — 516 terminal
-conformance, 374 configuration diagnostics, 355 help renderer and assets, 207
-interface-v0 catalog, 175 disk provenance, 66 host file transfer, 50 rendering
-conformance, 36 HBIOS host file extension.
+`tests\run_tests.bat` is **1,803 checks in eight suites** as of 1.0.32 — 516
+terminal conformance, 374 configuration diagnostics, 355 help renderer and
+assets, **231** interface-v0 catalog (was 207), 175 disk provenance, 66 host
+file transfer, 50 rendering conformance, 36 HBIOS host file extension.
+CHANGELOG.md is where that total is tracked; run the suite rather than
+trusting a number here.
 
 **A cell becoming a pixel is no longer a person's job.** `tests/test_render.cpp`
 creates a real window, drives the parser with real bytes, asks the DWM for the
@@ -143,7 +145,7 @@ at `DiskMigrationV0.cpp:15`, and `v0NameFor` builds the target from it.
       downloaded off ioscpm `v1.4.12` — a development machine, since no released
       build ever wrote one. Right: the same file reads plain **"Downloaded"**,
       because the migration carried a provenance of `89b8ae1a…` across with the
-      rename and `diskv0::isEquivalentPriorImage` names that one pair as
+      rename and `diskv0::isEquivalentPriorImage` (DiskMigrationV0.cpp:129) names that one pair as
       equivalent to `0ca4ec60…` (`DiskMigrationV0.cpp:120-127`). It is keyed on
       provenance, so it is the only route to that verdict: hand-editing the
       hashes into the ledger produces something else, and the bullet below says
@@ -398,17 +400,21 @@ is what is kept below.
       `disk_ledger.json` gains a record for it *with* an
       `installedCatalogSha256`. That last part is the check that the hash came
       from the same catalog entry the URL did.
-- [ ] Read the note under the release control. It says how many ROMs the
-      catalog publishes and that the default one is fetched and checked against
-      its published size and checksum before the machine starts — and then, as
-      the tree stands, ends `The ROM in the app is kept as the offline
-      fallback.` There is no ROM in the app any more. That sentence is a string
-      literal in `SettingsDialogWx::updateRomwbwVersionNote()` that outlived the
-      files it describes, and its other arm — a release whose catalog publishes
-      no ROM `can only be started with the ROM the app ships` — describes
-      something that is now not a start at all. Nothing compiles a string, so
-      reading it on screen is the only way this gets caught; report it rather
-      than ticking the box.
+- [ ] Read the note under the release control. It must say how many ROMs the
+      catalog publishes, that the one on the Machine page is fetched and
+      checked against its published size and checksum before the machine
+      starts, and that **this app ships no ROM of its own**. For a release
+      whose catalog carries no `roms[]` at all it must say the release cannot
+      be started.
+
+      This box used to say the note still ended `The ROM in the app is kept as
+      the offline fallback.` and to report that rather than ticking. Both
+      literals are gone from `updateRomwbwVersionNote()` - what is left at
+      those lines are comments recording the removal, in the past tense. The
+      check is still worth running for the reason it names: nothing compiles a
+      string, so somebody reading it is the only thing that catches one that
+      has stopped being true. That is exactly how the old wording was caught.
+
 - [ ] Switch the release the other way from wherever you are — to **3.5.1** on a
       machine sitting on the default 3.6.0. Right: the note changes to say that
       starting will offer to fetch that release's ROM, the list refills with
