@@ -1,6 +1,6 @@
 # Privacy Policy for Z80CPM
 
-**Last updated:** September 10, 2026
+**Last updated:** September 15, 2026
 
 ## Overview
 
@@ -45,7 +45,7 @@ these features, the app makes no network connections" — and that stopped being
 true on September 7, when the application stopped carrying a ROM of its own.
 
 Nothing bootable is installed with the app. Every request goes to public GitHub
-release assets, and there are three:
+release assets, and there are four:
 
 - **The catalog index and a release's catalog** — the documents that list what is
   on offer. Read whenever the app needs to know what it can fetch, including on
