@@ -27,8 +27,9 @@ messages are not marshalled across processes and will crash the app).
 
 **ROMs and disk images come from the `romwbw_disks` catalog. Always.** There is
 no `RELEASE_TAG` in this tree any more and no pinned release of anything: the
-only URL compiled in is the index, `CatalogV0.cpp:25`, and it is the mutable
-`catalog-v0` tag. From it the client reads the RomWBW releases on offer, keeps
+only URL compiled in is the index (`INDEX_URL` in `CatalogV0.cpp`), and it names
+**no tag at all** - it goes through `releases/latest/download/`, so where the
+index lives belongs to romwbw_disks and can move with no release here. From it the client reads the RomWBW releases on offer, keeps
 the ones the linked core says it can boot (`DiskCatalog.cpp:534-542`, which asks
 `emu_romwbw_release_supported` rather than deciding for itself), and fetches that
 release's own catalog for the ROM and the images. **So publishing a release in
@@ -100,9 +101,9 @@ scripts keep the `.pdb` beside their output and fail if it is missing — but
 `build-msix.ps1` did that on its `-Beta` arm only until 1.0.25, so the rule was
 true of this file before it was true of the code. 1.0.22 and 1.0.24 both shipped
 Store packages with no symbols kept anywhere, and their crash dumps are
-permanently unreadable. The Store package's name carries no version, so its
-`.pdb` carries one instead: `dist\z80cpmw-<ver>-store.pdb`, which the next Store
-build cannot overwrite.
+permanently unreadable. Both artifacts carry the version in the
+name now (`z80cpmw-<ver>-store.{msix,pdb}`, since 2026-09-10), so neither a
+package nor its symbols can be overwritten by the next Store build.
 
 **Say what was measured, not what was inferred.** This tree has repeatedly
 carried claims that were reasoned from one side of a mechanism without checking
