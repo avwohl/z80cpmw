@@ -1,195 +1,130 @@
 # z80cpmw
 
-Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS emulator.
+Z80 CP/M emulator for Windows. A native Windows port of the RomWBW/HBIOS
+emulator.
 
 ## Download
 
-- **Signed sideload build — newest:**
-  [the latest release](https://github.com/avwohl/z80cpmw/releases/latest), and
-  take the `.msix` attached to it. Download and double-click; the Azure Trusted
-  Signing certificate chains to a Microsoft public root, so no developer mode and
-  no certificate import are needed.
-
-  **This link deliberately does not name the file.** It used to be
-  `releases/latest/download/z80cpmw-1.0.28-beta.msix` — a floating URL carrying a
-  version-stamped asset name, which works only while `v1.0.28-beta` happens to be
-  the release GitHub marks Latest and 404s the moment any newer beta takes that
-  flag. Every package here carries its version in its name on purpose, so there
-  is no stable filename for `releases/latest/download/` to resolve, and the
-  honest form is the release page. The point is that publishing a beta no longer
-  has to remember to edit this line.
-
-  From **1.0.28-beta** on, the sideload package ships **no ROM and no disk
-  image**: both come from the RomWBW catalog and are checked against the size and
-  SHA-256 it publishes, so **the first run needs a network connection**.
+- **Signed sideload build:** take the `.msix` from
+  [the latest release](https://github.com/avwohl/z80cpmw/releases/latest).
+  Download and double-click; the Azure Trusted Signing certificate chains to a
+  Microsoft public root, so no developer mode and no certificate import are
+  needed. (The link names no file on purpose: every package carries its version
+  in its name, so there is no stable filename for
+  `releases/latest/download/` to resolve.)
 - **Microsoft Store:** search for **Z80CPM**. Microsoft signs it and it updates
-  itself, which makes it the easiest way in. The Store serves **1.0.33**,
-  measured with `tools/check-store-version.sh` on 2026-09-13. This entry said
-  **1.0.29** until then, and before that 1.0.25 "and 1.0.29 is packaged and
-  waiting on submission"; each time the number was overtaken by a submission the
-  repository does not record, because the Store channel leaves no git tag and no
-  GitHub release behind. Note what did **not** catch it this time: no gate reads
-  this file. `check-store-version.sh` measures the Store and compares it against
-  `Version.h`, `FEATURE_PARITY.md` and `CHANGELOG.md`, so the same sentence went
-  stale here while the CI job was red about it three lines' worth of prose
-  away.
+  itself, which makes it the easiest way in.
 - The two packages carry different publishers, so the sideload build installs
   **side-by-side** with a Store install rather than replacing it, and it updates
   in place over any earlier beta. Uninstall whichever you do not want.
 - All releases: [github.com/avwohl/z80cpmw/releases](https://github.com/avwohl/z80cpmw/releases)
 - What changed in each version: [CHANGELOG.md](CHANGELOG.md)
 
+**Neither package ships a ROM or a disk image**, so **the first run needs a
+network connection** - see [ROMs and Disk Images](#roms-and-disk-images).
+
 ## Features
 
-- Z80 CPU emulation with accurate timing
-- RomWBW HBIOS emulation
-- VT100/VT52-compatible terminal display (25x80) with scrollback (mouse wheel / Shift+PageUp)
+- Z80 CPU emulation with RomWBW HBIOS emulation
+- VT100/VT52-compatible terminal display (25x80) with scrollback (mouse wheel /
+  Shift+PageUp)
 - VT52 emulation, auto-detected from any VT52-exclusive sequence
 - Scrolling region (DECSTBM), deferred autowrap (DECAWM), and answerback for
   cursor-position, status and identify queries
-- Support for CP/M, ZSDOS, and other operating systems
+- Runs CP/M, ZSDOS and the other operating systems the catalog publishes
 - ROMs and disk images fetched from the RomWBW catalog and checked against the
-  size and SHA-256 it publishes — nothing is bundled in the package
-- Disk image support (up to 64MB hd1k format)
+  size and SHA-256 it publishes - nothing is bundled in the package
+- Four disk slots, hd1k format
 - Configurable keyboard map for function/navigation keys (termcap-style)
 - Mouse text selection with right-click Copy/Paste
 
 ## ROMs and Disk Images
 
-**Nothing is bundled.** The package carries the executable, the app-local VC++
-runtime and — in a build made with the optional `..\ioscpm` checkout — the help
-text. It carries no ROM and no disk image. Both come from the interface-v0
-catalog in [romwbw_disks](https://github.com/avwohl/romwbw_disks), and the only
-content address compiled into this application is the index that catalog starts
-from (the in-app help has its own, and the crash dialog links to the issue
-tracker)
-(`z80cpmw/CatalogV0.cpp`); the index names every published RomWBW release and
-points at that release's own list of ROMs and disk images, so no download URL is
-ever assembled here from a version number. Everything fetched lands in the data
-folder and is measured against the size and SHA-256 the catalog publishes: a
-download whose bytes do not match is deleted rather than kept, and a ROM is
-refused outright if the catalog carries no checksum for it, because fifteen
-banks of unknown bytes under a CPU is not a risk worth the convenience.
+**Nothing is bundled.** The package carries the executable, the wxWidgets and
+VC++ runtime DLLs, and (in a build made with the optional `..\ioscpm` checkout)
+the help text. It carries no ROM and no disk image.
+
+Both come from the interface-v0 catalog in
+[romwbw_disks](https://github.com/avwohl/romwbw_disks). The only content address
+compiled into this application is the index that catalog starts from
+(`z80cpmw/CatalogV0.cpp`); the help base URL comes out of that index at run
+time, and the index names every published RomWBW release and points at that
+release's own list of ROMs and disk images, so no download URL is ever assembled
+here from a version number.
+
+Everything fetched lands in the data folder and is measured against the size and
+SHA-256 the catalog publishes: a download whose bytes do not match is deleted
+rather than kept, and a ROM is refused outright if the catalog carries no
+checksum for it, because fifteen banks of unknown bytes under a CPU is not a
+risk worth the convenience.
 
 Three things are yours to choose, all under **Emulator → Settings**:
 
-- **Which RomWBW release** — the *RomWBW release* picker at the top of the
-  **Disk Images** page. That list is not compiled in either: it is the index,
-  filtered to the releases the emulator core says it can boot, so a release the
-  core has never been checked against is not offered.
-- **Which ROM** — the *ROM* dropdown on the **Machine** page, filled from the
-  selected release's ROMs. Publishing a new ROM in `romwbw_disks` therefore
-  makes it selectable with no new release of this application.
-- **Which catalog** — the *Catalog index* field under the release picker, and
-  the one setting that changes what the other two can offer. Leave it empty for
-  the catalog this build ships with; point it at another `romwbw_disks` index to
-  try a release before it is published, or to run your own. `ROMWBW_INDEX_URL`
-  in the environment overrides it for one run and stores nothing, which is what
-  a test uses; the field is disabled and says so while it is set. The order —
-  environment, then setting, then built-in — is `romwbw_emu`'s `romwbw-get`
-  order, so one set of instructions covers every client.
-  [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) has the details, including
-  the one thing to know before using it: every catalog reads and writes the same
-  data folder, so two catalogs publishing an image under one name share one
-  file.
+- **Which RomWBW release** - the picker at the top of the **Disk Images** page.
+  That list is the index, filtered to the releases the emulator core says it can
+  boot, so a release the core has never been checked against is not offered.
+- **Which ROM** - the dropdown on the **Machine** page, filled from the selected
+  release's ROMs. Publishing a new ROM in `romwbw_disks` makes it selectable
+  with no new release of this application.
+- **Which catalog** - the *Catalog index* field under the release picker. Leave
+  it empty for the catalog this build ships with, or point it at another
+  `romwbw_disks` index to try a release before it is published.
+  `ROMWBW_INDEX_URL` in the environment overrides it for one run and stores
+  nothing; the field is disabled and says so while it is set. The order -
+  environment, then setting, then built-in - matches `romwbw_emu`'s
+  `romwbw-get`. Every catalog reads and writes the same data folder, so two
+  catalogs publishing an image under one name share one file;
+  [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) has the details.
 
-**The first run needs a network connection**, and that is the cost of shipping
-no ROM. No ROM may be loaded before the catalog carrying its size and checksum
-has been read, so a machine that has never reached the network has nothing it is
-allowed to boot. Press **F5** on a fresh install and it fetches the catalog,
-downloads the two default disk images (`hd1k_combo` and `hd1k_games`) and then
-offers the ROM (about 512 KB); it starts when that ROM has arrived and matched.
-If the network is not there it says so and asks you to check the connection and
-press F5 again — it never boots unverified bytes. After one success everything
-is cached in the data folder, and later starts cost one small catalog request
-and one checksum.
+### The first run
 
-A ROM you place in the data folder, or beside `z80cpmw.exe`, under the filename
-the catalog gives it is used instead of downloading it again — but still only
-after the catalog has been read and the file has matched the published size and
-checksum.
+No ROM may be loaded before the catalog carrying its size and checksum has been
+read, so a machine that has never reached the network has nothing it is allowed
+to boot. Press **F5** on a fresh install and it fetches the catalog, downloads
+the two default disk images (`hd1k_combo` and `hd1k_games`) and then the ROM
+(about 512 KB); it starts when that ROM has arrived and matched. With no network
+and nothing cached it says so and asks you to check the connection and press F5
+again. After one success everything is cached, and later starts cost one small
+catalog request and one checksum - and if the catalog cannot be read but the
+default disks are already cached, it starts on those rather than stopping.
 
-## Building
-
-Requirements:
-- Visual Studio 18 or later (the project sets `PlatformToolset` to `v145`)
-- Windows SDK 10.0 or later
-- **wxWidgets 3.3 (x64)**, installed through vcpkg. `z80cpmw.vcxproj` hard-codes
-  the include and library paths to `C:\temp\vcpkg\installed\x64-windows\`, so
-  either install vcpkg there or edit `AdditionalIncludeDirectories` /
-  `AdditionalLibraryDirectories` to match your own location. Without it the
-  build stops at `SettingsDialogWx.h(9): fatal error C1083: Cannot open include
-  file: 'wx/wx.h'`.
-- The sibling repositories [`cpmemu`](https://github.com/avwohl/cpmemu) and
-  [`romwbw_emu`](https://github.com/avwohl/romwbw_emu) checked out **next to**
-  this one: the project compiles emulator sources directly from
-  `..\cpmemu\src` and `..\romwbw_emu\src`.
-- **Optional:** the sibling repository
-  [`ioscpm`](https://github.com/avwohl/ioscpm), also next to this one. When it
-  is there, `z80cpmw.rc` compiles the eight shared help assets in
-  `..\ioscpm\release_assets` into the executable as `RCDATA`, so the seven
-  online help topics can still be read with no network and an empty cache. It is
-  a build input only — nothing links against it, and the text it carries is
-  whatever that checkout holds at build time.
-
-  Without it the build succeeds and simply ships no compiled-in help:
-  `z80cpmw.vcxproj` tests for
-  `..\ioscpm\release_assets\help_index.json` and, when it is missing, defines
-  `NO_BUNDLED_HELP_ASSETS`, which guards those eight `RCDATA` lines out. What is
-  lost is the offline floor for those seven topics — a reader who has never
-  successfully downloaded one, and has nothing in the on-disk cache, gets *"This
-  topic could not be downloaded"* instead of the bundled text. Everything else
-  is unchanged: the topics still download, still cache to disk, and the two
-  written-in topics (**Getting Started** and **Configuration File**) are not
-  affected at all. Pass `/p:BundleHelpAssets=false` to force that build on a
-  machine that does have the checkout.
-
-`tests\run_tests.bat` needs `..\cpmemu` and `..\romwbw_emu` for its last three
-suites and stops without them. `..\ioscpm` it treats differently, for the same
-reason the build does: the help suite skips the one section that checks the
-bundled assets and runs the rest.
-
-Open `z80cpmw.sln` in Visual Studio and build the solution.
-
-Packaging is scripted: `packaging\scripts\build-msix.ps1` builds the unsigned
-Store package, and `-Beta` builds and signs the sideload package instead. Pass
-`-SkipBuild` to package an existing `bin\Release` without rebuilding — the
-script checks the binary's version against `z80cpmw/Version.h` and refuses a
-mismatch. See [packaging/STORE_SUBMISSION.md](packaging/STORE_SUBMISSION.md) and
-[docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
+A ROM placed by hand is searched for before the data folder's copy, in this
+order: `<appDir>\roms\`, `<appDir>\`, `<appDir>\..\roms\`, then the data folder.
+It is still used only after the catalog has been read and the file has matched
+the published size and checksum.
 
 ## Usage
 
-1. Launch z80cpmw.exe (on first run, a scrollable **Getting Started** help
-   window opens automatically; you can reopen it any time with **F1**)
-2. Click Emulator > Start (or press F5). With no disks mounted this is also
-   where the ROM and the two default disk images are fetched, so the very first
-   start needs a network connection and takes longer than the ones after it —
-   see [ROMs and Disk Images](#roms-and-disk-images)
-3. At the RomWBW boot menu, press a number to boot an OS
+1. Launch `z80cpmw.exe`. On first run a scrollable **Getting Started** help
+   window opens; reopen it any time with **F1**
+2. **Emulator > Start** (F5). With no disks mounted this is also where the ROM
+   and the two default disk images are fetched, so the first start needs a
+   network connection and takes longer than the ones after it
+3. At the RomWBW boot menu, type a device number and press Enter
 
-To run a different ROM, or a different RomWBW release, open **Emulator >
-Settings**; to mount images of your own, use **File > Load Disk 0/1**.
+To change ROM or RomWBW release, open **Emulator > Settings**. **File > Load
+Disk 0/1** mounts images into the first two units; **Settings > Machine** has
+all four slots, each with its own Browse and New buttons.
 
 ### Boot Menu Keys
 
 - `h` - Help
 - `l` - List ROM applications
 - `d` - List devices
-- `0-9` - Boot from device
+- `0-9` - Boot from device number
 
 ### Keyboard
 
-Standard keyboard input. Arrow keys, Home/End, Insert, PageUp/PageDown and the
-function keys (F1–F12) send VT100/xterm escape sequences to CP/M. Because CP/M
-is pure ASCII with no standard for these keys, every binding is configurable —
-see **Configuration** below.
+Arrow keys, Home/End, Insert, PageUp/PageDown and the function keys (F1-F12)
+send VT100/xterm escape sequences to CP/M. Because CP/M is pure ASCII with no
+standard for these keys, every binding is configurable - see
+[Configuration](#configuration).
 
-By default `F1` opens Help and `F5` / `Shift+F5` start/stop the emulator, so
-those two keys are not passed to CP/M unless you enable them in the config.
-Reset has no shortcut by default: `Ctrl+R` is a character CP/M itself uses, so
-it goes to the guest and Reset stays on the **Emulator** menu. Set
-`"ctrlRToCpm": false` to claim `Ctrl+R` for Reset instead.
+By default `F1` opens Help and `F5` / `Shift+F5` start and stop the emulator, so
+those two are not passed to CP/M unless you enable them in the config. Reset has
+no shortcut by default: `Ctrl+R` is a character CP/M itself uses, so it goes to
+the guest and Reset stays on the **Emulator** menu. Set `"ctrlRToCpm": false` to
+claim `Ctrl+R` for Reset instead.
 
 ### Mouse Copy/Paste
 
@@ -199,68 +134,85 @@ Drag to select text in the terminal, then right-click for **Copy** and
 
 ### File Transfer (R8 / W8)
 
-`W8 name` exports a file from CP/M to the host; `R8 name` imports one. On
-Windows, `R8` takes a **full path** and reads exactly that file (even on the
-Store build):
+`R8 name` imports a file from the host into CP/M; `W8 name` exports one. On
+Windows both take a **full path**, and `W8` prints the path the file really went
+to - which on any MSIX install is the redirected `LocalCache` location, not the
+one you typed:
 
 ```
 R8 C:\Users\me\Desktop\getkey2.com
-```
-
-`W8` takes one too, and prints the path the file really went to — which on any
-MSIX install is the redirected `LocalCache` location, not the one you typed:
-
-```
 W8 REPORT.TXT C:\Users\me\Desktop\report.txt
 ```
 
-Both utilities come from the disk catalog, not from this app: they are on the
-images published in [romwbw_disks](https://github.com/avwohl/romwbw_disks).
-There is no pinned release tag in this application any more — the only
-compiled-in address for content is the index — so which images you get follows
-from the
-RomWBW release selected in **Emulator > Settings > Disk Images**. Nothing is
-bundled in the installer, so the `R8` and `W8` you get are whichever that
-release's catalog carries.
+A bare name (`W8 out.com`) goes to the app's data folder, whose real location
+the app shows in **Emulator → Settings** (with an **Open Folder** button),
+**Help → About**, and the boot banner.
 
-A bare name (`W8 out.com`) goes to the app's data folder — whose real location the
-app shows in *Emulator → Settings* (with an **Open Folder** button), *Help → About*,
-and the boot banner. For where exported files land on the Store build and on the
-macOS/iOS/Android ports — and how to find them — see
-[docs/FILE_TRANSFER.md](docs/FILE_TRANSFER.md).
+Both utilities come from the disk catalog, not from this app, and only the
+`hd1k_combo` image carries them - boot a single-OS image and there is no `R8` or
+`W8` to run. [docs/FILE_TRANSFER.md](docs/FILE_TRANSFER.md) covers where
+exported files land on the Store build and on the other ports.
 
 ## Configuration
 
-Settings are stored in `%LOCALAPPDATA%\z80cpmw\z80cpmw.json`, which you can edit
-by hand. This includes the keyboard map (`keyboard.keys`, written as termcap-style
-escape strings), the `f1ToCpm` / `f5ToCpm` / `ctrlRToCpm` toggles, fonts, ROM and disk
-assignments. `rom` holds the catalog's **id** for a ROM — `emu_avw`, not a
-filename — because a filename carries the release (`emu_avw-v0-3.5.1.rom` and
-`emu_avw-v0-3.6.0.rom` are one choice) and would be forgotten the first time you
-switched releases; `romwbwVersion` holds the release itself, and an empty `rom`
-means "whichever ROM the catalog marks as its default". A file written by an
-older build, holding `emu_avw.rom`, is converted to the id as it is read.
+Settings live in `z80cpmw.json`. Under MSIX - which both shipping channels are -
+the `%LOCALAPPDATA%\z80cpmw\` write is redirected into the package's
+`LocalCache`, which is why the app shows the resolved path and an **Open
+Folder** button rather than printing a path you would have to translate.
 
-The keyboard map and a Getting Started guide are also viewable
-in-app from **Help → Help Topics**, and every topic there works offline in a
-build made with the optional `..\ioscpm` checkout: the **Getting Started** and
-**Configuration File** topics are written into the app, and the seven guides
-that normally come from the network fall back to a downloaded copy on disk and
-then to the copy compiled in from `..\ioscpm\release_assets` (see
-[Building](#building) for what a build without that checkout loses).
+The file holds the keyboard map (`keyboard.keys`, termcap-style escape strings),
+the `f1ToCpm` / `f5ToCpm` / `ctrlRToCpm` toggles, fonts, and ROM and disk
+assignments. **`rom` and `romwbwVersion` are nested under `core`**, not at the
+top level - a top-level `"rom"` is read by nothing and silently does nothing.
+`rom` holds the catalog's **id** (`emu_avw`, not a filename), because a filename
+carries the release and would be forgotten the first time you switched releases;
+an empty `rom` means "whichever ROM the catalog marks as its default". A file
+written by an older build, holding `emu_avw.rom`, is converted to the id as it
+is read.
 
-The status line at the foot of the help window names the copy you are reading:
-`downloaded`, `offline copy` (with the date it was saved), `bundled with the
-app`, or `unavailable`. There is a fifth answer, **`this session's copy`**, and
-it means something different from the others — the help window keeps a topic in
-memory for fifteen minutes after it is first shown, and re-reading it inside
-that window repaints from memory without touching the network or the disk. That
-in-memory entry does not record which of the four the text originally came from,
-so the status line does not guess — it tells you only that nothing was fetched
-just now.
+Help topics are also viewable from **Help → Help Topics**. The status line at
+the foot of that window names the copy you are reading - `downloaded`, `offline
+copy` with the date, `bundled with the app`, `unavailable`, or `this session's
+copy`, which means the window repainted from its fifteen-minute in-memory cache
+and nothing was fetched.
 
 See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference,
-including the escape syntax, bindable key names, and the default bindings.
+including the escape syntax, bindable key names and the default bindings.
+
+## Building
+
+**Requirements:**
+
+- Visual Studio 18 or later (the project sets `PlatformToolset` to `v145`)
+- Windows SDK 10.0 or later
+- **wxWidgets 3.3 (x64)** through vcpkg. `z80cpmw.vcxproj` hard-codes the paths
+  to `C:\temp\vcpkg\installed\x64-windows\`, so either install vcpkg there or
+  edit `AdditionalIncludeDirectories` / `AdditionalLibraryDirectories`. Without
+  it the build stops at `SettingsDialogWx.h(9): fatal error C1083: Cannot open
+  include file: 'wx/wx.h'`.
+- [`cpmemu`](https://github.com/avwohl/cpmemu) and
+  [`romwbw_emu`](https://github.com/avwohl/romwbw_emu) checked out **next to**
+  this one: the project compiles emulator sources directly from `..\cpmemu\src`
+  and `..\romwbw_emu\src`.
+- **Optional:** [`ioscpm`](https://github.com/avwohl/ioscpm), also next to this
+  one. When present, `z80cpmw.rc` compiles the shared help assets from
+  `..\ioscpm\release_assets` into the executable as `RCDATA`, so the online help
+  topics can be read with no network and an empty cache. Without it the build
+  succeeds and defines `NO_BUNDLED_HELP_ASSETS`; what is lost is only the
+  offline floor for those topics. `/p:BundleHelpAssets=false` forces that build
+  on a machine that does have the checkout.
+
+Open `z80cpmw.sln` in Visual Studio and build the solution.
+`tests\run_tests.bat` needs `..\cpmemu` and `..\romwbw_emu` for its last three
+suites and stops without them; without `..\ioscpm` the help suite skips its
+bundled-asset section and runs the rest.
+
+Packaging is scripted: `packaging\scripts\build-msix.ps1` builds the unsigned
+Store package, and `-Beta` builds and signs the sideload package instead.
+`-SkipBuild` packages an existing `bin\Release` without rebuilding, checking the
+binary's version against `z80cpmw/Version.h` and refusing a mismatch. See
+[packaging/STORE_SUBMISSION.md](packaging/STORE_SUBMISSION.md) and
+[docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
 
 ## Related Projects
 
@@ -288,3 +240,7 @@ parity, with pointers to the canonical implementation here.
 - [upeepz80](https://github.com/avwohl/upeepz80) - Peephole optimizer for Z80 compilers that write lowercase Z80 assembly language. It shortens jumps to jr, builds djnz loops, and removes dead stores.
 - [uplm80](https://github.com/avwohl/uplm80) - PL/M-80 compiler for the Z80 processor and CP/M. It writes Intel 8080 and Zilog Z80 assembly language.
 
+
+## See Also
+
+- [RomWBW](https://github.com/wwarthen/RomWBW) - The original RomWBW project by Wayne Warthen
