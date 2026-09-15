@@ -18,9 +18,16 @@ a run against an **installed** package, which is the only thing that reproduces
 MSIX file-system redirection — a local unpackaged build cannot, whatever it
 prints.
 
-**You do not need the Store build.** Sideload
-`dist\z80cpmw-1.0.22-beta.msix` (attached to the `v1.0.22-beta` release); it is
-the same binary and also MSIX.
+**You do not need the Store build.** Sideload the newest signed beta from the
+releases page; it is the same binary and also MSIX.
+
+This said `dist\z80cpmw-1.0.22-beta.msix` (the `v1.0.22-beta` release), which is
+now far behind: that build still pinned the old `v1.4.5` catalog tag, so the
+behaviour §1 asks you to observe is not the behaviour it has. Take a build at or
+after 1.0.32, which is where the release-tag-free entry point landed. Do not
+write a version number back into this line - `Version.h` is the tree's, the
+Store's is whatever `tools/check-store-version.sh` last measured, and neither is
+"the newest sideload build".
 
 - [ ] `W8 TEST.TXT C:\Users\<you>\Desktop\test.txt` → the file appears on the
       Desktop, and `W8` prints that path rather than the name you typed.
@@ -375,10 +382,17 @@ fixture is the evidence and not the repository.) What that run did not look at
 is what is kept below.
 
 - [ ] Confirm with a packet capture, a proxy or the debug log that the requests
-      went to `github.com/avwohl/romwbw_disks` — `catalog-v0/index-v0.json` and
-      then `v0-romwbw-3.6.0/catalog-v0-3.6.0.json` for a machine on the index's
-      default — and that **nothing** was fetched from `avwohl/ioscpm`. Nobody
-      has watched the wire; the dialog filling is not evidence of where from.
+      went to `github.com/avwohl/romwbw_disks` — **`releases/latest/download/`
+      `index-v0.json`**, then the `catalog_url` that index names — and that
+      **nothing** was fetched from `avwohl/ioscpm`. Nobody has watched the
+      wire; the dialog filling is not evidence of where from.
+
+      The entry point has named **no tag** since 1.0.32: `INDEX_URL` in
+      `CatalogV0.cpp` goes through `releases/latest/download/`, which is the
+      whole design — where the index lives belongs to romwbw_disks and can move
+      with no release here. This box asked for `catalog-v0/index-v0.json`, a
+      URL the app stopped requesting, so a watcher would have reported the
+      correct behaviour as a miss.
 - [ ] **Download** one disk you do not have. Right: it lands under its
       `-v0-<release>` name, the status column reads **Downloaded**, and
       `disk_ledger.json` gains a record for it *with* an
