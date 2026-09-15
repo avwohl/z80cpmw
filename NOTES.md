@@ -96,7 +96,7 @@ deliberately left untouched so they still reach CP/M as `^C`/`^V`.
 - Paste is greyed/blocked when the emulator is not running (input callback only
   delivers while running) via `setInputReadyCallback`.
 
-## W8/R8 Host File Transfer (December 2024)
+## W8/R8 Host File Transfer (December 2025)
 
 > **Update (2026-07):** the implementation since gained (1) **absolute/UNC/rooted
 > path support** — such paths are written verbatim, even under full-trust MSIX —

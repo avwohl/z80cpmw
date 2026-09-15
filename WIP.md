@@ -223,6 +223,14 @@ grew its own `emu_rename()`, which is `MoveFileExA(..., MOVEFILE_REPLACE_EXISTIN
 on Windows and plain `rename()` elsewhere, and `emu_file_save()` now goes
 through it. The twelfth hand-synced function here is that same shim.
 
+**Drift re-checked 2026-09-15, and there is none.** romwbw_emu changed
+`emu_io_common.cc` that day (`6d059ec`, a UTF-8 floor in `cap_name`), which is
+exactly the event this section warns nothing reports. It touched none of the
+twelve: the diff is six added lines inside `cap_name` and nothing removed, and
+`cap_name` is not a hand-synced function — this port defines no `cap_name` at
+all and does not call one. Nothing to import. Recorded here because a human
+noting it is the only mechanism there is.
+
 One trap is left, and it is in [`KNOWN_PROBLEMS.md`](KNOWN_PROBLEMS.md):
 `emu_host_path_basename()` is declared in `emu_io.h` but defined only in
 `emu_io_common.cc`, so the first call added to this port links against nothing.
