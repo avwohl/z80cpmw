@@ -20,9 +20,6 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   stale.  Refiled from romwbw_emu 2026-09-15: the precondition landed there and
   shipped, and the line deletion is here.
 
-- Delete catalogv0::runnableVersions and its caller in DiskCatalog once
-  romwbw_emu drops the release gate; romwbw_emu/docs/RELEASE_GATE.md is why.
-
 - A stored core.romwbwVersion that disagrees with the mounted images is
   permanent: Config.cpp:319-330 back-fills only when it is empty, deliberately,
   so it cannot undo a Settings choice - but it also never corrects a wrong one.
@@ -30,3 +27,6 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   from the migration recorded at CHANGELOG.md:613-623. The start notice
   (MainWindow.cpp:2037) reports the disagreement but names only the picker; it
   should name the release the mounted images unanimously agree on and offer it.
+  IndexEntry::verByte/updByte are parsed and now read by nothing - they are what
+  a stricter form of this would compare, and they survived the 2026-09-17
+  gate deletion for that reason.

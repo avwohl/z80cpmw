@@ -59,7 +59,6 @@
 
 #pragma once
 
-#include <functional>
 #include <string>
 #include <vector>
 
@@ -142,9 +141,21 @@ struct IndexEntry {
     int diskCount = 0;
 
     // hbios.ver_byte / upd_byte, parsed from the hex STRINGS "0x35" / "0x10".
-    // haveHbios is false when either is missing or unreadable, and an entry
-    // without them can never be offered: the pair is the whole of what decides
-    // whether this build's core can boot the release.
+    //
+    // WHAT THE PAIR IS FOR, now that it is not a gate. It is the
+    // ROM-to-disk-image pairing - the axis the guest itself enforces by printing
+    // `*** WARNING: HBIOS/CBIOS Version Mismatch ***` when a 3.5.1 image is
+    // mounted under a 3.6.0 ROM. It never described what the emulator core can
+    // run, though this client put it to `emu_romwbw_release_supported()` until
+    // romwbw_emu v1.44 as though it did. Parsing stays: CATALOG_SCHEMA.md
+    // requires the pair in every index entry, todo.txt's open disk/release
+    // disagreement item is what would read it, and a field parsed and unused is
+    // cheaper than one nobody kept.
+    //
+    // haveHbios is false when either is missing or unreadable, and parseIndex
+    // drops such an entry - as a MALFORMED DOCUMENT and not as an unbootable
+    // release, the same way it drops one with no `romwbw_version` or no
+    // `catalog_url`.
     bool haveHbios = false;
     unsigned char verByte = 0;
     unsigned char updByte = 0;
@@ -287,38 +298,32 @@ bool parseCatalog(const std::string& text, Catalog& out, std::string& error);
 // works here and nowhere else.
 std::string assetUrl(const std::string& baseUrl, const std::string& filename);
 
-// Whether this build's emulator core can boot a release, as {ver_byte, upd_byte}.
-// A std::function so that emu_init.h stays out of this file: the answer belongs
-// to the core, and the core is what DiskCatalog links.
-using ReleaseSupported = std::function<bool(unsigned char ver, unsigned char upd)>;
-
-// The index entries this build can actually run, as positions into `entries`, in
-// index order.
+// Which release to fetch a catalog for: the user's own choice if the index
+// still publishes it, else the entry marked `default: true`, else the first.
 //
-// ASK, do not assume, and do not hardcode. A client can be built against a newer
-// or an older core than it expects - this tree already links romwbw_emu's
-// runtime release API while the shipped build lags it - so "offer everything" is
-// wrong the moment the repo publishes a release the core has not been checked
-// against, and "offer the one I was compiled for" is wrong the moment the core
-// gains one. An entry with no readable hbios pair can never be run and never
-// survives.
-std::vector<size_t> runnableVersions(const std::vector<IndexEntry>& entries,
-                                     const ReleaseSupported& supported);
-
-// Which of the survivors to fetch: the user's own choice if it is still one of
-// them, else the entry marked `default: true`, else the first.
+// EVERY ENTRY IS A CANDIDATE, and there is no longer a per-entry filter in
+// front of this. There was one until romwbw_emu v1.44: `runnableVersions` kept
+// only the entries the linked core's `emu_romwbw_release_supported()` said it
+// could boot, and this function chose among the survivors. That function is
+// gone from the core and so is this one's `runnable` argument, because the
+// release number was never what the core depends on. The core depends on the
+// emulator-to-ROM interface - two I/O ports and the set of HBIOS functions
+// hbios_dispatch.cc services - and that interface is versioned by the name of
+// the document this file parses. Every release a **v0** index publishes speaks
+// it; a change the core could not service would be published as `index-v1.json`
+// beside it, which this build would never read, because INDEX_URL names v0. So
+// the filter could only ever hide releases the user could have booted.
 //
-// Returns npos when `runnable` is empty, which is a REPORTABLE condition and not
-// a reason to fall back to anything: it means this build's core can run no
-// release this repo publishes, and a client that quietly fetched something
-// anyway would download disks it cannot boot.
+// Returns npos when `entries` is empty, which is a REPORTABLE condition and not
+// a reason to fall back to anything: an index that publishes no release is a
+// document this client cannot act on, and a client that quietly fetched
+// something anyway would be inventing a release.
 //
 // The index promises exactly one `default: true` and tools/verify_catalog.py
 // fails a release without it, but this takes the FIRST one it finds and settles
-// for the first survivor when there is none - a client should not crash or
-// refuse over a broken promise it can route around.
+// for the first entry when there is none - a client should not crash or refuse
+// over a broken promise it can route around.
 size_t chooseVersion(const std::vector<IndexEntry>& entries,
-                     const std::vector<size_t>& runnable,
                      const std::string& preferredVersion);
 
 // Which of a catalog's `roms[]` a machine on that release boots: the entry

@@ -29,29 +29,39 @@ messages are not marshalled across processes and will crash the app).
 no `RELEASE_TAG` in this tree any more and no pinned release of anything: the
 only URL compiled in is the index (`INDEX_URL` in `CatalogV0.cpp`), and it names
 **no tag at all** - it goes through `releases/latest/download/`, so where the
-index lives belongs to romwbw_disks and can move with no release here. From it the client reads the RomWBW releases on offer, keeps
-the ones the linked core says it can boot (`DiskCatalog.cpp:534-542`, which asks
-`emu_romwbw_release_supported` rather than deciding for itself), and fetches that
-release's own catalog for the ROM and the images. **So publishing a ROM or a
-disk image, into a release this build already offers, is the whole of shipping
-it — no build of this application is involved.** Verified on 2026-09-07 by
-running it: the release dropdown came back holding both published releases with
-3.6.0 selected, and the disk list held the 3.6.0 set including `hd1k_infocom`,
-an id that has never existed in any build of this client.
+index lives belongs to romwbw_disks and can move with no release here. From it
+the client reads the RomWBW releases on offer — **all of them**, there is no
+filter — and fetches the chosen release's own catalog for the ROM and the
+images. **So publishing a ROM, a disk image, or a whole RomWBW release is the
+whole of shipping it — no build of this application is involved.** Verified on
+2026-09-07 by running it: the release dropdown came back holding both published
+releases with 3.6.0 selected, and the disk list held the 3.6.0 set including
+`hd1k_infocom`, an id that has never existed in any build of this client.
 
-**A whole new RomWBW release is the exception, and it is the only one.** This
-paragraph used to make the promise of a "release", and that was wrong; the
-2026-09-07 run could not have caught it, because both published releases were
-already supported. `ROMWBW_SUPPORTED_RELEASES` in `romwbw_emu/src/romwbw_pin.h`
-is a compile-time list — 3.5.1 and 3.6.0 today — so a 3.7.0 index entry is
-filtered out by any binary built before somebody added it there and booted it.
-Deleting the filter here would not help: `emu_validate_rom_hcb` refuses the ROM
-at load anyway, and `MainWindow.cpp:2463` is the only `loadROM` call in this
-tree. Publishing 3.7.0 therefore costs a release of this application and of the
-other four ports — the coupling `romwbw_disks` exists to remove.
-`romwbw_emu/docs/RELEASE_GATE.md` is the argument for deleting the gate, written
-2026-09-17 and implemented nowhere. Until it is: say this of a ROM or a disk
-image, never of a release.
+**A whole new RomWBW release used to be the exception, and stopped being one on
+2026-09-17.** What stood here was: `emu_romwbw_release_supported()` answered from
+`ROMWBW_SUPPORTED_RELEASES` in `romwbw_emu/src/romwbw_pin.h`, a compile-time list
+of two, so a 3.7.0 index entry was filtered out by any binary built before
+somebody added it there — and publishing 3.7.0 cost a release of this application
+and of the other four ports. romwbw_emu v1.44 deleted the function, the list and
+the header; `catalogv0::runnableVersions` and its caller went with them here on
+2026-09-17, unpackaged as this is written. The reasoning, in full in
+`romwbw_emu/DOWNSTREAM.md` under "RomWBW releases are not this core's
+business": the release number is the
+HBIOS-to-CBIOS pairing of a ROM with a disk image, enforced by the guest's own
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***`, and not a property of the
+emulator. What the emulator depends on is the emulator-to-ROM interface — two
+I/O ports and the HBIOS functions `hbios_dispatch.cc` services — and that is
+versioned by the name of the document `INDEX_URL` names: v0. A change the core
+could not service would be published as `index-v1.json`, which this build ignores
+by name. `emu_validate_rom_hcb` is still called on every load and still refuses a
+ROM with no readable HCB, but it no longer judges a release, so it is not a
+second gate behind the deleted one.
+
+**What still has to match is the ROM and the disks, and nothing in this tree
+enforces it.** The guest does. Ship a 3.6.0 ROM with 3.6.0 images; the Settings
+dialog's note under the release picker says so when they disagree, and Start
+offers to fetch the release's own ROM.
 
 **Nothing is bundled in any package. There is no exception and no fallback
 ROM.** If a packaging script grows a `Copy-Item ...disks\*`, a `File

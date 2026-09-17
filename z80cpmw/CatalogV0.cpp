@@ -277,12 +277,15 @@ bool parseIndex(const std::string& text, std::vector<IndexEntry>& out, std::stri
         e.catalogUrl = str(v, "catalog_url");
         e.haveHbios = versionBytes(v, "hbios", "ver_byte", "upd_byte", e.verByte, e.updByte);
 
-        // Skipped, not fatal. These three are what every later step needs - a
-        // name to remember the choice by, a URL to fetch, and the pair that says
-        // whether the core can boot it - and an entry short of any of them is one
-        // this build cannot use. A LATER index that adds an entry shaped
-        // differently must not take the entries this build does understand down
-        // with it, which is what refusing the whole document would do.
+        // Skipped, not fatal. These three are what CATALOG_SCHEMA.md requires of
+        // every index entry - a name to remember the choice by, a URL to fetch,
+        // and the ROM-to-disk-image pairing - and an entry short of any of them
+        // is a malformed one. The hbios pair is kept in that list now that it
+        // gates nothing: it is still required of the document, and dropping the
+        // requirement here would mean accepting an entry no other reader would.
+        // A LATER index that adds an entry shaped differently must not take the
+        // entries this build does understand down with it, which is what
+        // refusing the whole document would do.
         if (e.romwbwVersion.empty() || e.catalogUrl.empty() || !e.haveHbios) continue;
 
         e.label = str(v, "label");
@@ -449,41 +452,34 @@ std::string assetUrl(const std::string& baseUrl, const std::string& filename) {
     return baseUrl + filename;
 }
 
-std::vector<size_t> runnableVersions(const std::vector<IndexEntry>& entries,
-                                     const ReleaseSupported& supported) {
-    std::vector<size_t> runnable;
-    if (!supported) return runnable;
-    for (size_t i = 0; i < entries.size(); i++) {
-        if (!entries[i].haveHbios) continue;
-        if (supported(entries[i].verByte, entries[i].updByte)) runnable.push_back(i);
-    }
-    return runnable;
-}
-
 size_t chooseVersion(const std::vector<IndexEntry>& entries,
-                     const std::vector<size_t>& runnable,
                      const std::string& preferredVersion) {
-    if (runnable.empty()) return static_cast<size_t>(-1);
+    if (entries.empty()) return static_cast<size_t>(-1);
 
-    // The user's own choice wins while it is still runnable. It is compared
-    // against `romwbw_version` and not against the label, because the label is
-    // display text the index may reword at any time and the version string is
-    // the key the choice was stored under.
+    // The user's own choice wins while the index still publishes it. It is
+    // compared against `romwbw_version` and not against the label, because the
+    // label is display text the index may reword at any time and the version
+    // string is the key the choice was stored under.
     if (!preferredVersion.empty()) {
-        for (size_t i : runnable) {
+        for (size_t i = 0; i < entries.size(); i++) {
             if (entries[i].romwbwVersion == preferredVersion) return i;
         }
-        // Falling through rather than failing is deliberate: a preference for a
-        // release this build can no longer run - the user downgraded the app, or
-        // the repo retired the version - has to degrade to something bootable
-        // rather than leaving them with no catalog at all. What must NOT happen
-        // is any file being deleted over it, and nothing here deletes.
     }
+    // Falling through rather than failing is deliberate: a preference for a
+    // release the index no longer carries - the repo retired the version - has
+    // to degrade to something fetchable rather than leaving the user with no
+    // catalog at all. What must NOT happen is any file being deleted over it,
+    // and nothing here deletes.
+    //
+    // "this build cannot boot it" is no longer one of the ways a preference can
+    // fail to be honoured. It was, until romwbw_emu v1.44 removed the release
+    // allowlist; a preference now only misses because the document stopped
+    // naming it.
 
-    for (size_t i : runnable) {
+    for (size_t i = 0; i < entries.size(); i++) {
         if (entries[i].isDefault) return i;
     }
-    return runnable.front();
+    return 0;
 }
 
 size_t chooseRom(const std::vector<RomItem>& roms, const std::string& preferredId) {

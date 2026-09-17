@@ -124,9 +124,18 @@ bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
     }
 
     // Ask the core why a ROM is unusable before handing it over, so the UI can
-    // tell the user which ROM problem this is (corrupt HCB, or built for a
-    // different RomWBW release than this build emulates). emu_load_rom_from_buffer
-    // runs the same check and refuses too, but only logs the reason.
+    // tell the user which ROM problem this is - too short to hold an HBIOS
+    // Configuration Block, or no 'W' 0xA8 marker where one must be.
+    // emu_load_rom_from_buffer runs the same check and refuses too, but only
+    // logs the reason.
+    //
+    // "BUILT FOR A DIFFERENT ROMWBW RELEASE" IS NO LONGER ONE OF THE ANSWERS,
+    // and this comment used to name it as one. romwbw_emu v1.44 stopped
+    // emu_validate_rom_hcb judging the release: the release is the
+    // HBIOS-to-CBIOS pairing between a ROM and a disk image, which the guest
+    // enforces with its own version-mismatch banner, and not something this core
+    // has an opinion about. The function keeps its name and signature and still
+    // refuses a ROM that is structurally not one.
     const char* bad = emu_validate_rom_hcb(data, size);
     if (bad) {
         m_romError = bad;

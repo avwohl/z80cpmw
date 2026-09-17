@@ -61,11 +61,158 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
-Nothing unpackaged. `Version.h` is at **1.0.35**, which is built and packaged as
+`Version.h` is still at **1.0.35**, which is built and packaged as
 `dist\z80cpmw-1.0.35-store.msix`, **not yet submitted**, and signed as
 `dist\z80cpmw-1.0.35-beta.msix`, **not yet published** - see below. todo.txt
-reserves bumping the version for the moment something is packaged, so this
-section is empty exactly when the tree and the newest package agree.
+reserves bumping the version for the moment something is packaged, so what is
+described here is in the tree and in no package: **a user is still running a
+build with the release filter in it.**
+
+### The release filter is deleted, and a new RomWBW release now needs no build
+
+romwbw_emu v1.44 (`a6fa3db`) deleted its compile-time RomWBW release allowlist
+and the header that held it. Four symbols this repository called no longer
+exist - `emu_romwbw_release_supported()`, `emu_romwbw_supported_list()`,
+`emu_set_allow_untested_romwbw()`, `emu_allow_untested_romwbw()` - and
+`src/romwbw_pin.h` is gone. `z80cpmw.vcxproj` compiles
+`..\romwbw_emu\src\emu_init.cc` **in place** out of the sibling checkout, so
+this was a build break on the day that core was pulled, not a deprecation.
+
+**Why the core dropped it, because the reasoning is what the edits here carry.**
+The RomWBW release number - 3.5.1, 3.6.0, a future 3.7.0 - is the
+HBIOS-to-CBIOS pairing: a fact about a ROM and a disk image, enforced by the
+guest itself, which prints `*** WARNING: HBIOS/CBIOS Version Mismatch ***` when
+they disagree. It is not what the emulator core depends on. What the core
+depends on is the emulator-to-ROM interface: two I/O ports and the set of HBIOS
+functions `hbios_dispatch.cc` services. That interface is versioned by the
+catalog's own name, **v0** - and an interface change the core could not service
+would be published as `index-v1.json` beside `index-v0.json`, which a v0 client
+ignores by name rather than mis-loading. So every release a v0 index publishes
+is bootable, and a per-entry "can this build run it?" filter could only ever
+hide a release the user could have booted. `romwbw_emu/DOWNSTREAM.md`, section
+"RomWBW releases are not this core's business (VERSION 1.44)", is the contract.
+
+What went, in this repository:
+
+- `catalogv0::runnableVersions` and the `catalogv0::ReleaseSupported` typedef,
+  declaration and definition both. `<functional>` came out of `CatalogV0.h` with
+  the typedef; `DiskCatalog.h` includes it for its own callbacks, so nothing
+  lost a declaration.
+- `catalogv0::chooseVersion`'s `runnable` argument. It takes the whole index
+  now and applies the same three rules to it - stored preference, then the
+  index's own `default: true`, then the first entry - so a preference can miss
+  for exactly one reason where it used to have two, and that reason is "the
+  index stopped publishing it".
+- `DiskCatalog::fetchCatalogInto`'s filter, and with it a whole reported failure
+  that can no longer happen: *"This build cannot run any of the RomWBW releases
+  the disk catalog offers (…). It emulates …"*. That sentence named
+  `emu_romwbw_supported_list()`, and there is no list to name.
+- `#include "emu_init.h"` from `DiskCatalog.cpp`, which included it for that one
+  call and nothing else. The class no longer references the emulator core at all.
+- `<ClInclude Include="$(SolutionDir)..\romwbw_emu\src\romwbw_pin.h" />` from
+  `z80cpmw.vcxproj:339`, an item pointing at a file that no longer exists. There
+  is no `.filters` file beside the project, so that was the only project-file
+  reference.
+- The three fake cores in `tests/test_catalogv0.cpp` - `supportsBoth`,
+  `supports351Only`, `supportsNothing`. They stood in for
+  `emu_romwbw_release_supported()`, and the third stood for a state that is not
+  reachable any more rather than one left untested.
+
+What was **kept**, deliberately:
+
+- `hbios.ver_byte` and `upd_byte` in `IndexEntry`, parsed exactly as before.
+  They stop being an emulator gate and remain what they always described, the
+  ROM-to-disk-image pairing. `todo.txt`'s open item about a stored
+  `core.romwbwVersion` that disagrees with the mounted images is what would read
+  them, and that item now says so.
+- `parseIndex` still dropping an entry that carries no readable hbios pair - but
+  as a **malformed document**, the same way it drops one with no
+  `romwbw_version` or no `catalog_url`, and not as an unbootable release.
+  CATALOG_SCHEMA.md requires the pair of every entry. A test for this case moved
+  from the deleted section into `test_index_tolerance`, where it now reads an
+  entry that is complete but for the pair.
+- `emu_validate_rom_hcb()`, same name and signature, still called on every ROM
+  load in `EmulatorEngine::loadROMFromData`. It no longer judges a release, so
+  it is **not** a second gate standing behind the deleted one - two comments,
+  there and at `MainWindow.cpp`'s ROM-load failure path, said it was and are
+  corrected. It still refuses a ROM too short to hold an HBIOS Configuration
+  Block or carrying no `57 A8` marker.
+
+### The About box reports the ROM in the banks, not a list
+
+`emu_romwbw_supported_list()` filled a line reading *"Emulates RomWBW 3.5.1,
+3.6.0 (from the loaded ROM)"* - a list of releases wearing a parenthetical that
+claimed it was a measurement. It now reads **"Running RomWBW 3.6.0 (read from
+the loaded ROM)"**, from `MainWindow::loadedRomwbwRelease()`, which is
+`emu_romwbw_release_loaded()` over the ROM actually in memory.
+
+Before any ROM is loaded there is no honest answer, and that is an ordinary
+state here rather than an edge case: nothing is bundled, the first ROM arrives
+when the user presses Start, and About opens before that. The line is replaced
+with **"No ROM is loaded yet; press Start (F5)."** rather than filled with a
+default - which is the same choice the core made, reporting `0.0.0` and logging
+loudly where it used to substitute a compile-time constant and make a caller bug
+look like a plausible version.
+
+### `getRunnableVersions()` is `getIndexVersions()`
+
+The rename is the point rather than tidying. The old name described a subset,
+and "empty" carried a second meaning - *this build can boot nothing the
+repository publishes* - that two call sites had to reason about.
+`MainWindow::startRomwbwRelease()` is the one that did so in writing, and its
+comment is rewritten: an empty list still means "cannot tell", because it is
+still empty before the first successful fetch, but there is no "not runnable"
+left for it to be confused with. The Settings dialog's release picker fills from
+it and now offers every release the index publishes.
+
+**There was never a greyed-out row to remove**, and that is worth saying because
+it is the harder failure to notice: a release this build had not been checked
+against did not appear at all. A user comparing the picker against
+`romwbw_disks` saw a shorter list and nothing explaining why.
+
+### Four documents stop describing a gate that is gone
+
+`README.md`, `CLAUDE.md`, `FEATURE_PARITY.md` and `packaging/STORE_SUBMISSION.md`
+each described the filter and the consequence it forced: a whole new RomWBW
+release costs a build of this application and of the other four ports. All four
+now say the opposite, which is the fact: **publishing a RomWBW release reaches
+an installed client with no build of anything**, exactly as publishing a ROM or
+a disk image already did. `FEATURE_PARITY.md`'s row had been corrected in 1.0.35
+*to* the filtered reading, so this is the second rewrite of that paragraph in
+two days - the first was right about the code as it then stood.
+
+`todo.txt`'s item *"Delete catalogv0::runnableVersions and its caller in
+DiskCatalog once romwbw_emu drops the release gate"* is done and deleted.
+
+### Verified, and what could not be
+
+Measured on macOS, where **there is no MSVC and no mingw**, so the real build
+was not run and nothing below should be read as a claim that it was.
+
+- The interface-v0 catalog suite builds and passes:
+  `clang++ -std=c++17 -O1 -Wall -I z80cpmw tests/test_catalogv0.cpp
+  z80cpmw/CatalogV0.cpp z80cpmw/DiskLedger.cpp z80cpmw/DiskMigrationV0.cpp`
+  compiles with no diagnostics, and the binary reports **229 checks, 0 failed**
+  (the fixture-drift section SKIPs - no `..\romwbw_disks` beside this checkout).
+  That suite is the one that links `CatalogV0.cpp`, so `chooseVersion`'s new
+  signature and every rule in it are actually exercised rather than only read.
+- `MainWindow::onHelpAbout`'s new `std::wstring` build was extracted verbatim
+  into a standalone translation unit, compiled with `clang++ -Wall` and run, to
+  check the ternary's type and the literal-concatenation across the comment in
+  the middle of the expression. It prints the expected block.
+- Grep proves no deleted symbol is referenced anywhere in the repository: the
+  only remaining occurrences of `emu_romwbw_release_supported`,
+  `emu_romwbw_supported_list`, `runnableVersions`, `getRunnableVersions` and
+  `romwbw_pin` are inside comments and CHANGELOG entries that explain the
+  removal.
+- **NOT verified:** `MSBuild z80cpmw.sln`, so `DiskCatalog.cpp`,
+  `MainWindow.cpp`, `SettingsDialogWx.cpp` and `EmulatorEngine.cpp` have not
+  been through a compiler at all - they include `windows.h`, WinHTTP or
+  wxWidgets and cannot be on this machine. Nor was the app run, so the Settings
+  release picker and the About box were not seen by anyone. `MANUAL_CHECKS.md`
+  §14 is new and carries both, including the case the whole change exists for:
+  point *Catalog index* at an index carrying an invented `3.7.0` entry and check
+  that it appears in the picker.
 
 ## [1.0.35] - 2026-09-17
 

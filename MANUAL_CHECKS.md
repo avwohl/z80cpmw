@@ -782,3 +782,34 @@ already hold; that is what makes a copy superseded without your touching it.
       **nothing** - the notice reads only verdicts a previous fetch left behind,
       and a launch that fetched nothing has none. If it speaks here, it is
       fetching at every launch, which is the cost that was deliberately not paid.
+
+## 14. The About box and the release picker after the release filter went
+
+Neither surface is in any suite - `MainWindow.cpp` and `SettingsDialogWx.cpp`
+need a real window - and both changed on 2026-09-17 with the deletion of
+`catalogv0::runnableVersions`. The catalog suite covers the decision underneath
+them, `chooseVersion` over an unfiltered index; what nobody has seen is the
+result on a screen. Neither change was compiled on the machine that made it,
+either: it had no MSVC.
+
+- [ ] **Help → About before pressing Start**, on a fresh profile with no ROM in
+      the data folder. It must read `No ROM is loaded yet; press Start (F5).`
+      and must NOT name a RomWBW version. A version here means something is
+      substituting a default for a measurement, which is exactly what the old
+      `emu_romwbw_supported_list()` line did.
+- [ ] **Help → About after a successful Start.** One release, the one in the
+      banks - `Running RomWBW 3.6.0 (read from the loaded ROM)` on a default
+      install today. Never a comma-separated list; there is no list any more.
+- [ ] **Settings → Disk Images**, release picker. Every release `index-v0.json`
+      publishes is a row, none disabled and none labelled "(needs a newer
+      build)". Compare the rows against the published index by hand - a filter
+      that came back would show as a SHORTER list, not as an error.
+- [ ] Select a release whose ROM is not the one in the banks and read the note
+      under the picker. It should say Start will offer to fetch that release's
+      ROM, and warn that without it the guest reports an HBIOS/CBIOS version
+      mismatch. That warning is now the ONLY thing standing between a user and a
+      mismatched pair; the emulator will load either.
+- [ ] Point *Catalog index* at a test index carrying an invented release - a
+      `3.7.0` entry with `hbios.ver_byte` `0x37` - and press Refresh. It must
+      appear in the picker and be selectable. Before this change every shipped
+      binary dropped it silently, which is the whole of what was fixed.

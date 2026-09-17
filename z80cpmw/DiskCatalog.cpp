@@ -16,15 +16,18 @@
 // split.
 #include "DiskHash.h"
 
-// emu_romwbw_release_supported(), and nothing else from the core.
-//
-// Which RomWBW releases to OFFER is the core's answer and not this class's: a
-// client can be built against a newer or an older core than it expects, so a
-// hardcoded list here would be wrong in one direction the day romwbw_disks
-// publishes a release the core has not been checked against, and wrong in the
-// other the day the core gains one. Asking costs one call over an index entry
-// this worker has already fetched, and costs no download at all.
-#include "emu_init.h"
+// NOTHING FROM THE EMULATOR CORE IS INCLUDED HERE ANY MORE, and that is the
+// change romwbw_emu v1.44 made rather than an omission. This file used to
+// include emu_init.h for one thing: putting each index entry's {ver_byte,
+// upd_byte} to emu_romwbw_release_supported() and keeping only the releases the
+// linked core admitted to. That function no longer exists. The release number
+// is the HBIOS-to-CBIOS pairing between a ROM and a disk image - the guest
+// enforces it, by printing "*** WARNING: HBIOS/CBIOS Version Mismatch ***" -
+// and never described what this core can execute. What it can execute is the
+// emulator-to-ROM interface, which is versioned by the name of the index this
+// class fetches: v0. So every release a v0 index publishes is offered, and
+// which one is fetched is decided by catalogv0::chooseVersion out of the
+// document alone. (catalogv0:: arrives through DiskCatalog.h above.)
 
 namespace {
 
@@ -182,9 +185,9 @@ std::string DiskCatalog::getSelectedRomwbwVersion() const {
     return m_selectedVersion;
 }
 
-std::vector<catalogv0::IndexEntry> DiskCatalog::getRunnableVersions() const {
+std::vector<catalogv0::IndexEntry> DiskCatalog::getIndexVersions() const {
     std::lock_guard<std::mutex> lock(m_indexMutex);
-    return m_runnableVersions;
+    return m_indexVersions;
 }
 
 std::vector<catalogv0::RomItem> DiskCatalog::getCatalogRoms() const {
@@ -531,37 +534,21 @@ bool DiskCatalog::fetchCatalogInto(std::string& error) {
     std::vector<catalogv0::IndexEntry> index;
     if (!fetchIndex(index, error)) return false;
 
-    // Ask the core, do not assume. emu_romwbw_release_supported answers from
-    // ROMWBW_SUPPORTED_RELEASES in the linked romwbw_emu, so this build offers
-    // what it can actually boot rather than what it was written expecting.
-    const std::vector<size_t> runnable = catalogv0::runnableVersions(
-        index, [](unsigned char ver, unsigned char upd) {
-            emu_romwbw_release r;
-            r.ver = ver;
-            r.upd = upd;
-            return emu_romwbw_release_supported(r);
-        });
-
-    if (runnable.empty()) {
-        // A REAL condition and not a network failure, so it is reported as
-        // itself. It means this build's emulator core can boot none of the
-        // releases romwbw_disks publishes - the client is older or newer than
-        // the repository - and the one thing that must not happen is a silent
-        // fallback to some other release's images, which would download disks
-        // this machine cannot boot and print an HBIOS/CBIOS version mismatch at
-        // the user instead of an explanation.
-        std::string offered;
-        for (const auto& e : index) {
-            if (!offered.empty()) offered += ", ";
-            offered += e.romwbwVersion;
-        }
-        error = "This build cannot run any of the RomWBW releases the disk catalog "
-                "offers (" + offered + "). It emulates " +
-                std::string(emu_romwbw_supported_list()) + ".";
-        return false;
-    }
-
-    const size_t chosen = catalogv0::chooseVersion(index, runnable, getPreferredRomwbwVersion());
+    // EVERY RELEASE THE INDEX PUBLISHES IS OFFERED. There was a filter here
+    // until romwbw_emu v1.44 - catalogv0::runnableVersions putting each entry's
+    // {ver_byte, upd_byte} to emu_romwbw_release_supported() - and with it a
+    // second failure path, reported when the filter emptied the index: "This
+    // build cannot run any of the RomWBW releases the disk catalog offers". Both
+    // are gone with the core function they called. The header comment at the top
+    // of this file has the reasoning; the short of it is that the filter could
+    // only ever hide a release the user could have booted, and the interface
+    // that really can go out of range is the one named in the index's own
+    // filename.
+    //
+    // fetchIndex fails a document that parses to no entries at all, so `index`
+    // is non-empty here and chooseVersion cannot answer npos - the check below
+    // stays regardless, because "cannot" is a claim about code that gets edited.
+    const size_t chosen = catalogv0::chooseVersion(index, getPreferredRomwbwVersion());
     if (chosen >= index.size()) {
         error = "No usable RomWBW release in the disk catalog index";
         return false;
@@ -604,7 +591,7 @@ bool DiskCatalog::fetchCatalogInto(std::string& error) {
     // there anything to invalidate on a version SWITCH: every v0 filename
     // carries its release, so 3.5.1 and 3.6.0 images coexist in one folder and
     // switching back and forth costs nothing. The value is parsed and reaches a
-    // caller on the entries getRunnableVersions() returns; nothing in this
+    // caller on the entries getIndexVersions() returns; nothing in this
     // application acts on it, and nothing may be made to delete on it.
     {
         std::lock_guard<std::mutex> lock(m_catalogMutex);
@@ -627,9 +614,11 @@ bool DiskCatalog::fetchCatalogInto(std::string& error) {
     {
         std::lock_guard<std::mutex> lock(m_indexMutex);
         m_selectedVersion = index[chosen].romwbwVersion;
-        m_runnableVersions.clear();
-        m_runnableVersions.reserve(runnable.size());
-        for (size_t i : runnable) m_runnableVersions.push_back(index[i]);
+        // The whole index, not a subset of it: there is nothing left to filter
+        // on. The Settings dialog fills its release picker from this, so every
+        // release the document names is selectable - none greyed out, none
+        // labelled as needing a newer build.
+        m_indexVersions = index;
     }
 
     updateDownloadedStatus();

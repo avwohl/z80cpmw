@@ -337,11 +337,20 @@ public:
     // the preference could not be honoured.
     std::string getSelectedRomwbwVersion() const;
 
-    // The index entries this build can actually boot, in index order, as of the
-    // last successful fetch. Empty before one, and empty is also the real answer
-    // when this core can run no release the repo publishes - fetchCatalog reports
-    // that case as an error rather than quietly fetching something.
-    std::vector<catalogv0::IndexEntry> getRunnableVersions() const;
+    // Every release the index publishes, in index order, as of the last
+    // successful fetch. Empty ONLY before one - fetchCatalog refuses an index
+    // that parses to no entries, so a successful fetch always leaves at least
+    // one here.
+    //
+    // This was getRunnableVersions(), and the rename is the point rather than
+    // tidying: it returned the subset the linked core's
+    // emu_romwbw_release_supported() admitted to, and "empty" had a second
+    // meaning - this build can boot nothing the repository publishes. romwbw_emu
+    // v1.44 deleted that function; there is no subset any more and no second
+    // meaning. A caller that wants to know whether a particular release is one
+    // the machine is RUNNING asks MainWindow::loadedRomwbwRelease(), which reads
+    // the ROM in the banks.
+    std::vector<catalogv0::IndexEntry> getIndexVersions() const;
 
     // The ROMs the selected catalog publishes, in document order.
     //
@@ -702,5 +711,5 @@ private:
     // m_preferredVersion is, and the two are set together.
     std::string m_preferredRomId;
     std::string m_selectedVersion;
-    std::vector<catalogv0::IndexEntry> m_runnableVersions;
+    std::vector<catalogv0::IndexEntry> m_indexVersions;
 };

@@ -27,14 +27,19 @@
 #include "Version.h"
 #include "CrashHandler.h"
 #include "emu_io.h"
-// The RomWBW release the shared core emulates, for the About box. Single source
-// of truth in romwbw_emu; DOWNSTREAM asks every port with a version display to
-// show it.
-// emu_romwbw_supported_list() for the About box, and
 // emu_romwbw_release_loaded() / emu_romwbw_release_str() for
-// loadedRomwbwRelease(), which is what tells the Settings dialog whether the
-// RomWBW release the user has selected for the disk catalog is one the ROM in
-// the banks can boot.
+// loadedRomwbwRelease(): the RomWBW release read out of the ROM actually in the
+// banks. That one function answers for both surfaces that report a release - the
+// About box and the Settings dialog's note under the release picker - and it is
+// the only honest answer either can give.
+//
+// There is no compile-time list to report instead, and no answer at all before a
+// ROM is loaded. emu_romwbw_supported_list() stood here until romwbw_emu v1.44
+// and named the releases a build claimed to support; it is deleted, along with
+// emu_romwbw_release_supported(), because the release number is the
+// HBIOS-to-CBIOS pairing of a ROM with a disk image and not a property of the
+// emulator core. DOWNSTREAM.md's "Reporting a version" says it in one line:
+// report the one that was LOADED, not a constant.
 #include "emu_init.h"
 
 // External function to set main window for host file dialogs
@@ -1824,22 +1829,34 @@ void MainWindow::onHelpAbout() {
     std::string verStr = VERSION_STRING;
     std::wstring verStrW(verStr.begin(), verStr.end());
 
-    // The RomWBW releases this build can run.  Not a compile-time constant any
-    // more: the core reads the version out of whichever ROM it loads, so there
-    // is a list rather than a pin.  ASCII digits and dots, so the same
-    // byte-wise widen the two strings above use is correct here too.
-    std::string romwbwRel = emu_romwbw_supported_list();
-    std::wstring romwbwRelW(romwbwRel.begin(), romwbwRel.end());
+    // THE RELEASE OF THE ROM IN THE BANKS, and nothing else. This read
+    // emu_romwbw_supported_list() - the core's compile-time list of releases the
+    // build claimed to support - until romwbw_emu v1.44 deleted it, and the line
+    // it produced was a list of releases rather than a fact about this machine
+    // even while it said "(from the loaded ROM)".
+    //
+    // Empty before a ROM is loaded, which is an ordinary state here: nothing is
+    // bundled, the first ROM arrives when the user presses Start, and About is
+    // openable before that. There is no honest substitute for it, so the line is
+    // omitted rather than filled with a default - the core itself reports 0.0.0
+    // and logs loudly in the same situation, for the same reason. ASCII digits
+    // and dots, so the byte-wise widen the two strings above use is correct here.
+    const std::string romwbwRel = loadedRomwbwRelease();
+    const std::wstring romwbwRelW(romwbwRel.begin(), romwbwRel.end());
+    const std::wstring romwbwLine =
+        romwbwRel.empty() ? std::wstring(L"No ROM is loaded yet; press Start (F5).\n\n")
+                          : L"Running RomWBW " + romwbwRelW + L" (read from the loaded ROM).\n\n";
 
     std::wstring aboutText =
         L"z80cpmw - Z80 CP/M Emulator\n"
         L"Version " + verStrW + L"\n\n"
         L"A RomWBW/HBIOS emulator for Windows.\n"
-        // The RomWBW releases the core can run. A user who hits the
-        // "HBIOS/CBIOS Version Mismatch" banner is being told their disk images
-        // were built by a different release than the ROM they loaded, and the
-        // app displayed nothing they could compare against before this.
-        L"Emulates RomWBW " + romwbwRelW + L" (from the loaded ROM).\n\n"
+        // A user who hits the "HBIOS/CBIOS Version Mismatch" banner is being
+        // told their disk images were built by a different release than the ROM
+        // they loaded, and the app displayed nothing they could compare against
+        // before this. That comparison wants the release actually in the banks,
+        // which is what this now shows.
+        + romwbwLine +
         L"Data Folder (disks and R8/W8 transfers):\n" + dataDirW + L"\n\n"
         L"License: GPL v3\n"
         L"CP/M OS licensed by Lineo for non-commercial use.\n\n"
@@ -2294,38 +2311,46 @@ std::string MainWindow::startRomwbwRelease() const {
     // A PREFERENCE AND NOT A PIN, which is what this used to make of it.
     //
     // catalogv0::chooseVersion honours a stored release only while the index
-    // still carries it AND this core can boot it, and otherwise falls through to
-    // the index's own `default: true`. DiskCatalog.h says so in as many words -
+    // still publishes it, and otherwise falls through to the index's own
+    // `default: true`. DiskCatalog.h says so in as many words -
     // getSelectedRomwbwVersion() "is the answer to what am I looking at, which
     // the preference above is not: the two differ whenever the preference could
     // not be honoured". Returning cfg.romwbwVersion regardless is what made the
     // two disagree, and every caller of this function believes this one.
     //
-    // What that cost: with an unrunnable release stored, romReadyToStart() wants
-    // a release the catalog has never read, fetchRomCatalog() then "succeeds" by
-    // returning the release it actually has, the requirement still does not
-    // match, and F5 ends in a "Cannot start" box telling the user to check the
-    // network after a fetch that worked. Nothing rewrites the preference, so it
-    // repeats on every F5 for ever. An unrunnable value is reachable without
-    // hand-editing: Config.cpp's v0 back-fill derives one from the mounted
-    // images' filenames with diskv0::releaseOfV0Name, which is string slicing
-    // and asks no one whether the result can boot.
+    // What that cost: with a release stored that the catalog does not have,
+    // romReadyToStart() wants a release the catalog has never read,
+    // fetchRomCatalog() then "succeeds" by returning the release it actually
+    // has, the requirement still does not match, and F5 ends in a "Cannot start"
+    // box telling the user to check the network after a fetch that worked.
+    // Nothing rewrites the preference, so it repeats on every F5 for ever. Such
+    // a value is reachable without hand-editing: Config.cpp's v0 back-fill
+    // derives one from the mounted images' filenames with
+    // diskv0::releaseOfV0Name, which is string slicing and asks no one whether
+    // the document still names the result.
     //
-    // ONLY ONCE A CATALOG HAS BEEN READ. getRunnableVersions() is empty before
-    // the first successful fetch, and that is exactly when the stored preference
-    // is the only thing that knows which release this machine runs - so an empty
-    // list means "cannot tell", never "not runnable".
+    // ONE OF THE TWO WAYS A PREFERENCE COULD MISS IS GONE. It used to be "the
+    // index no longer carries it OR this core cannot boot it"; romwbw_emu v1.44
+    // deleted the release allowlist, so only the first remains and the loop below
+    // is now a published/not-published test. Nothing about the shape changes:
+    // what matters is that this function and chooseVersion apply the SAME test,
+    // so they cannot disagree about one machine.
+    //
+    // ONLY ONCE A CATALOG HAS BEEN READ. getIndexVersions() is empty before the
+    // first successful fetch, and that is exactly when the stored preference is
+    // the only thing that knows which release this machine runs - so an empty
+    // list means "cannot tell", never "not published".
     if (!cfg.romwbwVersion.empty()) {
-        const std::vector<catalogv0::IndexEntry> runnable =
-            m_diskCatalog ? m_diskCatalog->getRunnableVersions()
+        const std::vector<catalogv0::IndexEntry> published =
+            m_diskCatalog ? m_diskCatalog->getIndexVersions()
                           : std::vector<catalogv0::IndexEntry>();
-        if (runnable.empty()) return cfg.romwbwVersion;
-        for (const auto& entry : runnable) {
+        if (published.empty()) return cfg.romwbwVersion;
+        for (const auto& entry : published) {
             if (entry.romwbwVersion == cfg.romwbwVersion) return cfg.romwbwVersion;
         }
-        // Stored, still published perhaps, but not one this core can boot.
-        // Fall through to what the catalog settled on - which is chooseVersion's
-        // answer for this same machine, so the two now agree by construction.
+        // Stored, but the index does not publish it any more. Fall through to
+        // what the catalog settled on - which is chooseVersion's answer for this
+        // same machine, so the two now agree by construction.
     }
 
     if (!selected.empty()) return selected;
@@ -2500,8 +2525,12 @@ bool MainWindow::loadCatalogRomForStart(std::string& reason, RomBlock& block) {
     if (!m_emulator->loadROM(path)) {
         block = RomBlock::Unusable;
         // emu_validate_rom_hcb, still the last line of defence and not made
-        // redundant by the hash: a file can be the published bytes and still be
-        // a release this core has never been run against.
+        // redundant by the hash: a file can be 512 KB of the right size with a
+        // matching checksum recorded for the wrong thing, and what this refuses
+        // is an image with no readable HBIOS Configuration Block at all. It no
+        // longer refuses a RELEASE - romwbw_emu v1.44 stopped it judging one -
+        // so the message a user sees here is about a broken ROM, never about a
+        // version.
         reason = m_emulator->getROMError();
         return false;
     }

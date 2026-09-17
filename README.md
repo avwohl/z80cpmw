@@ -61,16 +61,24 @@ risk worth the convenience.
 Three things are yours to choose, all under **Emulator → Settings**:
 
 - **Which RomWBW release** - the picker at the top of the **Disk Images** page.
-  That list is the index, filtered to the releases the emulator core says it can
-  boot, so a release the core has never been checked against is not offered.
-  **This is the one choice on this page the catalog cannot add to on its own.**
-  The bootable set is a compile-time list in the emulator core,
-  `ROMWBW_SUPPORTED_RELEASES` in `romwbw_emu/src/romwbw_pin.h`, because bank 0 of
-  every ROM is the emulator's own HBIOS proxy and adding a release there is a
-  claim that somebody booted it. A whole new RomWBW release therefore does need a
-  new build of this application - and of the macOS, iOS, Android and Linux ports.
-  `romwbw_emu/docs/RELEASE_GATE.md` argues that this gates the wrong axis and
-  should go; until it does, this is the limit.
+  That list is the index, unfiltered: every release `romwbw_disks` publishes is
+  offered, and **a new RomWBW release reaches you with no new build of this
+  application**, exactly as a new ROM or a new disk image does.
+  This paragraph said the opposite until 2026-09-17, and the thing it described
+  was real: the list was filtered through the emulator core's
+  `emu_romwbw_release_supported()`, which answered from a compile-time list in
+  `romwbw_emu/src/romwbw_pin.h`, so a 3.7.0 entry was dropped by any binary built
+  before somebody added 3.7.0 there. romwbw_emu v1.44 deleted the function, the
+  list and the header. The reasoning is in `romwbw_emu/DOWNSTREAM.md`: the
+  release number is the pairing between a ROM and a disk image - which the guest
+  enforces itself, by printing `*** WARNING: HBIOS/CBIOS Version Mismatch ***` -
+  and not a property of the emulator. What the emulator depends on is the
+  emulator-to-ROM interface, and that is versioned by the name of the catalog
+  this app reads: `index-v0.json`. An interface change the core could not service
+  would be published as `index-v1.json`, which this build would never open.
+  What the release picker still owes you is a matched pair, and it says so: pick
+  a release whose ROM is not the one in the banks and the note under the picker
+  tells you Start will offer to fetch that release's ROM.
 - **Which ROM** - the dropdown on the **Machine** page, filled from the selected
   release's ROMs. Publishing a new ROM in `romwbw_disks`, into a release the
   picker already offers, makes it selectable with no new release of this

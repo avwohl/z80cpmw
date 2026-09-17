@@ -595,17 +595,16 @@ static const char* const REAL_CATALOG_351 = R"JSON({
   ]
 })JSON";
 
-// The cores this suite pretends to be. The real one is
-// emu_romwbw_release_supported() out of the linked romwbw_emu; these three are
-// the three shapes it can have, and the third is not hypothetical - it is what a
-// build too old or too new for the repository looks like.
-static bool supportsBoth(unsigned char ver, unsigned char upd) {
-    return (ver == 0x35 && upd == 0x10) || (ver == 0x36 && upd == 0x00);
-}
-static bool supports351Only(unsigned char ver, unsigned char upd) {
-    return ver == 0x35 && upd == 0x10;
-}
-static bool supportsNothing(unsigned char, unsigned char) { return false; }
+// THREE FAKE CORES STOOD HERE - supportsBoth, supports351Only and
+// supportsNothing - and they are deleted with the thing they stood in for.
+// catalogv0::runnableVersions put every index entry's {ver_byte, upd_byte} to
+// the linked core's emu_romwbw_release_supported(), and these three were the
+// three shapes that answer could take. romwbw_emu v1.44 deleted that function:
+// the release number is the ROM-to-disk-image pairing, not a property of the
+// emulator core, and every release a v0 index publishes is one this core speaks
+// to. So there is no predicate left to fake, and the third shape - "this build
+// can boot nothing the repository publishes" - is not a state the code can
+// reach any more rather than a case left untested.
 
 //=============================================================================
 // Sections
@@ -732,43 +731,59 @@ static void test_which_releases_are_offered() {
         return;
     }
 
-    // A core that can boot both - which is what romwbw_emu v1.39 is today.
-    std::vector<size_t> both = catalogv0::runnableVersions(entries, supportsBoth);
-    checkNum(both.size(), 2, "a core that boots both is offered both");
-    checkNum(catalogv0::chooseVersion(entries, both, ""), 1,
-             "and with no preference it takes the index's default, which is 3.6.0 "
+    // THE DOCUMENT DECIDES, AND NOTHING ELSE DOES. This section used to run the
+    // entries through catalogv0::runnableVersions against three fake cores
+    // first, and chooseVersion only ever saw the survivors. romwbw_emu v1.44
+    // deleted emu_romwbw_release_supported(), so there is no filter and no
+    // survivor set: every entry parseIndex accepted is a candidate, and these
+    // checks put the whole index to chooseVersion.
+    checkNum(catalogv0::chooseVersion(entries, ""), 1,
+             "with no preference it takes the index's default, which is 3.6.0 "
              "since the 2026-09-05 promotion - read from the flag, never from the "
              "position, so this moved when the document did");
-    checkNum(catalogv0::chooseVersion(entries, both, "3.6.0"), 1,
+    checkNum(catalogv0::chooseVersion(entries, "3.6.0"), 1,
              "a stored preference for 3.6.0 is honoured");
+    checkNum(catalogv0::chooseVersion(entries, "3.5.1"), 0,
+             "and so is one for 3.5.1, which is NOT the index's default - the "
+             "preference is what makes this answer differ from the line above, so "
+             "a chooseVersion that ignored it would still pass that one");
 
-    // A core built for one release, which is every SHIPPED client today.
-    std::vector<size_t> one = catalogv0::runnableVersions(entries, supports351Only);
-    checkNum(one.size(), 1, "a core that boots only 3.5.1 is offered only 3.5.1");
-    checkNum(catalogv0::chooseVersion(entries, one, ""), 0, "and gets it");
-    checkNum(catalogv0::chooseVersion(entries, one, "3.6.0"), 0,
-             "a preference it cannot boot falls back rather than failing - a user "
-             "who downgrades the app must still get a working catalog");
+    // The fallback. A preference can miss for exactly one reason now - the index
+    // stopped publishing that release - where it used to have two, the second
+    // being a core that could not boot it. What must not change is that missing
+    // degrades to something fetchable rather than to nothing: a user whose
+    // chosen release was retired still gets a working catalog, and no file is
+    // deleted over it.
+    checkNum(catalogv0::chooseVersion(entries, "3.4.0"), 1,
+             "a preference the index no longer carries falls back to the default "
+             "rather than failing");
+    checkNum(catalogv0::chooseVersion(entries, "not a version at all"), 1,
+             "and so does a stored string that was never a release");
 
-    // The reportable one. This is not a network failure and must not be dressed
-    // as one: it means the client and the repository have drifted apart, and
-    // quietly fetching some other release's images would download disks this
-    // machine cannot boot and hand the user an HBIOS/CBIOS mismatch instead of
-    // an explanation.
-    std::vector<size_t> none = catalogv0::runnableVersions(entries, supportsNothing);
-    checkNum(none.size(), 0, "a core that boots neither is offered neither");
-    checkTrue(catalogv0::chooseVersion(entries, none, "3.5.1") == (size_t)-1,
-              "and choosing from nothing yields nothing, not the first entry");
+    // Empty is the ONE reportable answer left. It is not reachable from a parsed
+    // document - parseIndex refuses one that yields no entries - which is why it
+    // is checked directly here rather than through a fixture. A caller that
+    // fell back to entries[0] on an empty vector would be reading past the end.
+    const std::vector<catalogv0::IndexEntry> nothing;
+    checkTrue(catalogv0::chooseVersion(nothing, "3.5.1") == (size_t)-1,
+              "choosing from an empty index yields npos, not a first entry that "
+              "does not exist");
 
-    // An entry whose hbios pair could not be read can never be run: the pair is
-    // the whole of what decides whether the core can boot it.
-    catalogv0::IndexEntry blind;
-    blind.romwbwVersion = "3.9.9";
-    blind.haveHbios = false;
-    std::vector<catalogv0::IndexEntry> withBlind = entries;
-    withBlind.push_back(blind);
-    checkNum(catalogv0::runnableVersions(withBlind, supportsBoth).size(), 2,
-             "an entry with no readable version bytes is never offered");
+    // A release nobody has heard of is OFFERED, and this is the case the old
+    // filter got wrong. Before v1.44 a 3.7.0 entry was dropped by every binary
+    // built before somebody added 3.7.0 to the core's compile-time list, so
+    // publishing a release cost a build of this application and of four other
+    // ports. It now needs none.
+    catalogv0::IndexEntry future;
+    future.romwbwVersion = "3.7.0";
+    future.haveHbios = true;
+    future.verByte = 0x37;
+    future.updByte = 0x00;
+    std::vector<catalogv0::IndexEntry> withFuture = entries;
+    withFuture.push_back(future);
+    checkNum(catalogv0::chooseVersion(withFuture, "3.7.0"), 2,
+             "a release this build has never heard of is chosen when the user "
+             "asks for it - no allowlist stands in front of the index");
 }
 
 static void test_index_tolerance() {
@@ -798,6 +813,21 @@ static void test_index_tolerance() {
                 "not even an object"]})JSON", entries, error),
         "an entry this build cannot use is skipped, not fatal");
     checkNum(entries.size(), 1, "and only the usable one survives");
+
+    // The hbios pair specifically, with everything else present. It is required
+    // of every index entry by CATALOG_SCHEMA.md and an entry without it is a
+    // MALFORMED DOCUMENT - which is the whole of why it is still refused here.
+    // It is no longer refused because the core cannot boot the release: that
+    // reading died with emu_romwbw_release_supported() in romwbw_emu v1.44, and
+    // the pair now describes only which disk images go with which ROM.
+    checkTrue(catalogv0::parseIndex(
+        R"JSON({"romwbw_versions":[
+                {"romwbw_version":"3.5.1","catalog_url":"u",
+                 "hbios":{"ver_byte":"0x35","upd_byte":"0x10"}},
+                {"romwbw_version":"3.8.0","catalog_url":"u3","label":"RomWBW 3.8.0"}
+                ]})JSON", entries, error),
+        "an entry with no hbios pair is skipped, not fatal");
+    checkNum(entries.size(), 1, "and the entry that carries one survives alone");
 
     // The refusals. Each of these is a document that would otherwise be read as
     // an empty but valid index, which reads to a user as "there are no disks".

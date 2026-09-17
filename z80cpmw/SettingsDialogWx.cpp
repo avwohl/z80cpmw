@@ -1126,8 +1126,16 @@ void SettingsDialogWx::populateVersionList() {
     m_romwbwVersionChoice->Clear();
     m_romwbwVersionIds.clear();
 
+    // EVERY RELEASE THE INDEX PUBLISHES, and none of them greyed out. This was
+    // getRunnableVersions(), a subset kept by asking the emulator core whether
+    // it could boot each one; romwbw_emu v1.44 deleted the function behind that
+    // question, because the release number is the ROM-to-disk-image pairing and
+    // not a property of the core. So there is no "(needs a newer build)" row to
+    // render and never was a disabled one - a release this build had not been
+    // checked against simply did not appear, which is the harder failure to
+    // notice.
     const std::vector<catalogv0::IndexEntry> versions =
-        m_catalog ? m_catalog->getRunnableVersions() : std::vector<catalogv0::IndexEntry>();
+        m_catalog ? m_catalog->getIndexVersions() : std::vector<catalogv0::IndexEntry>();
 
     if (versions.empty()) {
         // No index yet - the fetch this dialog's constructor started has not
@@ -1764,7 +1772,7 @@ void SettingsDialogWx::onCatalogLoaded(wxCommandEvent& event) {
     } else {
         m_statusText->SetLabel("Failed to load catalog: " + event.GetString());
         // Refilled on the failure path too, and it does two things here.
-        // getRunnableVersions() is only ever written by a fetch that SUCCEEDED,
+        // getIndexVersions() is only ever written by a fetch that SUCCEEDED,
         // so the list itself comes back unchanged - what moves is the
         // SELECTION, which is put back onto getSelectedRomwbwVersion(), the
         // release whose entries are actually in hand. So a switch to 3.6.0 that

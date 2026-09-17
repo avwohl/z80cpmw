@@ -339,16 +339,20 @@ that package was cut are in the tree and not in it.
      packaged) and bought nothing.
    - What the user actually runs is therefore decided by what `romwbw_disks`
      publishes — not by this build, and no longer by a constant inside it. A new
-     ROM or a new disk image within a release the client already offers reaches
-     users with no packaging step and no release here at all; that is what makes
-     the catalog's second ROM, `emu_rcz80`, selectable without a build of this
-     application. What still needs a build is a new RomWBW *version*, because
-     which versions are offered is decided by the emulator core rather than by
-     this repository: `DiskCatalog::fetchCatalogInto` filters the index through
-     `emu_romwbw_release_supported()`, which answers from
-     `ROMWBW_SUPPORTED_RELEASES` in `..\romwbw_emu\src\romwbw_pin.h` (3.5.1
-     and 3.6.0 today, both recorded there as checked 2026-09-05). See
-     `CLAUDE.md`.
+     ROM or a new disk image reaches users with no packaging step and no release
+     here at all; that is what makes the catalog's second ROM, `emu_rcz80`,
+     selectable without a build of this application. **Since 2026-09-17 a new RomWBW
+     *version* is the same: it needs no build either.** It did until then —
+     `DiskCatalog::fetchCatalogInto` filtered the index through
+     `emu_romwbw_release_supported()`, which answered from
+     `ROMWBW_SUPPORTED_RELEASES` in `..\romwbw_emu\src\romwbw_pin.h` — and
+     romwbw_emu v1.44 deleted all three, on the argument that the release number
+     is the ROM-to-disk-image pairing rather than anything the emulator core
+     depends on. The filter is gone from this repository with it, so the release
+     picker offers every release the index publishes. See `CLAUDE.md`.
+     **For a submission this means one thing: nothing in the package names a
+     RomWBW version any more, so a release note claiming support for a
+     particular one is a claim about the catalog, not about the binary.**
    - Images are verified where they are published: `romwbw_disks`
      `tools/verify_release.sh` checks every ROM's HCB, every bootable image's
      CBIOS banner and the `06 E9 CF` `HBF_HOST_CAPS` probe in every `w8.com`,
