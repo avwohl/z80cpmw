@@ -61,10 +61,109 @@ therefore not evidence of what has shipped.
 
 ## [Unreleased]
 
-Nothing unpackaged. `Version.h` is at **1.0.34**, which is built, submitted and
-awaiting review - see below. todo.txt reserves bumping the version for the moment
-something is packaged, so this section is empty exactly when the tree and the
-newest package agree.
+Nothing unpackaged. `Version.h` is at **1.0.35**, which is built and packaged as
+`dist\z80cpmw-1.0.35-store.msix` and **not yet submitted** - see below. todo.txt
+reserves bumping the version for the moment something is packaged, so this
+section is empty exactly when the tree and the newest package agree.
+
+## [1.0.35] - 2026-09-17
+
+**The release picker is a preference again, and three documents stop promising
+a scope this application never had.** Packaged for the Store on 2026-09-17 and
+not submitted as this is written; measure with `tools/check-store-version.sh`
+before reading 1.0.35 as what anyone is running.
+
+### A stored RomWBW release could dead-end every F5, blaming the network
+
+`MainWindow::startRomwbwRelease()` returned `cfg.romwbwVersion` whenever it was
+non-empty, which made a stored release a **pin**. Everything downstream treats
+it as a **preference**: `catalogv0::chooseVersion` honours it only while the
+index still carries that release and this core can boot it, and otherwise falls
+through to the index's own `default: true`. `DiskCatalog.h` already said so -
+`getSelectedRomwbwVersion()` "is the answer to what am I looking at, which the
+preference above is not: the two differ whenever the preference could not be
+honoured."
+
+So the two disagreed, and every caller believed the wrong one. With an
+unrunnable release stored, `romReadyToStart()` wanted a release the catalog had
+never read, `fetchRomCatalog()` then *succeeded* by returning the release it
+actually had, the requirement still did not match, and F5 ended in a **"Cannot
+start"** box advising a network check after a fetch that worked. Nothing rewrote
+the preference, so it repeated on every F5 for ever. Settings healed it -
+`populateVersionList` selects on what was fetched and `saveSettings` writes that
+back on OK - so the escape existed and was undiscoverable from the error.
+
+An unrunnable value is reachable without hand-editing a config: `Config.cpp`'s
+v0 back-fill derives one from the mounted images' filenames through
+`diskv0::releaseOfV0Name`, which is string slicing and asks nothing whether the
+result can boot.
+
+The fix honours the stored release only once a catalog has been read and only
+while it is among `getRunnableVersions()`, and otherwise falls through to what
+the catalog settled on - so the two paths now agree by construction. An empty
+runnable list means "cannot tell", never "not runnable": before the first
+successful fetch the stored preference is the only thing that knows which
+release this machine runs, and it is returned unchanged.
+
+### Three documents promised a scope the code never had
+
+`README.md`, `CLAUDE.md` and `FEATURE_PARITY.md` each stated the mechanism - the
+index is filtered to the releases the core says it can boot - and then promised
+the consequence of not having it. `FEATURE_PARITY.md` was flatly wrong: "A
+published release therefore reaches users with no build of this application,
+which is the point", three lines under the filter that makes it false.
+`CLAUDE.md`'s rule had "publishing a release" as its grammatical subject, with
+"a new ROM or disk" doing all the disambiguating work at the end of the
+sentence; its 2026-09-07 verification is real but could not have caught this,
+because both published releases were already supported.
+
+What is true: a ROM or a disk image published into a release this build already
+offers reaches users with no build of this application, and `hd1k_infocom` is
+the measured proof. A whole new RomWBW release does not.
+`emu_romwbw_release_supported` answers from `ROMWBW_SUPPORTED_RELEASES` in
+`romwbw_emu/src/romwbw_pin.h`, a compile-time list of two, so a 3.7.0 index
+entry is filtered out - and deleting the filter here would not help, because
+`emu_validate_rom_hcb` refuses the ROM at load and `MainWindow.cpp:2463` is the
+only `loadROM` call in this tree.
+
+The new `romwbw_emu/docs/RELEASE_GATE.md` argues that this gates the wrong axis:
+the release number is the HBIOS-to-disk-image pairing, while what the core
+actually depends on is the dispatch and bank-call ports plus the function set in
+`hbios_dispatch.cc` - which `romwbw_disks` already versions as interface v0.
+Nothing of that is implemented. todo.txt carries this port's half, blocked on
+the core.
+
+### Verified
+
+- `MSBuild z80cpmw.sln -p:Configuration=Release -p:Platform=x64 -t:Rebuild -m`:
+  **Build succeeded, 0 Warning(s), 0 Error(s)**, 38.84s. This is the first
+  1.0.35 build and the only one; the package below was cut from it with
+  `-SkipBuild`.
+- `tests\run_tests.bat`: **374 checks, 0 failed. All suites passed.** None of
+  them reaches `MainWindow.cpp`, which is in no suite and cannot be - so the
+  change above is compiled and not executed. `MANUAL_CHECKS.md` is where driving
+  it by hand is recorded.
+- `packaging\scripts\build-msix.ps1 -SkipBuild`: wrote
+  `dist\z80cpmw-1.0.35-store.msix` (6,706,675 bytes) and kept
+  `dist\z80cpmw-1.0.35-store.pdb` beside it.
+- The packaged binary is the built one: `z80cpmw.exe` inside the `.msix` and
+  `bin\Release\z80cpmw.exe` both hash
+  `640C82A937FA02BF1995602A35D7FEA118504C068A17C5C5F12D43B9AE7E9C1B`.
+- Identity read back out of the package's own `AppxManifest.xml`:
+  `AaronWohl.Z80CPM`, `Publisher="CN=724C9014-DD22-420E-9BB4-F2740D082EB0"`,
+  `Version="1.0.35.0"`, `x64`. The Store publisher, not the beta one, and
+  unsigned - Microsoft re-signs at submission.
+- Nothing is bundled: the package holds 49 entries and **none** matches
+  `*.rom` or `*.img`, checked by enumerating the zip rather than by reading the
+  staging script.
+
+### Not verified
+
+- Nobody has launched this build. The `startRomwbwRelease()` change lives in
+  `MainWindow.cpp`, which no suite covers and which needs a real window.
+- Not submitted to Partner Center. 1.0.34 was still the served version at the
+  last measurement (2026-09-15); submitting 1.0.35 while 1.0.34 is in review is
+  a Partner Center question this repository cannot answer.
 
 ## [1.0.34] - 2026-09-13
 

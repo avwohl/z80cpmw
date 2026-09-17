@@ -32,12 +32,26 @@ only URL compiled in is the index (`INDEX_URL` in `CatalogV0.cpp`), and it names
 index lives belongs to romwbw_disks and can move with no release here. From it the client reads the RomWBW releases on offer, keeps
 the ones the linked core says it can boot (`DiskCatalog.cpp:534-542`, which asks
 `emu_romwbw_release_supported` rather than deciding for itself), and fetches that
-release's own catalog for the ROM and the images. **So publishing a release in
-`romwbw_disks` is the whole of shipping a new ROM or disk — no build of this
-application is involved.** Verified on 2026-09-07 by running it: the release
-dropdown came back holding both published releases with 3.6.0 selected, and the
-disk list held the 3.6.0 set including `hd1k_infocom`, an id that has never
-existed in any build of this client.
+release's own catalog for the ROM and the images. **So publishing a ROM or a
+disk image, into a release this build already offers, is the whole of shipping
+it — no build of this application is involved.** Verified on 2026-09-07 by
+running it: the release dropdown came back holding both published releases with
+3.6.0 selected, and the disk list held the 3.6.0 set including `hd1k_infocom`,
+an id that has never existed in any build of this client.
+
+**A whole new RomWBW release is the exception, and it is the only one.** This
+paragraph used to make the promise of a "release", and that was wrong; the
+2026-09-07 run could not have caught it, because both published releases were
+already supported. `ROMWBW_SUPPORTED_RELEASES` in `romwbw_emu/src/romwbw_pin.h`
+is a compile-time list — 3.5.1 and 3.6.0 today — so a 3.7.0 index entry is
+filtered out by any binary built before somebody added it there and booted it.
+Deleting the filter here would not help: `emu_validate_rom_hcb` refuses the ROM
+at load anyway, and `MainWindow.cpp:2463` is the only `loadROM` call in this
+tree. Publishing 3.7.0 therefore costs a release of this application and of the
+other four ports — the coupling `romwbw_disks` exists to remove.
+`romwbw_emu/docs/RELEASE_GATE.md` is the argument for deleting the gate, written
+2026-09-17 and implemented nowhere. Until it is: say this of a ROM or a disk
+image, never of a release.
 
 **Nothing is bundled in any package. There is no exception and no fallback
 ROM.** If a packaging script grows a `Copy-Item ...disks\*`, a `File

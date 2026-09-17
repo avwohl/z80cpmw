@@ -971,10 +971,19 @@ copyrighted content.
   the HBIOS/CBIOS-mismatch protection the pin existed for is still here; it is
   enforced by the core and the document rather than by a constant.
 
-  A published release therefore reaches users with no build of this application,
-  which is the point. Two documents rather than one: `index-v0.json` names the
-  releases, and each release's own catalog names its ROMs and images with their
-  sizes and sha256.
+  **This row used to end "A published release therefore reaches users with no
+  build of this application, which is the point", and that was false three lines
+  under the filter that makes it so.** A published ROM or disk image does reach
+  users with no build of this application, and `hd1k_infocom` is the measured
+  proof. A published *release* does not: `emu_romwbw_release_supported` answers
+  from `ROMWBW_SUPPORTED_RELEASES` in `romwbw_emu/src/romwbw_pin.h`, a
+  compile-time list, so a 3.7.0 entry is dropped here and, were it not,
+  `emu_validate_rom_hcb` would refuse the ROM at load. The constant the pin
+  removal was celebrating did not go away; it moved one repository over and got
+  coarser. `romwbw_emu/docs/RELEASE_GATE.md` is the argument for deleting it.
+
+  Two documents rather than one: `index-v0.json` names the releases, and each
+  release's own catalog names its ROMs and images with their sizes and sha256.
 
   **The library has provenance.** `DiskLedger` and `DiskHash` arrived in
   `211488b` and are why this row's ◐ needs re-examining rather than restating:

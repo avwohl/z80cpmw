@@ -2287,10 +2287,47 @@ std::string MainWindow::loadedRomwbwRelease() const {
 
 std::string MainWindow::startRomwbwRelease() const {
     const auto& cfg = config::ConfigManager::instance().get();
-    if (!cfg.romwbwVersion.empty()) return cfg.romwbwVersion;
 
     const std::string selected = m_diskCatalog ? m_diskCatalog->getSelectedRomwbwVersion()
                                                : std::string();
+
+    // A PREFERENCE AND NOT A PIN, which is what this used to make of it.
+    //
+    // catalogv0::chooseVersion honours a stored release only while the index
+    // still carries it AND this core can boot it, and otherwise falls through to
+    // the index's own `default: true`. DiskCatalog.h says so in as many words -
+    // getSelectedRomwbwVersion() "is the answer to what am I looking at, which
+    // the preference above is not: the two differ whenever the preference could
+    // not be honoured". Returning cfg.romwbwVersion regardless is what made the
+    // two disagree, and every caller of this function believes this one.
+    //
+    // What that cost: with an unrunnable release stored, romReadyToStart() wants
+    // a release the catalog has never read, fetchRomCatalog() then "succeeds" by
+    // returning the release it actually has, the requirement still does not
+    // match, and F5 ends in a "Cannot start" box telling the user to check the
+    // network after a fetch that worked. Nothing rewrites the preference, so it
+    // repeats on every F5 for ever. An unrunnable value is reachable without
+    // hand-editing: Config.cpp's v0 back-fill derives one from the mounted
+    // images' filenames with diskv0::releaseOfV0Name, which is string slicing
+    // and asks no one whether the result can boot.
+    //
+    // ONLY ONCE A CATALOG HAS BEEN READ. getRunnableVersions() is empty before
+    // the first successful fetch, and that is exactly when the stored preference
+    // is the only thing that knows which release this machine runs - so an empty
+    // list means "cannot tell", never "not runnable".
+    if (!cfg.romwbwVersion.empty()) {
+        const std::vector<catalogv0::IndexEntry> runnable =
+            m_diskCatalog ? m_diskCatalog->getRunnableVersions()
+                          : std::vector<catalogv0::IndexEntry>();
+        if (runnable.empty()) return cfg.romwbwVersion;
+        for (const auto& entry : runnable) {
+            if (entry.romwbwVersion == cfg.romwbwVersion) return cfg.romwbwVersion;
+        }
+        // Stored, still published perhaps, but not one this core can boot.
+        // Fall through to what the catalog settled on - which is chooseVersion's
+        // answer for this same machine, so the two now agree by construction.
+    }
+
     if (!selected.empty()) return selected;
 
     // Nothing left to ask. This used to end in bundledRomwbwRelease() - the

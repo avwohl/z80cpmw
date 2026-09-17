@@ -63,9 +63,18 @@ Three things are yours to choose, all under **Emulator → Settings**:
 - **Which RomWBW release** - the picker at the top of the **Disk Images** page.
   That list is the index, filtered to the releases the emulator core says it can
   boot, so a release the core has never been checked against is not offered.
+  **This is the one choice on this page the catalog cannot add to on its own.**
+  The bootable set is a compile-time list in the emulator core,
+  `ROMWBW_SUPPORTED_RELEASES` in `romwbw_emu/src/romwbw_pin.h`, because bank 0 of
+  every ROM is the emulator's own HBIOS proxy and adding a release there is a
+  claim that somebody booted it. A whole new RomWBW release therefore does need a
+  new build of this application - and of the macOS, iOS, Android and Linux ports.
+  `romwbw_emu/docs/RELEASE_GATE.md` argues that this gates the wrong axis and
+  should go; until it does, this is the limit.
 - **Which ROM** - the dropdown on the **Machine** page, filled from the selected
-  release's ROMs. Publishing a new ROM in `romwbw_disks` makes it selectable
-  with no new release of this application.
+  release's ROMs. Publishing a new ROM in `romwbw_disks`, into a release the
+  picker already offers, makes it selectable with no new release of this
+  application.
 - **Which catalog** - the *Catalog index* field under the release picker. Leave
   it empty for the catalog this build ships with, or point it at another
   `romwbw_disks` index to try a release before it is published.
