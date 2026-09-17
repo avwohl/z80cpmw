@@ -184,6 +184,54 @@ two days - the first was right about the code as it then stood.
 `todo.txt`'s item *"Delete catalogv0::runnableVersions and its caller in
 DiskCatalog once romwbw_emu drops the release gate"* is done and deleted.
 
+### Eight more comments described the filter as though it were still there
+
+The deletion above named two comments it corrected, in `EmulatorEngine.cpp` and
+on `MainWindow.cpp`'s ROM-load failure path. A sweep for the claim rather than
+for the symbol found eight more, none of which referenced a deleted name and so
+none of which a grep for `runnableVersions` or `emu_romwbw_release_supported`
+would ever have turned up. Each described a filter that no longer runs, in the
+present tense, on the declaration or the code path a reader would consult first:
+
+- `SettingsDialogWx.cpp`, `buildDiskImagesPage()` - the release picker is built
+  from "index-v0.json, **filtered to the releases the emulator core says it can
+  boot**". That is the comment on the control the whole change is about.
+- `SettingsDialogWx.cpp`, `populateVersionList()` - a preference the index no
+  longer carries "**or that this core cannot boot**" falls back to the default.
+- `SettingsDialogWx.h` - `populateVersionList()` declared as "the RomWBW
+  releases the catalog offers **that this build's core can boot**".
+- `DiskCatalog.h`, `fetchCatalog()` - the worker "**keeps the RomWBW releases
+  this build's core says it can boot**, picks one", listed as a step of a
+  sequence that no longer has it.
+- `DiskCatalog.h`, `setPreferredRomwbwVersion()` - the public contract of the
+  setter: honoured "only if the index still carries that version **AND this
+  build's core can boot it**", written for a user "**who downgraded the app**",
+  which is no longer a way this can miss.
+- `DiskCatalog.h`, `verifyRom()` - "a hash says these are the published bytes;
+  the HCB check says **the core can run them**", the same overstatement of
+  `emu_validate_rom_hcb` that was corrected in two other files.
+- `Config.cpp`, the v0 back-fill - `chooseVersion` falls through "if the index
+  **or this build** can no longer offer 3.5.1".
+- `tests/test_catalogv0.cpp`'s file header - its stated **third job**, "a build
+  must offer what its own core says it can boot - not a compiled-in list", and
+  its opening list of silent failures, "the 3.6.0 entry offered to a build that
+  cannot boot a 3.6.0 ROM". Both described the section directly underneath,
+  which had been rewritten to assert the opposite.
+
+All eight now state what the code does, each keeping one sentence of what it
+used to say and the date it stopped being true - the same form the rest of this
+entry uses, and the reason is the same: the next reader's question is not "what
+is this" but "why does the old thing not work any more".
+
+One more in `FEATURE_PARITY.md`, in the help-system row and about a different
+subject entirely: the argument that this family's `releases/latest` trap is
+"structurally absent" rested on the emulator core's `src` holding exactly one
+URL, "a comment in `src/romwbw_pin.h`". That header is deleted, so the sentence
+named a file that is not there - and the claim underneath it got *stronger*
+rather than weaker, because that comment was the last URL in `src` and there is
+now none at all outside the vendored nlohmann banners. Measured:
+`grep -rn 'https\?://' romwbw_emu/src/*.h romwbw_emu/src/*.cc` returns nothing.
+
 ### Verified, and what could not be
 
 Measured on macOS, where **there is no MSVC and no mingw**, so the real build

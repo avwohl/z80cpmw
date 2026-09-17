@@ -3,10 +3,11 @@
  *
  * This is the suite for the half of the URL migration that can be wrong
  * silently. Everything else about it is loud: a wrong host does not resolve, a
- * wrong path is a 404. What is quiet is a document read slightly wrong - the
- * 3.6.0 entry offered to a build that cannot boot a 3.6.0 ROM, a preview release
- * shown as though it were recommended, a base_url concatenated with a separator
- * that was already there, a version byte read out of "0x35" as the number 0.
+ * wrong path is a 404. What is quiet is a document read slightly wrong - an
+ * entry the index publishes missing from the picker with nothing saying why, a
+ * preview release shown as though it were recommended, a base_url concatenated
+ * with a separator that was already there, a version byte read out of "0x35" as
+ * the number 0.
  *
  * It has three jobs.
  *
@@ -24,10 +25,20 @@
  * heard of, display an unknown status rather than failing on it.
  *
  * THE THIRD IS WHICH RELEASE GETS OFFERED, which is the one decision here that a
- * user can see. A build must offer what its own core says it can boot - not a
- * compiled-in list, because the client and the core are separate repositories
- * and either can be ahead - and when the answer is "none of them", that has to
- * be reportable rather than a silent fallback to something unbootable.
+ * user can see. Every release the index publishes is offered - the document
+ * decides and nothing else does - and which one is FETCHED is chooseVersion's
+ * three rules applied to that whole list: the stored preference, then the
+ * index's own `default: true`, then the first entry. A preference the index no
+ * longer carries degrades to the default rather than to nothing, and an index
+ * that publishes no release at all is reportable rather than a silent fallback.
+ *
+ * That read "a build must offer what its own core says it can boot - not a
+ * compiled-in list" until 2026-09-17, and the section below put the entries to
+ * catalogv0::runnableVersions against three fake cores first. romwbw_emu v1.44
+ * deleted emu_romwbw_release_supported(): the release number is the
+ * ROM-to-disk-image pairing, which the guest enforces itself with its own
+ * mismatch banner, and the interface this core really depends on is versioned by
+ * the `v0` in the name of the document this file parses.
  *
  * The documents below are the REAL published ones, byte for byte out of
  * romwbw_disks/catalog/v0/: the whole index, and the whole 3.5.1 catalog with

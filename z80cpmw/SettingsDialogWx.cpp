@@ -886,10 +886,17 @@ void SettingsDialogWx::buildDiskImagesPage() {
     //
     // It is at the TOP of this page because it decides everything below it: the
     // list, the filenames, and which images a download puts in the data folder.
-    // The list is not compiled in - it comes from index-v0.json, filtered to the
-    // releases the emulator core says it can boot - so it is empty until a
-    // catalog has been fetched, which is why populateVersionList() leaves a
-    // placeholder rather than an empty control.
+    // The list is not compiled in - it is index-v0.json's own list of releases,
+    // whole and unfiltered - so it is empty until a catalog has been fetched,
+    // which is why populateVersionList() leaves a placeholder rather than an
+    // empty control.
+    //
+    // This said "filtered to the releases the emulator core says it can boot"
+    // until 2026-09-17, and the filter it described was deleted that same day -
+    // romwbw_emu v1.44 removed the function it asked. populateVersionList(),
+    // further down this file, is the one that fills the control and carries the
+    // reasoning; the short of it is that the release number is the
+    // ROM-to-disk-image pairing and never described what this core can execute.
     m_romwbwVersionChoice = new wxChoice(page, ID_ROMWBW_VERSION);
     wxBoxSizer* versionSizer = new wxBoxSizer(wxHORIZONTAL);
     versionSizer->Add(new wxStaticText(page, wxID_ANY, "RomWBW release:"), 0,
@@ -1173,9 +1180,12 @@ void SettingsDialogWx::populateVersionList() {
 
     // Selected on the version the catalog in hand was actually FETCHED for,
     // which is not always the one the user asked for: a preference the index no
-    // longer carries, or that this core cannot boot, falls back to the index's
-    // default. Showing the preference instead would tell the user they are
-    // looking at a catalog they are not.
+    // longer carries falls back to the index's default. Showing the preference
+    // instead would tell the user they are looking at a catalog they are not.
+    //
+    // There was a second clause here - "or that this core cannot boot" - and it
+    // went with catalogv0::runnableVersions on 2026-09-17. One way is left for a
+    // preference to miss, and it is the document's doing rather than the build's.
     const std::string selected = m_catalog ? m_catalog->getSelectedRomwbwVersion()
                                            : m_settings.romwbwVersion;
     int idx = 0;

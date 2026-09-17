@@ -1248,9 +1248,10 @@ V0MigrationReport ConfigManager::migrateToInterfaceV0(const std::string& dataDir
     // It is not a release chosen for the user. It is the release they were
     // already running, written down at the only moment anything still knows it,
     // and it is a PREFERENCE and not a pin: Settings moves it, chooseVersion
-    // falls through to `default: true` if the index or this build can no longer
-    // offer 3.5.1, and every -v0-<ver> name is a different file, so moving to
-    // 3.6.0 later costs a download and deletes nothing.
+    // falls through to `default: true` if the index no longer carries 3.5.1 -
+    // "or this build" was the other half of that condition until the release
+    // filter was deleted on 2026-09-17 - and every -v0-<ver> name is a different
+    // file, so moving to 3.6.0 later costs a download and deletes nothing.
     //
     // ONLY WHERE THE DISKS IN FORCE SAY SO, and the condition has two halves for
     // one reason. slotsRewritten counts the slots this pass has just pointed at

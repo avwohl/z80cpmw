@@ -150,10 +150,11 @@ private:
 
     // The id the dropdown is holding now, or empty for the placeholder row.
     std::string selectedRomId() const;
-    // The RomWBW releases the catalog offers that this build's core can boot,
-    // and the sentence underneath saying what the selected one means for the
-    // ROM in the banks. Both are refilled whenever a catalog lands, because
-    // until one does there is no list to show.
+    // Every RomWBW release index-v0.json publishes - there has been no
+    // per-entry filter in front of this since 2026-09-17 - and the sentence
+    // underneath saying what the selected one means for the ROM in the banks.
+    // Both are refilled whenever a catalog lands, because until one does there
+    // is no list to show.
     void populateVersionList();
     void updateRomwbwVersionNote();
     void populateDiskLists();

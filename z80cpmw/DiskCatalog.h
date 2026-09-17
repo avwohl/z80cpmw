@@ -270,24 +270,32 @@ public:
     // or a weak_ptr locked before the post rather than around it, is not.
     // WHAT IT FETCHES, WHICH IS NOW TWO DOCUMENTS AND NOT ONE. There is no
     // release tag in this class any more. The worker gets index-v0.json from
-    // the single compiled-in catalogv0::INDEX_URL, keeps the RomWBW releases
-    // this build's core says it can boot, picks one (see
-    // setPreferredRomwbwVersion), verifies that entry's catalog against the
-    // catalog_sha256 and catalog_size the index published for it, and reads
-    // base_url, roms[] and disks[] out of it. Two round trips where there was
-    // one, and three new ways to fail - each of which still ends in exactly one
-    // callback(false, ...).
+    // the single compiled-in catalogv0::INDEX_URL, keeps every RomWBW release
+    // it publishes, picks one (see setPreferredRomwbwVersion), verifies that
+    // entry's catalog against the catalog_sha256 and catalog_size the index
+    // published for it, and reads base_url, roms[] and disks[] out of it. Two
+    // round trips where there was one, and three new ways to fail - each of
+    // which still ends in exactly one callback(false, ...).
+    //
+    // "keeps the RomWBW releases this build's core says it can boot" was a step
+    // in that sequence until 2026-09-17. romwbw_emu v1.44 deleted the function
+    // that answered, and DiskCatalog.cpp now includes nothing from the emulator
+    // core at all.
     void fetchCatalog(CatalogLoadedCallback callback);
 
     // Which RomWBW release to fetch the catalog for, e.g. "3.5.1".
     //
     // UI THREAD, and a PREFERENCE rather than a command: the next fetch honours
-    // it only if the index still carries that version AND this build's core can
-    // boot it, and otherwise falls back to the index's own default. So a user
-    // who chose a release that has since been retired, or who downgraded the
-    // app, gets a working catalog rather than none - and nothing is deleted
-    // over it either way. Empty means "no preference", which is what a fresh
-    // install and every configuration written before this release say.
+    // it only if the index still carries that version, and otherwise falls back
+    // to the index's own default. So a user who chose a release that has since
+    // been retired gets a working catalog rather than none - and nothing is
+    // deleted over it either way. Empty means "no preference", which is what a
+    // fresh install and every configuration written before this release say.
+    //
+    // There was a second condition - "AND this build's core can boot it" - with
+    // "or who downgraded the app" as the user it was written for. Both went on
+    // 2026-09-17 with catalogv0::runnableVersions: a preference now misses for
+    // exactly one reason, the document having retired the version.
     //
     // Changing it does NOT invalidate, delete or unmount anything. Switching
     // 3.5.1 -> 3.6.0 -> 3.5.1 must cost nothing, which is why the per-version
@@ -411,7 +419,13 @@ public:
     //
     // It does NOT replace emu_validate_rom_hcb, which the load still runs over
     // the bytes it is given. A hash says these are the published bytes; the HCB
-    // check says the core can run them. Neither answers the other's question.
+    // check says the bytes are shaped like a ROM at all - long enough to hold an
+    // HBIOS Configuration Block, and carrying the 'W' 0xA8 marker where one must
+    // be. Neither answers the other's question.
+    //
+    // That second clause read "says the core can run them", which overstated it
+    // after romwbw_emu v1.44 stopped emu_validate_rom_hcb judging the release.
+    // It refuses a broken ROM, never a version.
     //
     // A catalog entry carrying no usable sha256 is REFUSED here, where a disk
     // in the same position is accepted: an unverifiable disk is a volume that
