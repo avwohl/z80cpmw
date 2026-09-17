@@ -19,3 +19,12 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   flag reports it gone when it is not, which is how this nearly got deleted as
   stale.  Refiled from romwbw_emu 2026-09-15: the precondition landed there and
   shipped, and the line deletion is here.
+
+- Delete catalogv0::runnableVersions and its caller in DiskCatalog once
+  romwbw_emu drops the release gate; romwbw_emu/docs/RELEASE_GATE.md is why.
+
+- README.md:76-79, CLAUDE.md:28-39 and FEATURE_PARITY.md:963-978 all promise a
+  published release reaches users with no build of this app. It does not.
+
+- core.romwbwVersion is never checked against what the core can boot, and
+  Config.cpp:319-330 can write an unbootable one from a mounted image's name.
