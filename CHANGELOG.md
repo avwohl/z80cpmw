@@ -62,7 +62,8 @@ therefore not evidence of what has shipped.
 ## [Unreleased]
 
 Nothing unpackaged. `Version.h` is at **1.0.35**, which is built and packaged as
-`dist\z80cpmw-1.0.35-store.msix` and **not yet submitted** - see below. todo.txt
+`dist\z80cpmw-1.0.35-store.msix`, **not yet submitted**, and signed as
+`dist\z80cpmw-1.0.35-beta.msix`, **not yet published** - see below. todo.txt
 reserves bumping the version for the moment something is packaged, so this
 section is empty exactly when the tree and the newest package agree.
 
@@ -157,10 +158,37 @@ the core.
   `*.rom` or `*.img`, checked by enumerating the zip rather than by reading the
   staging script.
 
+### Both channels, one binary
+
+Cut for the sideload channel too, with `-SkipBuild` off the same `bin\Release`
+the Store package was made from, which is the only way the two channels may
+share a number:
+
+- `packaging\scripts\build-msix.ps1 -Beta -SkipBuild` wrote
+  `dist\z80cpmw-1.0.35-beta.msix` (6,726,538 bytes), Authenticode-signed with
+  Azure Trusted Signing and verified by the script:
+  "Successfully verified", 0 warnings, 0 errors. Countersigned by Microsoft
+  Public RSA Time Stamping Authority at 2026-09-17 05:22:38, so the signature
+  outlives the leaf, which expires 2026-09-18.
+- `dist\z80cpmw-1.0.35-beta.pdb` kept beside it.
+- **The two packages carry the same binary.** `z80cpmw.exe` hashes
+  `640C82A937FA02BF1995602A35D7FEA118504C068A17C5C5F12D43B9AE7E9C1B` inside the
+  beta package, inside the Store package, and in `bin\Release`. They differ only
+  where they must: the beta reads
+  `Publisher="CN=Aaron Wohl, O=Aaron Wohl, L=Gainesville, S=fl, C=US"` and is
+  signed, the Store package reads `Publisher="CN=724C9014-..."` and is not.
+- Signing 1.0.35 was checked against `gh release list` first: no 1.0.35 of
+  either channel had been published, so this run minted a new name rather than
+  re-minting a shipped one. That check exists because the opposite happened on
+  2026-08-28.
+- The beta package holds no `*.rom` and no `*.img` either, counted the same way.
+
 ### Not verified
 
 - Nobody has launched this build. The `startRomwbwRelease()` change lives in
-  `MainWindow.cpp`, which no suite covers and which needs a real window.
+  `MainWindow.cpp`, which no suite covers and which needs a real window. The
+  signed package above is what makes driving it possible; installing it is not
+  the same as having installed it, and nobody has.
 - Not submitted to Partner Center. 1.0.34 was still the served version at the
   last measurement (2026-09-15); submitting 1.0.35 while 1.0.34 is in review is
   a Partner Center question this repository cannot answer.
