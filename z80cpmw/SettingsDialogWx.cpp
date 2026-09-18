@@ -1290,30 +1290,22 @@ void SettingsDialogWx::populateVersionList() {
     // decoration: the repository publishes a preview release as not yet
     // recommended, and a user choosing one is choosing images built for a ROM
     // this build does not ship.
-    // WHICH ROWS EXIST, decided before the loop because both the filter and the
-    // re-selection below need the same answer.
+    // WHICH ROWS EXIST. A pre-release appears only when the box is ticked, with
+    // no exception for the release this machine happens to be on: unticking the
+    // box MOVES such a machine back to the index default rather than leaving it
+    // somewhere the list cannot show - see onShowPrereleaseChanged.
     //
-    // `selected` is the release the catalog in hand was actually fetched for,
-    // and it is handed to catalogv0::isOffered as the row that must survive the
-    // filter whatever the checkbox says. Without that, unticking the box while
-    // running 3.7.0-dev.14 would remove the only row that described the machine:
-    // the picker would highlight some other release, the note would describe it,
-    // and OK would write it back - moving a machine off the release its four
-    // mounted images were built for, on a checkbox that says "show".
+    // `showing` is read at the top of this function and is still what the
+    // re-selection below keys on, because the control and the catalog disagree
+    // for as long as a fetch is in flight.
     const std::string selected = m_catalog ? m_catalog->getSelectedRomwbwVersion()
                                            : m_settings.romwbwVersion;
     const bool showPrerelease =
         m_showPrereleaseCheck ? m_showPrereleaseCheck->GetValue()
                               : m_settings.showPrereleaseVersions;
 
-    // `showing` wins over `selected` when the two differ, which they do only
-    // while a fetch started by the picker is still in flight - see the note at
-    // the top of this function. Either way the row the user is looking at is the
-    // one kept.
-    const std::string keep = showing.empty() ? selected : showing;
-
     for (const auto& entry : versions) {
-        if (!catalogv0::isOffered(entry, showPrerelease, keep)) continue;
+        if (!catalogv0::isOffered(entry, showPrerelease)) continue;
         m_romwbwVersionChoice->Append(wxString::FromUTF8(catalogv0::displayLabel(entry)));
         m_romwbwVersionIds.push_back(entry.romwbwVersion);
     }
@@ -1343,12 +1335,12 @@ void SettingsDialogWx::populateVersionList() {
     // went with catalogv0::runnableVersions on 2026-09-17. One way is left for a
     // preference to miss, and it is the document's doing rather than the build's.
     //
-    // `selected` is computed above the loop now, because the filter needs the
-    // same value: it is the row that must survive whatever the checkbox says,
-    // and re-deriving it here would let the two drift.
+    // `selected` is computed above the loop, and `showing` - what the control
+    // held before Clear() - wins over it while a fetch is still in flight.
+    const std::string want = showing.empty() ? selected : showing;
     int idx = 0;
     for (size_t i = 0; i < m_romwbwVersionIds.size(); i++) {
-        if (m_romwbwVersionIds[i] == selected) {
+        if (m_romwbwVersionIds[i] == want) {
             idx = static_cast<int>(i);
             break;
         }
@@ -2121,8 +2113,46 @@ void SettingsDialogWx::onShowPrereleaseChanged(wxCommandEvent& event) {
     //
     // ShowWxSettingsDialogInternal copies this field back on Cancel as well as
     // on OK, and MainWindow applies and saves it either way.
-    m_settings.showPrereleaseVersions = m_showPrereleaseCheck->GetValue();
-    if (m_catalog) m_catalog->setShowPrereleaseVersions(m_showPrereleaseCheck->GetValue());
+    const bool show = m_showPrereleaseCheck->GetValue();
+    m_settings.showPrereleaseVersions = show;
+    if (m_catalog) m_catalog->setShowPrereleaseVersions(show);
+
+    // TURNING IT OFF MOVES A MACHINE THAT IS ON A PRE-RELEASE, ROM and disks
+    // included. Reported 2026-09-18: the box was unticked and a `-dev` release
+    // stayed selected, which is a machine in a state its own Settings page says
+    // it is not in.
+    //
+    // This is a reversal. The box governed VISIBILITY only, deliberately,
+    // because moving the release used to strand the four slots on images built
+    // for the release being left - the HBIOS/CBIOS mismatch the picker exists to
+    // prevent. The reconcile removed that objection: a release change now takes
+    // the disks with it, so the move is safe and is the whole point of the
+    // setting.
+    //
+    // The PREFERENCE is cleared rather than set to the default by name. Empty
+    // means "no preference", which catalogv0::chooseVersion answers with the
+    // index's own `default: true` entry - so the answer comes from the document
+    // rather than from a release number written down here, and re-ticking the
+    // box does not silently jump back to a snapshot the user has left.
+    if (!show && m_catalog) {
+        bool onPrerelease = false;
+        const std::string sel = m_catalog->getSelectedRomwbwVersion();
+        for (const auto& e : m_catalog->getIndexVersions()) {
+            if (e.romwbwVersion == sel && e.prerelease) { onPrerelease = true; break; }
+        }
+        if (onPrerelease) {
+            abandonReleaseSwitchFetch();
+            m_catalog->setPreferredRomwbwVersion(std::string());
+            setSlotsSettling(true);
+            m_statusText->SetLabel("Leaving the pre-release...");
+            updateRomwbwVersionNote();
+            // The fetch brings the default release's catalog, and the reconcile
+            // in onCatalogLoaded moves the four slots onto its images.
+            onRefreshCatalog(event);
+            return;
+        }
+    }
+
     // Re-selects by version STRING and not by the row index it held a moment
     // ago, which is the whole reason this goes through populateVersionList()
     // rather than adding and removing items in place: the filter changes what

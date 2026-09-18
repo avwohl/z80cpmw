@@ -166,12 +166,16 @@ struct AppConfig {
     // behind an explicit opt-in", so false is also what an absent key reads as
     // and what every configuration written before this release says.
     //
-    // IT GOVERNS WHAT IS OFFERED AND NOTHING ELSE. Turning it off does not move
-    // a machine already running a snapshot: catalogv0::isOffered keeps the
-    // selected release visible and chooseVersion honours a stored preference
-    // whatever this says. Otherwise unticking a checkbox would drop a machine
-    // from 3.7.0-dev.14 to 3.6.0 with 3.7.0-dev.14 images in its four slots,
-    // which is the HBIOS/CBIOS mismatch the release picker exists to avoid.
+    // TURNING IT OFF MOVES A MACHINE THAT IS ON ONE. catalogv0::chooseVersion
+    // stops honouring a stored pre-release preference while this is false, so
+    // such a machine returns to the index default, and the reconcile in the
+    // Settings dialog brings the ROM and the four disks with it.
+    //
+    // It governed VISIBILITY only until 2026-09-18, because moving the release
+    // used to leave the slots on images built for the release being left - the
+    // HBIOS/CBIOS mismatch the picker exists to avoid. The reconcile removed
+    // that objection, and a machine sitting on a `-dev` release with this false
+    // is the state a user reported as wrong.
     bool showPrereleaseVersions = false;
 
     // The catalog index this machine reads, or EMPTY for the one the build

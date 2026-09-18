@@ -63,9 +63,8 @@ Three things are yours to choose, all under **Emulator → Settings**:
 - **Which RomWBW release** - the picker at the top of the **Disk Images** page.
   That list is the index: every release `romwbw_disks` publishes is offered, and
   **a new RomWBW release reaches you with no new build of this application**,
-  exactly as a new ROM or a new disk image does. Development snapshots are the
-  one exception, and they are not releases - see **Show development snapshots**
-  below.
+  exactly as a new ROM or a new disk image does. Pre-releases are the one
+  exception, and they are not releases - see **Show pre release** below.
   This paragraph said the opposite until 2026-09-17, and the thing it described
   was real: the list was filtered through the emulator core's
   `emu_romwbw_release_supported()`, which answered from a compile-time list in
@@ -81,15 +80,13 @@ Three things are yours to choose, all under **Emulator → Settings**:
   What the release picker still owes you is a matched pair, and it says so: pick
   a release whose ROM is not the one in the banks and the note under the picker
   tells you Start will offer to fetch that release's ROM.
-- **Show development snapshots** - the checkbox under the release picker, off by
-  default. `romwbw_disks` publishes RomWBW development snapshots beside the
-  releases; upstream has not released them, they are never the catalog's default,
-  and their disk images pair only with their own ROM. Tick the box and they join
-  the list, each marked *(development snapshot)*. Unticking it does **not** move a
-  machine that is already running one: the release stays selected and stays in the
-  picker, because switching release under mounted images is exactly what produces
-  the guest's mismatch banner. The picker moves a machine; the checkbox only
-  decides what the picker lists.
+- **Show pre release** - the checkbox under the release picker, off by default.
+  `romwbw_disks` publishes RomWBW pre-releases beside the releases; upstream has
+  not released them and they are never the catalog's default. Tick the box and
+  they join the list. **Unticking it moves a machine that is on one** back to the
+  catalog's default, and the ROM and the four disks follow, the same way they do
+  when you change the release by hand. Nothing is deleted: the pre-release's
+  images stay in the data folder.
 - **Which ROM** - the dropdown on the **Machine** page, filled from the selected
   release's ROMs. Publishing a new ROM in `romwbw_disks`, into a release the
   picker already offers, makes it selectable with no new release of this

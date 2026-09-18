@@ -458,15 +458,8 @@ std::string assetUrl(const std::string& baseUrl, const std::string& filename) {
     return baseUrl + filename;
 }
 
-bool isOffered(const IndexEntry& entry, bool showPrerelease,
-               const std::string& keepVersion) {
-    if (!entry.prerelease) return true;
-    if (showPrerelease) return true;
-    // The release this machine is already on is never hidden from it. See the
-    // note on the declaration: the checkbox says SHOW, and a machine whose four
-    // slots hold 3.7.0-dev.14 images must keep seeing 3.7.0-dev.14 in the picker
-    // whatever that checkbox says, or OK writes back a release nobody chose.
-    return !keepVersion.empty() && entry.romwbwVersion == keepVersion;
+bool isOffered(const IndexEntry& entry, bool showPrerelease) {
+    return !entry.prerelease || showPrerelease;
 }
 
 bool romServes(const std::string& catalogVersion, const std::string& declaredByRom) {
@@ -506,9 +499,17 @@ size_t chooseVersion(const std::vector<IndexEntry>& entries,
     // them to 3.6.0 under mounted 3.7.0-dev.14 images, which is the HBIOS/CBIOS
     // mismatch this whole mechanism exists to prevent. The box governs what is
     // OFFERED. What is CHOSEN is only ever moved by the picker.
+    // The user's own choice wins while the index still publishes it AND while it
+    // is a release they have asked to be offered. The second half is what makes
+    // turning the box off move a machine that is sitting on a pre-release: it is
+    // the same test the picker applies, so the two cannot disagree about one
+    // machine, and it is applied here rather than at the call sites so that
+    // nothing can forget it.
     if (!preferredVersion.empty()) {
         for (size_t i = 0; i < entries.size(); i++) {
-            if (entries[i].romwbwVersion == preferredVersion) return i;
+            if (entries[i].romwbwVersion != preferredVersion) continue;
+            if (!isOffered(entries[i], showPrerelease)) break;
+            return i;
         }
     }
     // Falling through rather than failing is deliberate: a preference for a
@@ -529,13 +530,11 @@ size_t chooseVersion(const std::vector<IndexEntry>& entries,
     // exactly where a snapshot would become somebody's release by accident, and
     // that is the outcome CATALOG_SCHEMA.md 2.3 names.
     //
-    // keepVersion is empty: a preference that could be honoured has already
-    // returned above, so there is no release to keep visible at this point.
     for (size_t i = 0; i < entries.size(); i++) {
-        if (entries[i].isDefault && isOffered(entries[i], showPrerelease, std::string())) return i;
+        if (entries[i].isDefault && isOffered(entries[i], showPrerelease)) return i;
     }
     for (size_t i = 0; i < entries.size(); i++) {
-        if (isOffered(entries[i], showPrerelease, std::string())) return i;
+        if (isOffered(entries[i], showPrerelease)) return i;
     }
 
     // Nothing offered at all: every entry the index carries is a snapshot and

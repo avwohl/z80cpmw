@@ -35,18 +35,27 @@ one decides which — and fetches the chosen release's own catalog for the ROM a
 the images.
 
 **One kind of entry is not a release and is hidden by default.** romwbw_disks
-began publishing RomWBW development snapshots on 2026-09-18, flagged
-`prerelease: true` in the index, and `CATALOG_SCHEMA.md` 2.3 requires that a
-client "MUST NOT offer a prerelease entry by default". `core.showPrereleaseVersions`
-(the "Show development snapshots" box under the release picker) is that opt-in,
-off by default. `catalogv0::isOffered` is the only place the rule lives, so the
-picker and the automatic choice cannot disagree; it keeps the release a machine
-is already on visible whatever the box says, because moving a machine off the
-release its mounted images were built for is the mismatch the picker exists to
-prevent. **It is the opposite kind of filter to the deleted one** — that one
-asked a compile-time list what this binary could run, and so went stale in a
-shipped build; this asks the document what upstream has published, and cannot. **So publishing a ROM, a disk image, or a whole RomWBW release is the
-whole of shipping it — no build of this application is involved.** Verified on
+began publishing RomWBW pre-releases on 2026-09-18, flagged `prerelease: true` in
+the index, and `CATALOG_SCHEMA.md` 2.3 requires that a client "MUST NOT offer a
+prerelease entry by default". `core.showPrereleaseVersions` (the "Show pre
+release" box on the Machine page) is that opt-in, off by default, and
+`catalogv0::isOffered` is the only place the rule lives, so the picker and the
+automatic choice cannot disagree.
+
+**Turning the box off MOVES a machine that is on a pre-release** back to the
+index default, ROM and disks included: `chooseVersion` stops honouring a stored
+pre-release preference, and the reconcile brings the four slots with it. That is
+a reversal of 2026-09-18. The box governed visibility only, because moving the
+release used to strand the slots on images built for the release being left - and
+the reconcile removed that objection. A `-dev` release still selected with the box
+unticked is the state a user reported as wrong.
+
+**It is the opposite kind of filter to the deleted one:** that one asked a
+compile-time list what this binary could run, and so went stale in a shipped
+build; this asks the document what upstream has published, and cannot.
+
+**So publishing a ROM, a disk image, or a whole RomWBW release is the whole of
+shipping it — no build of this application is involved.** Verified on
 2026-09-07 by running it: the release dropdown came back holding both published
 releases with 3.6.0 selected, and the disk list held the 3.6.0 set including
 `hd1k_infocom`, an id that has never existed in any build of this client.

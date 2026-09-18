@@ -343,11 +343,15 @@ public:
     // open, and the configuration is not written until OK. MainWindow::applyConfig
     // seeds it, Settings pushes it before each fetch, and Cancel puts it back.
     //
-    // It changes what is OFFERED, never what is selected: catalogv0::chooseVersion
-    // honours a stored preference for a snapshot whatever this says, because the
-    // alternative is moving a machine off the release its mounted images were
-    // built for. Nothing here is invalidated, deleted or unmounted by flipping
-    // it, and nothing may be made to be.
+    // It can change WHICH RELEASE IS CHOSEN, and that is deliberate as of
+    // 2026-09-18: catalogv0::chooseVersion stops honouring a stored pre-release
+    // preference while this is false, so turning it off returns such a machine
+    // to the index default. The Settings dialog's reconcile then moves the four
+    // slots onto that release's images.
+    //
+    // Nothing here is invalidated, DELETED or UNMOUNTED by flipping it, and
+    // nothing may be made to be - the images of the release being left stay in
+    // the data folder exactly where they are.
     void setShowPrereleaseVersions(bool show);
     bool getShowPrereleaseVersions() const;
 

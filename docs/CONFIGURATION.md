@@ -326,13 +326,16 @@ the releases, flagged `prerelease: true` in the index;
 a prerelease entry by default", so `false` is the required default and is what an
 absent key reads as.
 
-It governs what is **offered** and nothing else. Turning it off does not move a
-machine already running a snapshot: `catalogv0::isOffered` keeps the selected
-release visible whatever the box says, and `catalogv0::chooseVersion` honours a
-stored preference for one either way. The alternative would drop a machine from
-`3.7.0-dev.14` to `3.6.0` with `3.7.0-dev.14` images in its four slots, which is
-the HBIOS/CBIOS mismatch the release picker exists to prevent. Change the release
-with the picker; the checkbox only decides what the picker lists.
+**Turning it off moves a machine that is on a pre-release** back to the index
+default: `catalogv0::chooseVersion` stops honouring a stored pre-release
+preference while it is `false`, and the Settings dialog's reconcile brings the
+ROM and the four disks with it.
+
+It governed visibility only until 2026-09-18, because moving the release used to
+leave the four slots on images built for the release being left - the
+HBIOS/CBIOS mismatch the picker exists to prevent. The reconcile removed that
+objection. Nothing is deleted or unmounted either way: the images of the release
+being left stay in the data folder.
 
 **`core.rom` and `core.romwbwVersion` name a choice, not a file**, and both are
 empty on a fresh install. Empty means *no preference*, which is a real answer

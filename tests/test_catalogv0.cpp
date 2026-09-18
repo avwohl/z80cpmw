@@ -872,27 +872,22 @@ static void test_a_snapshot_is_opt_in() {
     const catalogv0::IndexEntry& snapshot = entries[2];     // 3.7.0-dev.14
 
     // A real release is offered whatever the setting says. The checkbox is about
-    // snapshots and must not become a second way to hide releases.
-    checkTrue(catalogv0::isOffered(stable, false, ""), "a release is offered with the box off");
-    checkTrue(catalogv0::isOffered(stable, true, ""), "and with the box on");
+    // pre-releases and must not become a second way to hide releases.
+    checkTrue(catalogv0::isOffered(stable, false), "a release is offered with the box off");
+    checkTrue(catalogv0::isOffered(stable, true), "and with the box on");
 
-    checkFalse(catalogv0::isOffered(snapshot, false, ""),
-               "a snapshot is NOT offered with the box off - the schema's MUST NOT");
-    checkTrue(catalogv0::isOffered(snapshot, true, ""),
+    checkFalse(catalogv0::isOffered(snapshot, false),
+               "a pre-release is NOT offered with the box off - the schema's MUST NOT");
+    checkTrue(catalogv0::isOffered(snapshot, true),
               "and IS offered once the box is ticked, which is the whole feature");
 
-    // THE CLAUSE THAT KEEPS A MACHINE ON ITS OWN RELEASE. Somebody running the
-    // snapshot, with its images in their four slots, unticks the box. The row
-    // must survive: otherwise the picker stops describing the machine, the note
-    // describes a release nothing selected, and OK writes back whichever row was
-    // highlighted - moving them to 3.6.0 under 3.7.0-dev.14 disks, which is the
-    // HBIOS/CBIOS mismatch the release picker exists to prevent.
-    checkTrue(catalogv0::isOffered(snapshot, false, "3.7.0-dev.14"),
-              "the snapshot the machine is ON stays visible with the box off");
-    checkFalse(catalogv0::isOffered(snapshot, false, "3.6.0"),
-               "but being on some OTHER release does not un-hide it");
-    checkFalse(catalogv0::isOffered(snapshot, false, ""),
-               "and neither does an empty keepVersion, which is 'nothing selected yet'");
+    // NO EXCEPTION FOR THE RELEASE THE MACHINE IS ON. isOffered took a third
+    // argument until 2026-09-18 that kept such a release visible whatever the
+    // box said, so that unticking could not strand a machine on images built for
+    // a release the picker had stopped listing. The reconcile removed that
+    // objection - a release change now takes the disks with it - and a user
+    // reported the result of the old rule as the bug: box unticked, `-dev`
+    // release still selected. There is nothing left to keep.
 
     // chooseVersion applies the same rule, because the picker and the automatic
     // choice disagreeing about one machine is the failure the deleted release
@@ -900,31 +895,43 @@ static void test_a_snapshot_is_opt_in() {
     checkNum(catalogv0::chooseVersion(entries, ""), 1,
              "with no preference and the box off, the index's default - 3.6.0, not the snapshot");
     checkNum(catalogv0::chooseVersion(entries, "", true), 1,
-             "and ticking the box does NOT move it: `default` is never on a snapshot");
+             "and ticking the box does NOT move it: `default` is never on a pre-release");
 
-    // A STORED PREFERENCE FOR A SNAPSHOT IS HONOURED EITHER WAY. The box governs
-    // what is OFFERED; what is CHOSEN moves only through the picker. Reverting
-    // this to "skip prereleases in the preference loop too" fails here, and the
-    // cost of that behaviour is a machine silently moved off the release its
-    // mounted images were built for.
+    // A STORED PRE-RELEASE PREFERENCE IS HONOURED ONLY WHILE THE BOX IS ON.
+    // This is the reversal, and it is the check that would fail if somebody put
+    // the old behaviour back: with the box off, a machine stored at
+    // 3.7.0-dev.14 returns to the index default rather than sitting on a
+    // release its own Settings page will not show.
     checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14", true), 2,
-             "a stored snapshot preference is honoured with the box on");
-    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14", false), 2,
-             "and with the box OFF - unticking it must not move a running machine");
+             "a stored pre-release preference is honoured with the box on");
+    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14", false), 1,
+             "and is NOT honoured with the box off - it falls to the index default");
+
+    // A stored preference for an ORDINARY release is untouched by any of this.
+    checkNum(catalogv0::chooseVersion(entries, "3.5.1", false), 0,
+             "a stored release preference still wins with the box off");
+    checkNum(catalogv0::chooseVersion(entries, "3.5.1", true), 0,
+             "and with it on");
 
     // The default argument is false, so a caller that has not been taught about
-    // snapshots cannot land a machine on one. That is checked rather than
+    // pre-releases cannot land a machine on one. That is checked rather than
     // assumed: it is one word in a header and the safe behaviour rests on it.
     checkNum(catalogv0::chooseVersion(entries, ""), catalogv0::chooseVersion(entries, "", false),
-             "the two-argument form means 'no snapshots'");
+             "the two-argument form means 'no pre-releases'");
+    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14"),
+             catalogv0::chooseVersion(entries, "3.7.0-dev.14", false),
+             "including when a pre-release is the stored preference");
 
-    // An index of nothing but snapshots still yields a release rather than npos.
-    // Hiding a row from a picker and refusing to run are different answers, and
-    // npos here would be a "Cannot start" over a perfectly good document.
+    // An index of nothing but pre-releases still yields a release rather than
+    // npos. Hiding a row from a picker and refusing to run are different
+    // answers, and npos here would be a "Cannot start" over a perfectly good
+    // document.
     std::vector<catalogv0::IndexEntry> onlySnapshots;
     onlySnapshots.push_back(snapshot);
     checkNum(catalogv0::chooseVersion(onlySnapshots, "", false), 0,
-             "an index carrying only snapshots still chooses one with the box off");
+             "an index carrying only pre-releases still chooses one with the box off");
+    checkNum(catalogv0::chooseVersion(onlySnapshots, "3.7.0-dev.14", false), 0,
+             "and so does one whose only entry is the stored preference");
 }
 
 static void test_a_snapshot_says_so() {

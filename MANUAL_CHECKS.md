@@ -53,9 +53,9 @@ Store's is whatever `tools/check-store-version.sh` last measured, and neither is
 ## 2. Keystroke delivery, mouse copy/paste, and the first-run Help window
 
 Never watched by a person, and nothing here can automate them.
-`tests\run_tests.bat` is **1,862 checks in eight suites**, measured 2026-09-18 —
+`tests\run_tests.bat` is **1,863 checks in eight suites**, measured 2026-09-18 —
 516 terminal conformance, **383** configuration diagnostics (was 374), 355 help
-renderer and assets, **281** interface-v0 catalog (was 231), 175 disk provenance,
+renderer and assets, **282** interface-v0 catalog (was 231), 175 disk provenance,
 66 host file transfer, 50 rendering conformance, 36 HBIOS host file extension.
 The two that moved gained the development-snapshot cases.
 CHANGELOG.md is where that total is tracked; run the suite rather than
@@ -813,12 +813,17 @@ either: it had no MSVC.
       not "(development snapshot) (snapshot)". Nothing is fetched and no download
       starts; only the list changes. The note under the picker calls it a
       development snapshot too.
-- [ ] **Select the snapshot, then untick the box again.** The row must STAY and
-      must stay selected. This is the one behaviour a reasonable person would
-      report as a bug: the checkbox says "show", and hiding the release a machine
-      is running would let OK write back a release nobody chose, under disk
-      images built for the one they did. Press OK, reopen Settings, and confirm
-      the snapshot is still selected and still listed.
+- [ ] **Select the pre-release, then untick the box again.** The machine must
+      MOVE OFF it: the row disappears, the picker returns to the catalog's
+      default (3.6.0 today), and the ROM and the four disks follow. This is the
+      opposite of what this check demanded before 2026-09-18, and the reason is
+      in CLAUDE.md - the reconcile made the switch safe, and a `-dev` release
+      left selected with the box unticked is what a user reported.
+- [ ] **The pre-release images are still in the data folder afterwards.**
+      Turning the box off moves a machine; it must never delete anything.
+- [ ] **Re-tick the box.** It must NOT jump back to the pre-release - unticking
+      cleared the stored preference, so the default stays selected until the
+      pre-release is picked again by hand.
 - [ ] **The release picker, its checkbox and its note are on the MACHINE page**,
       above `ROM:` and above Disk 0-3 - not on Disk Images, which keeps only the
       catalog index field, the library list and its buttons. This moved on

@@ -347,26 +347,26 @@ std::string assetUrl(const std::string& baseUrl, const std::string& filename);
 // for the first entry when there is none - a client should not crash or refuse
 // over a broken promise it can route around.
 
-// A DEVELOPMENT SNAPSHOT IS NOT OFFERED UNLESS ASKED FOR. The rule, in one
-// place, so the picker and the automatic choice cannot disagree about one
-// machine - which is the failure the deleted release filter kept producing.
+// A PRE-RELEASE IS NOT OFFERED UNLESS ASKED FOR. The rule, in one place, so the
+// picker and the automatic choice cannot disagree about one machine - which is
+// the failure the deleted release filter kept producing.
 //
-//   showPrerelease   the "Show development snapshots" setting. False by default,
-//                    which is what CATALOG_SCHEMA.md 2.3 requires: a client
-//                    "MUST NOT offer a prerelease entry by default - hide it
-//                    behind an explicit opt-in".
-//   keepVersion      the release this machine is already on. An entry matching
-//                    it is ALWAYS offered, snapshot or not.
+// `showPrerelease` is the "Show pre release" setting. False by default, which is
+// what CATALOG_SCHEMA.md 2.3 requires: a client "MUST NOT offer a prerelease
+// entry by default - hide it behind an explicit opt-in".
 //
-// That last clause is the whole of why this takes three arguments. Without it,
-// unticking the box would hide the release the user is running: the picker would
-// stop listing it, the note would describe a release nothing selected, and OK
-// would write back whatever row happened to be highlighted - silently moving a
-// machine off the snapshot whose disk images are mounted in its four slots. The
-// checkbox says SHOW, and that is all it does; it is not a second way to change
-// which release a machine runs.
-bool isOffered(const IndexEntry& entry, bool showPrerelease,
-               const std::string& keepVersion);
+// THIS TOOK A THIRD ARGUMENT UNTIL 2026-09-18, `keepVersion`, which kept the
+// release a machine was already on visible whatever the box said. The reasoning
+// was that hiding it would let OK write back a release nobody chose and move a
+// machine off the snapshot whose images filled its four slots - a real hazard,
+// and the right call while nothing moved the disks.
+//
+// The reconcile removed it. Changing release now takes the ROM and the disks
+// with it, so turning the box off can move a machine off a pre-release and leave
+// it coherent, which is what a user asked for after finding a `-dev` release
+// still selected with the box unticked. The switch is the whole point of the
+// setting now, not something it must avoid, so there is nothing left to keep.
+bool isOffered(const IndexEntry& entry, bool showPrerelease);
 
 // Does a ROM that declares itself `declaredByRom` serve the catalog entry
 // `catalogVersion`?
@@ -396,8 +396,17 @@ bool romServes(const std::string& catalogVersion, const std::string& declaredByR
 // Which release to fetch a catalog for, out of the entries that are OFFERED.
 //
 // `showPrerelease` defaults to false because that is the safe answer and the
-// setting's own default: a caller that has not been taught about development
-// snapshots must not be able to land a machine on one by accident.
+// setting's own default: a caller that has not been taught about pre-releases
+// must not be able to land a machine on one by accident.
+//
+// A STORED PREFERENCE FOR A PRE-RELEASE IS NOT HONOURED WHILE THE BOX IS OFF,
+// and that is a reversal worth reading before it is reversed back. It WAS
+// honoured, deliberately, so that unticking the box could not move a machine off
+// the release its mounted images were built for. Nothing moved the disks then.
+// The reconcile does now, so the switch is safe, and a machine left sitting on a
+// `-dev` release with pre-releases turned off is the state a user reported as
+// wrong. Turning the box off returns such a machine to the index default, disks
+// and ROM included.
 size_t chooseVersion(const std::vector<IndexEntry>& entries,
                      const std::string& preferredVersion,
                      bool showPrerelease = false);

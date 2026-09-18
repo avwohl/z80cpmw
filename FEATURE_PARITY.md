@@ -1176,7 +1176,7 @@ In-app help fetched from GitHub, with offline bundled topics.
   state-free half (index parsing, the markdown→text renderer, and the cache) was
   split out on 2026-08-28 in `392df97` so it could be put under test, and is
   **355** checks in the shipped 1.0.33, one of the **eight** suites making
-  **1,862** — the suite total re-measured 2026-09-18; it was 1,803 when this was
+  **1,863** — the suite total re-measured 2026-09-18; it was 1,803 when this was
   re-read on 2026-09-13 at `9df0d01`, and the catalog and configuration suites
   have since gained the development-snapshot cases. The CHANGELOG records the
   total with its per-suite breakdown. The
@@ -1751,8 +1751,8 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     landed in `tests/`. It drives the terminal through the public interface
     only: cursor state is read back with `ESC [ 6 n`, which puts the answerback
     under test rather than assuming it, and screen content through `cellAt()`.
-    `tests\run_tests.bat` runs it first of **eight suites, 1,862 checks**
-    (516, 355, 50, 175, 281, 66, 36, 383), measured 2026-09-18. It was 1,803 when
+    `tests\run_tests.bat` runs it first of **eight suites, 1,863 checks**
+    (516, 355, 50, 175, 282, 66, 36, 383), measured 2026-09-18. It was 1,803 when
     this row was re-read on 2026-09-13 at `9df0d01`, the commit the Store's
     **1.0.33** was built from; the 516 itself has not moved.
 

@@ -360,7 +360,7 @@ and ^V. Paste works only while the emulator is running.
 | display.bell | Whether BEL (character 7) makes a sound (default true) |
 | core.rom | Which ROM to boot, as a catalog id - "emu_avw", not a filename |
 | core.romwbwVersion | Which RomWBW release to run - "3.6.0" |
-| core.showPrereleaseVersions | Whether the release picker offers development snapshots (default false) |
+| core.showPrereleaseVersions | Whether the release picker offers RomWBW pre-releases (default false) |
 | core.catalogIndexUrl | Which catalog to read ROMs and disks from; empty = built in |
 | core.bootString | Text typed automatically at the boot menu |
 | disks | Disk images assigned to units 0-3 |
@@ -372,14 +372,15 @@ filenames because every published ROM and image carries its release in its own
 name - emu_avw-v0-3.5.1.rom sits beside emu_avw-v0-3.6.0.rom - so a preference
 stored as a filename would be forgotten the first time you changed release.
 
-core.showPrereleaseVersions is the "Show development snapshots" box on the Disk
-Images page. RomWBW development snapshots are published beside the releases and
-are not releases: upstream has not published them as such, they are never the
-catalog's default, and their disk images pair only with their own ROM. They are
-hidden unless you ask for them. Turning the box back OFF does not move a machine
-that is already running one - the release stays selected and stays visible in the
-picker, because changing it under mounted images is what produces the guest's
-HBIOS/CBIOS mismatch. Change the release with the picker, not the checkbox.
+core.showPrereleaseVersions is the "Show pre release" box on the Machine page.
+RomWBW pre-releases are published beside the releases and are not releases:
+upstream has not published them as such, and they are never the catalog's
+default. They are hidden unless you ask for them.
+
+Turning the box back OFF returns a machine that is on one to the catalog's
+default release, and the ROM and the four disks follow it, exactly as they do
+when you change the release by hand. Nothing is deleted - the pre-release's
+images stay in the data folder.
 
 ## Reading a Different Catalog
 

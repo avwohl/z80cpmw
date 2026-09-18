@@ -72,6 +72,51 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
+## [1.0.40] - 2026-09-18
+
+### Turning "Show pre release" off now moves the machine off the pre-release
+
+Reported: the box was unticked, it stayed unticked across a restart - the 1.0.39
+persistence fix held - and a `-dev` release was still selected. A machine sitting
+on a release its own Settings page will not list.
+
+**This reverses a decision made two builds ago, and the reversal is the point.**
+The box governed VISIBILITY only, deliberately and at length: unticking it could
+not be allowed to move the release, because moving the release used to leave the
+four slots on images built for the release being left - the HBIOS/CBIOS mismatch
+the picker exists to prevent. That reasoning was sound when it was written and
+the reconcile has since removed its premise. A release change now takes the ROM
+and the disks with it, so the move is safe, and it is what the setting is for.
+
+- `catalogv0::isOffered` loses its third argument. It kept the release a machine
+  was on visible whatever the box said; there is nothing left to keep.
+- `catalogv0::chooseVersion` stops honouring a stored pre-release preference
+  while the box is off. Putting it there rather than at the call sites is what
+  makes the startup case work: a machine whose config already pairs
+  `romwbwVersion: 3.7.0-dev.14` with `showPrereleaseVersions: false` returns to
+  the index default on the next launch without anyone touching a control.
+- Unticking the box in Settings clears the stored preference rather than naming
+  a replacement, so the index's own `default: true` decides and re-ticking does
+  not silently jump back to the pre-release.
+
+Nothing is deleted or unmounted: the pre-release's images stay in the data
+folder, as they do for any release change.
+
+The check in `MANUAL_CHECKS.md` section 14 now demands the opposite of what it
+demanded yesterday, and says so.
+
+### Verified
+
+`MSBuild ... -t:Rebuild`: **0 warnings, 0 errors**.
+`tests\run_tests.bat`: **1,863 checks in eight suites, 0 failures**.
+
+The reversal is pinned by two assertions that would both fail if the old rule
+came back: `chooseVersion(entries, "3.7.0-dev.14", false)` must answer the index
+default, and the same call with `true` must answer the pre-release.
+
+**Not verified.** The dialog half - unticking the box, the refetch it starts and
+the reconcile that follows - is in `SettingsDialogWx.cpp`, which no suite reaches.
+
 ## [1.0.39] - 2026-09-18
 
 Three things reported against 1.0.38, all on the Settings page.
