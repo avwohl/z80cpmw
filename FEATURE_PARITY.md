@@ -86,10 +86,35 @@ Three rows were not a column, so the `sibling-readings` line was held back at
 **The Android column was re-read in full on 2026-09-10, at `6848615` — build
 33, versionName 1.31, the commit Play's current listing was built from**, and
 the line is advanced to it. Reading at the shipped commit rather than the tree
-tip is the same discipline the `ioscpm` paragraph below describes; the three
-commits `cpmdroid` has taken since touch `CLAUDE.md`, `todo.txt` and
-`tools/check-shipped-disks.sh` and no application source, so nothing in this
-column describes code a user does not have.
+tip is the same discipline the `ioscpm` paragraph below describes.
+
+**That last sentence read "the three commits `cpmdroid` has taken since touch
+`CLAUDE.md`, `todo.txt` and `tools/check-shipped-disks.sh` and no application
+source, so nothing in this column describes code a user does not have", and on
+2026-09-18 it is false in both halves.** Twenty-nine commits have landed since
+`6848615`, and two of them edit application source - both
+`app/src/main/cpp/emu_io_android.cpp`:
+
+- `6e491d5` re-syncs `android_host_path_cap_name()`'s continuation-byte floor
+  against romwbw_emu and drops the guard that needed it.
+- `d3706fb` lets `emu_host_file_open_read()` answer `""` for a bare FCB, so the
+  "no preference" branch in `MainActivity.kt` can be reached at all, and makes a
+  path with no leaf at all (`..`, `.`, `/`) a REFUSAL rather than a silent
+  `download.bin`.
+
+**The anchor itself is still right, and that is what inverts the conclusion.**
+`app/build.gradle.kts` at cpmdroid HEAD still reads `versionCode = 33` /
+`versionName = "1.31"` - the same build `6848615` records - so Play has not
+moved and this line must not be advanced. Which means those two commits are
+exactly *code a user does not have*, the opposite of what stood here.
+
+**One cell is affected and has NOT been re-read.** Row 4's cpmdroid cell says
+`R8` "used to fall back to **the first file in `Imports/`** when the requested
+name was missing", written as a fixed bug; `d3706fb` deliberately restores that
+behaviour for the bare-FCB case while refusing a typed path with no leaf. The
+cell is marked in place rather than rewritten, because rewriting it would
+describe unshipped code in a column whose whole discipline is to describe what
+users have.
 
 The column mostly held. Every claim in all thirteen `cites: cpmdroid` regions
 was checked against the port, and the rot was concentrated exactly where
@@ -134,6 +159,18 @@ Three of the four `cites: romwbw_emu` regions held completely — item 4's
 R8/W8 block (seventeen claims), item 10's Dazzler (eight) and item 13's
 terminal (ten). The upheaval did not reach them: the files those rows rest on
 are byte-identical to the last reading.
+
+**The sha was advanced to `653858f` (v1.47) on 2026-09-18, and ONE claim
+expired with it.** Item 10's Dazzler verdict still holds — `handleUnknownPortOut`
+and `romwbw_mem.h` both resolve — but the aside it carried about the web
+frontend's *sound* wiring being dead code that has never executed is now false:
+v1.47 gave the browser live four-voice audio through `Module.onSndTone`. That
+paragraph is rewritten in place; see the row. Every backticked identifier in all
+four `cites: romwbw_emu` regions was re-grepped at `653858f` before the sha was
+moved, per the rule in `CLAUDE.md`, and every one of them resolves — the regions
+at lines 651, 1081 and 1774 needed no edit. The re-read was of the IDENTIFIERS,
+not of every claim those three regions make; item 10 is the only one whose prose
+was checked against the code again.
 
 **Item 5 was wholly rotted and is rewritten.** It said "there is no catalog here
 at all" and described two hardcoded five-name `<select>`s fetched by bare
@@ -840,6 +877,10 @@ to find them on every platform.
     One real bug was fixed on the way: `R8` used to fall back to **the first
     file in `Imports/`** when the requested name was missing, and hand it to
     CP/M under the requested name while printing its usual success line.
+    *(Still true of the shipped build 33. `d3706fb`, unshipped as of 2026-09-18,
+    restores the first-file fallback for a BARE FCB only - where the guest named
+    nothing - and makes a typed path with no leaf a refusal instead. See the
+    Android reading note at the top of this file.)*
     **A second one at `c06fa58`** (2026-08-26): a zero-byte `W8` export produced
     no file at all while telling the guest it had succeeded. Three places each
     read "no bytes" as "no export" and any one of them would have swallowed it
@@ -1135,8 +1176,10 @@ In-app help fetched from GitHub, with offline bundled topics.
   state-free half (index parsing, the markdown→text renderer, and the cache) was
   split out on 2026-08-28 in `392df97` so it could be put under test, and is
   **355** checks in the shipped 1.0.33, one of the **eight** suites making
-  **1,803** — re-read 2026-09-13 at `9df0d01`, where `run_tests.bat` builds eight
-  suites and the CHANGELOG records the total with its per-suite breakdown. The
+  **1,862** — the suite total re-measured 2026-09-18; it was 1,803 when this was
+  re-read on 2026-09-13 at `9df0d01`, and the catalog and configuration suites
+  have since gained the development-snapshot cases. The CHANGELOG records the
+  total with its per-suite breakdown. The
   355 itself has not moved since 1.0.25, `HelpAssets.cpp` and `HelpAssets.h`
   being byte-identical at `6496fd4` and `9df0d01`; what moves is the count
   around it, which this row has now carried wrong at three separate store
@@ -1401,24 +1444,34 @@ In-app help fetched from GitHub, with offline bundled topics.
 ### 10. Cromemco Dazzler graphics card (optional)
 Emulated retro graphics card in a separate window.
 <!-- cites: romwbw_emu -->
-- **Verified romwbw_emu behaviour (2026-08-24):** **absent**, not partial — this
-  row said ✅ (partial) and there is no Dazzler code in that repo at all. Every
-  "Dazzler" string in it is a *comment* on a hook provided **for** a client like
-  this one: `handleUnknownPortOut` in `hbios_cpu.h` and the memory-write
-  callback in `romwbw_mem.h`. Neither romwbw_emu frontend overrides the hook,
-  so unknown ports hit the base no-op. What probably produced the ✅ is the
-  web frontend's video/DSKY/sound code, and that is dead: the C++ side emits
+- **Verified romwbw_emu behaviour (2026-08-24, re-read at `653858f` on
+  2026-09-18):** **absent**, not partial — this row said ✅ (partial) and there is
+  no Dazzler code in that repo at all. Every "Dazzler" string in it is a
+  *comment* on a hook provided **for** a client like this one:
+  `handleUnknownPortOut` in `hbios_cpu.h` and the memory-write callback in
+  `romwbw_mem.h`. Neither romwbw_emu frontend overrides the hook, so unknown
+  ports hit the base no-op. **That verdict is unchanged**; both identifiers still
+  resolve at `653858f`.
+- **What produced the ✅ was the web frontend's video/DSKY/sound code, and the
+  half of that story about SOUND HAS EXPIRED.** It read: the C++ side emits
   `Module.onVideo*` and `Module.onDsky*` while the page implements
-  `Module.onVda*` and `Module.onSnd*` — **zero overlap**, ~200 lines on each
-  side that have never executed. That half still stands: `2dbf6f2` looked at it
-  and deliberately left it alone. What that commit did fix is the one channel
-  that would have complained — `Module.onError`, called by `emu_error()`
-  (`src/emu_io_wasm.cc`) and implemented nowhere.  Not quite nowhere: the
+  `Module.onVda*` and `Module.onSnd*` — zero overlap, ~200 lines on each side
+  that have never executed, and `2dbf6f2` "looked at it and deliberately left it
+  alone". v1.47 did not leave it alone. Measured at `653858f` by
+  `git grep -n -E "Module\.on[A-Za-z]+"`: the template implements exactly three
+  handlers — `Module.onError` (:484), `Module.onDskyBeep` (:554) and
+  `Module.onSndTone` (:564) — and the core emits all three, `onSndTone` from
+  `js_snd_tone` in `src/emu_io_wasm.cc` installed through
+  `emu_snd_set_tone_handler`. The `Module.onVda*` names are gone from the
+  template entirely. So the browser has live four-voice sound, and what remains
+  emitted-and-unimplemented is the `Module.onVideo*` family alone.
+- **The `Module.onError` half still stands.** It was called by `emu_error()`
+  (`src/emu_io_wasm.cc`) and implemented nowhere — not quite nowhere: the
   `js_error` shim has fallen back to `console.error` when the page defines no
   handler since the very first commit, so the errors reached a devtools console
-  nobody had open and never the page itself.  The page implements it now, to
-  the status line and to `console.error` both, which is a large part of why the
-  dead wiring above survived unnoticed for so long.
+  nobody had open and never the page itself. The page implements it now, to the
+  status line and to `console.error` both, which is a large part of why the dead
+  wiring above survived unnoticed for so long.
 <!-- /cites -->
 - **Behaviour/spec:** enable + base I/O port + scale, rendered in its own window.
 <!-- cites: z80cpmw -->
@@ -1698,10 +1751,10 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     landed in `tests/`. It drives the terminal through the public interface
     only: cursor state is read back with `ESC [ 6 n`, which puts the answerback
     under test rather than assuming it, and screen content through `cellAt()`.
-    `tests\run_tests.bat` runs it first of **eight suites, 1,803 checks** —
-    re-read 2026-09-13 at `9df0d01`, the commit the Store's **1.0.33** was built
-    from, where `run_tests.bat` builds eight suites and the CHANGELOG records
-    that total and its per-suite breakdown (516, 355, 50, 175, 231, 66, 36, 374).
+    `tests\run_tests.bat` runs it first of **eight suites, 1,862 checks**
+    (516, 355, 50, 175, 281, 66, 36, 383), measured 2026-09-18. It was 1,803 when
+    this row was re-read on 2026-09-13 at `9df0d01`, the commit the Store's
+    **1.0.33** was built from; the 516 itself has not moved.
 
     This sentence has now been re-dated twice and the shape of the error was the
     same both times. It said "six suites, 1323 checks" (1.0.23's figure) while
@@ -2011,7 +2064,7 @@ does that writes to a sibling.
 z80cpmw    9df0d01  2026-09-13
 ioscpm     a68e320  2026-09-13
 cpmdroid   6848615  2026-09-10
-romwbw_emu 5724350  2026-09-10
+romwbw_emu 653858f  2026-09-18
 ```
 
 What each of those three readings is, because they are not the same kind of

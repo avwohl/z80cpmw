@@ -740,6 +740,51 @@ int emu_dsky_get_key() {
 }
 
 //=============================================================================
+// Sound: BF_SNDPLAY's four voices
+//
+// THESE TWO LIVE HERE BECAUSE THIS PORT DOES NOT COMPILE emu_io_common.cc.
+//
+// romwbw_emu v1.47 gave HBIOS four-voice sound. hbios_dispatch.cc - which this
+// project DOES compile - calls emu_snd_emit_tone() in three places, and the
+// core supplies it from emu_io_common.cc, whose own header comment says "every
+// port links this file". This one does not: z80cpmw.vcxproj lists exactly three
+// core sources, and romwbw_emu/DOWNSTREAM.md is what tells it to. So the symbol
+// arrived undefined and the whole application stopped linking - three LNK2019s
+// on emu_snd_emit_tone, reproduced 2026-09-18 before this was written.
+//
+// What is here is the core's own fallback, copied deliberately rather than
+// improved on. emu_io.h describes it as "exactly the behaviour every port has
+// today" and says a port that has not been updated "must keep building and keep
+// making the beep it makes today" - so this port keeps making that beep, and
+// installing a real renderer stays an opt-in a later change can make without
+// touching the core.
+//
+// THE PAIR IS THE POINT. The handler is a POINTER and not a symbol precisely so
+// that a front end can opt in; defining only emu_snd_emit_tone() would link, and
+// would quietly make emu_snd_set_tone_handler() the next undefined symbol the
+// day anything called it.
+static emu_snd_tone_fn g_sndToneHandler = nullptr;
+
+void emu_snd_set_tone_handler(emu_snd_tone_fn fn) {
+    g_sndToneHandler = fn;
+}
+
+void emu_snd_emit_tone(int channel, int freq_hz, int volume, int duration_ms) {
+    if (g_sndToneHandler) {
+        g_sndToneHandler(channel, freq_hz, volume, duration_ms);
+        return;
+    }
+    // Channel 0 only, and only when it is audible. Without the channel test a
+    // four-voice tune becomes four Beep() calls in a row, each of them blocking
+    // for its full duration - which is not "the beep this port makes today", it
+    // is a stall. The volume and frequency tests are what make silencing a
+    // channel silent rather than a click.
+    if (channel == 0 && volume > 0 && freq_hz > 0) {
+        emu_dsky_beep(duration_ms);
+    }
+}
+
+//=============================================================================
 // Host File Transfer - for R8/W8 utilities
 //=============================================================================
 

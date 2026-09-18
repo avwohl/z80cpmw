@@ -314,9 +314,25 @@ running.
 | `display.bell` | Whether `BEL` (character 7) makes a sound (default `true`) |
 | `core.rom`         | Which ROM to boot, as a catalog **id** — `emu_avw`, not a filename |
 | `core.romwbwVersion` | Which RomWBW release to run, as its version string — `3.6.0` |
+| `core.showPrereleaseVersions` | Whether the release picker offers RomWBW development snapshots (default `false`) |
 | `core.catalogIndexUrl` | Which catalog to read ROMs and disks from — empty for the one this build ships with |
 | `core.bootString`  | Text typed automatically at the boot menu |
 | `disks`            | Disk images assigned to units 0–3 |
+
+**`core.showPrereleaseVersions` is the "Show development snapshots" box** under
+the release picker. `romwbw_disks` publishes RomWBW development snapshots beside
+the releases, flagged `prerelease: true` in the index;
+`romwbw_disks/docs/CATALOG_SCHEMA.md` 2.3 requires that a client "MUST NOT offer
+a prerelease entry by default", so `false` is the required default and is what an
+absent key reads as.
+
+It governs what is **offered** and nothing else. Turning it off does not move a
+machine already running a snapshot: `catalogv0::isOffered` keeps the selected
+release visible whatever the box says, and `catalogv0::chooseVersion` honours a
+stored preference for one either way. The alternative would drop a machine from
+`3.7.0-dev.14` to `3.6.0` with `3.7.0-dev.14` images in its four slots, which is
+the HBIOS/CBIOS mismatch the release picker exists to prevent. Change the release
+with the picker; the checkbox only decides what the picker lists.
 
 **`core.rom` and `core.romwbwVersion` name a choice, not a file**, and both are
 empty on a fresh install. Empty means *no preference*, which is a real answer

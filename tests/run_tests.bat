@@ -278,7 +278,7 @@ if not exist "obj\tests\hbios" mkdir "obj\tests\hbios"
 echo.
 echo === Building the HBIOS host file extension suite ===
 REM Two passes: the sibling core is compiled at /W1 because its own warnings
-REM (C4244 in qkz80.cc) are not this repository's to fix, and thirty lines of
+REM (C4244 in qkz80.cc and qkz80_mem.cc) are not this repository's to fix, and thirty lines of
 REM them would bury a warning that is.
 cl /nologo /c /EHsc /W1 /O2 /std:c++17 ^
     /D _CRT_SECURE_NO_WARNINGS ^

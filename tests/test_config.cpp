@@ -1888,6 +1888,45 @@ static void test_romwbw_version_is_persisted() {
               "and the reference document names core.romwbwVersion");
 }
 
+static void test_development_snapshots_are_opt_in() {
+    section("the development-snapshot opt-in");
+
+    ConfigManager& cm = ConfigManager::instance();
+
+    freshManager(cm);
+    resetDir();
+    // FALSE IS THE REQUIRED DEFAULT, not a taste. romwbw_disks publishes RomWBW
+    // development snapshots beside the releases, and CATALOG_SCHEMA.md 2.3 says
+    // a client "MUST NOT offer a prerelease entry by default - hide it behind an
+    // explicit opt-in". Absent is exactly what every configuration written
+    // before this release says, so the absent case IS the shipped case.
+    writeFile(configPath(), R"({"core": {"rom": "emu_avw"}})");
+    checkTrue(cm.load(), "a configuration written before this release loads");
+    checkTrue(!cm.get().showPrereleaseVersions,
+              "and snapshots are OFF - the schema's required default");
+
+    cm.get().showPrereleaseVersions = true;
+    checkTrue(cm.save(), "ticking the box saves");
+
+    freshManager(cm);
+    checkTrue(cm.load(), "and reloads");
+    checkTrue(cm.get().showPrereleaseVersions, "with the opt-in remembered");
+
+    // Off again, because a flag that could only ever be turned on would be a
+    // one-way door on a setting whose whole point is that it is reversible.
+    cm.get().showPrereleaseVersions = false;
+    checkTrue(cm.save(), "and unticking it saves too");
+    freshManager(cm);
+    checkTrue(cm.load(), "reloads");
+    checkTrue(!cm.get().showPrereleaseVersions, "back off");
+
+    json ref = referenceDocument();
+    checkTrue(ref.contains("core") && ref["core"].contains("showPrereleaseVersions"),
+              "and the reference document names core.showPrereleaseVersions, so a "
+              "file carrying it is not reported as holding a member this build "
+              "cannot read");
+}
+
 //=============================================================================
 // core.rom, which stopped being a filename
 //
@@ -2193,6 +2232,7 @@ int main() {
     test_retrying_a_profile_does_not_double_the_report();
     test_carry_belongs_to_one_file();
     test_romwbw_version_is_persisted();
+    test_development_snapshots_are_opt_in();
     test_rom_is_read_back_as_a_catalog_id();
     test_v0_document_paths();
     test_v0_migration_end_to_end();

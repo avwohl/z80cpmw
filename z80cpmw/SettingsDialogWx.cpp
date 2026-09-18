@@ -6,6 +6,9 @@
 #include "SettingsDialogWx.h"
 #include "DiskCatalog.h"
 #include "Keymap.h"
+// diskv0::idOfV0Name and diskv0::releaseOfV0Name: the release switch reads a
+// slot filename when no catalog in hand can identify it.
+#include "DiskMigrationV0.h"
 #include <wx/statline.h>
 #include <wx/filename.h>
 #include <wx/stdpaths.h>
@@ -30,6 +33,7 @@ wxBEGIN_EVENT_TABLE(SettingsDialogWx, wxDialog)
     EVT_BUTTON(ID_CLEAR_BOOT_CONFIG, SettingsDialogWx::onClearBootConfig)
     EVT_BUTTON(ID_REFRESH_CATALOG, SettingsDialogWx::onRefreshCatalog)
     EVT_CHOICE(ID_ROMWBW_VERSION, SettingsDialogWx::onRomwbwVersionChanged)
+    EVT_CHECKBOX(ID_SHOW_PRERELEASE, SettingsDialogWx::onShowPrereleaseChanged)
     EVT_TEXT(ID_CATALOG_INDEX_URL, SettingsDialogWx::onCatalogIndexUrlChanged)
     EVT_BUTTON(ID_DOWNLOAD_DISK, SettingsDialogWx::onDownloadDisk)
     EVT_BUTTON(ID_UPDATE_DISK, SettingsDialogWx::onUpdateDisk)
@@ -45,6 +49,15 @@ wxBEGIN_EVENT_TABLE(SettingsDialogWx, wxDialog)
     EVT_COMMAND(ID_DOWNLOAD_PROGRESS, wxEVT_COMMAND_TEXT_UPDATED, SettingsDialogWx::onDownloadProgress)
     EVT_COMMAND(ID_DOWNLOAD_COMPLETE, wxEVT_COMMAND_TEXT_UPDATED, SettingsDialogWx::onDownloadComplete)
 wxEND_EVENT_TABLE()
+
+// Forward-declared because the constructor reserves the release note's height
+// before Fit() measures, and these three are defined further down beside the
+// page builders that use them. Declaring rather than moving them: they sit with
+// kNoteCols and the note text they wrap, and that is where a reader looking for
+// "how wide is a note" will go.
+static std::string hardWrap(const std::string& text, size_t cols);
+static int wrappedLineCount(const std::string& s);
+extern const size_t kNoteCols;
 
 SettingsDialogWx::SettingsDialogWx(wxWindow* parent, DiskCatalog* catalog)
     : wxDialog(parent, wxID_ANY, "Settings", wxDefaultPosition, wxDefaultSize,
@@ -119,6 +132,39 @@ SettingsDialogWx::SettingsDialogWx(wxWindow* parent, DiskCatalog* catalog)
     // window (bottoms 1156 and 1219 against the window's 1247); forced to
     // 300x200 it stops at the floor, 800x458, OK still inside. Before this, both
     // of those were refused - 1105 was the minimum as well as the size.
+    // RESERVE THE RELEASE NOTE'S REAL HEIGHT BEFORE FIT() MEASURES.
+    //
+    // Same defect, same fix, as m_catalogIndexNote - whose builder carries the
+    // arithmetic - and it became this page's problem on 2026-09-18 when the
+    // release picker moved here from Disk Images. The label is created holding a
+    // one-line placeholder and updateRomwbwVersionNote() replaces it with text
+    // that reaches nine wrapped lines: a release mismatch, a snapshot warning
+    // and the ROM-count sentence can all be true at once.
+    //
+    // ON THE OLD PAGE the excess came out of m_catalogList, the only proportion-1
+    // child there. THIS PAGE HAS NO PROPORTIONAL CHILD AT ALL, so a label that
+    // grows after the fit pushes the Dazzler box off the bottom instead, with
+    // nothing to absorb it.
+    //
+    // Reserved from the longest form the builder can produce, wrapped exactly as
+    // the runtime wraps it, with the longest release string published today. It
+    // is done here rather than beside the control because hardWrap() and
+    // wrappedLineCount() are defined below buildMachinePage().
+    if (m_romwbwVersionNote) {
+        const std::string longest =
+            hardWrap("Disks for RomWBW 3.7.0-dev.14 need a RomWBW 3.7.0-dev.14 ROM, "
+                     "and the machine is running RomWBW 3.7.0. Starting will offer to "
+                     "fetch it; without it the guest would report an HBIOS/CBIOS "
+                     "version mismatch. "
+                     "RomWBW 3.7.0-dev.14 is a pre-release. "
+                     "This catalog publishes 2 ROMs; the one chosen below is fetched "
+                     "and checked against its published size and checksum before the "
+                     "machine starts. Changing the release moves the disks below to "
+                     "match it.", kNoteCols);
+        m_romwbwVersionNote->SetMinSize(
+            wxSize(-1, m_romwbwVersionNote->GetCharHeight() * wrappedLineCount(longest)));
+    }
+
     Fit();
     const wxSize fitted = GetSize();
 
@@ -282,6 +328,84 @@ void SettingsDialogWx::buildMachinePage() {
     wxWindow* page = m_machinePage;
     wxBoxSizer* content = new wxBoxSizer(wxVERTICAL);
 
+    // THE RELEASE, FIRST, BECAUSE EVERYTHING BELOW IT IS ABOUT THE RELEASE.
+    //
+    // This block lived on the Disk Images page until 2026-09-18. It was moved
+    // here because it was in the wrong place and a user said so: the release
+    // picker decides which ROM the dropdown below offers AND which images the
+    // four slots below that can hold, and it was sitting on a third page from
+    // both. Picking a release and coming back here showed nothing changed - the
+    // ROM names are identical in every release ("EMU AVW", "EMU RCZ80"), and the
+    // slot dropdowns list only images already downloaded - so the app looked
+    // broken when it was working.
+    //
+    // The "Show development snapshots" box comes with it for the same reason:
+    // filed under Disk Images it was, in the user's words, hard to find.
+    //
+    // The Disk Images page keeps the download LIBRARY - the list, its buttons
+    // and the catalog index field. The division is now: this page is the machine
+    // you are about to run, that page is the collection of files on disk.
+
+    // Which RomWBW release the catalog is for, and what that means here.
+    //
+    // It is at the TOP of this page because it decides everything below it: which
+    // ROM the dropdown under it offers, and which images the four slots under
+    // that can hold.
+    // The list is not compiled in - it is index-v0.json's own list of releases,
+    // whole and unfiltered - so it is empty until a catalog has been fetched,
+    // which is why populateVersionList() leaves a placeholder rather than an
+    // empty control.
+    //
+    // This said "filtered to the releases the emulator core says it can boot"
+    // until 2026-09-17, and the filter it described was deleted that same day -
+    // romwbw_emu v1.44 removed the function it asked. populateVersionList(),
+    // further down this file, is the one that fills the control and carries the
+    // reasoning; the short of it is that the release number is the
+    // ROM-to-disk-image pairing and never described what this core can execute.
+    m_romwbwVersionChoice = new wxChoice(page, ID_ROMWBW_VERSION);
+    wxBoxSizer* versionSizer = new wxBoxSizer(wxHORIZONTAL);
+    versionSizer->Add(new wxStaticText(page, wxID_ANY, "RomWBW release:"), 0,
+                      wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
+    versionSizer->Add(m_romwbwVersionChoice, 1, wxALIGN_CENTER_VERTICAL);
+    content->Add(versionSizer, 0, wxEXPAND | wxBOTTOM, 4);
+
+    // THE OPT-IN THE CATALOG REQUIRES, directly under the control it governs.
+    //
+    // romwbw_disks publishes RomWBW DEVELOPMENT SNAPSHOTS beside the releases -
+    // index entries carrying `prerelease: true`, the first of them 3.7.0-dev.14
+    // on 2026-09-18 - and CATALOG_SCHEMA.md 2.3 says a client "MUST NOT offer a
+    // prerelease entry by default; hide it behind an explicit opt-in, a 'show
+    // development snapshots' checkbox or equivalent". This is that checkbox, and
+    // the wording is the schema's rather than invented, so that a user reading
+    // the repository and a user reading this dialog are told the same thing.
+    //
+    // It is NOT a second release picker. Everything it does happens in
+    // populateVersionList(): rows appear and disappear. The release a machine
+    // runs is moved only by the choice above it, which is why unticking this
+    // cannot strand somebody on a snapshot whose images are mounted - the row
+    // for the selected release survives the filter. catalogv0::isOffered holds
+    // that rule, in one place, so this dialog and the automatic choice made
+    // during a fetch cannot disagree about one machine.
+    m_showPrereleaseCheck = new wxCheckBox(page, ID_SHOW_PRERELEASE,
+                                           "Show pre release");
+    content->Add(m_showPrereleaseCheck, 0, wxBOTTOM, 6);
+
+    // Created carrying the sentence that is true whatever is selected, rather
+    // than empty, so that the Fit() in the constructor reserves height for it -
+    // this page is laid out before any catalog has been fetched, and a label
+    // that grows from nothing to two lines afterwards grows into a page that was
+    // measured without it. updateRomwbwVersionNote() replaces the text.
+    //
+    // It said "z80cpmw boots the ROM it ships with. ROMs in the catalog are not
+    // downloaded." - true when it was written, false since the catalog ROM fetch
+    // landed, and doubly so since the ROMs were deleted. It is a placeholder
+    // that is on screen for as long as the first catalog fetch takes, so it has
+    // to be a sentence that stays true rather than a description of a state.
+    m_romwbwVersionNote = new wxStaticText(page, wxID_ANY,
+        "The ROM and the disk images are downloaded from the RomWBW catalog and "
+        "checked against it. Reading the catalog...");
+    content->Add(m_romwbwVersionNote, 0, wxEXPAND | wxBOTTOM, 10);
+
     // ROM selection row
     m_romChoice = new wxChoice(page, wxID_ANY);
     wxBoxSizer* romSizer = new wxBoxSizer(wxHORIZONTAL);
@@ -419,7 +543,8 @@ static const int kPageTextWrap = 700;
 // the URL line came out clipped at "catalog-v0/ind" - so the arithmetic is
 // wrong, or the width the control draws at is not the width the sizer gives it.
 // Being too short costs a line break; being too long costs the text.
-static const size_t kNoteCols = 62;
+extern const size_t kNoteCols;
+const size_t kNoteCols = 62;
 
 // Break 'text' into lines of at most 'cols' characters, joined with '\n', which
 // wxStaticText draws as separate lines.
@@ -882,43 +1007,13 @@ void SettingsDialogWx::buildDiskImagesPage() {
     wxWindow* page = m_diskImagesPage;
     wxBoxSizer* content = new wxBoxSizer(wxVERTICAL);
 
-    // Which RomWBW release the catalog is for, and what that means here.
-    //
-    // It is at the TOP of this page because it decides everything below it: the
-    // list, the filenames, and which images a download puts in the data folder.
-    // The list is not compiled in - it is index-v0.json's own list of releases,
-    // whole and unfiltered - so it is empty until a catalog has been fetched,
-    // which is why populateVersionList() leaves a placeholder rather than an
-    // empty control.
-    //
-    // This said "filtered to the releases the emulator core says it can boot"
-    // until 2026-09-17, and the filter it described was deleted that same day -
-    // romwbw_emu v1.44 removed the function it asked. populateVersionList(),
-    // further down this file, is the one that fills the control and carries the
-    // reasoning; the short of it is that the release number is the
-    // ROM-to-disk-image pairing and never described what this core can execute.
-    m_romwbwVersionChoice = new wxChoice(page, ID_ROMWBW_VERSION);
-    wxBoxSizer* versionSizer = new wxBoxSizer(wxHORIZONTAL);
-    versionSizer->Add(new wxStaticText(page, wxID_ANY, "RomWBW release:"), 0,
-                      wxALIGN_CENTER_VERTICAL | wxRIGHT, 8);
-    versionSizer->Add(m_romwbwVersionChoice, 1, wxALIGN_CENTER_VERTICAL);
-    content->Add(versionSizer, 0, wxEXPAND | wxBOTTOM, 4);
 
-    // Created carrying the sentence that is true whatever is selected, rather
-    // than empty, so that the Fit() in the constructor reserves height for it -
-    // this page is laid out before any catalog has been fetched, and a label
-    // that grows from nothing to two lines afterwards grows into a page that was
-    // measured without it. updateRomwbwVersionNote() replaces the text.
-    //
-    // It said "z80cpmw boots the ROM it ships with. ROMs in the catalog are not
-    // downloaded." - true when it was written, false since the catalog ROM fetch
-    // landed, and doubly so since the ROMs were deleted. It is a placeholder
-    // that is on screen for as long as the first catalog fetch takes, so it has
-    // to be a sentence that stays true rather than a description of a state.
-    m_romwbwVersionNote = new wxStaticText(page, wxID_ANY,
-        "The ROM and the disk images are downloaded from the RomWBW catalog and "
-        "checked against it. Reading the catalog...");
-    content->Add(m_romwbwVersionNote, 0, wxEXPAND | wxBOTTOM, 10);
+    // THE RELEASE PICKER IS NOT HERE ANY MORE. It moved to the Machine page on
+    // 2026-09-18, with its "Show development snapshots" box and its note, because
+    // it decides what the ROM dropdown and the four disk slots there can hold and
+    // it was sitting on a different page from both. What is left here is the
+    // download LIBRARY: which catalog to read, what it publishes, and what of it
+    // is on this machine.
 
     // WHERE THE CATALOG ITSELF COMES FROM.
     //
@@ -927,7 +1022,8 @@ void SettingsDialogWx::buildDiskImagesPage() {
     // testing a romwbw_disks release before it is published, and for running
     // your own. Empty means the one this build ships with.
     //
-    // Directly under the release picker because it decides what that picker can
+    // First on this page because it decides what the release picker on the
+    // Machine page can
     // even offer - a different index publishes a different set of releases.
     wxBoxSizer* indexSizer = new wxBoxSizer(wxHORIZONTAL);
     indexSizer->Add(new wxStaticText(page, wxID_ANY, "Catalog index:"), 0,
@@ -1123,6 +1219,17 @@ void SettingsDialogWx::populateROMList(const std::string& selectId) {
     m_romChoice->SetSelection(idx < 0 ? 0 : idx);
 }
 
+// The release the picker is showing right now, or empty for the placeholder row
+// and before the control has been filled. Shaped after selectedRomId() below and
+// for the same reason: what the control DISPLAYS is a label the index may reword,
+// so the answer comes out of m_romwbwVersionIds and never off the screen.
+std::string SettingsDialogWx::selectedRomwbwVersionId() const {
+    if (!m_romwbwVersionChoice) return std::string();
+    const int sel = m_romwbwVersionChoice->GetSelection();
+    if (sel < 0 || (size_t)sel >= m_romwbwVersionIds.size()) return std::string();
+    return m_romwbwVersionIds[sel];
+}
+
 std::string SettingsDialogWx::selectedRomId() const {
     const int sel = m_romChoice->GetSelection();
     if (sel < 0 || (size_t)sel >= m_romFileIds.size()) return std::string();
@@ -1130,6 +1237,17 @@ std::string SettingsDialogWx::selectedRomId() const {
 }
 
 void SettingsDialogWx::populateVersionList() {
+    // WHAT THE CONTROL WAS HOLDING, read before Clear() wipes it.
+    //
+    // This is the release that must survive the snapshot filter, and it is read
+    // from the CONTROL rather than only from the catalog because the two can
+    // disagree for as long as a fetch is in flight: pick the snapshot, and
+    // getSelectedRomwbwVersion() still names the previous release until that
+    // fetch lands. Untick the box inside that window and the row the user just
+    // chose would vanish underneath them. Empty on the first call and on the
+    // placeholder row, which is the ordinary case and means "nothing to keep".
+    const std::string showing = selectedRomwbwVersionId();
+
     m_romwbwVersionChoice->Clear();
     m_romwbwVersionIds.clear();
 
@@ -1172,10 +1290,48 @@ void SettingsDialogWx::populateVersionList() {
     // decoration: the repository publishes a preview release as not yet
     // recommended, and a user choosing one is choosing images built for a ROM
     // this build does not ship.
+    // WHICH ROWS EXIST, decided before the loop because both the filter and the
+    // re-selection below need the same answer.
+    //
+    // `selected` is the release the catalog in hand was actually fetched for,
+    // and it is handed to catalogv0::isOffered as the row that must survive the
+    // filter whatever the checkbox says. Without that, unticking the box while
+    // running 3.7.0-dev.14 would remove the only row that described the machine:
+    // the picker would highlight some other release, the note would describe it,
+    // and OK would write it back - moving a machine off the release its four
+    // mounted images were built for, on a checkbox that says "show".
+    const std::string selected = m_catalog ? m_catalog->getSelectedRomwbwVersion()
+                                           : m_settings.romwbwVersion;
+    const bool showPrerelease =
+        m_showPrereleaseCheck ? m_showPrereleaseCheck->GetValue()
+                              : m_settings.showPrereleaseVersions;
+
+    // `showing` wins over `selected` when the two differ, which they do only
+    // while a fetch started by the picker is still in flight - see the note at
+    // the top of this function. Either way the row the user is looking at is the
+    // one kept.
+    const std::string keep = showing.empty() ? selected : showing;
+
     for (const auto& entry : versions) {
+        if (!catalogv0::isOffered(entry, showPrerelease, keep)) continue;
         m_romwbwVersionChoice->Append(wxString::FromUTF8(catalogv0::displayLabel(entry)));
         m_romwbwVersionIds.push_back(entry.romwbwVersion);
     }
+
+    // Every entry was filtered out: an index of nothing but snapshots, with the
+    // box unticked and no release selected yet. An empty enabled dropdown is the
+    // one state this control must never reach - it invites a click that can only
+    // produce a worse answer than the one already stored - so it falls back to
+    // the same placeholder the no-catalog path uses, and says which box to tick.
+    if (m_romwbwVersionIds.empty()) {
+        m_romwbwVersionChoice->Append("(only development snapshots are published)");
+        m_romwbwVersionIds.push_back(std::string());
+        m_romwbwVersionChoice->SetSelection(0);
+        m_romwbwVersionChoice->Enable(false);
+        updateRomwbwVersionNote();
+        return;
+    }
+
     m_romwbwVersionChoice->Enable(true);
 
     // Selected on the version the catalog in hand was actually FETCHED for,
@@ -1186,8 +1342,10 @@ void SettingsDialogWx::populateVersionList() {
     // There was a second clause here - "or that this core cannot boot" - and it
     // went with catalogv0::runnableVersions on 2026-09-17. One way is left for a
     // preference to miss, and it is the document's doing rather than the build's.
-    const std::string selected = m_catalog ? m_catalog->getSelectedRomwbwVersion()
-                                           : m_settings.romwbwVersion;
+    //
+    // `selected` is computed above the loop now, because the filter needs the
+    // same value: it is the row that must survive whatever the checkbox says,
+    // and re-deriving it here would let the two drift.
     int idx = 0;
     for (size_t i = 0; i < m_romwbwVersionIds.size(); i++) {
         if (m_romwbwVersionIds[i] == selected) {
@@ -1212,7 +1370,14 @@ void SettingsDialogWx::updateRomwbwVersionNote() {
 
     std::string note;
     if (!chosen.empty() && !running.empty()) {
-        if (chosen == running) {
+        // romServes AND NOT `==`. A ROM says what it is in two bytes and can
+        // only spell "3.7.0"; `chosen` is a catalog version and names the full
+        // tag, "3.7.0-dev.14". With `==` this page told a user running the
+        // snapshot's own ROM that their disks "need a RomWBW 3.7.0-dev.14 ROM,
+        // and the machine is running RomWBW 3.7.0" - a mismatch warning about a
+        // pairing that is correct, on the one release where the warning is
+        // hardest to check. See CatalogV0.h on romServes.
+        if (catalogv0::romServes(chosen, running)) {
             note = "Matches the ROM in use (RomWBW " + running + "). ";
         } else {
             // THE ONE WARNING ON THIS PAGE THAT IS ABOUT DATA AND NOT TASTE,
@@ -1232,6 +1397,27 @@ void SettingsDialogWx::updateRomwbwVersionNote() {
         }
     }
 
+    // A SNAPSHOT SAYS SO HERE TOO, not only in the dropdown row.
+    //
+    // CATALOG_SCHEMA.md 2.3 asks a client to show the release's label "wherever
+    // you name the release, not only in the picker, because for a snapshot it is
+    // the surface that carries the warning" - and this note names it in the
+    // sentence above. A dropdown row is read once, when it is chosen; this is on
+    // screen for as long as the page is.
+    //
+    // Read off the index entry rather than by looking for "dev" in the version
+    // string. `prerelease` is a boolean with exactly one meaning; the version is
+    // an upstream tag whose shape is not this application's to predict.
+    if (!chosen.empty() && m_catalog) {
+        for (const auto& entry : m_catalog->getIndexVersions()) {
+            if (entry.romwbwVersion != chosen) continue;
+            if (entry.prerelease) {
+                note += "RomWBW " + chosen + " is a pre-release. ";
+            }
+            break;
+        }
+    }
+
     // And the sentence that is true whichever release is selected. The count is
     // the catalog's own roms[], which may be absent or empty for a release -
     // that is a real answer and the reason this is phrased as a count rather
@@ -1245,9 +1431,9 @@ void SettingsDialogWx::updateRomwbwVersionNote() {
         // it - which is exactly how this was caught.
         note += "This catalog publishes " + std::to_string(romCount) + " ROM" +
                 (romCount == 1 ? "" : "s") +
-                "; the one on the Machine page is fetched and checked against "
-                "its published size and checksum before the machine starts. "
-                "This app ships no ROM of its own.";
+                "; the one chosen below is fetched and checked against its "
+                "published size and checksum before the machine starts. "
+                "Changing the release moves the disks below to match it.";
     } else {
         // A release whose catalog carries no roms[] at all, which
         // CATALOG_SCHEMA 6.1 allows. This used to end "can only be started with
@@ -1268,8 +1454,13 @@ void SettingsDialogWx::updateRomwbwVersionNote() {
     // size of the already-wrapped block rather than the room available. Measured
     // on 2026-09-08, the "publishes no ROM" form drew on two lines when the
     // dialog opened and on one, cut off at "there is", after pressing Refresh.
-    if (m_diskImagesPage->GetSizer()) m_diskImagesPage->Layout();
-    if (m_diskImagesPage) m_diskImagesPage->Refresh();   // see updateCatalogIndexNote
+    // THE MACHINE PAGE, because that is where this note now is. It said
+    // m_diskImagesPage until 2026-09-18 and was right until the release picker
+    // moved; left alone it would relayout and repaint a panel the label is not
+    // on, which is precisely the clipped-and-stale drawing the comment above
+    // records having been measured once already.
+    if (m_machinePage->GetSizer()) m_machinePage->Layout();
+    if (m_machinePage) m_machinePage->Refresh();   // see updateCatalogIndexNote
 }
 
 std::string SettingsDialogWx::typedCatalogIndexUrl() const {
@@ -1497,6 +1688,22 @@ void SettingsDialogWx::loadSettings() {
     // append inside must not stack up a second copy if this ever runs twice.
     populateROMList(m_settings.romFile);
 
+    // THE SLOTS ARE NOT SETTLED until a catalog has landed and any reconcile it
+    // triggers has finished. The constructor already started that fetch, so by
+    // the time settings arrive it is in flight and the four dropdowns below are
+    // showing whatever the configuration named - which is exactly the state that
+    // looked current and was not.
+    setSlotsSettling(true);
+
+    // BEFORE populateVersionList(), which reads this control to decide which
+    // rows exist. Set from the setting and pushed to the catalog in the same
+    // breath, so that a fetch started by anything else while this dialog is open
+    // applies the rule the box on screen is showing.
+    if (m_showPrereleaseCheck) {
+        m_showPrereleaseCheck->SetValue(m_settings.showPrereleaseVersions);
+        if (m_catalog) m_catalog->setShowPrereleaseVersions(m_settings.showPrereleaseVersions);
+    }
+
     // Before any catalog has landed this puts up the placeholder, which is why
     // it has to run here as well as in onCatalogLoaded: setSettings() is the
     // first moment the configured release and the running ROM's release are
@@ -1577,6 +1784,14 @@ void SettingsDialogWx::saveSettings() {
             !m_romwbwVersionIds[sel].empty()) {
             m_settings.romwbwVersion = m_romwbwVersionIds[sel];
         }
+    }
+
+    // Unconditionally, unlike the release above it. The placeholder problem does
+    // not exist here: this control is filled from the setting and read back from
+    // itself, so an offline machine returns exactly what it was handed. There is
+    // no state in which it holds something it could not display.
+    if (m_showPrereleaseCheck) {
+        m_settings.showPrereleaseVersions = m_showPrereleaseCheck->GetValue();
     }
 
     // Disk selections
@@ -1779,8 +1994,42 @@ void SettingsDialogWx::onCatalogLoaded(wxCommandEvent& event) {
         // why what goes back is what is chosen and not what was seeded.
         repopulateDiskLists();
         m_statusText->SetLabel("Catalog loaded");
+
+        // RECONCILE WHENEVER THE SLOTS AND THE RELEASE DISAGREE, and not only
+        // when the picker was the thing that moved.
+        //
+        // This was guarded on "did the user just change the release?" and that
+        // was too narrow by exactly the case a user hit on 2026-09-18. They had
+        // CHOSEN 3.7.0-dev.14 in an earlier session. It was still chosen on the
+        // next launch, so the picker never moved, so nothing fired, and Settings
+        // opened showing release 3.7.x over four 3.5.1 disks with no 3.7 image
+        // available to pick. The disagreement is a property of the machine, not
+        // of a control having been touched, so that is what is tested.
+        //
+        // It cannot loop. Once the slots hold the selected release's images
+        // there is nothing to disagree about, and a slot whose id the new
+        // release retired resolves to no entry and is left alone - so a second
+        // pass over the same state queues nothing.
+        if (m_catalog && !m_catalog->getSelectedRomwbwVersion().empty() &&
+            slotsDisagreeWithRelease()) {
+            m_statusText->SetLabel("Matching the disks to RomWBW " +
+                                   wxString::FromUTF8(m_catalog->getSelectedRomwbwVersion()) +
+                                   "...");
+            captureSlotIds();
+            m_switchPlanPending = true;
+            tryStartReleaseSwitchFetch();
+        }
+
+        // Settled unless a reconcile is actually going to do something. Both
+        // flags are cleared by the paths that finish or abandon a chain, so this
+        // is the one place that has to decide the no-work case.
+        if (!m_switchPlanPending && !m_switchActive) setSlotsSettling(false);
     } else {
         m_statusText->SetLabel("Failed to load catalog: " + event.GetString());
+        // Nothing more is coming, so the slots are as settled as they will get.
+        // Leaving them disabled would strand the four controls a user with no
+        // network most needs.
+        setSlotsSettling(false);
         // Refilled on the failure path too, and it does two things here.
         // getIndexVersions() is only ever written by a fetch that SUCCEEDED,
         // so the list itself comes back unchanged - what moves is the
@@ -1820,9 +2069,65 @@ void SettingsDialogWx::onRomwbwVersionChanged(wxCommandEvent& event) {
     if (sel < 0 || (size_t)sel >= m_romwbwVersionIds.size()) return;
     if (m_romwbwVersionIds[sel].empty()) return;   // the placeholder row
 
+    // A SECOND SWITCH ABANDONS THE FIRST. downloadDisk refuses a concurrent
+    // download, so without this the new chain's first image would be refused by
+    // the old chain's in-flight one and the queue would stall with the slots
+    // half-moved.
+    abandonReleaseSwitchFetch();
+
+    // The ids are NOT captured here. They were, on the reasoning that only the
+    // outgoing catalog could map a filename to an id - true, and beside the
+    // point, because the case that actually needed fixing is the one where no
+    // catalog in the process has ever seen those filenames. captureSlotIds()
+    // runs when the new catalog lands and reads the name when the document
+    // cannot help, so there is nothing to do before the refetch.
     m_catalog->setPreferredRomwbwVersion(m_romwbwVersionIds[sel]);
     updateRomwbwVersionNote();
     onRefreshCatalog(event);
+}
+
+// The "Show development snapshots" box. ROWS APPEAR AND DISAPPEAR AND NOTHING
+// ELSE HAPPENS: no fetch, no download, nothing unmounted, and the release the
+// machine runs is not touched.
+//
+// It does not call onRefreshCatalog, and that is deliberate rather than an
+// omission. The index is already in hand - populateVersionList() reads
+// getIndexVersions(), which holds every entry the document named, prereleases
+// included - so showing them is a filter over data this dialog already has.
+// Re-fetching would put a network round trip behind a checkbox and could fail,
+// leaving the box ticked and the list unchanged.
+//
+// The catalog is told too, so that a fetch started later by anything else -
+// Refresh, a release change, Start - applies the same rule. What it must NOT be
+// allowed to do is move the selection: catalogv0::chooseVersion honours a stored
+// preference for a snapshot whatever this says, for the reason written there.
+//
+// Nothing is stored until OK, like every other control on this page; Cancel puts
+// the catalog's copy back.
+void SettingsDialogWx::onShowPrereleaseChanged(wxCommandEvent& event) {
+    (void)event;
+    if (!m_showPrereleaseCheck) return;
+
+    // WRITTEN INTO m_settings HERE, not left to saveSettings(), because this one
+    // control is committed by TOGGLING it and not by pressing OK.
+    //
+    // Everything else on this page describes the machine and is therefore the
+    // dialog's to hold until OK. This describes the LIST - which rows the picker
+    // above it shows - and toggling it already rearranges that list in front of
+    // the user, so it has visibly taken effect before OK is anywhere near. A
+    // user unticked it, closed the dialog without OK, and found it ticked again
+    // on the next launch; measured afterwards, their z80cpmw.json still said
+    // true and had not been rewritten. Reported on 2026-09-18.
+    //
+    // ShowWxSettingsDialogInternal copies this field back on Cancel as well as
+    // on OK, and MainWindow applies and saves it either way.
+    m_settings.showPrereleaseVersions = m_showPrereleaseCheck->GetValue();
+    if (m_catalog) m_catalog->setShowPrereleaseVersions(m_showPrereleaseCheck->GetValue());
+    // Re-selects by version STRING and not by the row index it held a moment
+    // ago, which is the whole reason this goes through populateVersionList()
+    // rather than adding and removing items in place: the filter changes what
+    // row 2 means, so a remembered index would silently select another release.
+    populateVersionList();
 }
 
 void SettingsDialogWx::onDownloadDisk(wxCommandEvent& event) {
@@ -1923,6 +2228,254 @@ void SettingsDialogWx::beginDiskDownload(const std::string& filenameStr,
             gate->postIfOpen([&] { wxPostEvent(dlg, evt); });
         }
     );
+}
+
+//=============================================================================
+// Following the four slots across a release switch
+//
+// See the note on SlotFetch in SettingsDialogWx.h for the rules these functions
+// exist to keep.
+//=============================================================================
+
+void SettingsDialogWx::captureSlotIds() {
+    for (int i = 0; i < 4; i++) m_switchIds[i] = std::string();
+    if (!m_catalog) return;
+
+    // THE CATALOG IN HAND FIRST, THEN THE NAME. Both, because neither alone
+    // covers the two cases this has to serve.
+    //
+    // The catalog is the authority whenever it knows the file, and it knows it
+    // whenever the slots and the selected release already agree.
+    //
+    // BUT THE CASE THAT MATTERS MOST IS THE ONE WHERE THEY DO NOT. A machine
+    // that stored 3.7.0-dev.14 last session and still has 3.5.1 images in its
+    // slots opens with the 3.7.0-dev.14 catalog in hand, and that document has
+    // never heard of hd1k_combo-v0-3.5.1.img - so a catalog lookup finds nothing
+    // for every slot, and the reconcile that should fix the machine does nothing
+    // at all. That is exactly the state a user reported on 2026-09-18: release
+    // 3.7.x, disks 3.5.1, and no 3.7 image anywhere to pick.
+    //
+    // So the filename is read as a fallback, through diskv0::idOfV0Name, whose
+    // declaration carries why that does not break CATALOG_SCHEMA 6.1's "key on
+    // id, not by parsing filename": the parse yields a CANDIDATE, and
+    // beginReleaseSwitchFetch only ever acts on a candidate that an entry in the
+    // new catalog actually carries.
+    const std::vector<DiskEntry> entries = m_catalog->getCatalogEntries();
+    for (int i = 0; i < 4; i++) {
+        if (!m_diskChoices[i]) continue;
+        const int sel = m_diskChoices[i]->GetSelection();
+        if (sel <= 0) continue;              // 0 is "(None)"
+        const std::string name = m_diskChoices[i]->GetString(sel).ToStdString();
+        for (const auto& e : entries) {
+            if (e.filename == name) { m_switchIds[i] = e.id; break; }
+        }
+        if (m_switchIds[i].empty()) {
+            std::string id;
+            if (diskv0::idOfV0Name(name, id)) m_switchIds[i] = id;
+        }
+        // Still empty means no catalog names this file and its name is not one
+        // this scheme ever produced - an image the user browsed to themselves.
+        // Such a slot is not followed anywhere: it is their file, and moving it
+        // would be this application deciding something about a file it never
+        // fetched.
+    }
+}
+
+bool SettingsDialogWx::slotsDisagreeWithRelease() const {
+    if (!m_catalog) return false;
+    const std::string selected = m_catalog->getSelectedRomwbwVersion();
+    if (selected.empty()) return false;
+
+    for (int i = 0; i < 4; i++) {
+        if (!m_diskChoices[i]) continue;
+        const int sel = m_diskChoices[i]->GetSelection();
+        if (sel <= 0) continue;
+        const std::string name = m_diskChoices[i]->GetString(sel).ToStdString();
+        std::string release;
+        // Only a v0 name can disagree. A file with no release in its name is the
+        // user's own and is not this function's business.
+        if (!diskv0::releaseOfV0Name(name, release)) continue;
+        if (release != selected) return true;
+    }
+    return false;
+}
+
+void SettingsDialogWx::tryStartReleaseSwitchFetch() {
+    if (!m_switchPlanPending) return;
+    // THE ONE-AT-A-TIME LOCK IS NOT RELEASED BY cancelDownload(). That call sets
+    // a flag the worker reads between 64KB blocks; the transfer stays
+    // Downloading until it notices, and DiskCatalog::downloadDisk refuses a
+    // second one SYNCHRONOUSLY with "Download already in progress". So a second
+    // release switch that cancelled the first and started immediately would have
+    // its own first image refused and the chain would die at "0 of N", blaming
+    // the user for a race with themselves.
+    //
+    // Nothing is timed or slept on. The two things this waits for each end in an
+    // event - the new catalog landing, and the old transfer stopping - so
+    // whichever arrives second calls this, and only then does the chain start.
+    if (m_catalog && m_catalog->getDownloadState() == DownloadState::Downloading) return;
+    m_switchPlanPending = false;
+    beginReleaseSwitchFetch();
+}
+
+void SettingsDialogWx::beginReleaseSwitchFetch() {
+    m_switchQueue.clear();
+    m_switchNext = 0;
+    m_switchActive = false;
+    if (!m_catalog) return;
+
+    const std::vector<DiskEntry> entries = m_catalog->getCatalogEntries();
+    if (entries.empty()) return;
+
+    // Each captured id, resolved in the release that just landed. An id the new
+    // release does not publish resolves to nothing and that slot is left exactly
+    // as it is - hd1k_ws4 exists in 3.5.1 and in no later release, so this is a
+    // real case and not a defensive one.
+    int matched = 0;
+    for (int i = 0; i < 4; i++) {
+        if (m_switchIds[i].empty()) continue;
+        for (const auto& e : entries) {
+            if (e.id != m_switchIds[i]) continue;
+            matched++;
+            m_switchQueue.push_back(SlotFetch{ i, e.filename });
+            break;
+        }
+    }
+
+    // NO SLOT CARRIED OVER: nothing was mounted, or every id has been retired.
+    // The default disks are what to offer instead - the same two, in the same
+    // two drives, that F5 gives a machine with nothing configured.
+    //
+    // THE CATALOG DOES NOT NAME A DEFAULT DISK, so this cannot be read out of the
+    // document however much one would like to. A roms[] entry carries
+    // `default: true`; a disks[] entry carries no such flag. `defaultSlot` reads
+    // like the answer and is not: CATALOG_SCHEMA.md 3.3 says it is "the SLICE a
+    // client should boot from when it mounts this image" - an index inside
+    // hd1k_combo - and says nothing about which drive an image belongs in. Its
+    // only published value is 0, so reading it as a drive number is a mistake
+    // that works, which is the kind this tree keeps having to unpick. The list
+    // is DEFAULT_DISK_IDS in DiskCatalog.h, shared with the F5 path so the two
+    // cannot drift.
+    if (matched == 0) {
+        for (int d = 0; d < 2; d++) {
+            // ONLY INTO AN EMPTY DRIVE. "No slot carried over" is not the same
+            // as "no slot is occupied": a drive holding an image the user
+            // browsed to themselves has no catalog id, so it contributes no
+            // match and would otherwise be handed hd1k_combo on top of their
+            // file. That is the unmount this must never do, reached by the one
+            // path that looks like a default rather than a replacement.
+            if (!m_diskChoices[d] || m_diskChoices[d]->GetSelection() > 0) continue;
+            for (const auto& e : entries) {
+                if (e.id != DEFAULT_DISK_IDS[d]) continue;
+                m_switchQueue.push_back(SlotFetch{ d, e.filename });
+                break;
+            }
+        }
+    }
+
+    if (m_switchQueue.empty()) { setSlotsSettling(false); return; }
+
+    // ALREADY ON THE MACHINE IS MOUNTED, NEVER RE-FETCHED. The interactive
+    // Download button asks before replacing an image whose bytes have changed
+    // since it was written, and a chain running off a dropdown change has nobody
+    // to ask - so it must never be in a position where that question arises.
+    // Anything present is simply used.
+    std::vector<SlotFetch> toFetch;
+    for (const auto& f : m_switchQueue) {
+        if (m_catalog->isDiskDownloaded(f.filename)) {
+            mountIntoSlot(f.slot, f.filename);
+        } else {
+            toFetch.push_back(f);
+        }
+    }
+    m_switchQueue.swap(toFetch);
+
+    if (m_switchQueue.empty()) {
+        setSlotsSettling(false);
+        m_statusText->SetLabel("Disks for this release are already downloaded");
+        return;
+    }
+
+    m_switchActive = true;
+    m_downloadBtn->Enable(false);
+    m_updateBtn->Enable(false);
+    advanceReleaseSwitchFetch();
+}
+
+void SettingsDialogWx::advanceReleaseSwitchFetch() {
+    if (!m_switchActive) return;
+
+    if (m_switchNext >= m_switchQueue.size()) {
+        m_switchActive = false;
+        m_switchQueue.clear();
+        m_switchNext = 0;
+        // The chain held these shut for its whole run - see onDownloadComplete.
+        m_downloadBtn->Enable(true);
+        m_updateBtn->Enable(true);
+        setSlotsSettling(false);
+        m_statusText->SetLabel("Disks for this release are ready");
+        return;
+    }
+
+    const SlotFetch& f = m_switchQueue[m_switchNext];
+    // The status line says which of how many, because this is the one place in
+    // the dialog where a single user action can start several multi-megabyte
+    // downloads and the progress bar alone cannot say how much is left.
+    m_statusText->SetLabel(
+        wxString::Format("Disk %d: downloading %s (%d of %d)...",
+                         f.slot, wxString::FromUTF8(f.filename),
+                         (int)m_switchNext + 1, (int)m_switchQueue.size()));
+    beginDiskDownload(f.filename, wxString::FromUTF8(f.filename));
+}
+
+void SettingsDialogWx::mountIntoSlot(int slot, const std::string& filename) {
+    if (slot < 0 || slot > 3 || !m_diskChoices[slot]) return;
+    const wxString want = wxString::FromUTF8(filename);
+    int idx = m_diskChoices[slot]->FindString(want);
+    // Appended when the dropdown has not caught up yet - the list is rebuilt
+    // from the downloaded set, and this can run in the same turn as the download
+    // that created the file. Same append repopulateDiskLists() and
+    // loadDiskSelections() already do, and for the same reason.
+    if (idx == wxNOT_FOUND) idx = m_diskChoices[slot]->Append(want);
+    m_diskChoices[slot]->SetSelection(idx);
+}
+
+void SettingsDialogWx::setSlotsSettling(bool settling) {
+    if (m_slotsSettling == settling) return;
+    m_slotsSettling = settling;
+
+    for (int i = 0; i < 4; i++) {
+        if (m_diskChoices[i]) m_diskChoices[i]->Enable(!settling);
+        if (m_browseButtons[i]) m_browseButtons[i]->Enable(!settling);
+        if (m_newButtons[i]) m_newButtons[i]->Enable(!settling);
+    }
+
+    // The cursor, for the part of this the user has no other signal about: the
+    // first catalog fetch happens before anything is on screen to show progress
+    // against, and a page that simply sits there is indistinguishable from one
+    // that has finished.
+    if (settling) {
+        if (!m_busyCursor) m_busyCursor.reset(new wxBusyCursor());
+    } else {
+        m_busyCursor.reset();
+    }
+}
+
+void SettingsDialogWx::abandonReleaseSwitchFetch() {
+    if (!m_switchActive) return;
+    m_switchActive = false;
+    m_switchQueue.clear();
+    m_switchNext = 0;
+    // The buttons the chain held shut. A second release switch abandons the
+    // first and the dialog stays open, so leaving them disabled here would make
+    // Download and Update dead for the rest of its life.
+    if (m_downloadBtn) m_downloadBtn->Enable(true);
+    if (m_updateBtn) m_updateBtn->Enable(true);
+    setSlotsSettling(false);
+    // The in-flight image is cancelled, not waited for - but see
+    // tryStartReleaseSwitchFetch(): cancelling does not free the transfer lock,
+    // so the next chain waits for this one's completion rather than racing it.
+    if (m_catalog) m_catalog->cancelDownload();
 }
 
 bool SettingsDialogWx::diskIsInASlot(const std::string& filename) const {
@@ -2029,9 +2582,74 @@ void SettingsDialogWx::onDownloadProgress(wxCommandEvent& event) {
 }
 
 void SettingsDialogWx::onDownloadComplete(wxCommandEvent& event) {
+    m_progressBar->SetValue(event.GetInt() ? 100 : 0);
+
+    // A CHAIN STEP FINISHING IS NOT THE SAME EVENT AS THE DOWNLOAD BUTTON
+    // FINISHING, and the difference is what happens next. Handled before the
+    // ordinary path for two reasons: the status line it sets would otherwise be
+    // overwritten by "Download complete", which is true and useless while three
+    // more images are still coming; and the Download and Update buttons must
+    // STAY DISABLED between steps. Re-enabling them here - which is what the
+    // ordinary path below does - opens a window in every gap of the chain where
+    // a click starts a second download, and DiskCatalog::downloadDisk refuses a
+    // concurrent one, so the chain's next image would be the request refused.
+    if (m_switchActive) {
+        if (event.GetInt()) {
+            // Bounds-checked rather than trusted. advanceReleaseSwitchFetch()
+            // only ever starts a download while m_switchNext is in range, so
+            // this cannot fire today; it is here because the alternative to a
+            // cheap test is a read past the end of a vector, on a path driven by
+            // a posted event whose ordering is not obvious from this function.
+            if (m_switchNext >= m_switchQueue.size()) {
+                m_switchActive = false;
+                m_switchQueue.clear();
+                m_switchNext = 0;
+                m_downloadBtn->Enable(true);
+                m_updateBtn->Enable(true);
+                return;
+            }
+            const int slot = m_switchQueue[m_switchNext].slot;
+            const std::string filename = m_switchQueue[m_switchNext].filename;
+            populateCatalog();
+            repopulateDiskLists();
+            // After repopulateDiskLists, so the row for the image that just
+            // arrived exists to be selected.
+            mountIntoSlot(slot, filename);
+            m_switchNext++;
+            // advance() either starts the next download - leaving the buttons
+            // disabled, which is what beginDiskDownload does - or finishes the
+            // chain and re-enables them.
+            advanceReleaseSwitchFetch();
+        } else {
+            // PARTWAY IS A REAL RESTING PLACE, and it is left honestly rather
+            // than rolled back. The slots already moved hold images that are on
+            // the machine and belong to the selected release; the ones that did
+            // not still hold what they held. Rolling back would mean unmounting,
+            // which this must never do, and pressing on would mean asking the
+            // network again for something that just failed.
+            const size_t done = m_switchNext;
+            const size_t total = m_switchQueue.size();
+            m_switchActive = false;
+            m_switchQueue.clear();
+            m_switchNext = 0;
+            m_downloadBtn->Enable(true);
+            m_updateBtn->Enable(true);
+            setSlotsSettling(false);
+            m_statusText->SetLabel(
+                wxString::Format("Disk download failed after %d of %d: %s",
+                                 (int)done, (int)total, event.GetString()));
+        }
+        return;
+    }
+
     m_downloadBtn->Enable(true);
     m_updateBtn->Enable(true);
-    m_progressBar->SetValue(event.GetInt() ? 100 : 0);
+
+    // NOT A CHAIN STEP, so either the Download/Update button finished or an
+    // abandoned chain's transfer has just stopped. Either way the one-at-a-time
+    // lock is free now, which is the second of the two things a waiting plan
+    // needs - see tryStartReleaseSwitchFetch().
+    tryStartReleaseSwitchFetch();
 
     if (event.GetInt()) {
         m_statusText->SetLabel("Download complete");
@@ -2173,6 +2791,13 @@ void SettingsDialogWx::onOK(wxCommandEvent& event) {
         return;
     }
     commitPendingKeySequence();
+    // A chain still running is stopped before the slots are read back, not
+    // after. saveSettings() reads the four dropdowns, so whatever has landed by
+    // now is what gets written - and an image still in flight would otherwise
+    // keep downloading against a dialog that has closed, into slots nothing will
+    // read again. The images already placed are on disk and are what OK stores.
+    abandonReleaseSwitchFetch();
+    m_switchPlanPending = false;
     saveSettings();
     EndModal(wxID_OK);
 }
@@ -2193,9 +2818,22 @@ void SettingsDialogWx::onCancel(wxCommandEvent& event) {
     // value the dialog OPENED with rather than from m_settings, which
     // saveSettings() may have overwritten from the control on an earlier OK that
     // was never reached here.
+    // A chain still running is stopped first. The images it already placed stay
+    // on disk and stay in their slots for as long as this dialog lives, but
+    // Cancel means none of the dialog's choices are written back, so nothing
+    // about those slots reaches the configuration - see saveSettings(), which
+    // only OK reaches.
+    abandonReleaseSwitchFetch();
+    m_switchPlanPending = false;
+
     if (m_catalog) {
         m_catalog->setPreferredRomwbwVersion(m_settings.romwbwVersion);
         m_catalog->setCatalogIndexUrl(m_catalogIndexUrlOnOpen);
+        // The pre-release toggle is NOT put back. It is committed by toggling
+        // it - see onShowPrereleaseChanged - so m_settings already holds what
+        // the user chose, and the catalog is already holding the same thing.
+        // Restoring it here would undo on Cancel the one control on this page
+        // that Cancel is not supposed to reach.
     }
     EndModal(wxID_CANCEL);
 }
@@ -2286,6 +2924,13 @@ static bool ShowWxSettingsDialogInternal(DiskCatalog* catalog, WxEmulatorSetting
         OutputDebugStringA("[Settings] Dialog closed\n");
         if (result) {
             settings = dlg.getSettings();
+        } else {
+            // CANCEL STILL RETURNS ONE FIELD. The pre-release toggle is a view
+            // preference committed by toggling it, not a description of the
+            // machine held until OK - see SettingsDialogWx::onShowPrereleaseChanged
+            // for the report that made that distinction necessary. Everything
+            // else the dialog holds is discarded here exactly as before.
+            settings.showPrereleaseVersions = dlg.getSettings().showPrereleaseVersions;
         }
     }
     catch (const std::exception& e) {

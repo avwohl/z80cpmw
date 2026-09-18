@@ -80,6 +80,15 @@ struct WxEmulatorSettings {
     // populated must not be allowed to write an emptier value than it was
     // given; the same rule the four disk dropdowns learned the hard way.
     std::string romwbwVersion;
+    // Whether the release picker offers RomWBW development snapshots. In and
+    // back out; false for every configuration written before it existed, which
+    // is the default CATALOG_SCHEMA.md 2.3 requires.
+    //
+    // Unlike romwbwVersion above there is nothing this one can fail to know: the
+    // checkbox is populated from the setting and read back from the checkbox,
+    // with no dependence on a catalog having been fetched. An offline machine
+    // returns exactly what it was handed.
+    bool showPrereleaseVersions = false;
     // The catalog index this machine reads, or empty for the built-in one.
     std::string catalogIndexUrl;
 
@@ -150,6 +159,11 @@ private:
 
     // The id the dropdown is holding now, or empty for the placeholder row.
     std::string selectedRomId() const;
+    // The same question for the RELEASE picker: the `romwbw_version` the control
+    // is showing, or empty for the placeholder row and before it is first filled.
+    // populateVersionList() reads it before Clear() so the snapshot filter cannot
+    // remove the row the user is looking at.
+    std::string selectedRomwbwVersionId() const;
     // Every RomWBW release index-v0.json publishes - there has been no
     // per-entry filter in front of this since 2026-09-17 - and the sentence
     // underneath saying what the selected one means for the ROM in the banks.
@@ -208,6 +222,97 @@ private:
     void onClearBootConfig(wxCommandEvent& event);
     void onRefreshCatalog(wxCommandEvent& event);
     void onRomwbwVersionChanged(wxCommandEvent& event);
+    // The "Show development snapshots" box. Refills the picker and nothing else:
+    // no fetch, no download, and no change to which release is selected. See the
+    // definition for why re-selecting afterwards is done by version string and
+    // not by keeping the old row index.
+    void onShowPrereleaseChanged(wxCommandEvent& event);
+
+    // ---------------------------------------------------------------------
+    // Following the four slots across a release switch
+    //
+    // A release switch used to change nothing a user could see. The picker
+    // decides which images the four slots may hold, but the slot dropdowns list
+    // only images ALREADY DOWNLOADED - so switching to a release whose images
+    // are not on the machine left every slot naming the old release's files,
+    // and the app looked broken while working exactly as written.
+    //
+    // It now follows the slots across: each occupied slot's catalog id is looked
+    // up in the new release and the matching image is fetched and mounted.
+    //
+    // THREE RULES THIS MUST NOT BREAK, in order of how much they would cost:
+    //
+    //  1. NOTHING IS DELETED OR UNMOUNTED. The old images stay in the data
+    //     folder and a slot only moves when there is a new file to move it to.
+    //     A version switch is the exact operation that destroyed a library on
+    //     the iOS port; only the "never DOWNLOAD" half of that rule is what the
+    //     user asked to reverse.
+    //  2. AN IMAGE THAT IS ALREADY ON THE MACHINE IS NEVER RE-FETCHED, whatever
+    //     its freshness. The interactive Download button asks before replacing
+    //     an image the user has written to; a chain running off a dropdown
+    //     change cannot ask, so it must never be in a position where the answer
+    //     would matter. It downloads only what is absent and mounts the rest.
+    //  3. ONE CHAIN AT A TIME. DiskCatalog::downloadDisk refuses a second
+    //     concurrent download, so the queue is walked one image per completion.
+    struct SlotFetch {
+        int slot = 0;              // 0-3
+        std::string filename;      // the new release's image for that slot
+    };
+    // The queue, the position in it, and which release it was built for. UI
+    // thread only - every one of these is touched from an event handler, the
+    // same as every other member here; nothing on a worker thread sees them.
+    std::vector<SlotFetch> m_switchQueue;
+    size_t m_switchNext = 0;
+    bool m_switchActive = false;
+    // The ids the four slots held at the moment the picker moved, captured
+    // Empty for a slot that is empty, or that holds a file neither the catalog
+    // nor the v0 naming scheme can identify - the user's own image, browsed to.
+    std::string m_switchIds[4];
+
+    // The four slots' catalog ids: from the catalog in hand when it knows the
+    // file, else from the filename. See the definition for why the second half
+    // is not the thing CATALOG_SCHEMA 6.1 forbids.
+    void captureSlotIds();
+    // Does any mounted v0 image belong to a release other than the selected one?
+    //
+    // THIS, AND NOT "DID THE PICKER MOVE", IS THE TRIGGER. A machine that chose
+    // a release in an earlier session opens with the picker already on it, so
+    // nothing moves and a change-driven reconcile never runs - which is how a
+    // user came to be looking at release 3.7.x over four 3.5.1 disks with no
+    // 3.7 image to pick. The disagreement is a property of the machine.
+    bool slotsDisagreeWithRelease() const;
+    // A plan is armed when the new catalog lands and runs when the one-at-a-time
+    // transfer lock is also free. Both conditions end in an event, so whichever
+    // happens second calls this; nothing polls and nothing sleeps.
+    bool m_switchPlanPending = false;
+    void tryStartReleaseSwitchFetch();
+    // Resolve those ids in the catalog that just landed and start the chain.
+    void beginReleaseSwitchFetch();
+    // Fetch the next queued image, or finish.
+    void advanceReleaseSwitchFetch();
+    // Put a downloaded image into its slot without disturbing the other three.
+    void mountIntoSlot(int slot, const std::string& filename);
+
+    // THE FOUR SLOTS ARE NOT SETTLED YET - say so on screen.
+    //
+    // Between opening this dialog and the first catalog landing there is a
+    // multi-second window in which the slot dropdowns hold the OLD release's
+    // filenames and look exactly as authoritative as they will afterwards. A
+    // user opened Settings on a machine stored at 3.7.x with 3.5.1 images,
+    // read the page, and had the disks rewrite themselves under them about
+    // five seconds later: "it shows wrong info in a way that makes it look
+    // current when it is not". Reported 2026-09-18.
+    //
+    // Disabled controls are how this dialog already says "not yet" - the
+    // release picker's placeholder does the same thing for the same reason -
+    // and the busy cursor is what says the app has not simply stopped.
+    void setSlotsSettling(bool settling);
+    bool m_slotsSettling = false;
+    // Held for as long as the slots are unsettled. A pointer because
+    // wxBusyCursor is RAII and this state outlives any one function.
+    std::unique_ptr<wxBusyCursor> m_busyCursor;
+    // Abandon a chain: a second release change, or Cancel.
+    void abandonReleaseSwitchFetch();
     // Every keystroke in the Catalog index field. Only re-writes the sentence
     // under it - nothing is fetched until Refresh, and nothing is stored until
     // OK - so that "In use:" tracks what is on screen instead of what the
@@ -331,11 +436,22 @@ private:
     wxChoice* m_romwbwVersionChoice;
     // choice index -> the `romwbw_version` string that index means, e.g.
     // "3.5.1". Kept beside the control because what the control DISPLAYS is
-    // catalogv0::displayLabel() - "RomWBW 3.6.0 (preview)" - and the label is
+    // catalogv0::displayLabel() - "RomWBW 3.6.0 (preview)", "RomWBW
+    // 3.7.0-dev.14 (development snapshot)" - and the label is
     // documentation the index may reword at any time, where the version string
     // is the key the preference is stored under. Empty for the placeholder row
     // shown before any catalog has been fetched.
     std::vector<std::string> m_romwbwVersionIds;
+    // "Show development snapshots". Off by default and off in every
+    // configuration written before it existed, which is what CATALOG_SCHEMA.md
+    // 2.3 requires of a client: a `prerelease` entry is opt-in.
+    //
+    // It is a VIEW control and not a machine setting, which is the thing to hold
+    // on to when reading populateVersionList(). Ticking it adds rows; unticking
+    // it removes rows - except the one the machine is on, which stays whatever
+    // it says. It never changes which release is selected, and OK writes the
+    // selection back from m_romwbwVersionIds exactly as it always did.
+    wxCheckBox* m_showPrereleaseCheck = nullptr;
     wxStaticText* m_romwbwVersionNote;
     // Both null until buildDiskImagesPage() runs. Initialized here rather than
     // left indeterminate because updateCatalogIndexNote() is reachable from
@@ -415,6 +531,7 @@ private:
         ID_CLEAR_BOOT_CONFIG,
         ID_REFRESH_CATALOG,
         ID_ROMWBW_VERSION,
+        ID_SHOW_PRERELEASE,
         ID_CATALOG_INDEX_URL,
         ID_DOWNLOAD_DISK,
         ID_UPDATE_DISK,

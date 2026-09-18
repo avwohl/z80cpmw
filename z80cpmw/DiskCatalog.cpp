@@ -165,9 +165,23 @@ void DiskCatalog::setPreferredRomwbwVersion(const std::string& romwbwVersion) {
     m_preferredVersion = romwbwVersion;
 }
 
+// See the note in DiskCatalog.h: the catalog names no default disk, so this is
+// this application's choice, written down once for the two callers that need it.
+const char* const DEFAULT_DISK_IDS[2] = { "hd1k_combo", "hd1k_games" };
+
 std::string DiskCatalog::getPreferredRomwbwVersion() const {
     std::lock_guard<std::mutex> lock(m_indexMutex);
     return m_preferredVersion;
+}
+
+void DiskCatalog::setShowPrereleaseVersions(bool show) {
+    std::lock_guard<std::mutex> lock(m_indexMutex);
+    m_showPrereleaseVersions = show;
+}
+
+bool DiskCatalog::getShowPrereleaseVersions() const {
+    std::lock_guard<std::mutex> lock(m_indexMutex);
+    return m_showPrereleaseVersions;
 }
 
 void DiskCatalog::setPreferredRomId(const std::string& romId) {
@@ -548,7 +562,8 @@ bool DiskCatalog::fetchCatalogInto(std::string& error) {
     // fetchIndex fails a document that parses to no entries at all, so `index`
     // is non-empty here and chooseVersion cannot answer npos - the check below
     // stays regardless, because "cannot" is a claim about code that gets edited.
-    const size_t chosen = catalogv0::chooseVersion(index, getPreferredRomwbwVersion());
+    const size_t chosen = catalogv0::chooseVersion(index, getPreferredRomwbwVersion(),
+                                                   getShowPrereleaseVersions());
     if (chosen >= index.size()) {
         error = "No usable RomWBW release in the disk catalog index";
         return false;

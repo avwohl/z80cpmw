@@ -131,7 +131,7 @@ std::string normalizedIndexSetting(const std::string& typed);
 struct IndexEntry {
     std::string romwbwVersion;   // "3.5.1" - the <ver> in every asset name
     std::string label;           // "RomWBW 3.5.1", for a menu. Never parsed.
-    std::string status;          // "stable" / "preview" today, and NOT a closed set
+    std::string status;          // "stable" / "preview" / "snapshot" today, NOT a closed set
     bool isDefault = false;      // the index promises exactly one, but see chooseVersion
     std::string catalogUrl;      // absolute already; never built from the tag
     std::string catalogSha256;   // of the document at catalogUrl
@@ -139,6 +139,20 @@ struct IndexEntry {
     long long generation = 0;    // compared, never computed on. See the note in DiskCatalog.h
     int romCount = 0;
     int diskCount = 0;
+
+    // `prerelease`: upstream does not call this a release. True only for a
+    // RomWBW development snapshot the publisher carries deliberately, and
+    // ABSENT - not false - on every real release, which is why it is read with
+    // the same fallback accessor as any optional flag. CATALOG_SCHEMA.md 2.3
+    // requires that, so that a released version's index entry stays byte
+    // identical to the one already on its immutable tag.
+    //
+    // WHY A BOOLEAN AND NOT A `status` STRING, which sits right beside it and
+    // says "snapshot" today: status is free text, section 6 says so, and a
+    // client that hid entries by matching status words would break the first
+    // time a new word was published. This field has exactly one meaning and is
+    // safe to branch on - see isOffered().
+    bool prerelease = false;
 
     // hbios.ver_byte / upd_byte, parsed from the hex STRINGS "0x35" / "0x10".
     //
@@ -301,30 +315,92 @@ std::string assetUrl(const std::string& baseUrl, const std::string& filename);
 // Which release to fetch a catalog for: the user's own choice if the index
 // still publishes it, else the entry marked `default: true`, else the first.
 //
-// EVERY ENTRY IS A CANDIDATE, and there is no longer a per-entry filter in
-// front of this. There was one until romwbw_emu v1.44: `runnableVersions` kept
-// only the entries the linked core's `emu_romwbw_release_supported()` said it
-// could boot, and this function chose among the survivors. That function is
-// gone from the core and so is this one's `runnable` argument, because the
-// release number was never what the core depends on. The core depends on the
-// emulator-to-ROM interface - two I/O ports and the set of HBIOS functions
-// hbios_dispatch.cc services - and that interface is versioned by the name of
-// the document this file parses. Every release a **v0** index publishes speaks
-// it; a change the core could not service would be published as `index-v1.json`
-// beside it, which this build would never read, because INDEX_URL names v0. So
-// the filter could only ever hide releases the user could have booted.
+// EVERY RELEASE IS A CANDIDATE. There was a per-entry filter in front of this
+// until romwbw_emu v1.44: `runnableVersions` kept only the entries the linked
+// core's `emu_romwbw_release_supported()` said it could boot, and this function
+// chose among the survivors. That function is gone from the core and so is this
+// one's `runnable` argument, because the release number was never what the core
+// depends on. The core depends on the emulator-to-ROM interface - two I/O ports
+// and the set of HBIOS functions hbios_dispatch.cc services - and that interface
+// is versioned by the name of the document this file parses. Every release a
+// **v0** index publishes speaks it; a change the core could not service would be
+// published as `index-v1.json` beside it, which this build would never read,
+// because INDEX_URL names v0. So that filter could only ever hide releases the
+// user could have booted.
+//
+// THE ONE THING THAT IS FILTERED IS NOT A RELEASE. `prerelease` entries are
+// development snapshots that upstream has not released at all, and the document
+// says so in a field with exactly one meaning; see isOffered() below. It is the
+// opposite kind of filter to the deleted one - that one asked a compile-time
+// list what this binary could run, where this asks the document what upstream
+// has published, so it cannot go stale in a shipped build.
 //
 // Returns npos when `entries` is empty, which is a REPORTABLE condition and not
 // a reason to fall back to anything: an index that publishes no release is a
 // document this client cannot act on, and a client that quietly fetched
-// something anyway would be inventing a release.
+// something anyway would be inventing a release. It never returns npos over the
+// prerelease filter: an index of nothing but snapshots still yields one, because
+// hiding a row from a picker and refusing to run at all are different answers.
 //
 // The index promises exactly one `default: true` and tools/verify_catalog.py
 // fails a release without it, but this takes the FIRST one it finds and settles
 // for the first entry when there is none - a client should not crash or refuse
 // over a broken promise it can route around.
+
+// A DEVELOPMENT SNAPSHOT IS NOT OFFERED UNLESS ASKED FOR. The rule, in one
+// place, so the picker and the automatic choice cannot disagree about one
+// machine - which is the failure the deleted release filter kept producing.
+//
+//   showPrerelease   the "Show development snapshots" setting. False by default,
+//                    which is what CATALOG_SCHEMA.md 2.3 requires: a client
+//                    "MUST NOT offer a prerelease entry by default - hide it
+//                    behind an explicit opt-in".
+//   keepVersion      the release this machine is already on. An entry matching
+//                    it is ALWAYS offered, snapshot or not.
+//
+// That last clause is the whole of why this takes three arguments. Without it,
+// unticking the box would hide the release the user is running: the picker would
+// stop listing it, the note would describe a release nothing selected, and OK
+// would write back whatever row happened to be highlighted - silently moving a
+// machine off the snapshot whose disk images are mounted in its four slots. The
+// checkbox says SHOW, and that is all it does; it is not a second way to change
+// which release a machine runs.
+bool isOffered(const IndexEntry& entry, bool showPrerelease,
+               const std::string& keepVersion);
+
+// Does a ROM that declares itself `declaredByRom` serve the catalog entry
+// `catalogVersion`?
+//
+// NOT `==`, AND THIS IS WHERE A SNAPSHOT USED TO DIE. A ROM describes itself
+// with TWO BYTES - the version and update bytes of its HBIOS configuration
+// block - so emu_romwbw_release_str can only ever spell three numbers, "3.7.0".
+// A catalog entry is a document and names the full upstream tag,
+// "3.7.0-dev.14". Those two strings cannot be equal for a development snapshot,
+// so an `==` refuses a ROM that downloaded, hashed correctly and would have run:
+// ioscpm shipped exactly that bug and fixed it on 2026-09-18 in
+// RomWBWRelease.romServes(catalogVersion:declaredByROM:).
+//
+// The two are indistinguishable by their bytes ON PURPOSE and it is measured:
+// CATALOG_SCHEMA.md 2.3.1 records that v3.7.0-dev.14's HCB reads `57 a8 37 00`,
+// byte for byte what a released 3.7.0 will read. So nothing computed from those
+// bytes can separate them - emu_validate_rom_hcb included - and the only thing
+// that can is the CBIOS banner inside the DISK IMAGE, which is a string.
+//
+// The rule: the same release, or a catalog entry that is a PRE-RELEASE of what
+// the ROM declares. It is deliberately ASYMMETRIC and cannot admit a wrong
+// pairing - a 3.6.0 ROM does not serve a 3.7.0-dev.14 entry - which is why it
+// needs no help from the entry's `prerelease` flag. The "-" is load-bearing:
+// without it "3.7.01" would match a "3.7.0" ROM.
+bool romServes(const std::string& catalogVersion, const std::string& declaredByRom);
+
+// Which release to fetch a catalog for, out of the entries that are OFFERED.
+//
+// `showPrerelease` defaults to false because that is the safe answer and the
+// setting's own default: a caller that has not been taught about development
+// snapshots must not be able to land a machine on one by accident.
 size_t chooseVersion(const std::vector<IndexEntry>& entries,
-                     const std::string& preferredVersion);
+                     const std::string& preferredVersion,
+                     bool showPrerelease = false);
 
 // Which of a catalog's `roms[]` a machine on that release boots: the entry
 // flagged `default: true`, else the first.
@@ -366,6 +442,12 @@ inline size_t chooseRom(const std::vector<RomItem>& roms) {
 // eyes. A release published as not-yet-recommended has to LOOK like one; that
 // is the whole reason the field is in the index rather than inferred from a
 // GitHub prerelease flag.
+//
+// A PRERELEASE TAKES A DIFFERENT PATH, for a reason worth reading before
+// simplifying it back into one. Its published label already ends in
+// "(development snapshot)" and its status is the word "snapshot", so the general
+// rule spells the warning twice. It reads as "(development snapshot)" exactly
+// once, added here when the label does not already carry it.
 std::string displayLabel(const IndexEntry& entry);
 
 }  // namespace catalogv0

@@ -53,10 +53,11 @@ Store's is whatever `tools/check-store-version.sh` last measured, and neither is
 ## 2. Keystroke delivery, mouse copy/paste, and the first-run Help window
 
 Never watched by a person, and nothing here can automate them.
-`tests\run_tests.bat` is **1,803 checks in eight suites** as of 1.0.32 — 516
-terminal conformance, 374 configuration diagnostics, 355 help renderer and
-assets, **231** interface-v0 catalog (was 207), 175 disk provenance, 66 host
-file transfer, 50 rendering conformance, 36 HBIOS host file extension.
+`tests\run_tests.bat` is **1,862 checks in eight suites**, measured 2026-09-18 —
+516 terminal conformance, **383** configuration diagnostics (was 374), 355 help
+renderer and assets, **281** interface-v0 catalog (was 231), 175 disk provenance,
+66 host file transfer, 50 rendering conformance, 36 HBIOS host file extension.
+The two that moved gained the development-snapshot cases.
 CHANGELOG.md is where that total is tracked; run the suite rather than
 trusting a number here.
 
@@ -800,10 +801,62 @@ either: it had no MSVC.
 - [ ] **Help → About after a successful Start.** One release, the one in the
       banks - `Running RomWBW 3.6.0 (read from the loaded ROM)` on a default
       install today. Never a comma-separated list; there is no list any more.
-- [ ] **Settings → Disk Images**, release picker. Every release `index-v0.json`
-      publishes is a row, none disabled and none labelled "(needs a newer
-      build)". Compare the rows against the published index by hand - a filter
-      that came back would show as a SHORTER list, not as an error.
+- [ ] **Settings → Machine**, release picker, with **Show development
+      snapshots** UNTICKED (the default). Every release `index-v0.json` publishes
+      is a row, none disabled and none labelled "(needs a newer build)" - EXCEPT
+      an entry the index flags `prerelease`, which must be absent. Today that is
+      `3.7.0-dev.14`, so the list is 3.5.1 and 3.6.0 and nothing else. Compare
+      the rows against the published index by hand; a filter that came back would
+      show as a SHORTER list, not as an error.
+- [ ] **Tick Show development snapshots.** The snapshot row appears, reading
+      `RomWBW 3.7.0-dev.14 (development snapshot)` - that wording exactly once,
+      not "(development snapshot) (snapshot)". Nothing is fetched and no download
+      starts; only the list changes. The note under the picker calls it a
+      development snapshot too.
+- [ ] **Select the snapshot, then untick the box again.** The row must STAY and
+      must stay selected. This is the one behaviour a reasonable person would
+      report as a bug: the checkbox says "show", and hiding the release a machine
+      is running would let OK write back a release nobody chose, under disk
+      images built for the one they did. Press OK, reopen Settings, and confirm
+      the snapshot is still selected and still listed.
+- [ ] **The release picker, its checkbox and its note are on the MACHINE page**,
+      above `ROM:` and above Disk 0-3 - not on Disk Images, which keeps only the
+      catalog index field, the library list and its buttons. This moved on
+      2026-09-18 because a user picked a release, came back to the ROM and found
+      nothing had changed.
+
+- [ ] **Switch release with a disk mounted, and watch the four slots follow.**
+      Mount `hd1k_combo` under 3.6.0, then pick 3.7.0-dev.14. The status line
+      must count the downloads ("Disk 0: downloading ... (1 of 1)") and the slot
+      must end up naming `hd1k_combo-v0-3.7.0-dev.14.img`. ~49 MB for that one
+      image; four slots is 73 MB worst case, not hundreds.
+- [ ] **The old image is still there afterwards.** Check the data folder still
+      holds `hd1k_combo-v0-3.6.0.img`. A release switch must never delete or
+      unmount anything - that is the operation that destroyed a library on the
+      iOS port, and only the "never download" half of the old rule was lifted.
+- [ ] **Switch to a release that already has its images downloaded.** Nothing
+      should download at all; the slots move and the status says so.
+- [ ] **An image you have written to is never silently replaced.** Boot, write a
+      file inside a mounted image, switch away and back. The chain must NOT
+      re-fetch it - it downloads only what is absent - so your file survives.
+- [ ] **Switch release twice quickly.** The first chain must be abandoned, not
+      run alongside the second; the slots must end on the second release's
+      images and the status must not be left counting a queue that stopped.
+- [ ] **Cancel mid-download.** Press Cancel while the chain is running. The
+      download stops, and nothing about the slots reaches the configuration.
+- [ ] **Pull the network mid-chain** (four slots, kill wi-fi on the second). It
+      must stop and say "Disk download failed after N of M", leaving the slots
+      that landed pointing at real files and the rest untouched. That is a
+      legitimate resting place, not a rollback.
+- [ ] **A slot holding your OWN image is left alone** by a release switch. Browse
+      to an image outside the data folder, mount it, switch release: no catalog
+      names that file, so nothing follows it anywhere.
+
+- [ ] **Start on the snapshot.** It must boot. The ROM declares itself from two
+      bytes and can only say `3.7.0` where the catalog says `3.7.0-dev.14`; if
+      those are compared with `==` anywhere the start ends in "Cannot start"
+      after a download that worked, which is the bug ioscpm shipped. The note
+      under the picker must say the ROM MATCHES, not that it needs another.
 - [ ] Select a release whose ROM is not the one in the banks and read the note
       under the picker. It should say Start will offer to fetch that release's
       ROM, and warn that without it the guest reports an HBIOS/CBIOS version
@@ -812,4 +865,6 @@ either: it had no MSVC.
 - [ ] Point *Catalog index* at a test index carrying an invented release - a
       `3.7.0` entry with `hbios.ver_byte` `0x37` - and press Refresh. It must
       appear in the picker and be selectable. Before this change every shipped
-      binary dropped it silently, which is the whole of what was fixed.
+      binary dropped it silently, which is the whole of what was fixed. The
+      snapshot opt-in does not affect this check: a hand-made entry carries no
+      `prerelease` key, and absent reads as false.

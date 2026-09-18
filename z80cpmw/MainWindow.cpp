@@ -1001,15 +1001,11 @@ void MainWindow::startEmulator() {
     }
 }
 
-// The two disks a machine with nothing configured is given, BY CATALOG id.
-//
-// By id and not by filename, because the filename is the part that moves:
-// hd1k_combo.img became hd1k_combo-v0-3.5.1.img when the catalog moved to
-// romwbw_disks, and it becomes hd1k_combo-v0-3.6.0.img the moment the user
-// selects another RomWBW release. CATALOG_SCHEMA.md 6.1 asks a client to key on
-// `id` for exactly this reason, and both of these ids exist under both published
-// releases - verified in catalog-v0-3.5.1.json and catalog-v0-3.6.0.json.
-static const char* const DEFAULT_DISK_IDS[2] = { "hd1k_combo", "hd1k_games" };
+// DEFAULT_DISK_IDS moved to DiskCatalog.h on 2026-09-18, and the reasoning moved
+// with it. It was a file-static here while this was the only caller; the Settings
+// dialog's release switch now needs the same answer when no mounted slot's id
+// survives into the new release, and two hardcoded copies of one list is the
+// drift this tree keeps having to write down afterwards.
 
 std::string MainWindow::cachedDefaultDisk(const char* diskId) const {
     // Three names, oldest last, and each one is a state a real installation can
@@ -1424,6 +1420,7 @@ void MainWindow::onEmulatorSettings() {
     // that means before they download 200 MB of disks that will print
     // "*** WARNING: HBIOS/CBIOS Version Mismatch ***" at them.
     settings.romwbwVersion = cfg.romwbwVersion;
+    settings.showPrereleaseVersions = cfg.showPrereleaseVersions;
     settings.catalogIndexUrl = cfg.catalogIndexUrl;
     settings.loadedRomwbwRelease = loadedRomwbwRelease();
 
@@ -1512,7 +1509,15 @@ void MainWindow::onEmulatorSettings() {
             cfgMut.romwbwVersion = settings.romwbwVersion;
         }
         cfgMut.catalogIndexUrl = settings.catalogIndexUrl;
+        // Unconditionally, and not inside the $ROMWBW_INDEX_URL guard above.
+        // That guard exists because a test catalog can collapse the release
+        // DROPDOWN to a list the user never chose from, so OK would write a
+        // release back that they never picked. A checkbox has no such failure:
+        // it is filled from the setting and read back from itself, and no
+        // catalog can change what it holds.
+        cfgMut.showPrereleaseVersions = settings.showPrereleaseVersions;
         m_diskCatalog->setPreferredRomwbwVersion(settings.romwbwVersion);
+        m_diskCatalog->setShowPrereleaseVersions(settings.showPrereleaseVersions);
         // And the index the next fetch reads, so an OK that changed it does not
         // have to wait for a restart. The dialog pushed the typed value before
         // each of its own fetches; this is the one that outlives the dialog.
@@ -1652,6 +1657,24 @@ void MainWindow::onEmulatorSettings() {
 
         m_statusText = "Settings applied";
         updateStatusBar();
+    }
+
+    // ONE FIELD OUTSIDE THE OK BLOCK. The pre-release toggle is committed by
+    // toggling it rather than by pressing OK, so ShowWxSettingsDialog hands it
+    // back on Cancel too and it is applied and saved either way. Everything
+    // above is inside the block and stays there.
+    //
+    // Why it is different: it decides which rows the release picker LISTS, not
+    // anything about the machine, and toggling it rearranges that list in front
+    // of the user - so it has plainly taken effect long before OK. A user
+    // unticked it, closed without OK and found it ticked again next launch.
+    {
+        auto& cfgMut = config::ConfigManager::instance().get();
+        if (cfgMut.showPrereleaseVersions != settings.showPrereleaseVersions) {
+            cfgMut.showPrereleaseVersions = settings.showPrereleaseVersions;
+            m_diskCatalog->setShowPrereleaseVersions(settings.showPrereleaseVersions);
+            saveSettings();
+        }
     }
 
     if (wasRunning) {
@@ -1843,9 +1866,32 @@ void MainWindow::onHelpAbout() {
     // and dots, so the byte-wise widen the two strings above use is correct here.
     const std::string romwbwRel = loadedRomwbwRelease();
     const std::wstring romwbwRelW(romwbwRel.begin(), romwbwRel.end());
+    // A DEVELOPMENT SNAPSHOT CANNOT SAY SO HERE, and the honest thing is to say
+    // that rather than to print three numbers as though they settled it.
+    //
+    // The line above reads two bytes out of the ROM, so on a machine running
+    // 3.7.0-dev.14 it says "Running RomWBW 3.7.0" - true, and the whole of what
+    // the ROM knows. The full tag exists only in the catalog, so when the
+    // release the machine is SET to is served by this ROM without being equal to
+    // it (catalogv0::romServes), the difference is exactly the snapshot case and
+    // the catalog's name is the one worth showing. Everything else here is
+    // unchanged: the ROM's own claim still leads, because a ROM that disagrees
+    // with the picker is the thing this line was added to make visible.
+    std::wstring romwbwSuffix;
+    if (!romwbwRel.empty()) {
+        const std::string want = startRomwbwRelease();
+        if (!want.empty() && want != romwbwRel && catalogv0::romServes(want, romwbwRel)) {
+            const std::wstring wantW(want.begin(), want.end());
+            romwbwSuffix = L"This machine is set to RomWBW " + wantW +
+                           L", a development snapshot;\nthe ROM's own version bytes cannot "
+                           L"spell the suffix.\n";
+        }
+    }
+
     const std::wstring romwbwLine =
         romwbwRel.empty() ? std::wstring(L"No ROM is loaded yet; press Start (F5).\n\n")
-                          : L"Running RomWBW " + romwbwRelW + L" (read from the loaded ROM).\n\n";
+                          : L"Running RomWBW " + romwbwRelW + L" (read from the loaded ROM).\n" +
+                            romwbwSuffix + L"\n";
 
     std::wstring aboutText =
         L"z80cpmw - Z80 CP/M Emulator\n"
@@ -2036,6 +2082,28 @@ void MainWindow::reportMountedDiskProvenance() {
     // says so; this just says it first, in a place the user can act on.
     const std::string running = startRomwbwRelease();
 
+    // WHAT THE MOUNTED DISKS THEMSELVES SAY, collected as the loop goes so the
+    // notice can offer a remedy instead of only naming a control.
+    //
+    // The old notice ended "Settings > Disk Images has the release picker",
+    // which tells a user where to go and not what to do when they get there -
+    // and the answer is knowable. If every disagreeing image is built for ONE
+    // release, that release is what this machine is actually carrying, and the
+    // stored preference is the thing that is wrong. Config's v0 back-fill sets
+    // core.romwbwVersion only while it is EMPTY, deliberately, so that it cannot
+    // undo a Settings choice - which also means it never CORRECTS a wrong one,
+    // and a machine left mismatched by the migration stays mismatched for ever.
+    // Naming the release is what lets somebody fix it in one step.
+    //
+    // Unanimity is the test, and two different releases mounted at once is a
+    // real state: there is then no single right answer, and the notice says so
+    // rather than picking one. cpmdroid reached the same shape in
+    // createReleaseMismatchNotice; the WORDING is this application's, because it
+    // has no "Settings > RomWBW Release" item and because its picker does not
+    // fetch a ROM - Start does.
+    std::string disksAgreeOn;
+    bool disksDisagree = false;
+
     std::string block;
     for (int unit = 0; unit < 4; unit++) {
         if (!m_emulator->isDiskLoaded(unit)) continue;
@@ -2053,8 +2121,9 @@ void MainWindow::reportMountedDiskProvenance() {
                          diskv0::basenameOf(path) + "\r\n"
                          "  is a RomWBW " + diskRelease + " image, and this machine is set to RomWBW " +
                          running + ".\r\n"
-                         "  The guest will report an HBIOS/CBIOS version mismatch.\r\n"
-                         "  Settings > Disk Images has the release picker.\r\n";
+                         "  The guest will report an HBIOS/CBIOS version mismatch.\r\n";
+                if (disksAgreeOn.empty()) disksAgreeOn = diskRelease;
+                else if (disksAgreeOn != diskRelease) disksDisagree = true;
                 continue;   // said what matters about this slot
             }
         }
@@ -2098,6 +2167,28 @@ void MainWindow::reportMountedDiskProvenance() {
                  " publishes under that name.\r\n"
                  "  It may be your own changes; it is mounted as it is.\r\n"
                  "  Settings > Disk Images can replace it, and says what that costs.\r\n";
+    }
+
+    // THE REMEDY, once, after the per-slot lines rather than repeated in each of
+    // them. Only reached when at least one slot disagreed, because disksAgreeOn
+    // is set nowhere else.
+    if (!disksAgreeOn.empty()) {
+        if (disksDisagree) {
+            // Two releases mounted at once. There is no single right answer and
+            // this must not invent one: whichever release is chosen, some slot
+            // is still wrong, and the user is the only one who knows which disks
+            // they meant to be running.
+            block += "The mounted disks are not all from one release, so no "
+                     "single choice\r\n"
+                     "  matches them all. Settings > Disk Images has the release "
+                     "picker.\r\n";
+        } else {
+            block += "Every mismatched disk here is a RomWBW " + disksAgreeOn +
+                     " image. If that is\r\n"
+                     "  the release you meant to run, set it in Settings > Disk "
+                     "Images; the next\r\n"
+                     "  Start will offer to fetch its ROM.\r\n";
+        }
     }
 
     if (block.empty()) clearNotice(Notice::MountedDisk);
@@ -2400,7 +2491,17 @@ bool MainWindow::romReadyToStart() {
     // through by a release comparison that both ROMs satisfy. With no catalog in
     // hand there is nothing to compare against and the release still decides,
     // which is what keeps this from fetching on every start.
-    if (loadedRomwbwRelease() == want) {
+    // romServes AND NOT `==`, and a development snapshot is the whole of the
+    // difference. loadedRomwbwRelease() reads two bytes out of the HBIOS
+    // configuration block and can only ever spell three numbers - "3.7.0" - while
+    // `want` is a catalog version naming the full upstream tag, "3.7.0-dev.14".
+    // Compared with `==` those two are never equal, so every start on a snapshot
+    // fell through to the fetch below, downloaded a ROM that hashed correctly,
+    // loaded it, came back here and was refused again: a loop that ends in
+    // "Cannot start" over a ROM sitting in the banks. ioscpm shipped exactly that
+    // and fixed it on 2026-09-18; CatalogV0.h's note on romServes has the
+    // measurement that makes the two indistinguishable by their bytes.
+    if (catalogv0::romServes(want, loadedRomwbwRelease())) {
         const DiskCatalog::RomRequirement have = m_diskCatalog->getRomRequirement();
         const bool catalogNamesAnother = have.haveCatalog && have.romwbwVersion == want &&
                                          have.haveRom &&
@@ -3065,6 +3166,12 @@ void MainWindow::applyConfig() {
     // - and DiskCatalog falls back to the index's default if this release is one
     // it cannot boot. Nothing is deleted, unmounted or invalidated by the change.
     m_diskCatalog->setPreferredRomwbwVersion(cfg.romwbwVersion);
+
+    // And whether development snapshots are among the releases on offer, seeded
+    // here for the same reason: loading a PROFILE replaces the whole
+    // configuration, so a profile written with the box unticked must not leave a
+    // catalog still willing to fall back onto a snapshot.
+    m_diskCatalog->setShowPrereleaseVersions(cfg.showPrereleaseVersions);
 
     // And WHICH CATALOG those releases are read out of, seeded here for exactly
     // the reasons above: this function is what turns a configuration into

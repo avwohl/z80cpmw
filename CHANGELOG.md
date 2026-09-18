@@ -5,26 +5,39 @@ All notable changes to **z80cpmw** are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versions use a simple `MAJOR.MINOR.PATCH` scheme: a `-beta` suffix names the
 signed GitHub / sideload package, and the bare number names the Microsoft Store
-release. The released Store version is **1.0.34** — measured with
-`tools/check-store-version.sh`, **run by hand**, which reported
-`AaronWohl.Z80CPM_1.0.34.0_x64__pyqcdeggzw67m`, catalog updated 2026-09-14,
-measured 2026-09-15. There is no longer a CI job behind that sentence: the
+release. The released Store version is **1.0.35** — measured with
+`tools/check-store-version.sh`, **run by hand**, measured 2026-09-18. There is no longer a CI job behind that sentence: the
 Store-version workflow was removed on 2026-09-13 because CI is for building and
 testing this repository, and what a store serves is neither. So this number has
 no machine keeping it honest — re-measure before trusting it, and treat its date
 as the whole of its authority. This sentence read **1.0.23** until 2026-09-06, **1.0.25**
-until 2026-09-09, **1.0.29** until 2026-09-13 and **1.0.33** until 2026-09-15;
+until 2026-09-09, **1.0.29** until 2026-09-13, **1.0.33** until 2026-09-15 and
+**1.0.34** until 2026-09-18;
 each time the number was overtaken by a submission the repository does not
 record, and each time the measurement is what caught it — on 2026-09-13 as a red
 CI job on the scheduled run, which is the job doing exactly what it was added
 for, and on 2026-09-15 by the script itself printing
 `CHANGELOG.md says "The released Store version is 1.0.33", Store serves 1.0.34`
-and `Correct the sentence, not this script`. Five times now. The number in this
+and `Correct the sentence, not this script`. Six times now — the sixth on
+2026-09-18, the script again printing `Store serves 1.0.35` against a sentence
+that said 1.0.34. The number in this
 paragraph is worth exactly the date beside it.
 
-**Where each channel stands, as of 2026-09-15.** The Store serves **1.0.34**,
-catalog updated 2026-09-14 — the submission recorded below under
-`[1.0.34] - 2026-09-13` has been approved and is live. The newest *published*
+**Where each channel stands, as of 2026-09-18.** The Store serves **1.0.35**,
+measured by hand that day — so the `[1.0.35]` entry below, which called its
+package "not yet submitted", describes a submission that has since gone through.
+
+**AND THE SHIPPED 1.0.35 DOES NOT CARRY THE RELEASE-FILTER DELETION.**
+`dist\z80cpmw-1.0.35-store.msix` was built 2026-09-17 05:08 and `3c64be7`, which
+deleted the filter, landed 2026-09-17 18:15 — thirteen hours later. Every
+statement in this file about "every published release is offered" is therefore
+true of the TREE and not of the binary Store users have; that binary still drops
+an index entry its compile-time list has not heard of. The same is true of
+`dist\z80cpmw-1.0.35-beta.msix` (05:22 the same morning), which was signed and
+never published — the newest published beta is still **v1.0.32-beta**. Both are
+version 1.0.35, both predate the work, and neither may be reused: `CLAUDE.md`
+forbids signing a `-Beta` on a published version, and forbids one number over two
+different binaries. The fix is a new number cut off the current tree. The newest *published*
 sideload package is **v1.0.32-beta**, released on 2026-09-13 and what GitHub
 marks Latest; it carries the catalog entry-point work and supersedes
 **v1.0.28-beta** on that channel. **1.0.30-beta** is still built, signed and
@@ -59,14 +72,413 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
+## [1.0.39] - 2026-09-18
+
+Three things reported against 1.0.38, all on the Settings page.
+
+### The pre-release toggle is committed by toggling it
+
+It came up ticked after a session that had left it unticked. Measured on the
+reporter's machine afterwards: `z80cpmw.json` said `showPrereleaseVersions: true`
+and had not been rewritten since 14:16, while the app had run again at 14:46. So
+the unticking was real and was **discarded because the dialog closed without OK**.
+
+The default was never wrong - `Config.h` and `from_json` both say `false`, and
+an absent key reads as `false`. What was wrong is which rule this control
+followed. Every other control on that page describes the MACHINE and is the
+dialog's to hold until OK. This one describes the LIST - which rows the picker
+shows - and toggling it rearranges that list in front of the user, so it has
+visibly taken effect long before OK is anywhere near.
+
+It now commits on toggle: `onShowPrereleaseChanged` writes `m_settings`,
+`ShowWxSettingsDialogInternal` returns that one field on Cancel as well as on OK,
+`MainWindow` applies and saves it outside the OK block, and Cancel no longer puts
+the catalog's copy back. Everything else the dialog holds is still discarded by
+Cancel exactly as before.
+
+### The four slots no longer look settled while they are not
+
+Opening Settings on a machine stored at 3.7.x with 3.5.1 images showed the old
+filenames for about five seconds and then rewrote them. The information was true
+at the instant it was drawn and read as final, which is the complaint:
+"it shows wrong info in a way that makes it look current when it is not".
+
+The four dropdowns and their Browse/New buttons are now disabled from the moment
+the dialog has settings - the constructor's catalog fetch is already in flight by
+then - until a catalog has landed AND any reconcile it triggers has finished. A
+`wxBusyCursor` is held for the same span, and the status line says what is
+happening rather than leaving the page silent. Disabled controls are how this
+dialog already says "not yet": the release picker's own placeholder does it.
+
+Every terminus clears it, including the ones that are easy to miss - a failed
+catalog fetch, a chain that finds nothing to do, a chain abandoned by a second
+release change, and a download that fails partway. Leaving the slots disabled
+after a failed fetch would strand the four controls a user with no network most
+needs.
+
+### Less text
+
+The checkbox reads **Show pre release**. Its tooltip is gone, the note's
+paragraph about development snapshots is one clause, and the sentence about what
+a release change does is one line. The reserved height for the note was
+recomputed from the shorter text.
+
+### Verified
+
+`MSBuild ... -t:Rebuild`: **0 warnings, 0 errors**.
+`tests\run_tests.bat`: **1,862 checks in eight suites, 0 failures**.
+
+**Not verified.** Everything above is in `SettingsDialogWx.cpp` and
+`MainWindow.cpp`, which no suite can reach. The busy cursor, the disabled slots
+and the Cancel-path save have been compiled and never driven.
+
 ## [Unreleased]
 
-`Version.h` is still at **1.0.35**, which is built and packaged as
-`dist\z80cpmw-1.0.35-store.msix`, **not yet submitted**, and signed as
-`dist\z80cpmw-1.0.35-beta.msix`, **not yet published** - see below. todo.txt
-reserves bumping the version for the moment something is packaged, so what is
-described here is in the tree and in no package: **a user is still running a
-build with the release filter in it.**
+### The disks still did not follow the release, and the trigger was the reason
+
+1.0.37 moved the release picker to the Machine page and taught a release SWITCH
+to bring the disks with it. A user installed it and reported the machine still
+wrong: Settings opened on release **3.7.x** with four **3.5.1** disks and no 3.7
+image anywhere to pick.
+
+**Nothing was broken about the chain. It was never asked to run.** It hung off
+`onRomwbwVersionChanged` - the picker MOVING - and this user had chosen
+3.7.0-dev.14 in an earlier session. It was still chosen on the next launch, so
+the control never moved, so nothing fired. The disagreement is a property of the
+machine, not of a control having been touched, and that is what is tested now:
+`slotsDisagreeWithRelease()` is checked on every catalog that lands.
+
+**Underneath it was a second defect that would have made the first fix useless.**
+`captureSlotIds()` mapped a slot's filename to a catalog id by looking it up in
+the catalog in hand. That works while the slots and the release agree - and the
+whole point of this feature is the case where they do NOT. A machine opening on
+3.7.0-dev.14 with 3.5.1 images has the 3.7.0-dev.14 catalog in hand, and that
+document has never heard of `hd1k_combo-v0-3.5.1.img`, so the lookup returned
+nothing for all four slots and the reconcile had nothing to do.
+
+`diskv0::idOfV0Name()` is the answer: the mirror of the long-standing
+`releaseOfV0Name()`, taking what PRECEDES the interface tag where that takes what
+follows. `romIdForStoredName()` has done exactly this for ROMs since the bundled
+ROMs were deleted, so the shape is not new.
+
+**This does not break CATALOG_SCHEMA 6.1's "key on `id`, not by parsing
+`filename`".** That rule is about identifying an entry inside a catalog, with the
+document right there to read. This answers a different question - which entry is
+the file in slot 2 a copy of, when no catalog in the process has ever seen that
+filename - and the only document that could answer it is the previous release's
+catalog, which nothing keeps. The parse yields a CANDIDATE; every caller confirms
+it against the catalog it is about to use, so a wrong parse names no entry and
+nothing happens.
+
+Sixteen checks in the interface-v0 suite pin it, including the two cases that
+would have made it wrong in exactly this feature: a DASHED release
+(`hd1k_combo-v0-3.7.0-dev.14.img` must still yield `hd1k_combo`, and the release
+half holds two dashes of its own), and a name that is all tag and no id
+(`-v0-3.6.0.img`, which names no entry and must be refused rather than answered
+with an empty string). One check puts a name through both halves at once, so the
+two cannot drift about where the tag is.
+
+### Verified
+
+`MSBuild ... -t:Rebuild`: **0 warnings, 0 errors**.
+`tests\run_tests.bat`: **1,862 checks in eight suites, 0 failures** (up 16).
+
+**Not verified, and it needs a person.** The trigger, the chain and the layout
+are all in files no suite can reach. `MANUAL_CHECKS.md` section 14 has the checks
+- and the one that matters most for this entry is the one that caught it: open
+Settings on a machine whose stored release already disagrees with its mounted
+disks, having touched nothing.
+
+### Recovered
+
+`SettingsDialogWx.cpp` was truncated to zero bytes during this work by a shell
+redirection that opened the file for writing before reading it. There was no
+backup, the newest VSS shadow copy predated the day's work, and the file held
+some 690 uncommitted lines. It was reconstructed from `HEAD` by re-applying every
+edit, then checked by symbol inventory, a clean `Rebuild` and the full suite.
+The lesson is the ordinary one and is worth the line: **the work was uncommitted
+for a whole day.**
+
+## [1.0.37] - 2026-09-18
+
+**Cut to be tested.** 1.0.36 was already signed, installed and therefore used up
+- a same-version MSIX does not upgrade in place - so the Settings work below
+needed a number of its own.
+
+**Beta cut and signed**, `dist\z80cpmw-1.0.37-beta.msix`, with
+`z80cpmw-1.0.37-beta.pdb` beside it. Rehearsed with `-Beta -SkipSign` first,
+which writes the distinct `-unsigned` name and reaches neither `sign.ps1` nor the
+network; the real run then used `-SkipBuild` off that same `bin\Release`, so the
+signed package carries exactly the binary the rehearsal validated.
+`Assert-ExeVersion` reported `Binary matches Version.h (1.0.37.0)`. Verified
+independently afterwards: `sign.ps1 -Verify` gives 0 errors, and the packaged
+manifest reads `Name="AaronWohl.Z80CPM" Version="1.0.37.0"
+Publisher="CN=Aaron Wohl, O=Aaron Wohl, L=Gainesville, S=fl, C=US"` - the beta
+publisher rewrite, so **this package cannot go to Partner Center**.
+
+**NOT submitted to the Store**, and no `-store` package exists at this number.
+Store users are still on 1.0.35, which predates the release-filter deletion.
+
+### The release picker moved to the Machine page
+
+**Reported, not deduced.** A user ticked "Show development snapshots", picked
+3.7.0-dev.14, went back to the ROM and found it unchanged with no 3.7.x on
+offer - and concluded the app was broken. It was not, and that is the defect:
+
+- the four disk-slot dropdowns list only images ALREADY DOWNLOADED
+  (`populateDiskLists`, `if (entry.isDownloaded)`), and no 3.7.0-dev.14 image
+  was on the machine, so they still offered the 3.5.1 files;
+- the ROM dropdown shows `rom.name`, which is `EMU AVW` / `EMU RCZ80` in every
+  published release and carries no version at all.
+
+Nothing on that page could react. So the release picker, its snapshot checkbox
+and its note now sit at the TOP of the **Machine** page, above `ROM:` and above
+Disk 0-3 - the three controls the release governs, on one page. The Disk Images
+page keeps the catalog index field and the download library. Both page builders
+already called their panel `page` and their sizer `content`, and Machine is
+built first, so the move needed no edit to the moved lines and no reordering.
+
+Two things the move broke that a build would not have caught, and both were
+found by reading rather than by running:
+
+- `updateRomwbwVersionNote()` relayouts and repaints the page the note is ON,
+  by name. It still said `m_diskImagesPage`, so every release switch would have
+  laid out a panel the label is not on - the clipped-and-stale drawing the
+  comment right above it records having been measured once before.
+- `m_romwbwVersionNote` is the only run-time note with no `SetMinSize`, so
+  `Fit()` reserved about one line for a label that reaches nine. On Disk Images
+  the excess came out of `m_catalogList`, the only proportion-1 child there;
+  **the Machine page has no proportional child at all**, so it would have pushed
+  the Dazzler box off the bottom. Reserved now from the longest form the builder
+  can produce, wrapped exactly as the runtime wraps it - the same arithmetic
+  `m_catalogIndexNote` already carries.
+
+### Switching release now brings the disks with it
+
+Also the user's call, and it deliberately reverses half of a standing rule.
+`onRomwbwVersionChanged` carried "NOTHING IS DELETED, DOWNLOADED OR UNMOUNTED
+HERE, and nothing may ever be", written after a version switch destroyed a
+library on the iOS port. **The delete and unmount half is untouched.** Only the
+download half is lifted.
+
+Each occupied slot's catalog **id** is captured against the OUTGOING catalog -
+the only document that can map a filename to an id, and it is about to be
+replaced - then resolved in the new release and fetched. Measured cost: 73 MB
+worst case for four slots (hd1k_combo is 49 MB, the rest 8 MB each), not the
+hundreds this was first guessed at. 17 of 22 ids are common between 3.5.1 and
+3.7.0-dev.14, so the fallback is rare.
+
+**There is no default disk in the catalog**, and the honest consequence is
+written down rather than inferred. A `roms[]` entry carries `default: true`; a
+`disks[]` entry carries no such flag, in the schema or in any published catalog.
+`defaultSlot` reads like the answer and is not - CATALOG_SCHEMA.md 3.3 says it
+is "the SLICE a client should boot from when it mounts this image", an index
+inside `hd1k_combo`, saying nothing about which drive an image belongs in. Its
+only published value is 0, so reading it as a drive number is a mistake that
+works. The list is `DEFAULT_DISK_IDS`, moved out of `MainWindow.cpp` into
+`DiskCatalog.h` so the F5 path and the release switch cannot drift apart.
+
+Five defects were found in this code by adversarially verifying it against the
+source after it was written, and each is a case a build compiles happily:
+
+- the default fallback took a slot **without checking it was empty**, so a drive
+  holding the user's own browsed image - which has no catalog id and so
+  contributes no match - was handed `hd1k_combo` on top of it. That is exactly
+  the unmount the rule forbids, reached by the one path that looks like a
+  default rather than a replacement.
+- `cancelDownload()` does **not** free the one-at-a-time transfer lock - it sets
+  a flag the worker reads between blocks - so a second release switch that
+  cancelled the first and started immediately had its own first image refused
+  synchronously with "Download already in progress", killing the chain at
+  "0 of N". A plan is now armed by the catalog landing and started by whichever
+  of that and the lock clearing happens second. Nothing polls and nothing sleeps.
+- Download and Update were re-enabled **between** chain steps, so a click in any
+  gap started a competing download that the chain's next image would lose to.
+- `abandonReleaseSwitchFetch()` left those two buttons dead for the rest of the
+  dialog's life after a second switch.
+- a failed catalog fetch left the plan armed, so the next Refresh the user
+  pressed for their own reasons would have moved their four slots.
+
+An image already on the machine is mounted and **never re-fetched**, whatever
+its freshness: the Download button asks before replacing an image you have
+written to, and a chain firing off a dropdown has nobody to ask, so it must
+never be in a position where the answer matters.
+
+### Verified
+
+`MSBuild ... -t:Rebuild`: **0 warnings, 0 errors**.
+`testsun_tests.bat`: **1,846 checks in eight suites, 0 failures**.
+
+**Not verified, and it needs a person.** `SettingsDialogWx.cpp` and
+`MainWindow.cpp` are in no suite. Nothing here has been driven: not the moved
+layout, not a single download, not a cancel, not a second switch.
+`MANUAL_CHECKS.md` section 14 carries the nine checks that would.
+
+## [1.0.36] - 2026-09-18
+
+**Cut because 1.0.35 was used up.** The Store SERVES 1.0.35 (measured
+2026-09-18), and both `dist\z80cpmw-1.0.35-*` packages were built on 2026-09-17
+morning - THIRTEEN HOURS BEFORE `3c64be7` deleted the release filter - so neither
+contains a line of what is described below. Reusing that number was not an
+option: `CLAUDE.md` forbids one number over two different binaries, and the
+signed `dist\z80cpmw-1.0.35-beta.msix` and its `.pdb` would have been
+overwritten, which is unrecoverable.
+
+**Beta cut and signed**, `dist\z80cpmw-1.0.36-beta.msix`, with
+`z80cpmw-1.0.36-beta.pdb` kept beside it. Rehearsed first with
+`-Beta -SkipSign`, which writes the distinct `-unsigned` name and reaches
+neither `sign.ps1` nor the network; the real run then used `-SkipBuild` off that
+same `bin\Release`, so the signed package carries exactly the binary the
+rehearsal validated. Verified independently afterwards: `sign.ps1 -Verify`
+reports 0 errors, the chain reaches "Microsoft Identity Verification Root
+Certificate Authority 2020", and the packaged manifest reads
+`Name="AaronWohl.Z80CPM" Version="1.0.36.0"
+Publisher="CN=Aaron Wohl, O=Aaron Wohl, L=Gainesville, S=fl, C=US"` - the beta
+publisher rewrite, so **this package cannot go to Partner Center**.
+
+**NOT submitted to the Store.** No `-store` package has been built at this
+number. Until one is, a Store user is still running 1.0.35, which has the
+release filter in it.
+
+### The build was broken by a sibling, and nothing here had changed
+
+romwbw_emu v1.47 gave HBIOS four-voice sound. `hbios_dispatch.cc` - which this
+project compiles straight out of `..omwbw_emu` - began calling
+`emu_snd_emit_tone()` in three places, and the core defines it in exactly one
+file: `emu_io_common.cc`, whose own header comment says "every port links this
+file". **This port does not.** `z80cpmw.vcxproj` lists three core sources and
+`romwbw_emu/DOWNSTREAM.md` is what tells it to, so the symbol arrived undefined
+and the application stopped linking with no commit here.
+
+Reproduced 2026-09-18 before anything was written: three
+`undefined reference to emu_snd_emit_tone(int, int, int, int)` linking the HBIOS
+suite's own source list.
+
+`emu_io_windows.cpp` now defines `emu_snd_emit_tone()` and its companion
+`emu_snd_set_tone_handler()`, carrying the core's own fallback - forward to an
+installed renderer, else `emu_dsky_beep()` on channel 0 alone when the channel is
+audible. Copied deliberately rather than improved on: `emu_io.h` says a port that
+has not been updated "must keep building and keep making the beep it makes
+today", and installing a real WASAPI renderer stays an opt-in a later change can
+make without touching the core. **The pair is the point** - the handler is a
+pointer and not a symbol precisely so a front end can opt in, so defining only
+the emitter would link today and make the setter the next undefined symbol.
+
+### RomWBW development snapshots: offered only when asked for
+
+`romwbw_disks` began publishing RomWBW development snapshots on 2026-09-18, the
+first of them `3.7.0-dev.14`, flagged `prerelease: true` in the index.
+`CATALOG_SCHEMA.md` 2.3 requires that a client "MUST NOT offer a prerelease entry
+by default - hide it behind an explicit opt-in". This build offered it beside the
+releases, because `parseIndex` did not know the field existed.
+
+- **`IndexEntry::prerelease`**, read through the same optional accessor as any
+  flag. The key is ABSENT on a real release, not false - the schema emits it only
+  when true so a released version's entry stays byte-identical to the one already
+  on its immutable tag - so a reader that required it would drop every stable
+  release ever published.
+- **`catalogv0::isOffered(entry, showPrerelease, keepVersion)`**, the whole rule
+  in one place so the picker and the automatic choice cannot disagree about one
+  machine. `chooseVersion` gained a `showPrerelease` argument defaulting to
+  false, and its `default: true` and first-entry fallbacks now run over the
+  offered entries only - a fallback is exactly where a snapshot would become
+  somebody's release by accident.
+- **`core.showPrereleaseVersions`** and a "Show development snapshots" checkbox
+  under the release picker, off by default, wired through `DiskCatalog` so a
+  fetch started while the dialog is open applies what the box shows.
+
+**The checkbox says SHOW, and that is all it does.** A stored preference for a
+snapshot is honoured whether or not the box is ticked, and `isOffered` keeps the
+selected release visible either way. The alternative - unticking the box moving a
+machine from `3.7.0-dev.14` to `3.6.0` with `3.7.0-dev.14` images in its four
+slots - is the HBIOS/CBIOS mismatch the release picker exists to prevent. It is
+the opposite kind of filter to the one deleted below: that one asked a
+compile-time list what the binary could run and went stale in a shipped build;
+this asks the document what upstream has published, and cannot.
+
+### A snapshot downloaded, verified, and would not have started
+
+The same defect ioscpm shipped and fixed on 2026-09-18, found here by reading
+that fix. A ROM describes itself with the two version bytes of its HBIOS
+configuration block, so `emu_romwbw_release_str` can only ever spell three
+numbers - `"3.7.0"`. A catalog entry is a document and names the full upstream
+tag - `"3.7.0-dev.14"`. **Those two strings cannot be equal for a snapshot**, and
+this tree compared them with `==` in two places:
+
+- `MainWindow.cpp`'s `romReadyToStart()`, where the start would fall through to
+  the fetch, download a ROM that hashed correctly, load it, come back and be
+  refused again - ending in "Cannot start" over a ROM sitting in the banks.
+- `SettingsDialogWx.cpp`'s picker note, which would tell a user running the
+  snapshot's own ROM that their disks "need a RomWBW 3.7.0-dev.14 ROM, and the
+  machine is running RomWBW 3.7.0" - a mismatch warning about a correct pairing.
+
+`catalogv0::romServes(catalogVersion, declaredByRom)` holds the rule: the same
+release, or a catalog entry that is a PRE-RELEASE of what the ROM declares. It is
+asymmetric and cannot admit a wrong pairing - a 3.6.0 ROM serves no 3.7.0-dev
+entry - which is why it needs no help from the `prerelease` flag. The `-` is
+load-bearing: without it `"3.7.01"` would match a `"3.7.0"` ROM.
+
+Measured rather than reasoned: the snapshot's published ROM entries carry
+`hcb.version 0x37 / hcb.update 0x00`, and `emu_init.cc` formats `"%d.%d.%d"`.
+`CATALOG_SCHEMA.md` 2.3.1 records that the snapshot's HCB is byte for byte what a
+released 3.7.0 will read, so nothing computed from those bytes can separate them.
+
+**The third comparison was checked and deliberately left alone.** The Start-time
+disk notice compares a disk filename's release against the machine's - both
+catalog-side strings, and a snapshot's filenames carry the full tag correctly.
+
+### The mounted disks now name their own release
+
+The Start notice said which slot disagreed and ended "Settings > Disk Images has
+the release picker" - where to go, not what to do when you get there. When every
+disagreeing image is built for ONE release, that release is what the machine is
+actually carrying and the stored preference is what is wrong, so the notice now
+names it and says the next Start will offer to fetch its ROM. Two different
+releases mounted at once is a real state and gets the opposite answer: there is
+no single right choice and it says so rather than inventing one. cpmdroid reached
+the same shape in `createReleaseMismatchNotice`; the wording is this
+application's, since it has no "Settings > RomWBW Release" item and its picker
+does not fetch a ROM - Start does.
+
+### Two warning suppressions deleted, measured rather than assumed
+
+- **C4267 on `hbios_dispatch.cc`** covered six warnings of one shape, a `size_t`
+  loop index promoting a `uint16_t` guest address. romwbw_emu cast all six sites
+  in `8eeb227` and has shipped them since v1.37, so the file compiles clean.
+- **C4244 on `qkz80_errors.cc` and `qkz80_reg_set.cc`**, which emit none. The
+  suppression stays on `qkz80.cc` (29 sites) and `qkz80_mem.cc` (1).
+
+One `cl` run at this project's own flags (`/EHsc /W3 /O2 /std:c++17` and the
+three `/I` paths) over all seven imported sources with no
+`DisableSpecificWarnings` at all emits **thirty** warnings: 29 C4244 in
+`qkz80.cc`, one in `qkz80_mem.cc`, and **no C4267 anywhere**. cpmemu 4.9.0's
+`MK_INT16` narrowing fix is NOT what made the two C4244 suppressions removable -
+those files emitted none before it either. The claim is about `/W3`, the level
+this project builds at, and not about the files being clean at every level.
+
+### Verified
+
+`MSBuild z80cpmw.sln -p:Configuration=Release -p:Platform=x64 -t:Rebuild -m`:
+**0 warnings, 0 errors** - which is also the check on the two suppressions
+deleted above, since a Rebuild compiles every one of those files with no `/wd`
+flag on it.
+
+`cmd /c testsun_tests.bat`: **1,846 checks in eight suites, 0 failures** -
+516, 355, 50, 175, **265**, 66, 36, **383**. Up 43 from 1,803: the interface-v0
+catalog suite goes 231 to 265 and the configuration suite 374 to 383.
+
+The catalog suite's `REAL_INDEX` fixture was a two-entry copy of an index that
+now has three, so `test_the_fixture_is_not_stale()` - which compares it against
+the sibling `romwbw_disks` checkout - was **failing before any of this was
+written**. It carries the 3.7.0-dev.14 entry verbatim now. New cases:
+`test_a_snapshot_is_opt_in`, `test_a_snapshot_says_so`,
+`test_which_rom_serves_which_release`, and
+`test_development_snapshots_are_opt_in` in the configuration suite.
+
+**Not verified, and it needs a person:** none of `MainWindow.cpp` or
+`SettingsDialogWx.cpp` is in any suite, so the checkbox, the picker filter, the
+About line and the notice have been compiled and not driven. `MANUAL_CHECKS.md`
+section 14 has the four checks that would.
 
 ### The release filter is deleted, and a new RomWBW release now needs no build
 
@@ -384,9 +796,11 @@ share a number:
   `MainWindow.cpp`, which no suite covers and which needs a real window. The
   signed package above is what makes driving it possible; installing it is not
   the same as having installed it, and nobody has.
-- Not submitted to Partner Center. 1.0.34 was still the served version at the
-  last measurement (2026-09-15); submitting 1.0.35 while 1.0.34 is in review is
-  a Partner Center question this repository cannot answer.
+- Not submitted to Partner Center when this was written; it has been since. The
+  Store served 1.0.34 at the measurement of 2026-09-15 and serves **1.0.35** at
+  the measurement of 2026-09-18, so this package went through. What that means
+  is recorded at the top of this file: the binary it shipped predates the
+  release-filter deletion by thirteen hours.
 
 ## [1.0.34] - 2026-09-13
 

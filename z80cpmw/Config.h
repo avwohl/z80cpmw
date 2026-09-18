@@ -159,6 +159,21 @@ struct AppConfig {
     // keys the interface asks of ports that store bare filenames.
     std::string romwbwVersion;
 
+    // Whether the release picker offers RomWBW DEVELOPMENT SNAPSHOTS - index
+    // entries carrying `prerelease: true`, which upstream has not released at
+    // all. False is the required default, not a taste: CATALOG_SCHEMA.md 2.3
+    // says a client "MUST NOT offer a prerelease entry by default - hide it
+    // behind an explicit opt-in", so false is also what an absent key reads as
+    // and what every configuration written before this release says.
+    //
+    // IT GOVERNS WHAT IS OFFERED AND NOTHING ELSE. Turning it off does not move
+    // a machine already running a snapshot: catalogv0::isOffered keeps the
+    // selected release visible and chooseVersion honours a stored preference
+    // whatever this says. Otherwise unticking a checkbox would drop a machine
+    // from 3.7.0-dev.14 to 3.6.0 with 3.7.0-dev.14 images in its four slots,
+    // which is the HBIOS/CBIOS mismatch the release picker exists to avoid.
+    bool showPrereleaseVersions = false;
+
     // The catalog index this machine reads, or EMPTY for the one the build
     // ships with. Empty rather than a copy of catalogv0::INDEX_URL: storing the
     // default would freeze this install onto whatever it was on the day the

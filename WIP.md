@@ -16,25 +16,24 @@ is `[1.0.20]`, `[1.0.21-beta]` and `[1.0.22]`. The W8-under-MSIX question that
 was this file's open question is answered, in source and in
 [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md).
 
-Version in the tree: **1.0.34** (`z80cpmw/Version.h`), packaged unsigned on
-2026-09-13 as `dist\z80cpmw-1.0.34-store.msix` and **submitted to Partner Center,
-in review**. It has no signed sideload twin: one would have to be cut with
-`-SkipBuild` off the same `bin\Release`, or take a different number.
-The Store still serves **1.0.33**, whose package was submitted on 2026-09-10.
-Its signed sideload twin is **1.0.32-beta**, published on 2026-09-13 and what
-GitHub marks Latest - the same source as 1.0.33 and a different build, which is
-why the numbers differ. **1.0.30-beta** is an older signed package,
-superseded. The 1.0.31 Store package is **gone**: the Store output name carries
-no version, so this build overwrote it — it was never submitted and predated the
-catalog entry-point work, and its symbols remain as
-`dist\z80cpmw-1.0.31-store.pdb`. The version released on the Store is **1.0.33**, measured with
-`tools/check-store-version.sh` on 2026-09-13; this line said **1.0.22** until
-2026-09-09, **1.0.25** until 2026-09-10 and **1.0.29** until 2026-09-13, and was
-several releases behind each time, so measure it rather than reading it here. Since `31d01c6` the
-version is edited only in `Version.h`; the MSIX and NSIS scripts derive theirs
-from it, and todo.txt reserves bumping it for the moment something is packaged —
-so a tree with unpackaged work in it sits under `[Unreleased]` at the number of
-the last package, which is what 1.0.32 is now.
+Version in the tree: **1.0.39** (`z80cpmw/Version.h`), as of 2026-09-18, cut and
+signed as `dist\z80cpmw-1.0.39-beta.msix`.  No Store package at that number, and
+none at 1.0.36 either - that beta was cut, signed and installed, and 1.0.37
+supersedes it.
+
+**Where each channel stands is in `CHANGELOG.md`, measured. Do not restate it
+here.** This paragraph used to carry the numbers and has gone stale four separate
+times — it said 1.0.22 until 2026-09-09, 1.0.25 until 2026-09-10, 1.0.29 until
+2026-09-13, and 1.0.33/1.0.34 until 2026-09-18, and was several releases behind
+each time. WIP.md:3-4 already says this file is "not a record of what shipped",
+so a channel tally here breaks the file's own contract as well as going wrong.
+Measure it with `tools/check-store-version.sh`; the only safe statement about a
+store is one with today's date on it.
+
+Since `31d01c6` the version is edited only in `Version.h`; the MSIX and NSIS
+scripts derive theirs from it, and todo.txt reserves bumping it for the moment
+something is packaged — so a tree with unpackaged work in it sits under
+`[Unreleased]` at the number of the last package.
 
 ## Building it
 
@@ -57,9 +56,23 @@ That stopped being a live question on 2026-08-28: the tree was built and driven
 (`978b623`), so `emu_host_file_get_read_name()` in `emu_io_windows.cpp` — added
 because `hbios_dispatch.cc` had grown a requirement, and until then never
 compiled with MSVC — links. Nobody wrote down which sibling shas that build was
-taken against, which is worth doing next time. The last reading this file
-recorded is `romwbw_emu` `17cd380` (`v1.36-1`) and `cpmemu` `9fee3c2`, and both
-checkouts stand five commits past it as of 2026-08-28.
+taken against, which is worth doing next time.
+
+**It became a live question again on 2026-09-18, and this is what it looks
+like.** romwbw_emu v1.47 gave HBIOS four-voice sound; `hbios_dispatch.cc`, which
+this project compiles, began calling `emu_snd_emit_tone()`, and the core defines
+it only in `emu_io_common.cc` — the one core source `DOWNSTREAM.md` tells this
+port not to compile. The link broke with three LNK2019s and the whole
+application stopped building, with nothing in this repository changed.
+`emu_io_windows.cpp` defines it now, alongside `emu_snd_set_tone_handler()`,
+with the core's own fallback behaviour. That is the shape to expect: a core that
+grows a required backend function breaks the link here on the next build, and
+the fix is always a definition in this port's own `emu_io_*.cpp`.
+
+The shas this file was last read against are `romwbw_emu` `653858f` (`v1.47`) and
+`cpmemu` `e4f7fd5` (one commit past `v4.9.0`), both on 2026-09-18. No commit
+count is recorded with them, deliberately: it rots on the siblings' next commit
+and the sha does not.
 Checking where the siblings stand is a `git log <recorded-sha>..origin/HEAD` in
 each of them by hand; `tools/check-sibling-drift.sh` used to do it and was
 deleted on 2026-09-13.

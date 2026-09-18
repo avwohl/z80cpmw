@@ -109,6 +109,7 @@ void to_json(json& j, const AppConfig& c) {
             {"welcomeShown", c.welcomeShown},
             {"interfaceV0Migrated", c.interfaceV0Migrated},
             {"romwbwVersion", c.romwbwVersion},
+            {"showPrereleaseVersions", c.showPrereleaseVersions},
             {"catalogIndexUrl", c.catalogIndexUrl}
         }},
         {"display", {
@@ -231,6 +232,12 @@ void from_json(const json& j, AppConfig& c) {
         // the bundled release here would make a configuration written today
         // outlive the day this build stops bundling it.
         c.romwbwVersion = core.value("romwbwVersion", "");
+        // False when absent, which is what every configuration written before
+        // this release says AND what CATALOG_SCHEMA.md 2.3 requires of a client
+        // that has not been told otherwise: a development snapshot is opt-in.
+        // The two agree here by luck rather than by design, so the literal is
+        // written out rather than inherited.
+        c.showPrereleaseVersions = core.value("showPrereleaseVersions", false);
         // Absent means the built-in index, which is what every
         // configuration written before this release says.
         c.catalogIndexUrl = core.value("catalogIndexUrl", "");

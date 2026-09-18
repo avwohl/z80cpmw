@@ -70,6 +70,35 @@ struct DiskEntry {
     DiskFreshness freshness = DiskFreshness::NeedsMeasurement;
 };
 
+// The disks a machine with nothing chosen is given, BY CATALOG id.
+//
+// BY ID AND NOT BY FILENAME, because the filename is the part that moves:
+// hd1k_combo.img became hd1k_combo-v0-3.5.1.img when the catalog moved to
+// romwbw_disks, and it becomes hd1k_combo-v0-3.7.0-dev.14.img the moment the
+// user selects another release. CATALOG_SCHEMA.md 6.1 asks a client to key on
+// `id` for exactly this reason.
+//
+// THE CATALOG DOES NOT NAME A DEFAULT DISK, and this list is the honest
+// consequence. A `roms[]` entry carries `default: true` and catalogv0::chooseRom
+// reads it; a `disks[]` entry carries no such flag - not in the schema's field
+// table and not in any published catalog. `defaultSlot` looks like a candidate
+// and is not one: CATALOG_SCHEMA.md 3.3 says it "is the SLICE a client should
+// boot from when it mounts this image", an index INSIDE hd1k_combo, and it has
+// nothing to say about which of the four drives an image belongs in. Reading it
+// as a drive number is a mistake that happens to work, because its only
+// published value is 0.
+//
+// So the choice is this application's to make and is written down here rather
+// than inferred. Both ids exist in all three published releases, measured
+// 2026-09-18 against catalog/v0/{3.5.1,3.6.0,3.7.0-dev.14}/catalog.json.
+//
+// IT LIVES IN THIS HEADER because two callers need the same answer: the F5
+// nothing-configured path in MainWindow, and the release switch in the Settings
+// dialog when no mounted slot's id survives into the new release. It was a
+// file-static in MainWindow.cpp and a second copy in the dialog would be a list
+// that drifts, which is the failure this tree keeps writing down.
+extern const char* const DEFAULT_DISK_IDS[2];
+
 // Download state
 enum class DownloadState {
     Idle,
@@ -305,6 +334,22 @@ public:
     // away when the choice moves.
     void setPreferredRomwbwVersion(const std::string& romwbwVersion);
     std::string getPreferredRomwbwVersion() const;
+
+    // Whether the index's `prerelease: true` entries - RomWBW development
+    // snapshots - are offered, as Config::showPrereleaseVersions holds it.
+    //
+    // Held here for the same reason as the release preference above: the
+    // Settings dialog flips it and refills its picker while the dialog is still
+    // open, and the configuration is not written until OK. MainWindow::applyConfig
+    // seeds it, Settings pushes it before each fetch, and Cancel puts it back.
+    //
+    // It changes what is OFFERED, never what is selected: catalogv0::chooseVersion
+    // honours a stored preference for a snapshot whatever this says, because the
+    // alternative is moving a machine off the release its mounted images were
+    // built for. Nothing here is invalidated, deleted or unmounted by flipping
+    // it, and nothing may be made to be.
+    void setShowPrereleaseVersions(bool show);
+    bool getShowPrereleaseVersions() const;
 
     // WHICH CATALOG INDEX TO FETCH, as Config::catalogIndexUrl holds it - the
     // raw setting, empty meaning "the index this build ships with", NOT a
@@ -726,4 +771,5 @@ private:
     std::string m_preferredRomId;
     std::string m_selectedVersion;
     std::vector<catalogv0::IndexEntry> m_indexVersions;
+    bool m_showPrereleaseVersions = false;   // guarded by m_indexMutex
 };

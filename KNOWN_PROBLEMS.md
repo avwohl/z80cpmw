@@ -35,8 +35,11 @@ used to pose — submit `dist\z80cpmw-1.0.24-store.msix` and inherit 1.0.22's
 problem, or submit 1.0.25 and not — has since been made, and made the right way:
 1.0.25 went to the Store with `z80cpmw-1.0.25-store.pdb` kept beside the package
 it came from, so the version users had was symbolicated. The Store has moved on
-three times since - it serves **1.0.33** as of 2026-09-13 - and every version
-since 1.0.25 has kept its symbols on both arms. The 1.0.24 package has no symbols
+several times since, and every version since 1.0.25 has kept its symbols on both
+arms. No number is pinned here on purpose: this paragraph named 1.0.33 as of
+2026-09-13 and had been overtaken twice by 2026-09-18. Which Store version it is
+does not change the conclusion — the same policy the paragraph further down this
+file already states. Re-measure with `tools/check-store-version.sh`. The 1.0.24 package has no symbols
 anywhere and submitting it would be choosing that problem rather than inheriting
 it; it is superseded five times over and there is no reason to.
 
@@ -58,9 +61,10 @@ They were all restored, and the restore was checked rather than assumed:
 sha256 CHANGELOG records for the published artifact. So the standing lesson is a
 cheerful one: **the Recycle Bin is the last line of defence, and it works.** Look
 there before concluding a `.pdb` is gone - the rule that it cannot be recreated is
-about rebuilding, not about recovery. `dist\` now holds symbols for 1.0.21-beta,
-1.0.23-beta, 1.0.25-store, 1.0.28-beta, 1.0.29-store, 1.0.30-beta and
-1.0.31-store.
+about rebuilding, not about recovery. What `dist\` holds is not inventoried here
+any more: it is a gitignored directory that gains a package on every build, and
+the list that stood here named seven while the directory held twelve. Run
+`ls dist\*.pdb`.
 1.0.23 escapes by accident rather than by design: its beta was cut from the same
 build with `-SkipBuild`, so `z80cpmw-1.0.23-beta.pdb` symbolicates the Store
 binary too — which is a property of how that release happened to be cut, not a
@@ -295,3 +299,31 @@ earlier run already downloaded into `%LOCALAPPDATA%\z80cpmw\data`: the bytes are
 on the machine, the claim about them is not. Doing better would mean writing a
 ROM's published hash down locally — a second provenance store beside
 `DiskLedger`'s — and that has not been built.
+
+## The guest's beep stops the guest, and it got three times longer
+
+`emu_dsky_beep()` in `emu_io_windows.cpp` forwards to `g_beepCallback` when one
+is installed and otherwise calls Win32 `Beep(800, duration_ms)`, which is
+synchronous. **Nothing installs that callback** - `emu_io_set_beep_callback` has
+no caller anywhere in this repository - so the fallback is the only path, and it
+runs on the emulator thread inside the HBIOS dispatcher. A guest beep therefore
+stops the Z80 for as long as it sounds.
+
+That was true before and cost 100ms. romwbw_emu v1.47 changed what it costs:
+`HBF_SNDBEEP` was `emu_dsky_beep(100)` and is now
+`emu_snd_emit_tone(0, 987, 255, 333)`, because RomWBW's beep is really about a
+third of a second of ~987Hz. With no tone renderer installed the shared fallback
+- copied into `emu_io_windows.cpp` when v1.47 broke the link, see CHANGELOG -
+plays it through `emu_dsky_beep(333)`. So **a beeping guest now stalls for 333ms
+instead of 100ms, and sounds at 800Hz rather than the 987Hz the core asks for.**
+
+The core's own comment says the emit path "does NOT block the guest", and that is
+a statement about the core: it is this port's fallback that blocks. Fixing it
+means installing a real tone renderer through `emu_snd_set_tone_handler()` that
+returns immediately - WASAPI, or `Beep` on a worker - which is the opt-in v1.47
+was designed around and which nobody has built here. Until then this is a
+property of the port and not a defect in the core.
+
+Measured 2026-09-18: `grep -rn "emu_io_set_beep_callback" z80cpmw/` returns only
+the definition, and `hbios_dispatch.cc`'s `HBF_SNDBEEP` case reads
+`emu_snd_emit_tone(0, 987, 255, 333)` at romwbw_emu `653858f`.

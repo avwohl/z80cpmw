@@ -30,9 +30,22 @@ no `RELEASE_TAG` in this tree any more and no pinned release of anything: the
 only URL compiled in is the index (`INDEX_URL` in `CatalogV0.cpp`), and it names
 **no tag at all** - it goes through `releases/latest/download/`, so where the
 index lives belongs to romwbw_disks and can move with no release here. From it
-the client reads the RomWBW releases on offer — **all of them**, there is no
-filter — and fetches the chosen release's own catalog for the ROM and the
-images. **So publishing a ROM, a disk image, or a whole RomWBW release is the
+the client reads the RomWBW **releases** on offer — all of them, no build of this
+one decides which — and fetches the chosen release's own catalog for the ROM and
+the images.
+
+**One kind of entry is not a release and is hidden by default.** romwbw_disks
+began publishing RomWBW development snapshots on 2026-09-18, flagged
+`prerelease: true` in the index, and `CATALOG_SCHEMA.md` 2.3 requires that a
+client "MUST NOT offer a prerelease entry by default". `core.showPrereleaseVersions`
+(the "Show development snapshots" box under the release picker) is that opt-in,
+off by default. `catalogv0::isOffered` is the only place the rule lives, so the
+picker and the automatic choice cannot disagree; it keeps the release a machine
+is already on visible whatever the box says, because moving a machine off the
+release its mounted images were built for is the mismatch the picker exists to
+prevent. **It is the opposite kind of filter to the deleted one** — that one
+asked a compile-time list what this binary could run, and so went stale in a
+shipped build; this asks the document what upstream has published, and cannot. **So publishing a ROM, a disk image, or a whole RomWBW release is the
 whole of shipping it — no build of this application is involved.** Verified on
 2026-09-07 by running it: the release dropdown came back holding both published
 releases with 3.6.0 selected, and the disk list held the 3.6.0 set including

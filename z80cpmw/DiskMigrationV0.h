@@ -163,6 +163,25 @@ bool looksLikeV0Name(const std::string& filename);
 // store, never a version to do arithmetic on.
 bool releaseOfV0Name(const std::string& filename, std::string& out);
 
+// The other half of the same name: the CATALOG ID a v0 disk filename carries.
+// hd1k_combo-v0-3.5.1.img -> hd1k_combo. False for anything that is not a v0
+// name, which is the answer for an image the user browsed to themselves.
+//
+// WHY THIS EXISTS, given that CATALOG_SCHEMA.md 6.1 says to key on `id` and "not
+// by parsing `filename`". That rule is about identifying an entry INSIDE a
+// catalog, where the document is right there to be read. This answers a
+// different question: which catalog entry is the file in slot 2 a copy of, when
+// the catalog in hand is for ANOTHER RELEASE and has never heard of that
+// filename. There is no document that maps the two - the one that could is the
+// previous release's catalog, which nothing keeps - so the name is the only
+// evidence left.
+//
+// It is a CANDIDATE and not an answer. Every caller confirms the id against the
+// catalog it is about to use, so a wrong parse yields an id no entry carries and
+// nothing happens. `romIdForStoredName` below does exactly this for ROMs and has
+// since the bundled ROMs were deleted.
+bool idOfV0Name(const std::string& filename, std::string& out);
+
 // The catalog ROM id a stored AppConfig::rom becomes, for a configuration
 // written while that field still held a FILENAME.
 //

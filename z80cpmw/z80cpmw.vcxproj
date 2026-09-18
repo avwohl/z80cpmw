@@ -269,13 +269,23 @@
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <!-- Emulator Core Files (from cpmemu) -->
+    <!-- C4244 IS SUPPRESSED ON TWO OF THESE FOUR, not on all of them. qkz80.cc
+         emits 29 and qkz80_mem.cc 1; qkz80_errors.cc and qkz80_reg_set.cc emit
+         NONE at /W3, which is the level this project builds at, and their
+         suppressions were deleted on 2026-09-18. Raising WarningLevel above
+         Level3 would bring some back, so this is a claim about the level and not
+         about the files being clean.
+
+         Measured in the same cl run as the note on hbios_dispatch.cc below: 30
+         C4244 in total, 29 of them in qkz80.cc and one in qkz80_mem.cc. cpmemu
+         4.9.0's MK_INT16 narrowing fix is NOT what made the other two
+         removable - they emitted no C4244 before it either. -->
     <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
       <DisableSpecificWarnings>4244;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80_errors.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <DisableSpecificWarnings>4244;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80_mem.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
@@ -283,18 +293,24 @@
     </ClCompile>
     <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80_reg_set.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <DisableSpecificWarnings>4244;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <!-- Emulator Core Files (from romwbw_emu) -->
     <ClCompile Include="$(SolutionDir)..\romwbw_emu\src\hbios_dispatch.cc">
+      <!-- NO C4267 SUPPRESSION, and there was one here until 2026-09-18. It
+           covered six warnings of one shape: a size_t loop index promoting a
+           uint16_t guest address, where truncating to sixteen bits IS the Z80
+           64K address wrap HBIOS wants, so there was nothing to fix here.
+           romwbw_emu cast all six sites in 8eeb227 and has shipped them since
+           v1.37, so the file now compiles clean and the suppression was hiding
+           nothing.
+
+           MEASURED, NOT ASSUMED: one cl run at this project's own flags
+           (/EHsc /W3 /O2 /std:c++17 and the three /I paths) over all seven
+           imported sources with no DisableSpecificWarnings at all emits thirty
+           warnings, and not one of them is a C4267. Grep the MSBuild spelling
+           if you go looking for this again - searching for /wd4267 reports it
+           gone when it is not. -->
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
-      <!-- C4267 six times, all the same shape: a size_t loop index promoting a
-           uint16_t guest address (write_to_bank/read_from_bank(buffer + s * 512
-           + i, ...)). Truncating to sixteen bits IS the Z80 64K address wrap
-           HBIOS wants, so there is nothing to fix - and six permanent warnings
-           in every build are how a real one comes to be ignored. Suppressed for
-           this imported file only, as C4244 is for the four cpmemu ones. -->
-      <DisableSpecificWarnings>4267;%(DisableSpecificWarnings)</DisableSpecificWarnings>
     </ClCompile>
     <ClCompile Include="$(SolutionDir)..\romwbw_emu\src\hbios_cpu.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>

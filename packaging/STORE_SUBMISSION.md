@@ -349,7 +349,11 @@ that package was cut are in the tree and not in it.
      romwbw_emu v1.44 deleted all three, on the argument that the release number
      is the ROM-to-disk-image pairing rather than anything the emulator core
      depends on. The filter is gone from this repository with it, so the release
-     picker offers every release the index publishes. See `CLAUDE.md`.
+     picker offers every release the index publishes. The one entry it does
+     not offer by default is a `prerelease` development snapshot, which
+     upstream has not released at all; a "Show development snapshots"
+     checkbox, off by default, is what the catalog schema requires of every
+     client. See `CLAUDE.md`.
      **For a submission this means one thing: nothing in the package names a
      RomWBW version any more, so a release note claiming support for a
      particular one is a claim about the catalog, not about the binary.**

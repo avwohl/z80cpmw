@@ -245,6 +245,32 @@ static const char* const REAL_INDEX = R"JSON({
         "NVRAM checksums do not validate across a version change: RomWBW's NVSW_CHECKSUM XORs the version bytes into the seed, so a blob saved under 3.5.1 silently resets under a 3.6.0 ROM. Clients must namespace their NVRAM store per RomWBW version.",
         "Do NOT build from a v3.6.0-dev snapshot. romwbw_emu's archive/romwbw-v3.6.0/SBC_simh_std_v360.rom was deleted 2026-09-05 for this reason: it is a v3.6.0-dev.46 snapshot from 2025-12-12, not the release, and its HCB reads 36 00 so a version check cannot tell the difference."
       ]
+    },
+    {
+      "romwbw_version": "3.7.0-dev.14",
+      "label": "RomWBW 3.7.0-dev.14 (development snapshot)",
+      "status": "snapshot",
+      "default": false,
+      "released": "2026-09-08",
+      "hbios": {
+        "major": 3,
+        "minor": 7,
+        "update": 0,
+        "patch": 0,
+        "ver_byte": "0x37",
+        "upd_byte": "0x00",
+        "sysver_de": "0x3700"
+      },
+      "release_tag": "v0-romwbw-3.7.0-dev.14",
+      "catalog_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.14/catalog-v0-3.7.0-dev.14.json",
+      "catalog_sha256": "127e60953c8bdf4339d048a23744dfef0eee1b372c672824ec36303685461365",
+      "catalog_size": 13262,
+      "generation": 1,
+      "disks_xml_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.14/disks-v0-3.7.0-dev.14.xml",
+      "rom_count": 2,
+      "disk_count": 22,
+      "notes": [],
+      "prerelease": true
     }
   ]
 })JSON";
@@ -658,8 +684,8 @@ static void test_real_index() {
     std::string error;
     checkTrue(catalogv0::parseIndex(REAL_INDEX, entries, error), "the real index parses");
     checkStr(error, "", "with nothing to say about it");
-    checkNum(entries.size(), 2, "and carries the two published RomWBW releases");
-    if (entries.size() != 2) return;
+    checkNum(entries.size(), 3, "and carries all three published entries");
+    if (entries.size() != 3) return;
 
     checkStr(entries[0].romwbwVersion, "3.5.1", "the first is 3.5.1");
     checkStr(entries[0].status, "stable", "published stable");
@@ -688,6 +714,32 @@ static void test_real_index() {
     checkNum(entries[1].verByte, 0x36, "ver_byte 0x36");
     checkNum(entries[1].updByte, 0x00, "upd_byte 0x00 - a zero that is a value");
     checkNum(entries[1].diskCount, 24, "24 disks, four more than 3.5.1");
+
+    // THE DEVELOPMENT SNAPSHOT, which upstream has not released at all.
+    //
+    // It is parsed like any other entry and is NOT dropped: hiding it is a
+    // decision for isOffered(), one layer up, and a parser that silently
+    // discarded it would leave the checkbox with nothing to show.
+    checkStr(entries[2].romwbwVersion, "3.7.0-dev.14",
+             "the third is the 3.7.0-dev.14 snapshot, published 2026-09-18");
+    checkTrue(entries[2].prerelease, "and it says so in `prerelease`");
+    checkFalse(entries[2].isDefault,
+               "never the default - the publisher refuses that combination in two checks");
+    // The two bytes that CANNOT tell this apart from a released 3.7.0. Measured
+    // on the real artifact and recorded in CATALOG_SCHEMA.md 2.3.1: the
+    // snapshot's HCB reads `57 a8 37 00`, byte for byte what 3.7.0 will read. It
+    // is why romServes() exists, and why a client must not try to separate the
+    // two by computing on them.
+    checkNum(entries[2].verByte, 0x37, "ver_byte 0x37");
+    checkNum(entries[2].updByte, 0x00, "upd_byte 0x00 - identical to what 3.7.0 will carry");
+
+    // ABSENT IS NOT FALSE IN THE DOCUMENT, and it must read as false here.
+    // CATALOG_SCHEMA.md 2.3 emits `prerelease` only when true, so that a
+    // released version's entry stays byte-identical to the one already served
+    // from its immutable tag. A reader that required the key would drop every
+    // stable release ever published.
+    checkFalse(entries[0].prerelease, "3.5.1 carries no `prerelease` key at all");
+    checkFalse(entries[1].prerelease, "and neither does 3.6.0");
 }
 
 static void test_preview_is_marked() {
@@ -695,7 +747,7 @@ static void test_preview_is_marked() {
 
     std::vector<catalogv0::IndexEntry> entries;
     std::string error;
-    if (!catalogv0::parseIndex(REAL_INDEX, entries, error) || entries.size() != 2) {
+    if (!catalogv0::parseIndex(REAL_INDEX, entries, error) || entries.size() != 3) {
         checkTrue(false, "the index parsed");
         return;
     }
@@ -737,7 +789,7 @@ static void test_which_releases_are_offered() {
 
     std::vector<catalogv0::IndexEntry> entries;
     std::string error;
-    if (!catalogv0::parseIndex(REAL_INDEX, entries, error) || entries.size() != 2) {
+    if (!catalogv0::parseIndex(REAL_INDEX, entries, error) || entries.size() != 3) {
         checkTrue(false, "the index parsed");
         return;
     }
@@ -792,9 +844,168 @@ static void test_which_releases_are_offered() {
     future.updByte = 0x00;
     std::vector<catalogv0::IndexEntry> withFuture = entries;
     withFuture.push_back(future);
-    checkNum(catalogv0::chooseVersion(withFuture, "3.7.0"), 2,
+    checkNum(catalogv0::chooseVersion(withFuture, "3.7.0"), withFuture.size() - 1,
              "a release this build has never heard of is chosen when the user "
              "asks for it - no allowlist stands in front of the index");
+}
+
+//=============================================================================
+// Development snapshots
+//
+// romwbw_disks began publishing RomWBW development snapshots beside the releases
+// on 2026-09-18, the first of them 3.7.0-dev.14. They are entries the index
+// marks `prerelease: true`, and CATALOG_SCHEMA.md 2.3 requires that a client
+// "MUST NOT offer a prerelease entry by default - hide it behind an explicit
+// opt-in". This is that rule and the pairing rule that had to come with it.
+//=============================================================================
+
+static void test_a_snapshot_is_opt_in() {
+    section("a development snapshot is not offered unless asked for");
+
+    std::vector<catalogv0::IndexEntry> entries;
+    std::string error;
+    if (!catalogv0::parseIndex(REAL_INDEX, entries, error) || entries.size() != 3) {
+        checkTrue(false, "the index parsed");
+        return;
+    }
+    const catalogv0::IndexEntry& stable = entries[1];       // 3.6.0, the default
+    const catalogv0::IndexEntry& snapshot = entries[2];     // 3.7.0-dev.14
+
+    // A real release is offered whatever the setting says. The checkbox is about
+    // snapshots and must not become a second way to hide releases.
+    checkTrue(catalogv0::isOffered(stable, false, ""), "a release is offered with the box off");
+    checkTrue(catalogv0::isOffered(stable, true, ""), "and with the box on");
+
+    checkFalse(catalogv0::isOffered(snapshot, false, ""),
+               "a snapshot is NOT offered with the box off - the schema's MUST NOT");
+    checkTrue(catalogv0::isOffered(snapshot, true, ""),
+              "and IS offered once the box is ticked, which is the whole feature");
+
+    // THE CLAUSE THAT KEEPS A MACHINE ON ITS OWN RELEASE. Somebody running the
+    // snapshot, with its images in their four slots, unticks the box. The row
+    // must survive: otherwise the picker stops describing the machine, the note
+    // describes a release nothing selected, and OK writes back whichever row was
+    // highlighted - moving them to 3.6.0 under 3.7.0-dev.14 disks, which is the
+    // HBIOS/CBIOS mismatch the release picker exists to prevent.
+    checkTrue(catalogv0::isOffered(snapshot, false, "3.7.0-dev.14"),
+              "the snapshot the machine is ON stays visible with the box off");
+    checkFalse(catalogv0::isOffered(snapshot, false, "3.6.0"),
+               "but being on some OTHER release does not un-hide it");
+    checkFalse(catalogv0::isOffered(snapshot, false, ""),
+               "and neither does an empty keepVersion, which is 'nothing selected yet'");
+
+    // chooseVersion applies the same rule, because the picker and the automatic
+    // choice disagreeing about one machine is the failure the deleted release
+    // filter kept producing.
+    checkNum(catalogv0::chooseVersion(entries, ""), 1,
+             "with no preference and the box off, the index's default - 3.6.0, not the snapshot");
+    checkNum(catalogv0::chooseVersion(entries, "", true), 1,
+             "and ticking the box does NOT move it: `default` is never on a snapshot");
+
+    // A STORED PREFERENCE FOR A SNAPSHOT IS HONOURED EITHER WAY. The box governs
+    // what is OFFERED; what is CHOSEN moves only through the picker. Reverting
+    // this to "skip prereleases in the preference loop too" fails here, and the
+    // cost of that behaviour is a machine silently moved off the release its
+    // mounted images were built for.
+    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14", true), 2,
+             "a stored snapshot preference is honoured with the box on");
+    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14", false), 2,
+             "and with the box OFF - unticking it must not move a running machine");
+
+    // The default argument is false, so a caller that has not been taught about
+    // snapshots cannot land a machine on one. That is checked rather than
+    // assumed: it is one word in a header and the safe behaviour rests on it.
+    checkNum(catalogv0::chooseVersion(entries, ""), catalogv0::chooseVersion(entries, "", false),
+             "the two-argument form means 'no snapshots'");
+
+    // An index of nothing but snapshots still yields a release rather than npos.
+    // Hiding a row from a picker and refusing to run are different answers, and
+    // npos here would be a "Cannot start" over a perfectly good document.
+    std::vector<catalogv0::IndexEntry> onlySnapshots;
+    onlySnapshots.push_back(snapshot);
+    checkNum(catalogv0::chooseVersion(onlySnapshots, "", false), 0,
+             "an index carrying only snapshots still chooses one with the box off");
+}
+
+static void test_a_snapshot_says_so() {
+    section("a snapshot is marked exactly once, wherever it is named");
+
+    std::vector<catalogv0::IndexEntry> entries;
+    std::string error;
+    if (!catalogv0::parseIndex(REAL_INDEX, entries, error) || entries.size() != 3) {
+        checkTrue(false, "the index parsed");
+        return;
+    }
+
+    // ONCE, not twice. The published label already ends in "(development
+    // snapshot)" and the entry's `status` is the word "snapshot", so the general
+    // status rule would spell the warning twice: "...(development snapshot)
+    // (snapshot)". Measured against the real entry.
+    checkStr(catalogv0::displayLabel(entries[2]),
+             "RomWBW 3.7.0-dev.14 (development snapshot)",
+             "the published label carries the warning and is not doubled by `status`");
+
+    // And at least once. The marking is the publisher's to word and OURS to
+    // guarantee reaches the screen - a label is display text a document may
+    // reword at any time, and an unreleased ROM is not a thing to hand somebody
+    // on the strength of that.
+    catalogv0::IndexEntry unmarked;
+    unmarked.romwbwVersion = "3.8.0-dev.1";
+    unmarked.label = "RomWBW 3.8.0-dev.1";
+    unmarked.status = "snapshot";
+    unmarked.prerelease = true;
+    checkStr(catalogv0::displayLabel(unmarked),
+             "RomWBW 3.8.0-dev.1 (development snapshot)",
+             "a snapshot whose label forgot to say so is marked anyway");
+
+    // A prerelease with no label at all still has a name and still warns.
+    catalogv0::IndexEntry bare;
+    bare.romwbwVersion = "3.8.0-dev.2";
+    bare.prerelease = true;
+    checkStr(catalogv0::displayLabel(bare),
+             "RomWBW 3.8.0-dev.2 (development snapshot)",
+             "and so does one with no label");
+}
+
+static void test_which_rom_serves_which_release() {
+    section("a ROM says three numbers; a catalog entry says a tag");
+
+    // THE BUG THIS REPLACES, and it shipped on the iOS port before it was found
+    // here. A ROM describes itself with the two version bytes of its HBIOS
+    // configuration block, so emu_romwbw_release_str can only ever spell
+    // "3.7.0". The catalog entry names the full upstream tag, "3.7.0-dev.14".
+    // Compared with `==` those are never equal, so the snapshot's own ROM -
+    // downloaded, hashed correctly, sitting in the banks - was refused on every
+    // start.
+    checkTrue(catalogv0::romServes("3.7.0-dev.14", "3.7.0"),
+              "the snapshot's ROM serves the snapshot's catalog entry");
+    checkTrue(catalogv0::romServes("3.6.0", "3.6.0"),
+              "and an ordinary release still serves itself");
+
+    // NOT SYMMETRIC, which is what makes this safe to apply without consulting
+    // the entry's `prerelease` flag: it cannot admit a wrong pairing.
+    checkFalse(catalogv0::romServes("3.7.0", "3.7.0-dev.14"),
+               "the rule does not run backwards - a released entry is not served "
+               "by a ROM claiming a dev tag");
+    checkFalse(catalogv0::romServes("3.7.0-dev.14", "3.6.0"),
+               "a 3.6.0 ROM does not serve a 3.7.0 snapshot");
+    checkFalse(catalogv0::romServes("3.6.0", "3.5.1"), "nor 3.5.1 a 3.6.0 entry");
+
+    // THE "-" IS LOAD-BEARING. Without it a plain starts-with would let a
+    // "3.7.0" ROM serve "3.7.01", which is a different release and a wrong
+    // pairing the guest would then warn about.
+    checkFalse(catalogv0::romServes("3.7.01", "3.7.0"),
+               "\"3.7.01\" is not a pre-release of \"3.7.0\" - the separator is checked");
+    checkFalse(catalogv0::romServes("3.7.0.1", "3.7.0"),
+               "and neither is \"3.7.0.1\"");
+    checkFalse(catalogv0::romServes("3.7.0-", "3.7.0"),
+               "a tag that is a bare separator names no pre-release");
+
+    // Empty is "no ROM loaded" or "no release selected". Neither serves
+    // anything; answering true would wave a start through with empty banks.
+    checkFalse(catalogv0::romServes("3.6.0", ""), "no ROM serves nothing");
+    checkFalse(catalogv0::romServes("", "3.6.0"), "and no entry is served by anything");
+    checkFalse(catalogv0::romServes("", ""), "two empties are not a match");
 }
 
 static void test_index_tolerance() {
@@ -1261,6 +1472,70 @@ static void test_pointing_at_another_catalog() {
 // machine that has the problem. Reading the release out of the name instead
 // works on a configuration that some earlier build already migrated, and it says
 // 3.6.0 for a 3.6.0 library where a constant could only ever say 3.5.1.
+static void test_the_id_a_v0_name_carries() {
+    section("the catalog id a v0 name carries");
+
+    // THE OTHER HALF OF THE NAME, and the half a release switch needs.
+    //
+    // A machine whose slots hold 3.5.1 images, opened with the 3.7.0-dev.14
+    // catalog in hand, cannot identify a single one of those files from the
+    // document: that catalog has never heard of hd1k_combo-v0-3.5.1.img. The
+    // name is the only evidence left, and this is what reads it. Every caller
+    // confirms the answer against the catalog it is about to use, so a wrong
+    // parse yields an id no entry carries and nothing happens.
+    std::string out;
+
+    out.clear();
+    checkTrue(diskv0::idOfV0Name("hd1k_combo-v0-3.5.1.img", out),
+              "a v0 disk name answers");
+    checkStr(out, "hd1k_combo", "with the catalog id in front of the tag");
+
+    out.clear();
+    checkTrue(diskv0::idOfV0Name("hd1k_combo-v0-3.7.0-dev.14.img", out),
+              "a DASHED release does not confuse it");
+    checkStr(out, "hd1k_combo",
+             "because the tag is found with rfind and the release may hold "
+             "dashes of its own - 3.7.0-dev.14 has two");
+
+    out.clear();
+    checkTrue(diskv0::idOfV0Name(
+                  "C:\\Users\\me\\AppData\\Local\\z80cpmw\\data\\hd1k_games-v0-3.6.0.img", out),
+              "a whole path answers too, which is the shape the four slots store");
+    checkStr(out, "hd1k_games", "reading only the basename");
+
+    out.clear();
+    checkTrue(diskv0::idOfV0Name("emu_avw-v0-3.5.1.rom", out),
+              "a ROM name is a v0 name as much as a disk name is");
+    checkStr(out, "emu_avw", "and carries its id the same way");
+
+    // The three refusals, and each is a real file somebody can have mounted.
+    out = "untouched";
+    checkFalse(diskv0::idOfV0Name("hd1k_combo.img", out),
+               "a PRE-v0 name carries no id - it is all stem and no tag");
+    checkStr(out, "untouched", "and the out parameter is not written on a refusal");
+
+    out = "untouched";
+    checkFalse(diskv0::idOfV0Name("my-own-disk.img", out),
+               "an image the user browsed to is not a v0 name, so it is not followed");
+    checkStr(out, "untouched", "left alone");
+
+    out = "untouched";
+    checkFalse(diskv0::idOfV0Name("-v0-3.6.0.img", out),
+               "an EMPTY id is not an id: nothing precedes the tag, so there is no "
+               "entry this could name");
+
+    // It agrees with its mirror about where the tag is. The two read the same
+    // name from opposite ends, so a name either one accepts the other must too.
+    {
+        const char* const name = "hd1k_zsdos-v0-3.7.0-dev.14.img";
+        std::string id, release;
+        checkTrue(diskv0::idOfV0Name(name, id) && diskv0::releaseOfV0Name(name, release),
+                  "both halves read the same name");
+        checkStr(id, "hd1k_zsdos", "id before the tag");
+        checkStr(release, "3.7.0-dev.14", "release after it");
+    }
+}
+
 static void test_the_release_a_v0_name_carries() {
     section("the release a v0 name carries");
 
@@ -1679,6 +1954,9 @@ int main() {
     test_real_index();
     test_preview_is_marked();
     test_which_releases_are_offered();
+    test_a_snapshot_is_opt_in();
+    test_a_snapshot_says_so();
+    test_which_rom_serves_which_release();
     test_index_tolerance();
     test_real_catalog();
     test_which_rom_boots();
@@ -1687,6 +1965,7 @@ int main() {
     test_pointing_at_another_catalog();
     test_index_url_environment();
     test_the_release_a_v0_name_carries();
+    test_the_id_a_v0_name_carries();
     test_the_one_equivalent_prior_image();
     test_the_stored_rom_becomes_an_id();
     test_where_the_help_lives();

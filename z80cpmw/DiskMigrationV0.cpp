@@ -82,6 +82,24 @@ bool releaseOfV0Name(const std::string& filename, std::string& out) {
     return true;
 }
 
+bool idOfV0Name(const std::string& filename, std::string& out) {
+    // The mirror of releaseOfV0Name above: it takes what follows the tag, this
+    // takes what precedes it. Same fold, same extension handling, same rfind, so
+    // the two cannot disagree about where the tag is.
+    const std::string folded = DiskLedger::fold(basenameOf(filename));
+    size_t dot = extensionDot(folded);
+    const std::string stem = dot == std::string::npos ? folded : folded.substr(0, dot);
+
+    const std::string tag = interfaceTag();
+    size_t at = stem.rfind(tag);
+    if (at == std::string::npos || at + tag.size() >= stem.size()) return false;
+    // An empty id is not one: "-v0-3.6.0.img" names no entry.
+    if (at == 0) return false;
+
+    out = stem.substr(0, at);
+    return true;
+}
+
 bool romIdForStoredName(const std::string& storedRom, std::string& out) {
     const std::string folded = DiskLedger::fold(storedRom);
     const size_t dot = extensionDot(folded);

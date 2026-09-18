@@ -292,6 +292,12 @@ bool parseIndex(const std::string& text, std::vector<IndexEntry>& out, std::stri
         if (e.label.empty()) e.label = "RomWBW " + e.romwbwVersion;
         e.status = str(v, "status");
         e.isDefault = flag(v, "default", false);
+        // ABSENT ON A REAL RELEASE, which is why this reads through flag() with
+        // a false fallback rather than requiring the key. CATALOG_SCHEMA.md 2.3
+        // emits it only when true, so that a released version's entry stays
+        // byte-identical to the one already served from its immutable tag -
+        // demanding the key would drop every stable release ever published.
+        e.prerelease = flag(v, "prerelease", false);
         e.catalogSha256 = str(v, "catalog_sha256");
         e.catalogSize = u64(v, "catalog_size");
         e.generation = i64(v, "generation");
@@ -452,14 +458,54 @@ std::string assetUrl(const std::string& baseUrl, const std::string& filename) {
     return baseUrl + filename;
 }
 
+bool isOffered(const IndexEntry& entry, bool showPrerelease,
+               const std::string& keepVersion) {
+    if (!entry.prerelease) return true;
+    if (showPrerelease) return true;
+    // The release this machine is already on is never hidden from it. See the
+    // note on the declaration: the checkbox says SHOW, and a machine whose four
+    // slots hold 3.7.0-dev.14 images must keep seeing 3.7.0-dev.14 in the picker
+    // whatever that checkbox says, or OK writes back a release nobody chose.
+    return !keepVersion.empty() && entry.romwbwVersion == keepVersion;
+}
+
+bool romServes(const std::string& catalogVersion, const std::string& declaredByRom) {
+    if (declaredByRom.empty() || catalogVersion.empty()) return false;
+    if (catalogVersion == declaredByRom) return true;
+
+    // A PRE-RELEASE OF WHAT THE ROM DECLARES. "3.7.0-dev.14" against a ROM that
+    // can only say "3.7.0": the entry is the core version, a "-", and a
+    // pre-release identifier. Semver's own spelling, and the only shape the
+    // publisher emits.
+    //
+    // The "-" is checked separately from the prefix and that is the point of
+    // writing it this way: a plain starts-with would let "3.7.01" be served by a
+    // "3.7.0" ROM, which is a different release and a wrong pairing. Nothing
+    // here is symmetric - a ROM declaring 3.6.0 serves no 3.7.0-dev entry - so
+    // this cannot admit a pairing the guest would then warn about, and needs no
+    // help from the entry's `prerelease` flag to say so.
+    if (catalogVersion.size() <= declaredByRom.size() + 1) return false;
+    if (catalogVersion.compare(0, declaredByRom.size(), declaredByRom) != 0) return false;
+    return catalogVersion[declaredByRom.size()] == '-';
+}
+
 size_t chooseVersion(const std::vector<IndexEntry>& entries,
-                     const std::string& preferredVersion) {
+                     const std::string& preferredVersion,
+                     bool showPrerelease) {
     if (entries.empty()) return static_cast<size_t>(-1);
 
     // The user's own choice wins while the index still publishes it. It is
     // compared against `romwbw_version` and not against the label, because the
     // label is display text the index may reword at any time and the version
     // string is the key the choice was stored under.
+    //
+    // A STORED SNAPSHOT IS HONOURED WHETHER OR NOT THE BOX IS TICKED, and this
+    // is the one place the filter deliberately does not apply. Somebody who
+    // ticked the box, chose 3.7.0-dev.14 and downloaded its images has a machine
+    // whose disks are that release; unticking the box afterwards must not move
+    // them to 3.6.0 under mounted 3.7.0-dev.14 images, which is the HBIOS/CBIOS
+    // mismatch this whole mechanism exists to prevent. The box governs what is
+    // OFFERED. What is CHOSEN is only ever moved by the picker.
     if (!preferredVersion.empty()) {
         for (size_t i = 0; i < entries.size(); i++) {
             if (entries[i].romwbwVersion == preferredVersion) return i;
@@ -476,6 +522,27 @@ size_t chooseVersion(const std::vector<IndexEntry>& entries,
     // allowlist; a preference now only misses because the document stopped
     // naming it.
 
+    // Both fallbacks run over the OFFERED entries only. The index promises
+    // `default: true` is never on a prerelease - tools/check_committed.py and
+    // tools/verify_catalog.py each refuse that combination - so this changes
+    // nothing about a well-formed document. It is here because a fallback is
+    // exactly where a snapshot would become somebody's release by accident, and
+    // that is the outcome CATALOG_SCHEMA.md 2.3 names.
+    //
+    // keepVersion is empty: a preference that could be honoured has already
+    // returned above, so there is no release to keep visible at this point.
+    for (size_t i = 0; i < entries.size(); i++) {
+        if (entries[i].isDefault && isOffered(entries[i], showPrerelease, std::string())) return i;
+    }
+    for (size_t i = 0; i < entries.size(); i++) {
+        if (isOffered(entries[i], showPrerelease, std::string())) return i;
+    }
+
+    // Nothing offered at all: every entry the index carries is a snapshot and
+    // the box is not ticked. Hiding rows from a picker and refusing to run are
+    // different answers, and npos here would be the second - a "Cannot start"
+    // over a document that is publishing perfectly good releases. So the filter
+    // yields and the ordinary rules decide.
     for (size_t i = 0; i < entries.size(); i++) {
         if (entries[i].isDefault) return i;
     }
@@ -518,6 +585,27 @@ size_t chooseRom(const std::vector<RomItem>& roms, const std::string& preferredI
 
 std::string displayLabel(const IndexEntry& entry) {
     std::string label = entry.label.empty() ? ("RomWBW " + entry.romwbwVersion) : entry.label;
+
+    // A SNAPSHOT IS MARKED EXACTLY ONCE. The published label already carries the
+    // wording - "RomWBW 3.7.0-dev.14 (development snapshot)" - and its `status`
+    // is the word "snapshot", so the general rule below would spell it twice:
+    // "...(development snapshot) (snapshot)". Measured against the real index
+    // entry romwbw_disks published on 2026-09-18.
+    //
+    // The marking is added when it is missing rather than merely not doubled.
+    // CATALOG_SCHEMA.md 2.3 says of this label "do show it wherever you name the
+    // release, because for a snapshot it is the surface that carries the
+    // warning" - which makes the warning the publisher's to word and OURS to
+    // guarantee is on screen. A label is display text a document may reword at
+    // any time; a user being handed an unreleased ROM is not something to leave
+    // resting on that.
+    if (entry.prerelease) {
+        if (label.find("development snapshot") == std::string::npos) {
+            label += " (development snapshot)";
+        }
+        return label;
+    }
+
     if (!entry.status.empty() && entry.status != "stable") {
         label += " (" + entry.status + ")";
     }

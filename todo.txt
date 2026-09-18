@@ -6,36 +6,10 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   KNOWN_PROBLEMS.md  standing facts that will never be done
   WIP.md             longer handoff notes
 
-- [RELEASE] 1.0.34 is in review; measure the Store before believing it shipped.
-
-- MANUAL_CHECKS 12: the listing screenshot is undersized and shows CBIOS 3.5.1.
+- 1.0.39-beta is signed in dist\; no Store package since 1.0.35, which predates
+  3c64be7, so Store users still have the release filter.
 
 - catalogv0::indexScope() still has no caller; the plan is in Config.h.
 
-- the C4267 suppression on hbios_dispatch.cc is removable: romwbw_emu cast all
-  six sites in 8eeb227, so the file is clean at /W3 from its v1.37 on.  Still
-  present at z80cpmw.vcxproj:297.  Grep the MSBuild spelling
-  `<DisableSpecificWarnings>4267`, not `/wd4267` - searching for the compiler
-  flag reports it gone when it is not, which is how this nearly got deleted as
-  stale.  Refiled from romwbw_emu 2026-09-15: the precondition landed there and
-  shipped, and the line deletion is here.
-
-- A stored core.romwbwVersion that disagrees with the mounted images is
-  permanent: Config.cpp:319-330 back-fills only when it is empty, deliberately,
-  so it cannot undo a Settings choice - but it also never corrects a wrong one.
-  Measured on this machine 2026-09-17: 3.6.0 stored against two -v0-3.5.1 disks,
-  from the migration recorded at CHANGELOG.md:613-623. The start notice
-  (MainWindow.cpp:2037) reports the disagreement but names only the picker; it
-  should name the release the mounted images unanimously agree on and offer it.
-  IndexEntry::verByte/updByte are parsed and now read by nothing - they are what
-  a stricter form of this would compare, and they survived the 2026-09-17
-  gate deletion for that reason.
-
-- [ANY] the index may now carry prerelease:true entries (RomWBW dev snapshots).
-CatalogV0 reads them as ordinary versions; hide them behind a "show development
-snapshots" checkbox. romwbw_disks docs/CATALOG_SCHEMA.md 2.3.1.
-
-- [ANY] with a RomWBW dev snapshot selected, the Settings page shows a permanent
-false HBIOS/CBIOS mismatch: SettingsDialogWx.cpp compares chosen ("3.7.0-dev.14")
-against running ("3.7.0", all the HCB can carry). Treat chosen as matching when
-it equals running or begins with running + "-".
+- Config's v0 back-fill never corrects a stored core.romwbwVersion that is wrong,
+  only an empty one.  IndexEntry::verByte/updByte are what a stricter check reads.
