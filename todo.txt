@@ -6,8 +6,8 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   KNOWN_PROBLEMS.md  standing facts that will never be done
   WIP.md             longer handoff notes
 
-- 1.0.43-beta is signed in dist\; no Store package since 1.0.35, which predates
-  3c64be7, so Store users still have the release filter.
+- Submit dist\z80cpmw-1.0.44-store.msix to Partner Center.  Until it is served,
+  Store users are on 1.0.35, which predates 3c64be7 and still has the filter.
 
 - catalogv0::indexScope() still has no caller; the plan is in Config.h.
 

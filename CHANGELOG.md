@@ -72,6 +72,40 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
+## [1.0.44] - 2026-09-18
+
+**The Store package, built and not submitted.** `dist\z80cpmw-1.0.44-store.msix`,
+unsigned - Microsoft re-signs at ingestion, and a Store-identity package cannot be
+self-signed anyway: `signtool` requires the certificate subject to equal the
+manifest `Publisher`, which here is `CN=724C9014-DD22-420E-9BB4-F2740D082EB0`, a
+certificate only Microsoft holds. Verified after packing: the manifest carries
+that Store identity at version `1.0.44.0` and `sign.ps1 -Verify` reports
+`No signature found`, which is the correct state for upload.
+`z80cpmw-1.0.44-store.pdb` is beside it.
+
+**This is the first Store package since 1.0.35**, and it is what closes the gap
+recorded at the top of this file: the shipped 1.0.35 was built thirteen hours
+before `3c64be7` deleted the RomWBW release filter, so every Store user has a
+binary that silently drops an index entry its compile-time list has not heard of.
+Everything from `[1.0.36]` down to `[1.0.43]` reaches the Store for the first
+time here - the pre-release opt-in, the disks following a release change, the
+Settings layout, the start banner and the four defects found in testing them.
+
+**There is no beta at this number and there must not be one made from another
+build.** `1.0.43-beta` is the newest signed sideload package and is a different
+binary; `CLAUDE.md` allows the two channels to share a number only when they
+carry the same one, cut with `-SkipBuild` off a single `bin\Release`.
+
+### Verified
+
+`MSBuild ... -t:Rebuild`: **0 warnings, 0 errors**.
+`tests\run_tests.bat`: **1,863 checks in eight suites, 0 failures**.
+
+**Not verified, and it is the whole of what a submission needs:** nobody has
+installed this package. `MANUAL_CHECKS.md` section 1 is the file-transfer pass
+that wants an installed MSIX, and section 14 the Settings work this release is
+mostly made of - none of which any suite can reach.
+
 ## [1.0.43] - 2026-09-18
 
 ### Turning the pre-release off put the ROM and the disks on DIFFERENT releases
