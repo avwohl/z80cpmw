@@ -1059,6 +1059,30 @@ void MainWindow::startEmulator() {
             // inventing a release, which is the rule the whole ROM gate follows.
             m_statusText = "Running";
         }
+
+        // AND WHAT IS IN THE FOUR DRIVES, because the ROM is only half of the
+        // pair. A release names a ROM and a set of disk images, the guest
+        // enforces that they match by printing its own
+        // "*** WARNING: HBIOS/CBIOS Version Mismatch ***", and every published
+        // filename carries the release it was built for - so four lines here let
+        // a user see a mismatched pair before the guest complains about it, and
+        // let a bug report say what was actually mounted.
+        //
+        // The path is reduced to its basename: a slot may hold a full path to an
+        // image the user browsed to, and the data folder's own path is long
+        // enough to wrap this line on its own.
+        //
+        // Empty slots are skipped rather than listed as "(none)". Three of these
+        // are empty on a default machine and naming them would cost three lines
+        // to say nothing.
+        for (int unit = 0; unit < 4; unit++) {
+            if (!m_emulator->isDiskLoaded(unit)) continue;
+            const std::string path = m_emulator->getDiskPath(unit);
+            if (path.empty()) continue;
+            terminalPrint("  Disk " + std::to_string(unit) + ": " +
+                          diskv0::basenameOf(path) + "\r\n");
+        }
+
         updateStatusBar();
     }
 

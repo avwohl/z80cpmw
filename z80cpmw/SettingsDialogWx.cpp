@@ -1337,14 +1337,38 @@ void SettingsDialogWx::populateVersionList() {
     //
     // `selected` is computed above the loop, and `showing` - what the control
     // held before Clear() - wins over it while a fetch is still in flight.
-    const std::string want = showing.empty() ? selected : showing;
-    int idx = 0;
-    for (size_t i = 0; i < m_romwbwVersionIds.size(); i++) {
-        if (m_romwbwVersionIds[i] == want) {
-            idx = static_cast<int>(i);
-            break;
-        }
+    // THREE CANDIDATES, IN ORDER, AND THE THIRD IS THE ONE THAT WAS WRONG.
+    //
+    // `showing` - what the control held before Clear() - wins while it is still
+    // a row, because a fetch the picker started leaves the catalog naming the
+    // PREVIOUS release until it lands and the user must keep seeing what they
+    // clicked.
+    //
+    // `selected` - the release the catalog in hand was actually fetched for -
+    // is next, and it is what makes turning "Show pre release" off coherent. The
+    // snapshot row is gone from the list by then, so `showing` names a row that
+    // no longer exists.
+    //
+    // FALLING STRAIGHT TO ROW 0 WAS THE DEFECT. `int idx = 0` with a loop that
+    // might never fire meant "the first release the index publishes", which is
+    // 3.5.1 - so unticking the box put the picker on 3.5.1 while the fetch had
+    // already moved the catalog, and the disks, to the index default of 3.6.0.
+    // Reported 2026-09-18 as the ROM and the disks landing on different
+    // releases, which is exactly the mismatched pair this whole mechanism
+    // exists to prevent. Row 0 is a position, and CATALOG_SCHEMA 2.3 says not to
+    // pick anything by position: `selected` comes from catalogv0::chooseVersion
+    // reading the document's own `default: true`, so the release both halves end
+    // up on is the DOCUMENT's default and nothing is hardcoded here.
+    int idx = -1;
+    for (size_t i = 0; i < m_romwbwVersionIds.size() && idx < 0; i++) {
+        if (!showing.empty() && m_romwbwVersionIds[i] == showing) idx = static_cast<int>(i);
     }
+    for (size_t i = 0; i < m_romwbwVersionIds.size() && idx < 0; i++) {
+        if (!selected.empty() && m_romwbwVersionIds[i] == selected) idx = static_cast<int>(i);
+    }
+    // Neither is a row: an index that publishes neither the release in hand nor
+    // the one on screen. Row 0 is all that is left, and it is reached only here.
+    if (idx < 0) idx = 0;
     m_romwbwVersionChoice->SetSelection(idx);
     updateRomwbwVersionNote();
 }

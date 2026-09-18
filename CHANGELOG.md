@@ -72,6 +72,61 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
+## [1.0.43] - 2026-09-18
+
+### Turning the pre-release off put the ROM and the disks on DIFFERENT releases
+
+Reported: the box was unticked, the ROM went to 3.5.1 and the disks to 3.6.0.
+That is the mismatched pair the whole release mechanism exists to prevent, and it
+was one line of this dialog's own making.
+
+`populateVersionList()` re-selects the picker after rebuilding it, and it tried
+exactly one candidate - `showing`, what the control held before `Clear()` - with
+`int idx = 0` as the fallback. Unticking the box removes the pre-release row, so
+`showing` ("3.7.0-dev.14") names a row that no longer exists, the loop never
+fires, and the selection lands on **row 0**: the first release the index
+publishes, which is 3.5.1. The fetch had meanwhile already moved the catalog, and
+therefore the disks, to the index default of 3.6.0.
+
+Three candidates in order now: `showing` while it is still a row - a fetch the
+picker started leaves the catalog naming the previous release until it lands, and
+the user must keep seeing what they clicked - then `selected`, the release the
+catalog in hand was actually fetched for, and only then row 0.
+
+**Nothing is hardcoded to 3.6.0.** `selected` is
+`DiskCatalog::getSelectedRomwbwVersion()`, which is `catalogv0::chooseVersion`'s
+answer read off the document's own `default: true`. Row 0 is a POSITION, and
+CATALOG_SCHEMA.md 2.3 says in terms not to pick anything by position - which is
+what made this defect possible.
+
+### Start lists the disks as well as the ROM
+
+The banner named the release and the ROM file. It now names what is in the four
+drives underneath:
+
+    Starting RomWBW 3.6.0 - emu_avw-v0-3.6.0.rom
+      Disk 0: hd1k_combo-v0-3.6.0.img
+      Disk 1: hd1k_games-v0-3.6.0.img
+
+A release names a ROM **and** a set of images, and the guest is what finally
+enforces that they match, by printing its own
+`*** WARNING: HBIOS/CBIOS Version Mismatch ***`. Every published filename carries
+the release it was built for, so these lines let a mismatched pair be seen before
+the guest complains - and let a bug report say what was actually mounted.
+
+Basenames, because a slot may hold a full path to an image the user browsed to.
+Empty slots are skipped rather than listed: three of the four are empty on a
+default machine and naming them would cost three lines to say nothing.
+
+### Verified
+
+`MSBuild ... -t:Rebuild`: **0 warnings, 0 errors**.
+`tests\run_tests.bat`: **1,863 checks in eight suites, 0 failures**.
+
+**Not verified.** Both changes are in files no suite reaches. The check for the
+first is the one that found it: tick the box, select the pre-release, untick it,
+and confirm the picker, the ROM and the four disks all name the index default.
+
 ## [1.0.42] - 2026-09-18
 
 ### Start on a running machine wiped the screen and started nothing
