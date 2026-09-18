@@ -72,6 +72,61 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
+## [1.0.42] - 2026-09-18
+
+### Start on a running machine wiped the screen and started nothing
+
+`EmulatorEngine::start()` is `if (m_running) return;` (EmulatorEngine.cpp:291)
+and nothing guarded `startEmulator()` against a machine that is already running.
+Everything above that call still ran: the terminal was cleared - destroying the
+output of the session the user was in the middle of - the scrollback was thrown
+away with it, and from 1.0.41 the new banner announced a start that then did not
+happen.
+
+**The menu greys Start while running, which is exactly why this was worth
+finding.** The paths in that are not the menu are the ones nobody watches: a
+`WM_COMMAND` driven straight at the window, which is how this application is
+tested without a person (`WIP.md`), and the ROM and disk completion callbacks
+that re-enter `startEmulator()` when a download lands. `m_emulator->isRunning()`
+is tested first now, before the gate and before the clear.
+
+It is a pre-existing hazard - the clear has been there far longer than the
+banner - that 1.0.41 made louder rather than created.
+
+### The guest does not clear the screen, and now that is measured
+
+1.0.41 said this was "NOT ESTABLISHED" and left the status bar to carry the
+answer regardless. It is established now, against the real artifacts in the data
+folder rather than from a manual:
+
+- the boot loader's whole message table in `emu_avw-v0-3.6.0.rom`
+  (0x008A00-0x009200) contains **zero** `0x1B` and **zero** `0x0C` bytes;
+- so does the CBIOS boot string table in `hd1k_combo-v0-3.6.0.img`
+  (0x00102700-0x00102A80);
+- the one `ESC[2J ESC[H` pair in that ROM sits inside its **Tasty BASIC**
+  application, off the boot path;
+- and the loader emits no cursor-homing sequence either, so it prints its banner
+  from wherever the cursor already is - under the line we just printed.
+
+So the only thing that was ever erasing text before Start is this application's
+own `m_terminal->clear()`.
+
+**The limit, stated because the house rule asks for it:** that is a scan of the
+artifacts' string tables, not a capture of the live byte stream, and there is no
+`romwbw_emu` binary on this machine to produce one. A guest that DID erase would
+take the line with it and leave no trace - `TerminalView`'s `ESC[2J`, VT52
+`ESC E` and `ESC c` all erase in place and push nothing into scrollback - which
+is the other half of why the status bar carries the same fact.
+
+### Verified
+
+`MSBuild ... -t:Rebuild`: **0 warnings, 0 errors**.
+`tests\run_tests.bat`: **1,863 checks in eight suites, 0 failures**.
+
+**Not verified.** `MainWindow.cpp` is in no suite. The guard has not been driven:
+the check that would is a `WM_COMMAND` Start at an already-running machine,
+confirming the screen is untouched and the session survives.
+
 ## [1.0.41] - 2026-09-18
 
 ### Start says what it is starting

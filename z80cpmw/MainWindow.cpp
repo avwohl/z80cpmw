@@ -936,6 +936,20 @@ static void postToUiThread(HWND hwnd, const std::shared_ptr<WorkerPostGate>& gat
 }
 
 void MainWindow::startEmulator() {
+    // ALREADY RUNNING IS A NO-OP, and it has to be tested HERE rather than left
+    // to the engine. EmulatorEngine::start() is `if (m_running) return;`
+    // (EmulatorEngine.cpp:291), so without this the whole of this function runs
+    // against a live machine: the terminal is cleared - destroying the output of
+    // the session the user is in the middle of - the start banner claims a
+    // machine is starting, and then start() returns having done nothing.
+    //
+    // Not reachable from the menu, which updateMenuState() greys while running,
+    // and that is exactly why it is worth a line: the ways in that are NOT the
+    // menu are the ones nobody sees. A WM_COMMAND driven straight at the window
+    // is how this application is tested without a person (WIP.md), and the ROM
+    // and disk callbacks below re-enter here from a worker's completion.
+    if (m_emulator && m_emulator->isRunning()) return;
+
     // THE ROM GATE, first, and before the terminal is cleared for the same
     // reason the no-ROM guard below is: what it prints has to stay on screen.
     //
@@ -996,15 +1010,25 @@ void MainWindow::startEmulator() {
     // terminal belongs to the guest from the next line onwards, and nothing here
     // can promise what the guest does to it.
     //
-    // THIS CLEAR IS OURS. A user asked what wipes the screen on Start: it is the
-    // m_terminal->clear() directly above, not the ROM. So a line printed HERE -
-    // after the clear, before start() - is not erased by this application. What
-    // it is not safe from is the guest: RomWBW's boot loader draws its own
-    // banner from the top of the screen, and the ROM image does contain
-    // ESC[2J/ESC[H (three of each in emu_avw-v0-3.6.0.rom, measured) though the
-    // occurrences sit beside SGR colour runs and a capability table, which reads
-    // as ROM applications rather than the boot path. NOT MEASURED ON A RUNNING
-    // BOOT, so it is not claimed either way.
+    // THIS CLEAR IS OURS, AND IT IS THE ONLY ONE. A user asked what wipes the
+    // screen on Start: it is the m_terminal->clear() directly above, not the
+    // ROM. A line printed HERE - after the clear, before start() - survives.
+    //
+    // THE GUEST DOES NOT ERASE IT, measured against the real artifacts in the
+    // data folder rather than reasoned from a manual. The boot loader's whole
+    // message table in emu_avw-v0-3.6.0.rom (0x008A00-0x009200) holds no 0x1B
+    // and no 0x0C, and neither does the CBIOS boot string table in
+    // hd1k_combo-v0-3.6.0.img (0x00102700-0x00102A80). The one ESC[2J ESC[H pair
+    // in that ROM is inside its Tasty BASIC application, off the boot path. The
+    // loader emits no cursor-homing sequence either, so it prints its banner
+    // from wherever the cursor already is - under this line.
+    //
+    // THE LIMIT OF THAT: it is a scan of the artifacts' string tables, not a
+    // capture of the live byte stream, and no romwbw_emu binary exists on this
+    // machine to produce one. A guest that DID erase would take this line with
+    // it and leave no trace - TerminalView's ESC[2J, VT52 ESC E and ESC c all
+    // erase in place and push nothing into scrollback - which is the other half
+    // of why the status bar below carries the same fact.
     //
     // Hence the status bar as well. It is outside the terminal stream
     // altogether, so no guest output can reach it - the same separation
