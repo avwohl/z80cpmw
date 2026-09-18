@@ -992,6 +992,52 @@ void MainWindow::startEmulator() {
         printNotices();
     }
 
+    // SAY WHAT IS STARTING, and say it in two places for one reason: this
+    // terminal belongs to the guest from the next line onwards, and nothing here
+    // can promise what the guest does to it.
+    //
+    // THIS CLEAR IS OURS. A user asked what wipes the screen on Start: it is the
+    // m_terminal->clear() directly above, not the ROM. So a line printed HERE -
+    // after the clear, before start() - is not erased by this application. What
+    // it is not safe from is the guest: RomWBW's boot loader draws its own
+    // banner from the top of the screen, and the ROM image does contain
+    // ESC[2J/ESC[H (three of each in emu_avw-v0-3.6.0.rom, measured) though the
+    // occurrences sit beside SGR colour runs and a capability table, which reads
+    // as ROM applications rather than the boot path. NOT MEASURED ON A RUNNING
+    // BOOT, so it is not claimed either way.
+    //
+    // Hence the status bar as well. It is outside the terminal stream
+    // altogether, so no guest output can reach it - the same separation
+    // romwbw_emu's CLI gets for free by printing its own
+    // "RomWBW v%s (from %s)" to STDERR (src/romwbw_emu.cc), which is a
+    // different stream from the console it emulates. A single-window GUI has no
+    // stderr, and the status bar is the nearest thing to one.
+    {
+        // The release the machine is SET to, which is the full catalog tag and
+        // the one worth showing - a pre-release's ROM can only spell three
+        // numbers out of its two HCB bytes, so loadedRomwbwRelease() says
+        // "3.7.0" where this says "3.7.0-dev.14". Empty on a machine that has
+        // never read a catalog, where the ROM's own claim is all there is.
+        std::string shown = startRomwbwRelease();
+        if (shown.empty()) shown = loadedRomwbwRelease();
+
+        const std::string romName = m_emulator->getROMName();
+        if (!shown.empty()) {
+            std::string line = "Starting RomWBW " + shown;
+            if (!romName.empty()) line += " - " + diskv0::basenameOf(romName);
+            // Hand-wrapped like every other notice on this screen: nothing wraps
+            // these, so a line over 80 columns is folded by the terminal in the
+            // middle of a word. This one is short by construction.
+            terminalPrint(line + "\r\n");
+            m_statusText = "Running RomWBW " + shown;
+        } else {
+            // No catalog and no readable HCB. Saying nothing is better than
+            // inventing a release, which is the rule the whole ROM gate follows.
+            m_statusText = "Running";
+        }
+        updateStatusBar();
+    }
+
     m_emulator->start();
     updateMenuState();
 

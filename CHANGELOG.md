@@ -72,6 +72,56 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
+## [1.0.41] - 2026-09-18
+
+### Start says what it is starting
+
+Asked for, with two questions attached: what clears the screen, and can the
+version survive the ROM starting.
+
+**The clear is this application's, not the ROM's.** `MainWindow::startEmulator()`
+calls `m_terminal->clear()`, `resetScrollback()` and `printNotices()` immediately
+before `m_emulator->start()` (MainWindow.cpp:984-995), and
+`onEmulatorReset()` does the same at :1321. Everything printed before that -
+the disk-download log, the "Looking up the disk catalog..." line - is thrown away
+by us. `TerminalView::clear()` is a full machine-level reset and pushes nothing
+into scrollback, which `resetScrollback()` then empties, so it is not recoverable
+by scrolling either.
+
+So the banner goes in the one-line window between `printNotices()` and
+`start()`: straight-line code, no branch, no early return, nothing else printed
+into it. It reads `Starting RomWBW <release> - <rom filename>`.
+
+**It shows the CATALOG release, not the ROM's.** A pre-release ROM can only
+spell three numbers out of its two HCB bytes, so `loadedRomwbwRelease()` says
+`3.7.0` where the machine is really on `3.7.0-dev.14`.
+`startRomwbwRelease()` is the one that knows, and the ROM's own claim is the
+fallback for a machine that has never read a catalog. Neither is invented: with
+neither available the line is omitted rather than filled in, which is the rule
+the whole ROM gate follows.
+
+**And the status bar, because the terminal stops being ours on the next line.**
+`Running RomWBW <release>` goes there, outside the terminal stream altogether,
+where no guest output can reach it. That is the separation romwbw_emu's CLI gets
+for free: it prints its own `RomWBW v%s (from %s)` to **stderr**
+(`src/romwbw_emu.cc:1493`), a different stream from the console it emulates. A
+single-window GUI has no stderr and the status bar is the nearest thing to one.
+
+**What is NOT established: whether the guest erases the screen after we hand it
+over.** `emu_avw-v0-3.6.0.rom` contains three `ESC[2J` and three `ESC[H`
+(measured), but every occurrence sits beside SGR colour runs, `ESC[?25h` and what
+reads as a capability table - ROM applications rather than the boot path. That is
+suggestive and is not proof, and no boot was run to settle it. The status bar is
+what makes the answer not matter.
+
+### Verified
+
+`MSBuild ... -t:Rebuild`: **0 warnings, 0 errors**.
+`tests\run_tests.bat`: **1,863 checks in eight suites, 0 failures**.
+
+**Not verified.** `MainWindow.cpp` is in no suite; the banner and the status-bar
+text have been compiled and never seen on a screen.
+
 ## [1.0.40] - 2026-09-18
 
 ### Turning "Show pre release" off now moves the machine off the pre-release

@@ -16,8 +16,8 @@ is `[1.0.20]`, `[1.0.21-beta]` and `[1.0.22]`. The W8-under-MSIX question that
 was this file's open question is answered, in source and in
 [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md).
 
-Version in the tree: **1.0.40** (`z80cpmw/Version.h`), as of 2026-09-18, cut and
-signed as `dist\z80cpmw-1.0.40-beta.msix`.  No Store package at that number, and
+Version in the tree: **1.0.41** (`z80cpmw/Version.h`), as of 2026-09-18, cut and
+signed as `dist\z80cpmw-1.0.41-beta.msix`.  No Store package at that number, and
 none at 1.0.36 either - that beta was cut, signed and installed, and 1.0.37
 supersedes it.
 
