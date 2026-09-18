@@ -30,3 +30,12 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   IndexEntry::verByte/updByte are parsed and now read by nothing - they are what
   a stricter form of this would compare, and they survived the 2026-09-17
   gate deletion for that reason.
+
+- [ANY] the index may now carry prerelease:true entries (RomWBW dev snapshots).
+CatalogV0 reads them as ordinary versions; hide them behind a "show development
+snapshots" checkbox. romwbw_disks docs/CATALOG_SCHEMA.md 2.3.1.
+
+- [ANY] with a RomWBW dev snapshot selected, the Settings page shows a permanent
+false HBIOS/CBIOS mismatch: SettingsDialogWx.cpp compares chosen ("3.7.0-dev.14")
+against running ("3.7.0", all the HCB can carry). Treat chosen as matching when
+it equals running or begins with running + "-".
