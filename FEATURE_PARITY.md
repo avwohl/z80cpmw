@@ -91,9 +91,9 @@ tip is the same discipline the `ioscpm` paragraph below describes.
 **That last sentence read "the three commits `cpmdroid` has taken since touch
 `CLAUDE.md`, `todo.txt` and `tools/check-shipped-disks.sh` and no application
 source, so nothing in this column describes code a user does not have", and on
-2026-09-18 it is false in both halves.** Twenty-nine commits have landed since
-`6848615`, and two of them edit application source - both
-`app/src/main/cpp/emu_io_android.cpp`:
+2026-09-18 it is false in both halves.** Thirty-five commits have landed since
+`6848615`, and six of them edit application source. Two are the
+`app/src/main/cpp/emu_io_android.cpp` pair this note was written for:
 
 - `6e491d5` re-syncs `android_host_path_cap_name()`'s continuation-byte floor
   against romwbw_emu and drops the guard that needed it.
@@ -102,11 +102,27 @@ source, so nothing in this column describes code a user does not have", and on
   path with no leaf at all (`..`, `.`, `/`) a REFUSAL rather than a silent
   `download.bin`.
 
+The other four landed later on 2026-09-18 and are one piece of work, the
+**removal of the RomWBW release filter** and the pre-release opt-in built on top
+of it: `c46b01b`, `3e5d2af`, `9645867` and `30df073`. romwbw_emu v1.44 deleted
+`emu_romwbw_release_supported()` and `emu_romwbw_supported_list()`, which
+cpmdroid called, so the port had simply stopped compiling and the removal was not
+a choice it got to make; v1.47's `emu_snd_emit_tone()` was the next break behind
+it. The picker now offers every release the index publishes, less a `prerelease`
+entry, which is held behind a "Show pre release" box that is off by default -
+`CATALOG_SCHEMA.md` 2.3 requires the opt-in, and romwbw_disks published
+`3.7.0-dev.14` on 2026-09-08. Two sessions did that work independently and it was
+reconciled on 2026-09-18; cpmdroid's `CHANGELOG.md` carries the argument.
+
 **The anchor itself is still right, and that is what inverts the conclusion.**
 `app/build.gradle.kts` at cpmdroid HEAD still reads `versionCode = 33` /
-`versionName = "1.31"` - the same build `6848615` records - so Play has not
-moved and this line must not be advanced. Which means those two commits are
-exactly *code a user does not have*, the opposite of what stood here.
+`versionName = "1.31"` - the same build `6848615` records, measured again on
+2026-09-18 - so Play has not moved and this line must not be advanced. Which
+means all six of those commits are exactly *code a user does not have*, the
+opposite of what stood here. **What Play is actually serving is not recorded
+here**: `cpmdroid/tools/check-store-version.sh` is what measures it, nothing runs
+it automatically, and the only safe statement about a store is one with today's
+date on it.
 
 **One cell is affected and has NOT been re-read.** Row 4's cpmdroid cell says
 `R8` "used to fall back to **the first file in `Imports/`** when the requested
@@ -1064,6 +1080,14 @@ copyrighted content.
     justifies a pin: which RomWBW releases the core can boot is asked of the
     core at run time rather than assumed to be one, so the picker offers what
     this build can actually run.
+    **That last sentence is true of the shipped build and is no longer true of
+    the tree, and it is MARKED rather than rewritten** - the same treatment row 4
+    gets above, and for the same reason: this column describes what users have.
+    `runnableRomwbwVersions()` is still present at `6848615`. It is gone at
+    cpmdroid HEAD, with the two core functions it asked, because romwbw_emu v1.44
+    deleted them; nothing is asked of the core about a release any more, and the
+    picker offers every entry the index publishes less a `prerelease` one. Rewrite
+    this when the anchor advances past `c46b01b`, not before.
     Help is no longer an exception either — since `1936bab` it is a `help`
     block inside that same index, fetched from the same address as the disks,
     so item 6's "only safe with a bundled fallback" now applies to the shared
@@ -1935,11 +1959,13 @@ inventing one, so that a single set of instructions covers every client.
   that has to match, because it is what the instructions describe. The scope hash
   matters only for a port that isolates storage, and a port that does isolate
   should use the same hash so the folder names agree.
-- **Port status — one of the two siblings is now read at a commit that carries
-  this work, and one is not.** `ioscpm` is re-read at `a68e320`, which IS build
-  69, so its bullet is a column reading and carries citations. `cpmdroid` is
-  still read at `6848615` (2026-09-10, build 33), which predates its own version
-  of this, so its bullet stays a reading of a tree and cites nothing.
+- **Port status — BOTH siblings are read at a commit that carries this work,
+  and the sentence that said otherwise was wrong.** `ioscpm` is re-read at
+  `a68e320`, which IS build 69. `cpmdroid` is read at `6848615` (2026-09-10,
+  build 33), and that commit does NOT predate its version of this: checked on
+  2026-09-18, it carries both the Settings field and the scoping callers. The
+  claim that it predated them is what produced the bullet below, which said this
+  port's own gap was cpmdroid's too.
 <!-- cites: ioscpm -->
   - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* —
     has the setting, a UI for it, and storage scoped per index, which is the
@@ -1955,8 +1981,21 @@ inventing one, so that a single set of instructions covers every client.
     plain-http index under ATS anyway — where z80cpmw accepts `http://`, and that
     is what makes a local test server usable on the desktop.
 <!-- /cites -->
-  - **cpmdroid (Android)** — has the resolution in its model, with the same
-    three-level precedence, and **no UI**: that port's own `todo.txt` says so.
+  - **cpmdroid (Android)** *(corrected 2026-09-18 against `6848615`, the anchor
+    this column reads)* - has the resolution in its model, with the same
+    three-level precedence, **and it has the UI, and the scoping has callers.**
+    Both halves of what stood here were wrong, and wrong about SHIPPED code
+    rather than about a tree: `activity_settings.xml` at `6848615` carries
+    `catalogIndexUrlInput` with Use This Catalog and Use Built-In beside it, the
+    field is disabled when `$ROMWBW_INDEX_URL` is set, and
+    `SettingsRepository.indexScope` reaches both `DiskDownloadManager`'s two
+    directory names and the per-release key prefix - so two catalogs do NOT share
+    one data folder there, which is the gap this row records against z80cpmw.
+    It is **empty for the default index**, the same fold as `ioscpm`'s, and that
+    emptiness is load-bearing rather than an oversight: making it uniform would
+    strand an existing library behind a key nothing reads. The claim cited that
+    port's `todo.txt`, which carries the scoping item for THIS port, not for
+    cpmdroid.
   - **romwbw_emu (CLI)** — the origin of the precedence rule, with a
     command-line flag ahead of the environment variable, and no scoping: two
     indexes share one cache there too.
