@@ -16,6 +16,107 @@ is `[1.0.20]`, `[1.0.21-beta]` and `[1.0.22]`. The W8-under-MSIX question that
 was this file's open question is answered, in source and in
 [`docs/FILE_TRANSFER.md`](docs/FILE_TRANSFER.md).
 
+## Where everything stood at the 2026-09-18 reboot
+
+A session's worth of work across five repositories, all of it committed. Nothing
+was in flight when the machine went down; this section says where to pick up.
+
+**Every repository is clean. Two have local commits that are NOT pushed.**
+
+    z80cpmw       clean, pushed        master @ fa5fbaa
+    cpmdroid      clean, 2 UNPUSHED    master @ 32d43b9
+    ioscpm        clean, 1 UNPUSHED    main   @ e9b9621
+    romwbw_emu    clean, pushed?       main   @ 6a20fbc   (todo only)
+    romwbw_disks  clean, pushed?       main   @ 3a2e480   (todo only)
+    cpmemu        untouched
+
+The two "pushed?" lines were committed at the very end and their remotes were
+not checked; `git -C <repo> status -sb` answers it in one line.
+
+### z80cpmw, 1.0.36 to 1.0.44
+
+Six commits, pushed. They needed a rebase onto `f85dd0c`, a commit from another
+session that FILED two items this work had already implemented (the pre-release
+opt-in and the false HBIOS/CBIOS mismatch); both were closed in `todo.txt` rather
+than carried. The arc is in `CHANGELOG.md` and not repeated here.
+
+**`dist\z80cpmw-1.0.44-store.msix` is built, unsigned, and NOT submitted.** That
+is the one open release action, and it is the top item in `todo.txt`: until it is
+served, Store users are on 1.0.35, which predates `3c64be7` and still contains
+the RomWBW release filter. `1.0.43-beta` is the newest signed sideload package
+and is a DIFFERENT binary, so the two numbers must not be merged.
+
+**Nothing in 1.0.36..1.0.44 has been driven by a person.** `MainWindow.cpp` and
+`SettingsDialogWx.cpp` are in no suite and cannot be; `MANUAL_CHECKS.md` section
+14 carries the checks, and the ones that matter most are the three a user
+reported: open Settings having touched nothing and watch the machine reconcile
+itself, untick "Show pre release" and confirm the picker AND the disks both land
+on the index default, and press Start twice to confirm the second does nothing.
+
+### cpmdroid, and it did not build before today
+
+Two commits, **unpushed**. `38d1a65` deletes the RomWBW release gate;
+`32d43b9` adds the "Show pre release" box.
+
+The gate deletion was not optional and was not part of the day's plan: measured
+with the project's own NDK, `emu_io_android.cpp` used
+`emu_romwbw_release_supported()` and `emu_romwbw_supported_list()`, both deleted
+from the core by romwbw_emu v1.44, so the repository had simply stopped
+compiling - and those two errors fired before the linker could reach a second
+break, v1.47's `emu_snd_emit_tone()`.
+
+Three of the day's z80cpmw changes were deliberately NOT ported, each for a
+measured reason: `romServes` (this port compares HCB bytes, never version
+strings, so it never had that bug), the picker layout (already one screen), and
+the already-running guard (`startEmulation()` already checks).
+
+**A release-signed 1.31 is installed on the USB tablet** (Galaxy Tab A8,
+`R9YT30ZLAVT`). The debug APK could not be installed - the tablet had a
+Play-signed 1.30 and `adb install` refused on signature - so it was built with
+`assembleRelease` against the keystore already wired up through
+`cpmdroidKeystoreProperties` in the global `gradle.properties`. That avoided an
+uninstall, which would have cost the app's settings and its Play update path.
+The tablet is therefore running a build made from the working tree, not from
+Play, and Play will offer to replace it at the next versionCode >= 33.
+
+`cpmdroid/local.properties` was created to build at all (gitignored, absent from
+a fresh checkout): one line, `sdk.dir=C:/Users/amwoh/AppData/Local/Android/Sdk`,
+forward slashes mandatory.
+
+### The open question nobody has answered
+
+A release switch on cpmdroid fills an empty disk slot only from an image ALREADY
+downloaded, and names what is missing rather than fetching it. z80cpmw downloads.
+The difference is 57.0 MB (`hd1k_combo` 49.0 + `hd1k_games` 8.0, measured against
+the 3.6.0 catalog) and the reason for hesitating is that cpmdroid has NO
+metered-connection awareness at all - no `ConnectivityManager`, no
+`isActiveNetworkMetered` - while its own `showDownloadConfirmation` already asks
+before fetching a single disk. Three options were put up: ask once naming the
+size (recommended, and it matches that port's house style), match z80cpmw and
+download silently, or leave it. The user chose to TEST IT AS IS first. It is
+filed in `cpmdroid/todo.txt`.
+
+### Filed elsewhere rather than fixed here
+
+- **ioscpm** (`e9b9621`, unpushed) - eight items, one a real defect verified in
+  its source: `EmulatorViewModel.swift:120` reads `defaultSlot` as a DRIVE slot
+  where `CATALOG_SCHEMA.md:402` calls it the SLICE to boot inside an image. It
+  works only because the single entry carrying it is `hd1k_combo` with value 0.
+  z80cpmw made the identical mistake this session and had it caught in review.
+- **romwbw_emu** (`6a20fbc`) - its `DOWNSTREAM.md` says the four-voice change
+  breaks no build; it broke both ports that do not compile `emu_io_common.cc`.
+- **romwbw_disks** (`3a2e480`) - `CLIENT_MIGRATION.md` has no step for the
+  pre-release opt-in.
+
+### One thing that went wrong, recorded because it nearly cost a day
+
+`SettingsDialogWx.cpp` was truncated to zero bytes mid-session by a shell
+redirection that opened the file for writing before reading it, destroying about
+690 uncommitted lines. No backup existed and the newest VSS shadow copy predated
+the day's work. It was reconstructed from `HEAD` by re-applying every edit and
+checked by symbol inventory, a clean `Rebuild` and the full suite - but it is a
+reconstruction, and the work had sat uncommitted for a day. Commit earlier.
+
 Version in the tree: **1.0.44** (`z80cpmw/Version.h`), as of 2026-09-18, cut and
 packaged UNSIGNED as `dist\z80cpmw-1.0.44-store.msix` for Partner Center.  It
 has not been submitted.  There is no beta at this number: 1.0.43-beta is the
