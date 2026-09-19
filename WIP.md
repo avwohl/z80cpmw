@@ -21,17 +21,50 @@ was this file's open question is answered, in source and in
 A session's worth of work across five repositories, all of it committed. Nothing
 was in flight when the machine went down; this section says where to pick up.
 
-**Every repository is clean. Two have local commits that are NOT pushed.**
+**Every repository is clean and every one is pushed, as of 2026-09-18 23:30.**
 
-    z80cpmw       clean, pushed        master @ fa5fbaa
-    cpmdroid      clean, 2 UNPUSHED    master @ 32d43b9
-    ioscpm        clean, 1 UNPUSHED    main   @ e9b9621
-    romwbw_emu    clean, pushed?       main   @ 6a20fbc   (todo only)
-    romwbw_disks  clean, pushed?       main   @ 3a2e480   (todo only)
-    cpmemu        untouched
+    cpmdroid      clean, pushed        master @ 7a15d04
+    cpmemu        clean, pushed        main   @ e4f7fd5   (untouched)
+    ioscpm        clean, pushed        main   @ 7afa8d5
+    romwbw_disks  clean, pushed        main   @ 3a2e480
+    romwbw_emu    clean, pushed        main   @ 5cd5abf
+    z80cpmw       clean, pushed        master @ b5d020c
+    z80fpga       clean, pushed        main   @ 7fa2a7a   (untouched)
 
-The two "pushed?" lines were committed at the very end and their remotes were
-not checked; `git -C <repo> status -sb` answers it in one line.
+**Getting there took a reconciliation, and it is the part worth reading.** The
+three "UNPUSHED" lines this section used to carry were not merely unpushed: each
+had DIVERGED, because another session had pushed overlapping work to the same
+branch in the meantime. cpmdroid was ahead 2 / behind 4, ioscpm ahead 1 / behind
+6, romwbw_emu ahead 1 / behind 1. Nothing pushed was rewritten anywhere; all four
+local commits were dropped and their surviving content re-applied onto origin.
+
+  - **romwbw_emu** `6a20fbc` filed a todo asking for the DOWNSTREAM.md fix that
+    `08ef40a` had already made, in more detail than the item asked. Dropped; its
+    second half survives as `5cd5abf`, corrected - the count is fifteen, not the
+    eleven it claimed, and `src/emu_io.h` declares all fifteen.
+  - **ioscpm** `e9b9621` filed eight items at 15:43 and origin shipped three of
+    them between 16:00 and 18:00 the same afternoon - the snapshot opt-in, the
+    reversal that moves the machine, and reading a catalog id off a filename.
+    Four survive in `7afa8d5`, two of them narrowed because they carried z80cpmw
+    premises that are false for that port. The `defaultSlot` defect survives
+    unchanged and re-checked.
+  - **cpmdroid** was the real one: both sides deleted the RomWBW release filter
+    independently, touching twelve of the same files. Origin's removal is the
+    more complete one and is what survived; the local side's unique half - the
+    pre-release opt-in, which origin had FILED as a todo and not built - was
+    re-applied onto origin's files by hand as `30df073`. Its
+    `fillEmptySlotsWithDefaults()` was dropped as dead code, with the measurement
+    in that port's `todo.txt`.
+
+**The lesson is the one this file already teaches about shipped state, applied to
+a branch.** A local commit that files work is worth nothing if the sibling
+session finished that work while it sat there, and "unpushed" and "diverged" look
+identical until `git fetch` is run. Fetch before believing an ahead-count.
+
+**One local branch is deliberately left behind.** `cpmdroid` carries
+`salvage/prerelease-32d43b9`, which is the only place the two dropped commits
+still exist - `fillEmptySlotsWithDefaults()` lives nowhere else now. It has never
+been pushed. Delete it once nobody wants that code back.
 
 ### z80cpmw, 1.0.36 to 1.0.44
 
@@ -55,8 +88,11 @@ on the index default, and press Start twice to confirm the second does nothing.
 
 ### cpmdroid, and it did not build before today
 
-Two commits, **unpushed**. `38d1a65` deletes the RomWBW release gate;
-`32d43b9` adds the "Show pre release" box.
+Two commits, `38d1a65` deleting the RomWBW release gate and `32d43b9` adding the
+"Show pre release" box. **Neither is in the history any more** - see the
+reconciliation above: origin had deleted the same gate first, and what these two
+uniquely had was re-applied onto it. The measurement below is why they existed
+and is unaffected by which commit carries the fix.
 
 The gate deletion was not optional and was not part of the day's plan: measured
 with the project's own NDK, `emu_io_android.cpp` used
