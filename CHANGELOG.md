@@ -72,6 +72,144 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
+## [1.0.45] - 2026-09-19
+
+### The guest clock was wrong past January 2038, on EVERY build of this port
+
+romwbw_emu `e41f686` (2026-09-19) fixed an overflow **this application
+shipped**. `HBIOSDispatch` keeps the guest's RTC offset as seconds from a fixed
+epoch and counted them in `long`. On LP64 - Linux, macOS - that is 64 bits and
+nothing was wrong. On **LLP64, which is every Windows compiler, `long` is 32
+bits even on x64**, so `days * 86400` passed `INT32_MAX` in January 2038.
+
+This is where this port differs from its siblings and the difference is not in
+its favour. cpmdroid had the bug on two of its four ABIs, the 32-bit ones, and
+none of its 64-bit users could see it. **z80cpmw is x64 only and had it on all
+of them** — `long` is 32 bits on this compiler regardless of the target, so
+there was no unaffected configuration to be lucky enough to be running.
+
+`z80cpmw.vcxproj:298` compiles `..\romwbw_emu\src\hbios_dispatch.cc` in place,
+so this tree gets the fix by rebuilding and there was nothing here to change -
+the case `CLAUDE.md` opens by warning about. The rebuild is done: `MSBuild
+-p:Configuration=Release`, **0 warnings, 0 errors**, with
+`obj\Release\z80cpmw\hbios_dispatch.obj` recompiled against the `long long`
+source.
+
+**Nothing in this repository needed changing, and that was checked rather than
+assumed.** `emu_io_windows.cpp:614-625` is the one file this tree owns on that
+side: `emu_get_time()` calls `GetLocalTime()` and copies seven `SYSTEMTIME`
+fields into `emu_time`, carrying no epoch arithmetic at all. Greps across every
+source here for `time_t`, `mktime`, `localtime`, `gmtime`, `86400`, `1970` and
+`2038` return nothing. That is the same answer cpmdroid reached for
+`emu_io_android.cpp`, by a different API.
+
+### The suite that compiled the bug every day now runs it
+
+**This is the part worth keeping.** `tests\run_tests.bat:286` has always
+compiled `..\romwbw_emu\src\hbios_dispatch.cc` with `cl` and linked it into the
+HBIOS suite, so this repository was building the defective arithmetic **with the
+very compiler that exposes it, on every test run**, and never called
+`handleRTC()` - `test_hbios_hostfile.cpp` drove `handleEXT()` and nothing else.
+The dispatcher was already linked; only the calls were missing.
+
+`tests\test_hbios_hostfile.cpp` gains three RTC sections, and **no line of
+`run_tests.bat` changed to add them** - `handleRTC()` is public
+(`hbios_dispatch.h:629`) in a translation unit the suite already links. They
+check what the failure actually was: a date past January 2038 reads back as it
+was set, a second `BF_RTCSETTIM` replaces the first rather than adding to it,
+and a buffer that is not a date is refused without moving the clock.
+
+**MEASURED, NOT ASSUMED, because a test that cannot fail proves nothing.** The
+same three sections were compiled against the pre-fix core - `git show
+e41f686^:src/hbios_dispatch.cc`, shadowed onto the include path - and produce
+**8 failures**, against 0 on the fixed core. The measured symptom is better than
+the inferred one: 2084-02-29 12:00:00 was set, and came back **2048-01-24
+05:xx**. That rehearsal is also the answer to "would an RTC test have caught
+this anyway" - one written against a present-day date would not, because only a
+year past 2038 overflows, which is why these use 2084.
+
+`tests\run_tests.bat`: **1,879 checks in eight suites, 0 failures** - the HBIOS
+suite goes from 36 checks to 52, and the other seven are unchanged.
+
+The checks deliberately set **midday**. `romwbw_emu/tests/rtc_settim.cc:222`
+sets 23:59:58 for its leap-day case and then compares the month and the day, so
+two seconds of host clock between the set and the read rolls 2084-02-29 into
+2084-03-01; that trap is not copied here. No suite can stub the host clock
+anyway — `emu_io_windows.cpp` defines `emu_get_time()` and is on the same link
+line, so a stub would be a duplicate symbol — and none is needed, because
+`BF_RTCSETTIM` stores a difference and `BF_RTCGETTIM` adds it back to a fresh
+reading, so the host clock cancels.
+
+**This duplicates `romwbw_emu/tests/rtc_settim.cc` on purpose.** That suite
+covers the arithmetic; this one covers the arithmetic *as this port compiles and
+links it*, against this port's own `emu_get_time()`, with the sibling checkout
+at whatever commit the machine has. This repository has no CI, so nothing else
+would notice a sibling moving backwards.
+
+**Not verified:** no guest has set a date past 2038 in the running application.
+`MANUAL_CHECKS.md` section 15 is that check.
+
+### 1.0.44 is retired unsubmitted, and this number exists because of it
+
+`dist\z80cpmw-1.0.44-store.msix` was built 2026-09-18 16:13 and the RTC fix
+landed in the sibling at 2026-09-19 05:35, so that package carries the overflow.
+It was never signed, never submitted and never served — `gh release list` shows
+nothing at 1.0.44 and the Store serves 1.0.35 — so nothing external has seen it
+and its `.pdb` can reference no crash dump.
+
+**Overwriting it would have been permitted and is still the wrong move.** The
+`[1.0.44]` entry below records measurements of a specific binary — "0 warnings,
+0 errors", "1,863 checks in eight suites" — and reusing the number would leave
+that entry describing a build that no longer exists. A number is how this file
+tells two binaries apart, which is the whole of the rule in `CLAUDE.md` that the
+channels share a number only when they carry the same build. cpmdroid took the
+same decision for the same fix three hours earlier, cutting 1.32.
+
+So 1.0.44 joins 1.0.24 as a package that exists in `dist\` and must not be
+submitted. Unlike 1.0.24 it costs nothing to retire: its symbols were kept, and
+it is superseded by a build made from the same tree plus one sibling commit.
+
+### Verified
+
+`MSBuild ... -t:Rebuild`: **0 warnings, 0 errors**.
+`tests\run_tests.bat`: **1,879 checks in eight suites, 0 failures**.
+
+`dist\z80cpmw-1.0.45-store.msix`, unsigned — `Get-AuthenticodeSignature`
+reports `NotSigned`, which is the correct state for upload, and the manifest
+carries the Store identity `CN=724C9014-DD22-420E-9BB4-F2740D082EB0` at version
+`1.0.45.0`, x64. Packaged with `-SkipBuild` off the `bin\Release` the suites
+were run against, and that is measured rather than trusted: the `z80cpmw.exe`
+inside the package hashes SHA256-equal to `bin\Release\z80cpmw.exe`, and
+`z80cpmw-1.0.45-store.pdb` hashes equal to `bin\Release\z80cpmw.pdb`, so the
+symbols kept beside this package are the ones that load against it.
+
+**Not verified, and it is the whole of what a submission needs:** nobody has
+installed this package. Section 15 of `MANUAL_CHECKS.md` — the RTC round trip
+this release exists for — needs a booted guest and cannot be reached by any
+suite, and section 1 wants an installed MSIX.
+
+### Two comments that asserted the opposite of the code beside them
+
+Neither is a behaviour change; both were found while auditing for the above,
+and both are the failure `CLAUDE.md` names - prose reasoned from one side of a
+mechanism and left behind when the other side moved.
+
+`CatalogV0.cpp:495` opened "A STORED SNAPSHOT IS HONOURED WHETHER OR NOT THE
+BOX IS TICKED ... What is CHOSEN is only ever moved by the picker." The
+`isOffered` test three lines below has moved it since 2026-09-18, and the
+paragraph immediately *after* it already said so - so the file argued both sides
+in nine lines. The stale claim is replaced by a note saying what it used to say
+and why it stopped being true, which is this file's habit and keeps the reversal
+findable.
+
+`MainWindow.cpp:2188` ended "a machine left mismatched by the migration stays
+mismatched for ever". Only the stored VALUE is never corrected; the DISKS are
+moved onto it by the reconcile at `SettingsDialogWx.cpp:2029-2037` the next time
+Settings is opened. The comment now records that the two surfaces resolve this
+state in **opposite directions** - Start advises moving the release to the
+disks, opening Settings moves the disks to the release - and points at
+`todo.txt`, because which one is authoritative is not decided here.
+
 ## [1.0.44] - 2026-09-18
 
 **The Store package, built and not submitted.** `dist\z80cpmw-1.0.44-store.msix`,

@@ -6,10 +6,25 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   KNOWN_PROBLEMS.md  standing facts that will never be done
   WIP.md             longer handoff notes
 
-- Submit dist\z80cpmw-1.0.44-store.msix to Partner Center.  Until it is served,
-  Store users are on 1.0.35, which predates 3c64be7 and still has the filter.
+- Submit dist\z80cpmw-1.0.45-store.msix to Partner Center.  Store users are on
+  1.0.35, which predates 3c64be7 and still has the release filter, and every
+  build before this one has the January-2038 RTC overflow.  Do NOT submit
+  z80cpmw-1.0.44-store.msix, still in dist\: it predates the RTC fix.
 
-- catalogv0::indexScope() still has no caller; the plan is in Config.h.
+- MANUAL_CHECKS section 15 has never been run - no guest has set a date past
+  2038 in the running application, which is what 1.0.45 exists for.
 
-- Config's v0 back-fill never corrects a stored core.romwbwVersion that is wrong,
-  only an empty one.  IndexEntry::verByte/updByte are what a stricter check reads.
+- catalogv0::indexScope() still has no caller; the plan is in Config.h.  Six
+  write sites, and loadSettings() calls setDownloadDirectory() (MainWindow.cpp
+  :3086) before cfgMgr.load() (:3090), so the setting is unread where it is
+  needed.  Nothing re-points the folder when the index changes at runtime.
+
+- Stored release vs mounted disks: opening Settings moves the DISKS to the
+  release (SettingsDialogWx.cpp:2029-2037), the Start notice tells the user to
+  move the RELEASE to the disks (MainWindow.cpp:2280-2284).  Pick one; make the
+  other say so.  Only moving the release resolves a slot whose id the stored
+  release retired.
+
+- DiskCatalog.cpp:1233 takes Content-Length as a 32-bit DWORD where
+  HelpWindow.cpp:1301 uses DWORD64 and says why.  Unreachable today; the
+  failure is a skipped completeness check.  Make them agree.

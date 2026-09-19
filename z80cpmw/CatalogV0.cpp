@@ -492,13 +492,16 @@ size_t chooseVersion(const std::vector<IndexEntry>& entries,
     // label is display text the index may reword at any time and the version
     // string is the key the choice was stored under.
     //
-    // A STORED SNAPSHOT IS HONOURED WHETHER OR NOT THE BOX IS TICKED, and this
-    // is the one place the filter deliberately does not apply. Somebody who
-    // ticked the box, chose 3.7.0-dev.14 and downloaded its images has a machine
-    // whose disks are that release; unticking the box afterwards must not move
-    // them to 3.6.0 under mounted 3.7.0-dev.14 images, which is the HBIOS/CBIOS
-    // mismatch this whole mechanism exists to prevent. The box governs what is
-    // OFFERED. What is CHOSEN is only ever moved by the picker.
+    // THIS PARAGRAPH USED TO SAY THE OPPOSITE, and it was left behind by the
+    // 2026-09-18 reversal. It said a stored snapshot was honoured whether or
+    // not the box was ticked, and that "what is CHOSEN is only ever moved by
+    // the picker" - which the `isOffered` test three lines below has not done
+    // since that day, and which the paragraph immediately after it already
+    // contradicted. Its reasoning was that moving the release would strand the
+    // slots on images built for the release being left; the reconcile removed
+    // that objection, and a `-dev` release still selected with the box unticked
+    // is the state a user reported as wrong.
+    //
     // The user's own choice wins while the index still publishes it AND while it
     // is a release they have asked to be offered. The second half is what makes
     // turning the box off move a machine that is sitting on a pre-release: it is

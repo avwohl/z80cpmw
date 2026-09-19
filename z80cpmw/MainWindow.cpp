@@ -2185,9 +2185,18 @@ void MainWindow::reportMountedDiskProvenance() {
     // release, that release is what this machine is actually carrying, and the
     // stored preference is the thing that is wrong. Config's v0 back-fill sets
     // core.romwbwVersion only while it is EMPTY, deliberately, so that it cannot
-    // undo a Settings choice - which also means it never CORRECTS a wrong one,
-    // and a machine left mismatched by the migration stays mismatched for ever.
+    // undo a Settings choice - which also means it never CORRECTS a wrong one.
     // Naming the release is what lets somebody fix it in one step.
+    //
+    // "AND STAYS MISMATCHED FOR EVER" USED TO END THAT SENTENCE, and it is no
+    // longer true of the MACHINE - only of the stored value. Opening Settings
+    // runs the reconcile at SettingsDialogWx.cpp:2029-2037, which moves the
+    // DISKS onto the stored release rather than the release onto the disks.
+    // So the two surfaces resolve this state in opposite directions: this
+    // notice advises moving the release to the disks, and merely opening
+    // Settings moves the disks to the release. Which one is authoritative is
+    // an open question in todo.txt; until it is answered, do not describe
+    // either one as the fix.
     //
     // Unanimity is the test, and two different releases mounted at once is a
     // real state: there is then no single right answer, and the notice says so

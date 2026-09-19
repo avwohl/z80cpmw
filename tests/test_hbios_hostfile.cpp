@@ -1,6 +1,6 @@
 /*
  * test_hbios_hostfile.cpp - what a CP/M guest actually sees for HBF_HOST_CAPS
- * (0xE9) and HBF_HOST_GETNAME (0xE8)
+ * (0xE9) and HBF_HOST_GETNAME (0xE8), and for the real-time clock
  *
  * The companion suite, test_hostfile.cpp, tests the backend functions
  * directly. This one goes through HBIOSDispatch::handleEXT() with real guest
@@ -16,6 +16,27 @@
  * The probe is why the capability function had to be a backend function rather
  * than a core constant (romwbw_emu/docs/DOWNSTREAM_2026-08-25.md 1b): W8
  * believes the answer, so the answer has to come from the code it is about.
+ *
+ * WHY THE RTC IS IN THIS FILE, added 2026-09-19.  romwbw_emu e41f686 fixed an
+ * overflow this application SHIPPED: HBIOSDispatch counted the guest's RTC
+ * offset in `long`, and `long` is 32 bits on LLP64 - which is every Windows
+ * compiler, so it was every build of this port, not some of them.  days * 86400
+ * passed INT32_MAX in January 2038.
+ *
+ * It survived here because of a gap this file is the cheapest place to close.
+ * run_tests.bat has always compiled ..\romwbw_emu\src\hbios_dispatch.cc with cl
+ * and linked it into THIS suite, so the defective arithmetic was built by the
+ * very compiler that exposes it on every test run - and no suite ever called
+ * handleRTC().  The dispatcher was already here; only the calls were missing.
+ * Nothing in the build line changed to add these.
+ *
+ * No suite can control the host clock - emu_io_windows.cpp defines
+ * emu_get_time() and is on this link line, so a stub would be a duplicate
+ * symbol.  Nothing needs one: SETTIM stores a DIFFERENCE from the host reading
+ * and GETTIM re-reads the host clock and adds it back, so whatever the host
+ * clock says cancels out.  What that does leave is elapsed time between the two
+ * calls, which is why the checks below set midday and compare the fields that
+ * a slow test run cannot move.
  */
 
 #include <windows.h>
@@ -97,6 +118,35 @@ struct Machine {
         cpu.regs.DE.set_pair16(de);
         hbios.handleEXT();
         return cpu.regs.AF.get_high();
+    }
+
+    // The RTC half.  BF_RTCGETTIM and BF_RTCSETTIM both take a six-byte BCD
+    // buffer at HL - YY MM DD HH MM SS - and go through handleRTC() rather
+    // than handleEXT().  The year is two digits and the dispatcher adds 2000,
+    // so 84 is 2084.
+    static const uint16_t RTC_BUF = 0x4000;
+
+    void writeTime(int yy, int mm, int dd, int hh, int mi, int ss) {
+        const int v[6] = {yy, mm, dd, hh, mi, ss};
+        for (int i = 0; i < 6; i++)
+            mem.store_mem((uint16_t)(RTC_BUF + i),
+                          (uint8_t)(((v[i] / 10) << 4) | (v[i] % 10)));
+    }
+
+    void writeRaw(int i, uint8_t byte) {
+        mem.store_mem((uint16_t)(RTC_BUF + i), byte);
+    }
+
+    uint8_t rtc(uint8_t func) {
+        cpu.regs.BC.set_high(func);
+        cpu.regs.HL.set_pair16(RTC_BUF);
+        hbios.handleRTC();
+        return cpu.regs.AF.get_high();
+    }
+
+    int readField(int i) {
+        uint8_t b = mem.fetch_mem((uint16_t)(RTC_BUF + i));
+        return ((b >> 4) & 0x0F) * 10 + (b & 0x0F);
     }
 };
 
@@ -264,13 +314,97 @@ static void test_failed_open_reports_nothing() {
             "the guest buffer was left untouched");
 }
 
+//=============================================================================
+// The RTC, and the 32-bit `long` that broke it
+//=============================================================================
+
+static void test_rtc_past_2038_reads_back_what_was_set() {
+    printf("--- a date past January 2038 survives the round trip ---\n");
+    Machine m;
+
+    // 2084 is the year romwbw_emu/tests/rtc_settim.cc picks on purpose, and
+    // the arithmetic is why: 41666 days from the epoch * 86400 is
+    // 3,599,942,400, which is past INT32_MAX.  Built with a 32-bit `long` it
+    // wrapped to -695,024,896 and the guest read back a different date.
+    //
+    // MIDDAY, not 23:59:58.  The upstream test's leap-day block sets two
+    // seconds before midnight and then compares the month and the day, so a
+    // slow run rolls 2084-02-29 into 2084-03-01 and fails for a reason that
+    // has nothing to do with the bug.  Nothing here is near a boundary: the
+    // hour cannot move unless this suite takes twelve hours.
+    m.writeTime(84, 2, 29, 12, 0, 0);
+    checkEq(std::to_string((int)m.rtc(0x21)), "0",
+            "BF_RTCSETTIM accepts 2084-02-29 12:00:00 (a leap day, and past 2038)");
+
+    m.writeTime(0, 0, 0, 0, 0, 0);   // so a no-op read cannot pass by accident
+    checkEq(std::to_string((int)m.rtc(0x20)), "0",
+            "BF_RTCGETTIM reports success");
+
+    checkEq(std::to_string(m.readField(0)), "84",
+            "the year reads back as 84 - the check that fails on a 32-bit long");
+    checkEq(std::to_string(m.readField(1)), "2", "the month reads back");
+    checkEq(std::to_string(m.readField(2)), "29",
+            "the leap day reads back, so February 29 2084 was taken as a real date");
+    checkEq(std::to_string(m.readField(3)), "12", "the hour reads back");
+}
+
+static void test_rtc_a_second_set_replaces_the_first() {
+    printf("--- setting the clock twice leaves it where the SECOND set put it ---\n");
+    Machine m;
+
+    // The reported symptom of the overflow was not only a wrong date: because
+    // the stored offset is a difference, a wrong one made a second set appear
+    // to ADD to the first rather than replace it.  Both dates here are past
+    // 2038, so both offsets are in the range that used to wrap.
+    m.writeTime(84, 2, 29, 12, 0, 0);
+    check(m.rtc(0x21) == 0, "the first set is accepted");
+    m.writeTime(70, 6, 15, 12, 0, 0);
+    check(m.rtc(0x21) == 0, "the second set is accepted");
+
+    m.writeTime(0, 0, 0, 0, 0, 0);
+    m.rtc(0x20);
+    checkEq(std::to_string(m.readField(0)), "70",
+            "the year is the second one, not the sum of two offsets");
+    checkEq(std::to_string(m.readField(1)), "6", "and so is the month");
+    checkEq(std::to_string(m.readField(2)), "15", "and the day");
+}
+
+static void test_rtc_refuses_what_is_not_a_date() {
+    printf("--- a buffer that is not a date is refused, not accepted ---\n");
+    Machine m;
+
+    // Answering success while discarding the value is the failure mode the
+    // dispatcher calls the worst there is, because a caller cannot defend
+    // against it.  These check it does not do that.
+    m.writeTime(84, 13, 1, 12, 0, 0);
+    check(m.rtc(0x21) != 0, "month 13 is refused");
+
+    m.writeTime(84, 2, 29, 25, 0, 0);
+    check(m.rtc(0x21) != 0, "hour 25 is refused");
+
+    m.writeTime(84, 2, 29, 12, 0, 0);
+    m.writeRaw(1, 0x1F);            // 0x1F is not valid BCD
+    check(m.rtc(0x21) != 0, "a byte that is not valid BCD is refused");
+
+    // And a refusal must not have moved the clock.
+    m.writeTime(84, 2, 29, 12, 0, 0);
+    check(m.rtc(0x21) == 0, "a real date is still accepted afterwards");
+    m.writeTime(0, 0, 0, 0, 0, 0);
+    m.rtc(0x20);
+    checkEq(std::to_string(m.readField(0)), "84",
+            "and the refusals left no offset of their own behind");
+}
+
 int main() {
-    printf("=== HBIOS host-file extension suite ===\n\n");
+    printf("=== HBIOS host-file extension and RTC suite ===\n\n");
 
     test_caps_probe();
     test_getname_reports_the_real_destination();
     test_getname_buffer_bounds();
     test_failed_open_reports_nothing();
+    test_rtc_past_2038_reads_back_what_was_set();
+    test_rtc_a_second_set_replaces_the_first();
+    test_rtc_refuses_what_is_not_a_date();
 
     printf("\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

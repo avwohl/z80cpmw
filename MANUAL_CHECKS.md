@@ -873,3 +873,52 @@ either: it had no MSVC.
       binary dropped it silently, which is the whole of what was fixed. The
       snapshot opt-in does not affect this check: a hand-made entry carries no
       `prerelease` key, and absent reads as false.
+
+
+## 15. The guest clock past January 2038
+
+romwbw_emu `e41f686` (2026-09-19) fixed an overflow **this application
+shipped**: `HBIOSDispatch` counted the guest's RTC offset in `long`, and `long`
+is 32 bits on LLP64 - every Windows compiler, on x64 as much as on x86 - so
+`days * 86400` passed `INT32_MAX` in January 2038. `z80cpmw.vcxproj:298`
+compiles that file in place, so the fix arrives by rebuilding and there is
+nothing here to change.
+
+**There is no ABI trap here, which is what makes this different from
+cpmdroid's section 10.** That port had the bug on two of its four ABIs and had
+to force the 32-bit library onto the device before a result meant anything.
+This port is x64 only and `long` is 32 bits on it, so **every** build had the
+bug and any machine reproduces it. Nothing has to be arranged.
+
+**What is already covered, so that this section stays small.**
+`tests\test_hbios_hostfile.cpp` now drives `BF_RTCSETTIM` and `BF_RTCGETTIM`
+through the real dispatcher, and those checks were measured to fail 8 times
+against the pre-fix core and pass against the current one. So the arithmetic is
+pinned by a suite. What no suite can reach is the path from a CP/M utility
+through the ROM to that dispatcher, which is the whole of what is below.
+
+- [ ] Start the emulator and boot CP/M on a default install. At the prompt run
+      the ROM's date utility - RomWBW ships `DATE`; if this ROM does not offer
+      it, take `W` (RomWBW Configure) at the loader instead.
+- [ ] **Set a date past January 2038.** `2084-02-29` is what
+      `romwbw_emu/tests/rtc_settim.cc` uses on purpose, because it is also a
+      leap day and so checks two things at once. Set the time to something near
+      **midday**, not near midnight: a date two seconds before midnight rolls
+      over while you are reading it back and fails for a reason that has nothing
+      to do with this.
+- [ ] **Read it back.** It must be the date you set. Before the fix the guest
+      got a different one - the suite measured 2084-02-29 12:00:00 coming back
+      as **2048-01-24 05:xx**, which is what a wrapped offset looks like from
+      the guest side.
+- [ ] **Set it twice.** The reported symptom was that `BF_RTCSETTIM` appeared to
+      take and did not, and that a second set ADDED to the first instead of
+      replacing it. Two sets in a row must leave the clock where the *second*
+      one put it, not at the sum.
+- [ ] **Let it run.** The clock is an offset from the host clock, not a frozen
+      timestamp, so after a minute the guest's time must have advanced by about
+      a minute - still in 2084. A clock that is right once and then stuck is a
+      different bug.
+- [ ] **Set a present-day date afterwards and read it back.** This is the
+      control: it passed before the fix as well, so it proves the test procedure
+      works rather than proving the fix does. Doing it first and stopping there
+      is the way to get a meaningless pass.
