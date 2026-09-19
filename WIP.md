@@ -61,10 +61,19 @@ a branch.** A local commit that files work is worth nothing if the sibling
 session finished that work while it sat there, and "unpushed" and "diverged" look
 identical until `git fetch` is run. Fetch before believing an ahead-count.
 
-**One local branch is deliberately left behind.** `cpmdroid` carries
-`salvage/prerelease-32d43b9`, which is the only place the two dropped commits
-still exist - `fillEmptySlotsWithDefaults()` lives nowhere else now. It has never
-been pushed. Delete it once nobody wants that code back.
+**Nothing is left behind, and an earlier revision of this paragraph was the
+mistake worth recording.** It said `cpmdroid` carried a `salvage/prerelease-32d43b9`
+branch holding the two dropped commits - which was true of ONE MACHINE for about
+an hour, in a file that is pushed and read everywhere. That is the same error as
+recording whether a machine has Xcode: a fact about a working copy, asserted in a
+tracked file, unverifiable by anyone who reads it and false on every fresh clone.
+The branch was a reset safety net, it was never pushed, and it is deleted; the two
+shas cited above are unreachable now and `git show` will not resolve them.
+Nothing was lost by that: the only content unique to those commits was
+`fillEmptySlotsWithDefaults()`, which could not work as written, and its four
+design rules are now in `cpmdroid/todo.txt` beside the measurement that condemns
+the code. **If a future session makes such a branch, either push it or say
+nothing about it here.**
 
 ### z80cpmw, 1.0.36 to 1.0.44
 
