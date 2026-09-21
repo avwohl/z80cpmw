@@ -28,3 +28,13 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
 - DiskCatalog.cpp:1233 takes Content-Length as a 32-bit DWORD where
   HelpWindow.cpp:1301 uses DWORD64 and says why.  Unreachable today; the
   failure is a skipped completeness check.  Make them agree.
+
+- FEATURE_PARITY.md item 5 says "ioscpm and cpmdroid still name a tag in source"
+  and its "Shared concern" bullet gives ioscpm an embedded ROM to match.  Both
+  are false for ioscpm: no releaseTag since ed660d5, no bundled ROM since its
+  build 66, and its own cell in that row already says so.  Read 2026-09-21.
+
+- FEATURE_PARITY.md's repository table still says ioscpm "hosts the shared
+  disk-image + help release assets".  romwbw_disks publishes them; the old
+  avwohl/ioscpm v1.4.x tags must stay live for pre-migration clients, which is
+  the part worth keeping.
