@@ -38,3 +38,6 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   disk-image + help release assets".  romwbw_disks publishes them; the old
   avwohl/ioscpm v1.4.x tags must stay live for pre-migration clients, which is
   the part worth keeping.
+
+- FEATURE_PARITY.md's eight ioscpm cells are read at build 69, "the floor of the
+  shipped 1.6.1"; re-read them at build 74, which is exactly what 1.6.2 serves.
