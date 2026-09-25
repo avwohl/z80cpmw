@@ -1,1 +1,10 @@
-"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\amd64\MSBuild.exe" "%~dp0z80cpmw.sln" /p:Configuration=Release /p:Platform=x64 /v:minimal
+@echo off
+REM Release build. First argument x64 or ARM64, else this machine's own architecture.
+REM Output: bin\Release (x64) or bin\ARM64\Release (ARM64).
+setlocal
+set "PLAT=%~1"
+if not defined PLAT (
+    if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" (set "PLAT=ARM64") else (set "PLAT=x64")
+)
+if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" (set "MSBHOST=arm64") else (set "MSBHOST=amd64")
+"C:\Program Files\Microsoft Visual Studio\18\Community\MSBuild\Current\Bin\%MSBHOST%\MSBuild.exe" "%~dp0z80cpmw.sln" /p:Configuration=Release /p:Platform=%PLAT% /v:minimal

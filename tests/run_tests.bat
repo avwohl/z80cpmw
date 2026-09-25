@@ -20,11 +20,29 @@ if exist "%VSWHERE%" (
 if not defined VSINSTALL (
     set "VSINSTALL=C:\Program Files\Microsoft Visual Studio\18\Community"
 )
-call "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+
+REM Which architecture the suites are built for: the first argument, x64 or
+REM arm64, else this machine's own.  It used to be vcvars64.bat unconditionally,
+REM which on an ARM64 machine builds x64 suites that pass under emulation and
+REM say nothing about the ARM64 build.  "tests\run_tests.bat x64" on an ARM64
+REM machine is still useful - it runs the x64 suites emulated - so the four
+REM host/target pairs vcvarsall knows are all mapped.  arm64 on an x64 machine
+REM builds but cannot run.
+set "TESTARCH=%~1"
+if not defined TESTARCH (
+    if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" (set "TESTARCH=arm64") else (set "TESTARCH=x64")
+)
+if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" (
+    if /i "%TESTARCH%"=="arm64" (set "VCVARSARG=arm64") else (set "VCVARSARG=arm64_amd64")
+) else (
+    if /i "%TESTARCH%"=="arm64" (set "VCVARSARG=amd64_arm64") else (set "VCVARSARG=amd64")
+)
+call "%VSINSTALL%\VC\Auxiliary\Build\vcvarsall.bat" %VCVARSARG% >nul 2>&1
 if errorlevel 1 (
-    echo Could not initialise the MSVC environment.
+    echo Could not initialise the MSVC environment for %VCVARSARG%.
     exit /b 1
 )
+echo Building the suites for %TESTARCH% ^(vcvarsall %VCVARSARG%^)
 
 cd /d "%~dp0.."
 if not exist "obj\tests\vt52" mkdir "obj\tests\vt52"

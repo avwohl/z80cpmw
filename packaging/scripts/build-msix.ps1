@@ -28,6 +28,13 @@
 [CmdletBinding()]
 param(
     [string]$Configuration = "Release",
+    # Which architecture to build and package. x64 is the default so every
+    # existing invocation means what it meant before ARM64 existed, and its
+    # artifact names are unchanged; ARM64 reads bin\ARM64\<Configuration> and
+    # adds "-arm64" to the stem. ValidateSet so a typo is a binding error for
+    # the reason [CmdletBinding()] is here at all.
+    [ValidateSet("x64", "ARM64")]
+    [string]$Platform = "x64",
     [string]$CertificatePath = "",
     [string]$CertificatePassword = "",
     [switch]$SkipBuild,
@@ -51,7 +58,13 @@ param(
 $ErrorActionPreference = "Stop"
 $ScriptDir = $PSScriptRoot
 $RootDir = Resolve-Path (Join-Path $ScriptDir "..\..")
-$BinDir = Join-Path $RootDir "bin\$Configuration"
+# Must agree with PlatformBinDir in z80cpmw.vcxproj.
+$BinDir = if ($Platform -eq "ARM64") { Join-Path $RootDir "bin\ARM64\$Configuration" } else { Join-Path $RootDir "bin\$Configuration" }
+# The manifest's ProcessorArchitecture, and the file-name marker. x64 has no
+# marker so the names already on the release page and in STORE_SUBMISSION.md
+# stay true.
+$manifestArch = if ($Platform -eq "ARM64") { "arm64" } else { "x64" }
+$archTag = if ($Platform -eq "ARM64") { "-arm64" } else { "" }
 $MsixDir = Join-Path $ScriptDir "..\msix"
 $OutputDir = Join-Path $RootDir "dist"
 
@@ -84,7 +97,7 @@ Write-Host "Version $pkgVersion (from z80cpmw\Version.h)" -ForegroundColor Green
 # release, and an unsigned rehearsal that is named like a shippable one can be
 # uploaded by mistake or can overwrite the artifact already published under that
 # name. Only read when -Beta; the Store package name is fixed.
-$betaStem = if ($SkipSign) { "z80cpmw-$verShort-beta-unsigned" } else { "z80cpmw-$verShort-beta" }
+$betaStem = if ($SkipSign) { "z80cpmw-$verShort$archTag-beta-unsigned" } else { "z80cpmw-$verShort$archTag-beta" }
 
 # THE ONE STEM THAT NAMES BOTH THE PACKAGE AND ITS SYMBOLS, on whichever arm ran.
 #
@@ -106,7 +119,7 @@ $betaStem = if ($SkipSign) { "z80cpmw-$verShort-beta-unsigned" } else { "z80cpmw
 # shipped version's symbols are lost, and losing them is not recoverable - a
 # rebuild has a different debug GUID and will not symbolicate a stack from the
 # binary that shipped.
-$artifactStem = if ($Beta) { $betaStem } else { "z80cpmw-$verShort-store" }
+$artifactStem = if ($Beta) { $betaStem } else { "z80cpmw-$verShort$archTag-store" }
 
 # Guard against packaging a stale binary: -SkipBuild over an old bin\Release
 # would otherwise label the package with a version the exe does not carry.
@@ -118,6 +131,22 @@ function Assert-ExeVersion([string]$exePath, [string]$expected) {
         exit 1
     }
     Write-Host "Binary matches Version.h ($actual)" -ForegroundColor Green
+}
+
+# The same guard for architecture. An x64 exe runs under emulation on Windows on
+# ARM, so "it launched on the ARM machine" proves nothing, and a package whose
+# manifest says arm64 around an x64 binary would be accepted by makeappx. Reads
+# the PE Machine field directly: 0x8664 is x64, 0xAA64 is ARM64.
+function Assert-ExeMachine([string]$exePath, [string]$platform) {
+    $bytes = [System.IO.File]::ReadAllBytes($exePath)
+    $peOffset = [BitConverter]::ToInt32($bytes, 0x3C)
+    $machine = [BitConverter]::ToUInt16($bytes, $peOffset + 4)
+    $expected = if ($platform -eq "ARM64") { 0xAA64 } else { 0x8664 }
+    if ($machine -ne $expected) {
+        Write-Error ("Architecture mismatch: -Platform $platform expects machine 0x{0:X4} but $exePath is 0x{1:X4}." -f $expected, $machine) -ErrorAction Continue
+        exit 1
+    }
+    Write-Host ("Binary is {0} (machine 0x{1:X4})" -f $platform, $machine) -ForegroundColor Green
 }
 
 Write-Host "z80cpmw MSIX Package Builder" -ForegroundColor Cyan
@@ -141,7 +170,7 @@ if (!$SkipBuild) {
         exit 1
     }
 
-    & $msbuildPath $slnPath /p:Configuration=$Configuration /p:Platform=x64 /t:Rebuild /m
+    & $msbuildPath $slnPath /p:Configuration=$Configuration /p:Platform=$Platform /t:Rebuild /m
 
     if ($LASTEXITCODE -ne 0) {
         Write-Error "Build failed." -ErrorAction Continue
@@ -194,6 +223,7 @@ Copy-Item (Join-Path $assetsDir "*") (Join-Path $stagingDir "Assets")
 # 0.0.0.0 placeholder and is never modified. Targeted regex rather than
 # [xml].Save(), which prepends a BOM and reflows the whole document.
 Assert-ExeVersion (Join-Path $BinDir "z80cpmw.exe") $pkgVersion
+Assert-ExeMachine (Join-Path $BinDir "z80cpmw.exe") $Platform
 
 $stagedManifest = Join-Path $stagingDir "AppxManifest.xml"
 $manifestText = Get-Content (Join-Path $MsixDir "AppxManifest.xml") -Raw
@@ -204,6 +234,13 @@ if (([regex]$verPattern).Matches($manifestText).Count -ne 1) {
 }
 Write-Host "Injecting version $pkgVersion into the staged manifest" -ForegroundColor Yellow
 $manifestText = $manifestText -replace $verPattern, "`${1}$pkgVersion`$2"
+
+$archPattern = '(<Identity\b[^>]*?\sProcessorArchitecture=")[^"]*(")'
+if (([regex]$archPattern).Matches($manifestText).Count -ne 1) {
+    Write-Error "Expected exactly one Identity/@ProcessorArchitecture in AppxManifest.xml" -ErrorAction Continue; exit 1
+}
+Write-Host "Injecting ProcessorArchitecture $manifestArch into the staged manifest" -ForegroundColor Yellow
+$manifestText = $manifestText -replace $archPattern, "`${1}$manifestArch`$2"
 
 if ($Beta) {
     # Beta/sideload builds are signed with our Trusted Signing cert, so the package
@@ -224,6 +261,10 @@ if ($Beta) {
 [xml]$check = Get-Content $stagedManifest -Raw
 if ($check.Package.Identity.Version -ne $pkgVersion) {
     Write-Error "Manifest injection failed: staged version is '$($check.Package.Identity.Version)', expected '$pkgVersion'" -ErrorAction Continue
+    exit 1
+}
+if ($check.Package.Identity.ProcessorArchitecture -ne $manifestArch) {
+    Write-Error "Manifest injection failed: staged ProcessorArchitecture is '$($check.Package.Identity.ProcessorArchitecture)', expected '$manifestArch'" -ErrorAction Continue
     exit 1
 }
 
@@ -369,7 +410,7 @@ if ($Beta -and $SkipSign) {
     Write-Host "It confirms the beta path end to end, symbol copy included. Delete both" -ForegroundColor Gray
     Write-Host "-unsigned files when you are done; they are build output." -ForegroundColor Gray
     Write-Host "For a real beta, re-run without -SkipSign - and only on a version that has" -ForegroundColor Gray
-    Write-Host "not already shipped, since that run writes dist\z80cpmw-$verShort-beta.msix." -ForegroundColor Gray
+    Write-Host "not already shipped, since that run writes dist\z80cpmw-$verShort$archTag-beta.msix." -ForegroundColor Gray
 } elseif ($Beta) {
     Write-Host "Beta sideload package. Testers install via:" -ForegroundColor Yellow
     Write-Host "  double-click the .msix (App Installer), or  Add-AppxPackage `"$msixPath`"" -ForegroundColor Gray

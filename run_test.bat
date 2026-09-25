@@ -20,8 +20,18 @@ if not defined VSINSTALL (
     set "VSINSTALL=C:\Program Files\Microsoft Visual Studio\18\Community"
 )
 
-REM Set up environment
-call "%VSINSTALL%\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
+REM Set up environment: first argument x64 or arm64, else this machine's own
+REM architecture.  Same mapping as tests\run_tests.bat, which explains it.
+set "TESTARCH=%~1"
+if not defined TESTARCH (
+    if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" (set "TESTARCH=arm64") else (set "TESTARCH=x64")
+)
+if /i "%PROCESSOR_ARCHITECTURE%"=="ARM64" (
+    if /i "%TESTARCH%"=="arm64" (set "VCVARSARG=arm64") else (set "VCVARSARG=arm64_amd64")
+) else (
+    if /i "%TESTARCH%"=="arm64" (set "VCVARSARG=amd64_arm64") else (set "VCVARSARG=amd64")
+)
+call "%VSINSTALL%\VC\Auxiliary\Build\vcvarsall.bat" %VCVARSARG% >nul 2>&1
 
 cd /d "%~dp0"
 

@@ -11,7 +11,15 @@ because `z80cpmw.vcxproj` compiles core sources straight out of them. They are
 not submodules and nothing fetches them.
 
     MSBuild z80cpmw.sln -p:Configuration=Release -p:Platform=x64 -t:Rebuild -m
-    cmd /c tests\run_tests.bat        # eight headless suites
+    MSBuild z80cpmw.sln -p:Configuration=Release -p:Platform=ARM64 -t:Rebuild -m
+    cmd /c tests\run_tests.bat [x64|arm64]   # headless suites; default = this machine
+
+x64 builds to `bin\<Configuration>`, ARM64 to `bin\ARM64\<Configuration>`, and
+`build-msix.ps1 -Platform ARM64` packages the latter as `z80cpmw-<ver>-arm64-*`.
+Each needs its own vcpkg triplet (`x64-windows`, `arm64-windows`) and
+`vcpkg integrate install`, which is what copies the wx DLLs beside the exe. An
+x64 exe runs emulated on Windows on ARM, so check `dumpbin /headers` for
+`AA64 machine`, not whether it launched. The NSIS installer is x64 only.
 
 The suites need no wxWidgets, no vcpkg and no window (except the rendering one,
 which opens its own). They run on any machine with a compiler. wxWidgets comes
