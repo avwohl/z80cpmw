@@ -72,6 +72,28 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
+## [Unreleased]
+
+### Builds for ARM64 as well as x64 - not yet in any package
+
+`644d288` adds `Debug|ARM64` and `Release|ARM64` (output `bin\ARM64\<cfg>`),
+`build-msix.ps1 -Platform ARM64` (artifacts `z80cpmw-<ver>-arm64-*`, and a
+refusal when the exe's PE machine does not match), and `c9ba150` adds
+`build-msixbundle.ps1`, which joins the two per-arch packages into one
+`.msixbundle`. Until this ships, Windows on ARM users run the x64 build under
+emulation.
+
+Measured on the ARM64 VM (2026-09-25): ARM64 builds natively, the suites pass,
+an ARM64-only bundle packs. Measured on the x64 box the same day, after
+`vcpkg install wxwidgets:arm64-windows` (12 min): `Release|ARM64` cross-builds
+and 22 of its 23 binaries are `AA64`; the other is `vcruntime140_1.dll`,
+Microsoft's ARM64X hybrid from the `arm64` redist folder, which nothing imports;
+`Release|x64` and `Debug|x64` still link, with the same file set as the shipped
+1.0.45 folder; `tests\run_tests.bat` passes (1,879 checks in eight suites); and
+`build-msixbundle.ps1 -Beta -SkipSign` packs a bundle whose manifest holds an
+`x64` and an `arm64` package. **Not measured:** a signed bundle, installing one,
+or Partner Center accepting a bundle for this product.
+
 ## [1.0.45] - 2026-09-19
 
 ### The guest clock was wrong past January 2038, on EVERY build of this port

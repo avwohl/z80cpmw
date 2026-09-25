@@ -6,11 +6,6 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   KNOWN_PROBLEMS.md  standing facts that will never be done
   WIP.md             longer handoff notes
 
-- Submit dist\z80cpmw-1.0.45-store.msix to Partner Center.  Store users are on
-  1.0.35, which predates 3c64be7 and still has the release filter, and every
-  build before this one has the January-2038 RTC overflow.  Do NOT submit
-  z80cpmw-1.0.44-store.msix, still in dist\: it predates the RTC fix.
-
 - MANUAL_CHECKS section 15 has never been run - no guest has set a date past
   2038 in the running application, which is what 1.0.45 exists for.
 

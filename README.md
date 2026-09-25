@@ -220,11 +220,14 @@ including the escape syntax, bindable key names and the default bindings.
 
 - Visual Studio 18 or later (the project sets `PlatformToolset` to `v145`)
 - Windows SDK 10.0 or later
-- **wxWidgets 3.3 (x64)** through vcpkg. `z80cpmw.vcxproj` hard-codes the paths
-  to `C:\temp\vcpkg\installed\x64-windows\`, so either install vcpkg there or
-  edit `AdditionalIncludeDirectories` / `AdditionalLibraryDirectories`. Without
-  it the build stops at `SettingsDialogWx.h(9): fatal error C1083: Cannot open
-  include file: 'wx/wx.h'`.
+- **wxWidgets 3.3** through vcpkg, one triplet per architecture you build:
+  `wxwidgets:x64-windows` for `Platform=x64`, `wxwidgets:arm64-windows` for
+  `Platform=ARM64`. An x64 machine builds both; the ARM64 one is a cross-build.
+  `z80cpmw.vcxproj` looks under `C:\temp\vcpkg\installed\<triplet>\`; install
+  vcpkg there or pass `/p:WxVcpkgRoot=<your vcpkg>`. Run `vcpkg integrate
+  install` once as well - that is what copies the wx DLLs beside the exe.
+  Without the triplet the build stops at `SettingsDialogWx.h(9): fatal error
+  C1083: Cannot open include file: 'wx/wx.h'`.
 - [`cpmemu`](https://github.com/avwohl/cpmemu) and
   [`romwbw_emu`](https://github.com/avwohl/romwbw_emu) checked out **next to**
   this one: the project compiles emulator sources directly from `..\cpmemu\src`

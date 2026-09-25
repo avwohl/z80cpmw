@@ -887,7 +887,9 @@ nothing here to change.
 **There is no ABI trap here, which is what makes this different from
 cpmdroid's section 10.** That port had the bug on two of its four ABIs and had
 to force the 32-bit library onto the device before a result meant anything.
-This port is x64 only and `long` is 32 bits on it, so **every** build had the
+This port builds for x64 and, since 2026-09-25, ARM64, and `long` is 32 bits on
+both (for ARM64, measured that day: `static_assert(sizeof(long) == 4)` compiles
+under the `amd64_arm64` MSVC 14.51 cross compiler), so **every** build had the
 bug and any machine reproduces it. Nothing has to be arranged.
 
 **What is already covered, so that this section stays small.**

@@ -184,16 +184,23 @@ something is packaged — so a tree with unpackaged work in it sits under
 ## Building it
 
 `z80cpmw/z80cpmw.vcxproj` uses `PlatformToolset` `v145` (Visual Studio 18) and
-expects the wxWidgets headers under `C:\temp\vcpkg\installed\x64-windows\include`.
+expects the wxWidgets headers under `C:\temp\vcpkg\installed\<triplet>\include`,
+the triplet being `x64-windows` or `arm64-windows` by `Platform`.
 Both are right for VS 18 / MSVC 14.51, and the four libraries the project links
 (`wxbase33u{,d}`, `wxmsw33u{,d}_core`) are exactly what the vcpkg port installs.
 From a bare machine that is:
 
     git clone https://github.com/microsoft/vcpkg C:\temp\vcpkg
     C:\temp\vcpkg\bootstrap-vcpkg.bat
-    C:\temp\vcpkg\vcpkg.exe install wxwidgets:x64-windows   # ~40 min
-    build.bat                                               # Debug
-    build_release.bat                                       # Release
+    C:\temp\vcpkg\vcpkg.exe integrate install
+    C:\temp\vcpkg\vcpkg.exe install wxwidgets:x64-windows     # ~40 min
+    C:\temp\vcpkg\vcpkg.exe install wxwidgets:arm64-windows   # 12 min on the x64 box
+    build.bat [x64|ARM64]                                     # Debug
+    build_release.bat [x64|ARM64]                             # Release
+
+The x64 box needs both triplets: it is the only machine with the signing kit,
+so the two-architecture `.msixbundle` is made there. The ARM64 VM holds only
+`arm64-windows`, so it cannot link x64.
 
 The sibling checkouts have to be present beside this one — the project compiles
 the core straight out of them, with no version gate, so a core that grows a
