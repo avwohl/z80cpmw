@@ -21,6 +21,13 @@ Each needs its own vcpkg triplet (`x64-windows`, `arm64-windows`) and
 x64 exe runs emulated on Windows on ARM, so check `dumpbin /headers` for
 `AA64 machine`, not whether it launched. The NSIS installer is x64 only.
 
+`build-msixbundle.ps1` joins the two per-arch packages already in `dist\` into
+one `.msixbundle`; it builds nothing. Store: bundles the two `-store.msix`,
+unsigned. Beta: bundles the two `-beta-unsigned.msix` rehearsals and signs only
+the bundle, so a beta costs one signing call and never re-mints the per-arch
+`-beta.msix` names. It refuses to overwrite a signed bundle, and a one-arch
+`-Platforms` subset is named `-<arch>-only` and never signed.
+
 The suites need no wxWidgets, no vcpkg and no window (except the rendering one,
 which opens its own). They run on any machine with a compiler. wxWidgets comes
 from `C:\temp\vcpkg`.
