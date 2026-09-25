@@ -72,7 +72,13 @@ while the older ones (1.0.10, 1.0.14) do, and a tag can exist for a version
 published on neither channel (v1.0.20). `git tag` and `gh release list` are
 therefore not evidence of what has shipped.
 
-## [Unreleased]
+## [1.0.46] - 2026-09-25
+
+`Version.h` moved to 1.0.46 before anything was packaged at it, so no Store run
+can be made at 1.0.45 - the version the Store serves - and overwrite
+`dist\z80cpmw-1.0.45-store.{msix,pdb}`: the Store arm of `build-msix.ps1`
+replaces a same-named package and `.pdb` without asking. Nothing is packaged at
+1.0.46 yet.
 
 ### Builds for ARM64 as well as x64 - not yet in any package
 
