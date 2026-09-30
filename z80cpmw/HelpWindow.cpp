@@ -95,7 +95,7 @@ static HelpWindow* g_helpWindow = nullptr;
 // The paragraph opening "A bare name" is deliberately unconditional and must stay
 // that way. It briefly carried a clause tying it to a W8 that ignored the command
 // tail; that clause is gone, and re-adding one would make it false the moment the
-// images move again. The wording here is README.md's, so the two cannot drift.
+// images move again. The wording here is docs/USAGE.md's (File Transfer), so the two cannot drift.
 std::string help_topics::gettingStartedMarkdown() {
     return R"DOC(# Getting Started
 

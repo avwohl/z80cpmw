@@ -21,7 +21,7 @@ emulator.
 - What changed in each version: [CHANGELOG.md](CHANGELOG.md)
 
 **Neither package ships a ROM or a disk image**, so **the first run needs a
-network connection** - see [ROMs and Disk Images](#roms-and-disk-images).
+network connection** - see [ROMs and Disk Images](docs/ROMS_AND_DISK_IMAGES.md).
 
 ## Features
 
@@ -38,88 +38,6 @@ network connection** - see [ROMs and Disk Images](#roms-and-disk-images).
 - Configurable keyboard map for function/navigation keys (termcap-style)
 - Mouse text selection with right-click Copy/Paste
 
-## ROMs and Disk Images
-
-**Nothing is bundled.** The package carries the executable, the wxWidgets and
-VC++ runtime DLLs, and (in a build made with the optional `..\ioscpm` checkout)
-the help text. It carries no ROM and no disk image.
-
-Both come from the interface-v0 catalog in
-[romwbw_disks](https://github.com/avwohl/romwbw_disks). The only content address
-compiled into this application is the index that catalog starts from
-(`z80cpmw/CatalogV0.cpp`); the help base URL comes out of that index at run
-time, and the index names every published RomWBW release and points at that
-release's own list of ROMs and disk images, so no download URL is ever assembled
-here from a version number.
-
-Everything fetched lands in the data folder and is measured against the size and
-SHA-256 the catalog publishes: a download whose bytes do not match is deleted
-rather than kept, and a ROM is refused outright if the catalog carries no
-checksum for it, because fifteen banks of unknown bytes under a CPU is not a
-risk worth the convenience.
-
-Three things are yours to choose, all under **Emulator → Settings**:
-
-- **Which RomWBW release** - the picker at the top of the **Disk Images** page.
-  That list is the index: every release `romwbw_disks` publishes is offered, and
-  **a new RomWBW release reaches you with no new build of this application**,
-  exactly as a new ROM or a new disk image does. Pre-releases are the one
-  exception, and they are not releases - see **Show pre release** below.
-  This paragraph said the opposite until 2026-09-17, and the thing it described
-  was real: the list was filtered through the emulator core's
-  `emu_romwbw_release_supported()`, which answered from a compile-time list in
-  `romwbw_emu/src/romwbw_pin.h`, so a 3.7.0 entry was dropped by any binary built
-  before somebody added 3.7.0 there. romwbw_emu v1.44 deleted the function, the
-  list and the header. The reasoning is in `romwbw_emu/DOWNSTREAM.md`: the
-  release number is the pairing between a ROM and a disk image - which the guest
-  enforces itself, by printing `*** WARNING: HBIOS/CBIOS Version Mismatch ***` -
-  and not a property of the emulator. What the emulator depends on is the
-  emulator-to-ROM interface, and that is versioned by the name of the catalog
-  this app reads: `index-v0.json`. An interface change the core could not service
-  would be published as `index-v1.json`, which this build would never open.
-  What the release picker still owes you is a matched pair, and it says so: pick
-  a release whose ROM is not the one in the banks and the note under the picker
-  tells you Start will offer to fetch that release's ROM.
-- **Show pre release** - the checkbox under the release picker, off by default.
-  `romwbw_disks` publishes RomWBW pre-releases beside the releases; upstream has
-  not released them and they are never the catalog's default. Tick the box and
-  they join the list. **Unticking it moves a machine that is on one** back to the
-  catalog's default, and the ROM and the four disks follow, the same way they do
-  when you change the release by hand. Nothing is deleted: the pre-release's
-  images stay in the data folder.
-- **Which ROM** - the dropdown on the **Machine** page, filled from the selected
-  release's ROMs. Publishing a new ROM in `romwbw_disks`, into a release the
-  picker already offers, makes it selectable with no new release of this
-  application.
-- **Which catalog** - the *Catalog index* field under the release picker. Leave
-  it empty for the catalog this build ships with, or point it at another
-  `romwbw_disks` index to try a release before it is published.
-  `ROMWBW_INDEX_URL` in the environment overrides it for one run and stores
-  nothing; the field is disabled and says so while it is set. The order -
-  environment, then setting, then built-in - matches `romwbw_emu`'s
-  `romwbw-get`. Every catalog reads and writes the same data folder, so two
-  catalogs publishing an image under one name share one file;
-  [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) has the details.
-
-### The first run
-
-No ROM may be loaded before the catalog carrying its size and checksum has been
-read, so a machine that has never reached the network has nothing it is allowed
-to boot. Press **F5** on a fresh install and it fetches the catalog, downloads
-the two default disk images (`hd1k_combo` and `hd1k_games`) and then the ROM
-(about 512 KB); it starts when that ROM has arrived and matched. With no network
-and nothing cached it says so and asks you to check the connection and press F5
-again. After one success everything is cached, and later starts cost one small
-catalog request and one checksum. If the catalog cannot be read later on, it
-mounts whichever default disks are already cached and tries to start on those;
-whether it gets there depends on the ROM gate, which needs a cached ROM for the
-selected release. With neither, it says so instead of running empty banks.
-
-A ROM placed by hand is searched for before the data folder's copy, in this
-order: `<appDir>\roms\`, `<appDir>\`, `<appDir>\..\roms\`, then the data folder.
-It is still used only after the catalog has been read and the file has matched
-the published size and checksum.
-
 ## Usage
 
 1. Launch `z80cpmw.exe`. On first run a scrollable **Getting Started** help
@@ -134,123 +52,15 @@ To change ROM or RomWBW release, open **Emulator > Settings**. **File > Load
 Disk 0/1** mounts images into the first two units; **Settings > Machine** has
 all four slots, each with its own Browse and New buttons.
 
-### Boot Menu Keys
+## Documentation
 
-Every command is a line, so it needs Enter.
-
-- `2` - boot the first hard disk, slice 0; `2.3` for slice 3
-- `d` - list the devices
-- `h` - the command set. On RomWBW 3.6.0 this lists the ROM applications too;
-  on 3.5.1 they are under `l`, which 3.6.0 answers with `*** Invalid command`
-
-Units 0 and 1 are the on-board RAM and ROM memory disks and carry no operating
-system, so they boot nothing.
-
-### Keyboard
-
-Arrow keys, Home/End, Insert, PageUp/PageDown and the function keys (F1-F12)
-send VT100/xterm escape sequences to CP/M. Because CP/M is pure ASCII with no
-standard for these keys, every binding is configurable - see
-[Configuration](#configuration).
-
-By default `F1` opens Help and `F5` / `Shift+F5` start and stop the emulator, so
-those two are not passed to CP/M unless you enable them in the config. Reset has
-no shortcut by default: `Ctrl+R` is a character CP/M itself uses, so it goes to
-the guest and Reset stays on the **Emulator** menu. Set `"ctrlRToCpm": false` to
-claim `Ctrl+R` for Reset instead.
-
-### Mouse Copy/Paste
-
-Drag to select text in the terminal, then right-click for **Copy** and
-**Paste**. `Ctrl+C` / `Ctrl+V` are left untouched so they still reach CP/M as
-`^C` / `^V`.
-
-### File Transfer (R8 / W8)
-
-`R8 name` imports a file from the host into CP/M; `W8 name` exports one. On
-Windows both take a **full path**, and `W8` prints the path the file really went
-to - which on any MSIX install is the redirected `LocalCache` location, not the
-one you typed:
-
-```
-R8 C:\Users\me\Desktop\getkey2.com
-W8 REPORT.TXT C:\Users\me\Desktop\report.txt
-```
-
-A bare name (`W8 out.com`) goes to the app's data folder, whose real location
-the app shows in **Emulator → Settings** (with an **Open Folder** button),
-**Help → About**, and the boot banner.
-
-Both utilities come from the disk catalog, not from this app, and only the
-`hd1k_combo` image carries them - boot a single-OS image and there is no `R8` or
-`W8` to run. [docs/FILE_TRANSFER.md](docs/FILE_TRANSFER.md) covers where
-exported files land on the Store build and on the other ports.
-
-## Configuration
-
-Settings live in `z80cpmw.json`. Under MSIX - which both shipping channels are -
-the `%LOCALAPPDATA%\z80cpmw\` write is redirected into the package's
-`LocalCache`, which is why the app shows the resolved path and an **Open
-Folder** button rather than printing a path you would have to translate.
-
-The file is nested rather than flat. `rom` and `romwbwVersion` live under
-`core`; `f1ToCpm`, `f5ToCpm`, `ctrlRToCpm` and the termcap-style `keys` map live
-under `keyboard`; fonts and disk assignments have their own objects. Putting a
-key at the top level does not work, but it is not silent either - the loader
-compares the document against a reference and reports anything the reference
-lacks as an unknown member.
-`rom` holds the catalog's **id** (`emu_avw`, not a filename), because a filename
-carries the release and would be forgotten the first time you switched releases;
-an empty `rom` means "whichever ROM the catalog marks as its default". A file
-written by an older build, holding `emu_avw.rom`, is converted to the id as it
-is read.
-
-Help topics are also viewable from **Help → Help Topics**. The status line at
-the foot of that window names the copy you are reading - `downloaded`, `offline
-copy` with the date, `bundled with the app`, `unavailable`, or `this session's
-copy`, which means the window repainted from its fifteen-minute in-memory cache
-and nothing was fetched.
-
-See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) for the full reference,
-including the escape syntax, bindable key names and the default bindings.
-
-## Building
-
-**Requirements:**
-
-- Visual Studio 18 or later (the project sets `PlatformToolset` to `v145`)
-- Windows SDK 10.0 or later
-- **wxWidgets 3.3** through vcpkg, one triplet per architecture you build:
-  `wxwidgets:x64-windows` for `Platform=x64`, `wxwidgets:arm64-windows` for
-  `Platform=ARM64`. An x64 machine builds both; the ARM64 one is a cross-build.
-  `z80cpmw.vcxproj` looks under `C:\temp\vcpkg\installed\<triplet>\`; install
-  vcpkg there or pass `/p:WxVcpkgRoot=<your vcpkg>`. Run `vcpkg integrate
-  install` once as well - that is what copies the wx DLLs beside the exe.
-  Without the triplet the build stops at `SettingsDialogWx.h(9): fatal error
-  C1083: Cannot open include file: 'wx/wx.h'`.
-- [`cpmemu`](https://github.com/avwohl/cpmemu) and
-  [`romwbw_emu`](https://github.com/avwohl/romwbw_emu) checked out **next to**
-  this one: the project compiles emulator sources directly from `..\cpmemu\src`
-  and `..\romwbw_emu\src`.
-- **Optional:** [`ioscpm`](https://github.com/avwohl/ioscpm), also next to this
-  one. When present, `z80cpmw.rc` compiles the shared help assets from
-  `..\ioscpm\release_assets` into the executable as `RCDATA`, so the online help
-  topics can be read with no network and an empty cache. Without it the build
-  succeeds and defines `NO_BUNDLED_HELP_ASSETS`; what is lost is only the
-  offline floor for those topics. `/p:BundleHelpAssets=false` forces that build
-  on a machine that does have the checkout.
-
-Open `z80cpmw.sln` in Visual Studio and build the solution.
-`tests\run_tests.bat` needs `..\cpmemu` and `..\romwbw_emu` for its last three
-suites and stops without them; without `..\ioscpm` the help suite skips its
-bundled-asset section and runs the rest.
-
-Packaging is scripted: `packaging\scripts\build-msix.ps1` builds the unsigned
-Store package, and `-Beta` builds and signs the sideload package instead.
-`-SkipBuild` packages an existing `bin\Release` without rebuilding, checking the
-binary's version against `z80cpmw/Version.h` and refusing a mismatch. See
-[packaging/STORE_SUBMISSION.md](packaging/STORE_SUBMISSION.md) and
-[docs/CODE_SIGNING.md](docs/CODE_SIGNING.md).
+- [ROMs and Disk Images](docs/ROMS_AND_DISK_IMAGES.md) - the RomWBW catalog, choosing a release and a ROM, pre-releases, the first run
+- [Using z80cpmw](docs/USAGE.md) - boot menu keys, keyboard, mouse copy/paste, R8/W8 file transfer
+- [Configuration](docs/CONFIGURATION.md) - `z80cpmw.json`, the keyboard map, escape syntax and default bindings
+- [File Transfer](docs/FILE_TRANSFER.md) - where R8/W8 files go on each platform
+- [Building](docs/BUILDING.md) - requirements, sibling checkouts, tests and MSIX packaging
+- [Code Signing](docs/CODE_SIGNING.md) - how the sideload packages are signed
+- [CHANGELOG](CHANGELOG.md) - what changed in each version
 
 ## Related Projects
 

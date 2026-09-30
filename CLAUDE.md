@@ -241,3 +241,6 @@ is "fourteen commits unreleased", 2 only when it could not measure. Four jobs in
 this family went red daily for that normal state and all four were deleted on
 2026-09-13.
 
+
+## README stays short
+README.md is at most 150 lines. New detail goes in docs/<topic>.md with a one-line link from the README; never add sections to the README.

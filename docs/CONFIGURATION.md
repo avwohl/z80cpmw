@@ -27,6 +27,31 @@ Keyboard* lists every bindable key with what it sends, and edits the same
 OK — no restart — and anything in the file the page does not recognise is left
 exactly as you wrote it.
 
+## Where the settings live and how the file is laid out
+
+Settings live in `z80cpmw.json`. Under MSIX - which both shipping channels are -
+the `%LOCALAPPDATA%\z80cpmw\` write is redirected into the package's
+`LocalCache`, which is why the app shows the resolved path and an **Open
+Folder** button rather than printing a path you would have to translate.
+
+The file is nested rather than flat. `rom` and `romwbwVersion` live under
+`core`; `f1ToCpm`, `f5ToCpm`, `ctrlRToCpm` and the termcap-style `keys` map live
+under `keyboard`; fonts and disk assignments have their own objects. Putting a
+key at the top level does not work, but it is not silent either - the loader
+compares the document against a reference and reports anything the reference
+lacks as an unknown member.
+`rom` holds the catalog's **id** (`emu_avw`, not a filename), because a filename
+carries the release and would be forgotten the first time you switched releases;
+an empty `rom` means "whichever ROM the catalog marks as its default". A file
+written by an older build, holding `emu_avw.rom`, is converted to the id as it
+is read.
+
+Help topics are also viewable from **Help → Help Topics**. The status line at
+the foot of that window names the copy you are reading - `downloaded`, `offline
+copy` with the date, `bundled with the app`, `unavailable`, or `this session's
+copy`, which means the window repainted from its fifteen-minute in-memory cache
+and nothing was fetched.
+
 ## Keyboard map
 
 CP/M is pure ASCII and has no built-in function or navigation keys. Each CP/M
