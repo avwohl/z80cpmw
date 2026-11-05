@@ -12,7 +12,7 @@ before.
 
 - **GDB with the Z80 target**, if you use GDB. Use GDB 18.1 or newer.
   Homebrew's `gdb` formula has the Z80 target.
-- **udb80**, if you use udb80: `pip install "um80>=0.4.1"`. udb80 needs no GDB.
+- **udb80**, if you use udb80: `pip install "um80>=0.4.2"`. udb80 needs no GDB.
   For source-level debugging, assemble with `um80 --debug-info` and link with
   `ul80 --debug-info`. The linker writes the `PROG.dbg` file.
 
@@ -72,17 +72,22 @@ when the program starts.
 4. At the CP/M prompt in the z80cpmw window, type the name of the program.
 5. The stub stops at 0100H. udb80 then shows the source line.
 
-With GDB, `monitor wait-program` alone does not stop: GDB continues past the
-stop with no message. Give GDB a breakpoint of its own at 0100H in bank 8EH:
+With GDB, type this before `continue`:
 
 ```
-(gdb) monitor break-bank 8E
-(gdb) break *0x100
+(gdb) monitor wait-program sha256 LENGTH HEX64
 (gdb) continue
 ```
 
-Then type the name of the program at the CP/M prompt. GDB stops at the first
-program that CP/M starts at 0100H. The romwbw_emu document
+Then type the name of the program at the CP/M prompt. GDB stops with `Program received signal SIGTRAP` at the first line of the
+program, at 0100H in bank 8EH. LENGTH and HEX64 are `image.length` and
+`image.sha256` of `PROG.dbg`.
+
+This needs a build that compiled the cpmemu stub
+of 2026-11-05 or later (cpmemu `365dfc2`). With an older build, GDB continues
+past the stop with no message. Then use `monitor break-bank 8E`,
+`break *0x100` and `continue`, which stop at the first program that CP/M
+starts at 0100H. The romwbw_emu document
 [GDB.md, Find the program with GDB](https://github.com/avwohl/romwbw_emu/blob/main/docs/GDB.md#find-the-program-with-gdb) gives the reasons and the
 measurements. The cpmemu document and the romwbw_emu document
 `docs/GDB.md` have the other `monitor` commands, such as `monitor bank` and
