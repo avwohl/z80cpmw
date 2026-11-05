@@ -539,6 +539,14 @@ and the Cancel-path save have been compiled and never driven.
 
 ## [Unreleased]
 
+### docs/gdb.md: the GDB steps for a CP/M program are break-bank 8E and break *0x100
+
+The page said to give GDB `monitor wait-program` and `continue`. Measured with
+GDB 18.1 on romwbw_emu (the same stub and target) on 2026-11-05, that never
+stops: GDB set no breakpoint at 0100H, so it continues past the stub's
+`T05swbreak`. The page now gives `monitor break-bank 8E`, `break *0x100` and
+`continue`, and links romwbw_emu's `docs/GDB.md` for the reasons.
+
 ### The GDB stub, written and not yet run on Windows
 
 Settings > **Debugger** turns on a GDB remote stub: a debugger (GDB 18.1 with the

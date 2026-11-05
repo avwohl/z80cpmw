@@ -72,16 +72,19 @@ when the program starts.
 4. At the CP/M prompt in the z80cpmw window, type the name of the program.
 5. The stub stops at 0100H. udb80 then shows the source line.
 
-With GDB, send the same rule by hand, and then continue:
+With GDB, `monitor wait-program` alone does not stop: GDB continues past the
+stop with no message. Give GDB a breakpoint of its own at 0100H in bank 8EH:
 
 ```
-(gdb) monitor wait-program sha256 LENGTH HEX64
+(gdb) monitor break-bank 8E
+(gdb) break *0x100
 (gdb) continue
 ```
 
-`LENGTH` is the length of the program in decimal. `HEX64` is the SHA-256 of
-the program. The `PROG.dbg` file has both values in `image.length` and
-`image.sha256`. The cpmemu document and the romwbw_emu document
+Then type the name of the program at the CP/M prompt. GDB stops at the first
+program that CP/M starts at 0100H. The romwbw_emu document
+[GDB.md, Find the program with GDB](https://github.com/avwohl/romwbw_emu/blob/main/docs/GDB.md#find-the-program-with-gdb) gives the reasons and the
+measurements. The cpmemu document and the romwbw_emu document
 `docs/GDB.md` have the other `monitor` commands, such as `monitor bank` and
 `monitor bt`.
 
