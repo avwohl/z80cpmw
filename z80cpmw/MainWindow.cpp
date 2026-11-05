@@ -749,17 +749,21 @@ void MainWindow::onTimer() {
         static int timerCount = 0;
         if (++timerCount >= 50) {  // 50 * 10ms = 500ms
             timerCount = 0;
-            char buf[128];
-            sprintf(buf, "Running - PC: 0x%04X  Instructions: %llu",
-                    m_emulator->getProgramCounter(),
-                    m_emulator->getInstructionCount());
-            m_statusText = buf;
             // With the GDB stub on, the status line says where to connect, or
-            // that a debugger is connected. The debug thread owns the CPU, so
-            // the PC is not read from here.
+            // that a debugger is connected. While the debug thread owns the
+            // CPU, the PC and the instruction count are not read from here:
+            // the debug thread writes both.
             const std::string gdbStatus = m_emulator->getGdbStatus();
             if (!gdbStatus.empty()) {
                 m_statusText = "Running - " + gdbStatus;
+            } else if (m_emulator->gdbOwnsCpu()) {
+                m_statusText = "Running";
+            } else {
+                char buf[128];
+                sprintf(buf, "Running - PC: 0x%04X  Instructions: %llu",
+                        m_emulator->getProgramCounter(),
+                        m_emulator->getInstructionCount());
+                m_statusText = buf;
             }
             updateStatusBar();
 

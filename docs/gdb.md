@@ -149,6 +149,9 @@ usable. When the debugger detaches, the CPU goes back to the timer.
 - While the stub is on, the debug thread owns the machine. The program refuses File
   commands that load, close or save a disk image. The automatic save of disks
   waits until you stop the machine.
+- While the stub is on, the status line does not show the PC or the
+  instruction count. The debug thread writes both, and the window thread does
+  not read them.
 - The Dazzler window can show a torn picture while the debugger holds the CPU.
 - `monitor wait-program` knows bank 8EH and 0100H only. CP/M 3 and ZPM3 load
   programs in other ways.

@@ -500,7 +500,9 @@ void EmulatorEngine::setGdbStub(bool enabled, int port, bool allowNetwork) {
 }
 
 std::string EmulatorEngine::getGdbStatus() const {
-    return m_gdb ? m_gdb->statusText() : std::string();
+    // A failure from an earlier run stays in the session; once the user has
+    // turned the stub off, the status line must not show it.
+    return (m_gdb && m_gdbEnabled) ? m_gdb->statusText() : std::string();
 }
 
 void EmulatorEngine::gdbQueueOutput(uint8_t ch) {

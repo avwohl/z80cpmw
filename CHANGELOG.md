@@ -597,6 +597,10 @@ for the new settings or `tests\run_tests.bat` with its new suite. No debugger
 has connected to z80cpmw itself. MANUAL_CHECKS.md section 16 and a `todo.txt`
 item name what a Windows machine has to do.
 
+The status line no longer reads the PC or the instruction count while the debug
+thread owns the CPU, and no longer shows a failure from an earlier run after the
+stub is turned off.
+
 
 ### The disks still did not follow the release, and the trigger was the reason
 
