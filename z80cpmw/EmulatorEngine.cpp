@@ -12,6 +12,10 @@
 #include "emu_io.h"
 #include "emu_init.h"
 #include "Dazzler.h"
+#include "GdbSession.h"
+#include "GdbPlatform.h"
+#include "gdbstub.h"
+#include "romwbw_gdb.h"
 
 // External callback setters from emu_io_windows.cpp
 extern "C" {
@@ -25,6 +29,12 @@ static EmulatorEngine* g_engine = nullptr;
 
 // Output callback wrapper - routes emu_console_write_char to the engine callback
 static void outputCallbackWrapper(uint8_t ch) {
+    // Called from the CPU thread. While the GDB debug thread has the CPU that is
+    // not the UI thread, and the terminal belongs to the UI thread: queue it.
+    if (g_engine && g_engine->gdbOwnsCpu()) {
+        g_engine->gdbQueueOutput(ch);
+        return;
+    }
     if (g_engine && g_engine->getOutputCallback()) {
         g_engine->getOutputCallback()(ch);
     }
@@ -39,6 +49,7 @@ EmulatorEngine::EmulatorEngine() {
 
 EmulatorEngine::~EmulatorEngine() {
     stop();
+    m_gdb.reset();
     g_engine = nullptr;
     emu_io_cleanup();
 }
@@ -67,6 +78,18 @@ void EmulatorEngine::initCPU() {
         *m_hbios->getInitializedBanksBitmap() = 0;
     });
 
+    GdbSession::Hooks hooks;
+    hooks.step = [this](gdb::StepEvents& ev) { gdbStep(ev); };
+    hooks.finished = [this](bool killed) {
+        // On the debug thread, last thing it does. Under m_mutex so that a
+        // runBatch() on the UI thread either saw the thread own the CPU or sees
+        // it hand the CPU back, never the two at once. After a kill the CPU
+        // stays with the thread until the UI thread has called stop().
+        std::lock_guard<std::mutex> lock(m_mutex);
+        if (killed) m_gdbKilled = true;
+        else m_gdbOwns = false;
+    };
+    m_gdb.reset(new GdbSession(*m_cpu, *m_memory, hooks));
 }
 
 void EmulatorEngine::initializeRamBankIfNeeded(uint8_t bank) {
@@ -158,6 +181,7 @@ bool EmulatorEngine::loadROMFromData(const uint8_t* data, size_t size) {
 
 bool EmulatorEngine::loadDisk(int unit, const std::string& path) {
     if (unit < 0 || unit >= 4) return false;
+    if (m_gdbOwns) return false;   // the debug thread has the machine (docs/gdb.md)
     // hbios loadDisk starts by discarding the unit's buffer and dirty flag,
     // so persist unsaved guest writes on the outgoing image first (reachable
     // while running via File > Load Disk) — and before reading the incoming
@@ -190,11 +214,13 @@ bool EmulatorEngine::loadDisk(int unit, const std::string& path) {
 
 bool EmulatorEngine::loadDiskFromData(int unit, const uint8_t* data, size_t size) {
     if (unit < 0 || unit >= 4) return false;
+    if (m_gdbOwns) return false;   // the debug thread has the machine (docs/gdb.md)
     return m_hbios->loadDisk(unit, data, size);
 }
 
 void EmulatorEngine::closeDisk(int unit) {
     if (unit < 0 || unit >= 4) return;
+    if (m_gdbOwns) return;
     saveDiskIfDirty(unit);
     m_hbios->closeDisk(unit);
     m_diskPaths[unit].clear();
@@ -216,6 +242,7 @@ void EmulatorEngine::saveDiskIfDirty(int unit) {
 
 bool EmulatorEngine::saveDisk(int unit, const std::string& path) {
     if (unit < 0 || unit >= 4) return false;
+    if (m_gdbOwns) return false;   // the debug thread has the machine (docs/gdb.md)
     auto data = getDiskData(unit);
     if (data.empty()) return false;
     return emu_file_save(path, data);
@@ -223,6 +250,7 @@ bool EmulatorEngine::saveDisk(int unit, const std::string& path) {
 
 std::vector<uint8_t> EmulatorEngine::getDiskData(int unit) {
     if (unit < 0 || unit >= 4) return {};
+    if (m_gdbOwns) return {};
     const uint8_t* data = m_hbios->getDiskData(unit);
     size_t size = m_hbios->getDiskDataSize(unit);
     if (!data || size == 0) return {};
@@ -263,6 +291,7 @@ void EmulatorEngine::setDiskWarningSuppressed(int unit, bool suppressed) {
 }
 
 bool EmulatorEngine::pollManifestWriteWarning() {
+    if (m_gdbOwns) return false;
     return m_hbios ? m_hbios->pollManifestWriteWarning() : false;
 }
 
@@ -277,6 +306,7 @@ void EmulatorEngine::flushAllDisks() {
 
 bool EmulatorEngine::checkPeriodicFlush() {
     if (!m_hbios) return false;
+    if (m_gdbOwns) return false;   // the disks are in use by the debug thread
     if (m_hbios->checkPeriodicFlush()) {
         // Also save dirty in-memory disks to their file paths
         for (int i = 0; i < 4; i++) {
@@ -320,16 +350,39 @@ void EmulatorEngine::start() {
     // Empty string = show boot menu, "0" = disk unit 0, "C" = ROM app C, etc.
     m_hbios->setNvramSetting(m_bootString);
 
+    // The GDB stub, if the user turned it on. Last, so that the debug thread
+    // starts on a machine that is fully initialised. From here on the thread
+    // owns the CPU and runBatch() does nothing until the debugger detaches.
+    std::string gdbNote;
+    m_gdbKilled = false;
+    {
+        std::lock_guard<std::mutex> lock(m_gdbOutMutex);
+        m_gdbOut.clear();
+        m_gdbOutPending = false;
+    }
+    if (m_gdbEnabled) {
+        m_gdbOwns = true;
+        const uint32_t addr = m_gdbAllowNetwork ? 0u : gdb::kLoopback;
+        if (!m_gdb->start(addr, m_gdbPort)) {
+            m_gdbOwns = false;
+        }
+        gdbNote = m_gdb->statusText();
+    }
+
     // Publish only after init is complete: runBatch() gates on m_running and
     // must never execute a half-initialized machine.
     m_running = true;
-    sendStatus("Running");
+    sendStatus(gdbNote.empty() ? "Running" : "Running - " + gdbNote);
 }
 
 void EmulatorEngine::stop() {
     if (!m_running) return;
     m_stopRequested = true;
     m_running = false;
+    // End the debug session first, and wait for its thread: it is the thread
+    // that runs the CPU, and the disks below must not be flushed under it.
+    if (m_gdb) m_gdb->stop();
+    m_gdbOwns = false;
     // Persist dirty in-memory disks now: the periodic flush only runs while
     // the emulator is running, so without this up to PERIODIC_FLUSH_INTERVAL
     // seconds of guest writes are lost on stop/exit.
@@ -370,10 +423,12 @@ void EmulatorEngine::clearNvramSetting() {
 }
 
 bool EmulatorEngine::hasNvramChange() const {
+    if (m_gdbOwns) return false;
     return m_hbios ? m_hbios->hasNvramChange() : false;
 }
 
 std::string EmulatorEngine::getNvramSetting() {
+    if (m_gdbOwns) return "";
     return m_hbios ? m_hbios->getNvramSetting() : "";
 }
 
@@ -392,6 +447,7 @@ uint64_t EmulatorEngine::getInstructionCount() const { return m_instructionCount
 void EmulatorEngine::runBatch() {
     if (!m_running) return;
     std::lock_guard<std::mutex> lock(m_mutex);
+    if (m_gdbOwns) return;   // the debug thread runs the CPU (docs/gdb.md)
 
     for (int i = 0; i < BATCH_SIZE && m_running && !m_stopRequested; i++) {
         m_cpu->execute();
@@ -402,15 +458,99 @@ void EmulatorEngine::runBatch() {
     }
 }
 
-bool EmulatorEngine::isIdle() const {
+bool EmulatorEngine::hbiosIdle() const {
     return m_hbios && (m_hbios->isConsoleIdle() || m_hbios->isWaitingForInput());
+}
+
+bool EmulatorEngine::isIdle() const {
+    // Under the debugger the timer must not skip ticks: the output queue and the
+    // status line are served on them.
+    if (m_gdbOwns) return false;
+    return hbiosIdle();
 }
 
 void EmulatorEngine::flushOutput() {
     if (!m_hbios || !m_outputCallback) return;
+    // What the debug thread printed, first. The flag is cleared before the queue
+    // is taken, so a character queued meanwhile sets it again and is not lost.
+    if (m_gdbOutPending.exchange(false)) {
+        std::vector<uint8_t> queued;
+        {
+            std::lock_guard<std::mutex> lock(m_gdbOutMutex);
+            queued.swap(m_gdbOut);
+        }
+        for (uint8_t ch : queued) m_outputCallback(ch);
+    }
+    // The HBIOS buffer belongs to the debug thread while it has the CPU.
+    if (m_gdbOwns) return;
     std::vector<uint8_t> chars = m_hbios->getOutputChars();
     for (uint8_t ch : chars) {
         m_outputCallback(ch);
+    }
+}
+
+//=============================================================================
+// The GDB stub
+//=============================================================================
+
+void EmulatorEngine::setGdbStub(bool enabled, int port, bool allowNetwork) {
+    m_gdbEnabled = enabled;
+    m_gdbPort = port;
+    m_gdbAllowNetwork = allowNetwork;
+}
+
+std::string EmulatorEngine::getGdbStatus() const {
+    return m_gdb ? m_gdb->statusText() : std::string();
+}
+
+void EmulatorEngine::gdbQueueOutput(uint8_t ch) {
+    std::lock_guard<std::mutex> lock(m_gdbOutMutex);
+    m_gdbOut.push_back(ch);
+    m_gdbOutPending = true;
+}
+
+// The characters the guest printed, from the HBIOS buffer to the queue that
+// the UI thread empties. On the debug thread.
+void EmulatorEngine::gdbDrainOutput() {
+    std::vector<uint8_t> chars = m_hbios->getOutputChars();
+    if (chars.empty()) return;
+    std::lock_guard<std::mutex> lock(m_gdbOutMutex);
+    m_gdbOut.insert(m_gdbOut.end(), chars.begin(), chars.end());
+    m_gdbOutPending = true;
+}
+
+// One turn for the stub: one instruction, as runBatch() runs it, plus what
+// runBatch() does after a batch. On the debug thread. It does not lock
+// m_mutex: while the thread owns the CPU the UI thread does not touch the
+// machine, and a lock per instruction would let the debug thread starve the
+// UI thread that waits for the same lock.
+void EmulatorEngine::gdbStep(gdb::StepEvents& ev) {
+    if (m_stopRequested) throw GdbRunEnd{false};
+    const uint16_t pc = m_cpu->regs.PC.get_pair16();
+    ev.exec_pc = pc;
+    ev.exec_sp = m_cpu->regs.SP.get_pair16();
+
+    // A HLT stops the guest and tells the debugger (stop reply T05); a
+    // continue goes on past it, as in romwbw_emu.
+    if (m_memory->peek_mem(pc) == 0x76) {
+        m_cpu->regs.PC.set_pair16((uint16_t)(pc + 1));
+        ev.halt = true;
+        return;
+    }
+
+    m_cpu->execute();
+    m_instructionCount++;
+    if (m_hbios->isWaitingForInput() && emu_console_has_input()) {
+        m_hbios->clearWaitingForInput();
+    }
+    gdbDrainOutput();
+
+    // A guest that polls the console, or waits for a key, runs the same few
+    // instructions at full speed. Give the CPU back to the machine now and
+    // then, and tell the stub to look at its socket for a ^C.
+    if (hbiosIdle() && (++m_gdbIdleTick & 0x3F) == 0) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        ev.poll = true;
     }
 }
 

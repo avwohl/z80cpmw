@@ -380,5 +380,40 @@ if errorlevel 1 (
 )
 
 echo.
+echo === Building the GDB session suite ===
+REM GdbSession over real TCP sockets on 127.0.0.1: z80cpmw's half of the GDB
+REM stub, with cpmemu's gdbstub.cc and romwbw_emu's romwbw_gdb.cc compiled in as
+REM they are, and z80cpmw\gdb_platform_windows.cpp as the Winsock layer. No
+REM wxWidgets, no window, no precompiled header.
+if not exist "obj\tests\gdb" mkdir "obj\tests\gdb"
+cl /nologo /EHsc /W3 /O2 /std:c++17 ^
+    /D _CRT_SECURE_NO_WARNINGS ^
+    /I z80cpmw /I ..\cpmemu\src /I ..\romwbw_emu\src ^
+    tests\test_gdb_session.cpp ^
+    z80cpmw\GdbSession.cpp ^
+    z80cpmw\gdb_platform_windows.cpp ^
+    ..\cpmemu\src\gdbstub.cc ^
+    ..\romwbw_emu\src\romwbw_gdb.cc ^
+    ..\cpmemu\src\qkz80.cc ^
+    ..\cpmemu\src\qkz80_errors.cc ^
+    ..\cpmemu\src\qkz80_mem.cc ^
+    ..\cpmemu\src\qkz80_reg_set.cc ^
+    /Fo:obj\tests\gdb\ ^
+    /Fe:obj\tests\gdb\test_gdb_session.exe ^
+    /link /SUBSYSTEM:CONSOLE ws2_32.lib
+if errorlevel 1 (
+    echo Build failed.
+    exit /b 1
+)
+
+echo.
+obj\tests\gdb\test_gdb_session.exe
+if errorlevel 1 (
+    echo.
+    echo GDB SESSION SUITE FAILED
+    exit /b 1
+)
+
+echo.
 echo All suites passed.
 endlocal

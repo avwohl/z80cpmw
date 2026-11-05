@@ -294,6 +294,7 @@ static void test_default_literals() {
         {"display", json::object()},
         {"keyboard", json::object()},
         {"window", json::object()},
+        {"debugger", json::object()},
         {"hardware", {{"dazzler", json::array({json::object()})}}},
         // DiskConfig is the one shape in the schema that cannot be empty -
         // from_json uses j.at("path") - so its required member is supplied and
@@ -2196,6 +2197,38 @@ static void test_bell() {
 }
 
 //=============================================================================
+// debugger.* (the GDB stub, docs/gdb.md)
+//=============================================================================
+
+static void test_gdb_settings() {
+    section("debugger.gdb*");
+
+    AppConfig fresh{};
+    checkTrue(!fresh.gdbEnabled, "the GDB stub is off by default");
+    checkInt(fresh.gdbPort, 1234, "the GDB port is 1234 by default");
+    checkTrue(!fresh.gdbAllowNetwork,
+              "connections from the network are off by default");
+    checkTrue(json(fresh)["debugger"].contains("gdb") &&
+              json(fresh)["debugger"].contains("gdbPort") &&
+              json(fresh)["debugger"].contains("gdbAllowNetwork"),
+              "to_json writes the three debugger members");
+
+    AppConfig got = json::parse(
+        R"({"debugger":{"gdb":true,"gdbPort":4000,"gdbAllowNetwork":true}})").get<AppConfig>();
+    checkTrue(got.gdbEnabled && got.gdbAllowNetwork, "from_json reads the switches");
+    checkInt(got.gdbPort, 4000, "from_json reads the port");
+
+    checkInt(json::parse(R"({"debugger":{"gdbPort":0}})").get<AppConfig>().gdbPort, 1234,
+             "port 0 goes back to the default");
+    checkInt(json::parse(R"({"debugger":{"gdbPort":70000}})").get<AppConfig>().gdbPort, 1234,
+             "port 70000 goes back to the default");
+    checkTrue(!json::parse(R"({})").get<AppConfig>().gdbEnabled,
+              "a configuration with no debugger section leaves the stub off");
+    checkInt((long)inspect(R"({"debugger":{"gdb":true,"gdbPort":4000,"gdbAllowNetwork":false}})").size(), 0,
+             "and the three members are recognised");
+}
+
+//=============================================================================
 
 int main() {
     const char* tmp = std::getenv("TEMP");
@@ -2240,6 +2273,7 @@ int main() {
     test_release_is_read_out_of_the_mounted_disks();
     test_render_block();
     test_bell();
+    test_gdb_settings();
 
     std::error_code ec;
     fs::remove_all(g_dir, ec);

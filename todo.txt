@@ -37,5 +37,7 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
 - FEATURE_PARITY.md's eight ioscpm cells are read at build 69, "the floor of the
   shipped 1.6.1"; re-read them at build 74, which is exactly what 1.6.2 serves.
 
-- [WINDOWS] add the GDB stub: a setting (off by default) and port, Winsock sockets, and a thread
-  of its own (MainWindow::onTimer calls runBatch on the UI thread). romwbw_emu docs/GDB.md.
+- [WINDOWS] build the GDB stub with MSVC, x64 and ARM64, and run it: none of
+  gdb_platform_windows.cpp, gdbstub.cc and romwbw_gdb.cc under cl, the wx Debugger
+  page, or tests\run_tests.bat's new GDB suite (and the debugger.* checks in
+  test_config.cpp) has run on Windows.  Then MANUAL_CHECKS section 16.

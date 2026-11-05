@@ -252,6 +252,15 @@ struct AppConfig {
     // live state; this field is only where it is written down between runs.
     bool bellEnabled = true;
 
+    // The GDB stub (docs/gdb.md). OFF by default, and "allow connections from
+    // the network" is OFF by default too: the stub has no password, and a
+    // debugger that reaches the port can read and write the guest's memory and
+    // control it. Off, the stub listens on 127.0.0.1 only. Both take effect at
+    // the next Start. Settings > Debugger carries the controls.
+    bool gdbEnabled = false;
+    int gdbPort = 1234;
+    bool gdbAllowNetwork = false;
+
     // Keyboard / key bindings
     KeyboardConfig keyboard;
 

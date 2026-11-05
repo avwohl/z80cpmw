@@ -723,7 +723,16 @@ void MainWindow::onTimer() {
             m_idleSkipCount = 0;
         }
 
-        m_emulator->runBatch();
+        // The debugger said "kill": end the session, as the user asked it to.
+        if (m_emulator->takeGdbKillRequest()) {
+            m_emulator->stop();
+            m_statusText = "Stopped - the GDB debugger ended the program";
+            updateStatusBar();
+            updateMenuState();
+            return;
+        }
+
+        m_emulator->runBatch();   // does nothing while the GDB debug thread has the CPU
         m_emulator->flushOutput();
 
         // Force terminal to repaint after batch processing
@@ -745,6 +754,13 @@ void MainWindow::onTimer() {
                     m_emulator->getProgramCounter(),
                     m_emulator->getInstructionCount());
             m_statusText = buf;
+            // With the GDB stub on, the status line says where to connect, or
+            // that a debugger is connected. The debug thread owns the CPU, so
+            // the PC is not read from here.
+            const std::string gdbStatus = m_emulator->getGdbStatus();
+            if (!gdbStatus.empty()) {
+                m_statusText = "Running - " + gdbStatus;
+            }
             updateStatusBar();
 
             // Check for NVRAM changes (user configured via ROM's SYSCONF utility)
@@ -1483,6 +1499,9 @@ void MainWindow::onEmulatorSettings() {
     settings.warnManifestWrites = cfg.warnManifestWrites;
     settings.scrollbackLines = cfg.scrollbackLines;
     settings.bellEnabled = cfg.bellEnabled;
+    settings.gdbEnabled = cfg.gdbEnabled;
+    settings.gdbPort = cfg.gdbPort;
+    settings.gdbAllowNetwork = cfg.gdbAllowNetwork;
 
     // The whole "keyboard.keys" object, not a filtered view of it. The dialog
     // does a read-modify-write and hands back everything it was given,
@@ -1689,6 +1708,12 @@ void MainWindow::onEmulatorSettings() {
         if (m_terminal) {
             m_terminal->setBellEnabled(settings.bellEnabled);
         }
+
+        // The GDB stub. Read by EmulatorEngine::start(), which runs below.
+        cfgMut.gdbEnabled = settings.gdbEnabled;
+        cfgMut.gdbPort = settings.gdbPort;
+        cfgMut.gdbAllowNetwork = settings.gdbAllowNetwork;
+        m_emulator->setGdbStub(cfgMut.gdbEnabled, cfgMut.gdbPort, cfgMut.gdbAllowNetwork);
 
         // The key bindings, gated on the dialog saying a row actually changed.
         // The terminal is rebuilt from cfgMut.keyboard.keys and not from
@@ -3334,6 +3359,9 @@ void MainWindow::applyConfig() {
     if (m_terminal) {
         m_terminal->setBellEnabled(cfg.bellEnabled);
     }
+
+    // The GDB stub: stored for the next Start (docs/gdb.md).
+    m_emulator->setGdbStub(cfg.gdbEnabled, cfg.gdbPort, cfg.gdbAllowNetwork);
 
     // Apply keyboard bindings (function/navigation keys -> CP/M sequences)
     if (m_terminal) {

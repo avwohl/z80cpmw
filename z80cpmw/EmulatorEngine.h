@@ -22,6 +22,8 @@ class hbios_cpu;
 class banked_mem;
 class HBIOSDispatch;
 class Dazzler;
+class GdbSession;
+namespace gdb { struct StepEvents; }
 
 // Callback types
 using OutputCharCallback = std::function<void(uint8_t ch)>;
@@ -103,7 +105,8 @@ public:
     void setStatusCallback(StatusCallback cb) { m_statusCallback = cb; }
     OutputCharCallback getOutputCallback() const { return m_outputCallback; }
 
-    // Execute a batch of instructions (call from timer)
+    // Execute a batch of instructions (call from timer). Does nothing while the
+    // GDB debug thread owns the CPU (see below).
     void runBatch();
 
     // Flush buffered output to callback (call after runBatch)
@@ -134,6 +137,28 @@ public:
     void handleUnknownPortOut(uint8_t port, uint8_t value) override;
 
     //=========================================================================
+    // GDB stub (docs/gdb.md)
+    //
+    // Off by default. When on, start() listens on a TCP port and starts a
+    // DEBUG THREAD that owns the CPU: it waits for a debugger before the first
+    // instruction, serves it, and after the debugger detaches gives the CPU
+    // back to runBatch() on the UI thread. While the thread owns the CPU the UI
+    // thread must not touch the machine; the members below that can be called
+    // meanwhile are marked, and the ones that would race (disk commands, the
+    // idle test, the periodic flush) refuse or answer "nothing".
+    //=========================================================================
+    // Takes effect at the next start(). allowNetwork false: 127.0.0.1 only.
+    void setGdbStub(bool enabled, int port, bool allowNetwork);
+    // The text for the status line ("waiting for GDB, connect to
+    // 127.0.0.1:1234"), or empty when the stub is off. Any thread.
+    std::string getGdbStatus() const;
+    // True while the debug thread owns the CPU. Any thread.
+    bool gdbOwnsCpu() const { return m_gdbOwns; }
+    // True once, after the debugger killed the program (GDB "kill"). The UI
+    // thread then calls stop(). Any thread.
+    bool takeGdbKillRequest() { return m_gdbKilled.exchange(false); }
+
+    //=========================================================================
     // Dazzler support
     //=========================================================================
     Dazzler* getDazzler() { return m_dazzler.get(); }
@@ -150,6 +175,11 @@ private:
     void handleHBIOS();
     void sendStatus(const std::string& status);
     void processChar(uint8_t ch);
+
+    // GDB: one instruction under the debugger, on the debug thread.
+    void gdbStep(gdb::StepEvents& ev);
+    void gdbDrainOutput();
+    bool hbiosIdle() const;
 
     std::unique_ptr<banked_mem> m_memory;
     std::unique_ptr<hbios_cpu> m_cpu;
@@ -190,4 +220,22 @@ private:
 
     // Debug flag
     bool m_debug = false;
+
+    // GDB stub. Settings are written on the UI thread while no session runs.
+    bool m_gdbEnabled = false;
+    int m_gdbPort = 1234;
+    bool m_gdbAllowNetwork = false;
+    std::unique_ptr<GdbSession> m_gdb;
+    std::atomic<bool> m_gdbOwns{false};     // the debug thread has the CPU
+    std::atomic<bool> m_gdbKilled{false};   // the debugger sent "k"
+    // Console output produced by the debug thread, for the UI thread to print.
+    std::mutex m_gdbOutMutex;
+    std::vector<uint8_t> m_gdbOut;
+    std::atomic<bool> m_gdbOutPending{false};
+    unsigned m_gdbIdleTick = 0;
+public:
+    // Output of the CPU thread that has no queue of its own (see
+    // outputCallbackWrapper); any thread.
+    void gdbQueueOutput(uint8_t ch);
+private:
 };

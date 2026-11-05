@@ -25,9 +25,10 @@
   on a machine that does have the checkout.
 
 Open `z80cpmw.sln` in Visual Studio and build the solution.
-`tests\run_tests.bat` needs `..\cpmemu` and `..\romwbw_emu` for its last three
+`tests\run_tests.bat` needs `..\cpmemu` and `..\romwbw_emu` for its last four
 suites and stops without them; without `..\ioscpm` the help suite skips its
-bundled-asset section and runs the rest.
+bundled-asset section and runs the rest. The last suite (`test_gdb_session.cpp`)
+opens real sockets on 127.0.0.1; see [GDB debugging](gdb.md).
 
 Packaging is scripted: `packaging\scripts\build-msix.ps1` builds the unsigned
 Store package, and `-Beta` builds and signs the sideload package instead.

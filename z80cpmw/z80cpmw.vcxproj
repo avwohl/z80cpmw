@@ -305,6 +305,16 @@
     <ClCompile Include="Config.cpp">
       <PrecompiledHeader>Use</PrecompiledHeader>
     </ClCompile>
+    <!-- The GDB stub (docs/gdb.md). Neither file uses the precompiled header:
+         gdb_platform_windows.cpp needs winsock2.h BEFORE windows.h, and pch.h
+         includes windows.h; GdbSession.cpp is the portable half and includes
+         no Windows header at all, so that tests can build it elsewhere. -->
+    <ClCompile Include="GdbSession.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="gdb_platform_windows.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="SettingsDialogWx.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
@@ -334,6 +344,12 @@
     <ClCompile Include="$(SolutionDir)..\cpmemu\src\qkz80_reg_set.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <!-- The GDB remote stub: the protocol and the shadow call stack. Compiled in
+         place from the sibling, like the qkz80 files, and never copied. Its
+         platform:: socket calls are gdb_platform_windows.cpp. -->
+    <ClCompile Include="$(SolutionDir)..\cpmemu\src\gdbstub.cc">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <!-- Emulator Core Files (from romwbw_emu) -->
     <ClCompile Include="$(SolutionDir)..\romwbw_emu\src\hbios_dispatch.cc">
       <!-- NO C4267 SUPPRESSION, and there was one here until 2026-09-18. It
@@ -358,6 +374,10 @@
     <ClCompile Include="$(SolutionDir)..\romwbw_emu\src\emu_init.cc">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <!-- The GDB target for banked memory (registers, banks, wait-program). -->
+    <ClCompile Include="$(SolutionDir)..\romwbw_emu\src\romwbw_gdb.cc">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <!-- Header Files -->
@@ -377,6 +397,8 @@
     <ClInclude Include="ConfigReport.h" />
     <ClInclude Include="Keymap.h" />
     <ClInclude Include="SettingsDialogWx.h" />
+    <ClInclude Include="GdbSession.h" />
+    <ClInclude Include="GdbPlatform.h" />
     <ClInclude Include="resource.h" />
     <!-- Headers from cpmemu -->
     <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80.h" />
@@ -386,8 +408,10 @@
     <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80_reg_set.h" />
     <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80_trace.h" />
     <ClInclude Include="$(SolutionDir)..\cpmemu\src\qkz80_types.h" />
+    <ClInclude Include="$(SolutionDir)..\cpmemu\src\gdbstub.h" />
     <!-- Headers from romwbw_emu -->
     <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\romwbw_mem.h" />
+    <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\romwbw_gdb.h" />
     <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\hbios_dispatch.h" />
     <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\hbios_cpu.h" />
     <ClInclude Include="$(SolutionDir)..\romwbw_emu\src\emu_io.h" />

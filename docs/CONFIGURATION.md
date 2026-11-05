@@ -337,6 +337,9 @@ running.
 | `display.fontSize` | Terminal font height in logical units - device pixels, DPI-scaled - not points; it is passed to `CreateFontW` as its height |
 | `display.scrollbackLines` | Lines of terminal history kept for scrollback (0 = off) |
 | `display.bell` | Whether `BEL` (character 7) makes a sound (default `true`) |
+| `debugger.gdb` | Whether the GDB stub waits for a debugger at Start (default `false`; see [GDB debugging](gdb.md)) |
+| `debugger.gdbPort` | The TCP port of the GDB stub, 1 to 65535 (default `1234`) |
+| `debugger.gdbAllowNetwork` | `false`: the stub listens on 127.0.0.1 only. `true`: on every network address, with no password (default `false`) |
 | `core.rom`         | Which ROM to boot, as a catalog **id** — `emu_avw`, not a filename |
 | `core.romwbwVersion` | Which RomWBW release to run, as its version string — `3.6.0` |
 | `core.showPrereleaseVersions` | Whether the release picker offers RomWBW development snapshots (default `false`) |

@@ -924,3 +924,54 @@ through the ROM to that dispatcher, which is the whole of what is below.
       control: it passed before the fix as well, so it proves the test procedure
       works rather than proving the fix does. Doing it first and stopping there
       is the way to get a meaningless pass.
+
+
+## 16. The GDB stub
+
+`docs/gdb.md` is the user's view; the code is `GdbSession.cpp`,
+`gdb_platform_windows.cpp` and the Debugger page of Settings. Every line of it
+was written on a machine with no Windows SDK. `tests/test_gdb_session.cpp` passed
+there against a POSIX copy of the socket layer, and GDB 18.1 and udb80 0.4.1
+drove that session - so the protocol, the thread hand-over and the stop are
+measured, and **the Winsock layer, the dialog and the window are not**.
+
+Build first: x64 and ARM64 with MSBuild, then `tests\run_tests.bat` on each. The
+new suite prints `47 checks, 0 failed`; if `cl` rejects `gdbstub.cc` or
+`romwbw_gdb.cc`, that is the first finding, and the fix goes in the sibling or in
+the vcxproj, not in a copy.
+
+- [ ] **Off by default.** Fresh configuration: Settings > Debugger shows the
+      stub unticked, port 1234, and *Allow connections from the network*
+      unticked, with the red warning beside it (no password, anyone who can
+      reach the port controls the machine, trusted network only, only while
+      debugging). Start the machine: the status line reads `Running - PC: ...`
+      and no port is open (`netstat -an | findstr 1234` shows nothing).
+- [ ] **Waits for the debugger.** Tick the stub, OK. The terminal stays empty
+      and the status line says `Running - waiting for GDB, connect to
+      127.0.0.1:1234`. The window still moves, resizes and repaints (the UI thread
+      is not blocked). `netstat -an` shows 127.0.0.1:1234 LISTENING.
+- [ ] **GDB connects.** `gdb` with the Z80 target (any OS), `set architecture
+      z80`, `target remote 127.0.0.1:1234`. `info registers pc` says 0x0 and the
+      status line says `GDB connected` within a second. `continue`: the boot
+      banner appears in the window.
+- [ ] **udb80 finds a CP/M program.** `pip install "um80>=0.4.1"`, assemble
+      `romwbw_emu\tests\gdb_prog.asm` with `um80 --debug-info` and `ul80
+      --debug-info`, put the `.COM` on a disk image (`cpm_disk`), mount it.
+      `udb80 gdb_prog.dbg --connect 127.0.0.1:1234 --wait-program`, then type the
+      program name at the CP/M prompt. Right: udb80 stops at 0100H, `break INNER`
+      and `continue` stop in INNER, and `bt` shows INNER, OUTER and START.
+- [ ] **Typing still works under the debugger.** With the guest running (after
+      `continue`), keys typed in the window reach CP/M, and output stays in order.
+- [ ] **Ending the session.** `detach` in GDB: the machine runs on and the status
+      line says `GDB detached`. Stop then Start: the machine waits for a debugger
+      again. `kill` in GDB: the machine stops. Stop while GDB is stopped at a
+      breakpoint: GDB reports the program ended and z80cpmw does not hang. Stop
+      with no debugger ever connected: no hang.
+- [ ] **Network.** Tick *Allow connections from the network*, OK. Windows
+      Firewall asks once; allow Private networks. The status line lists this PC's
+      addresses. From another machine, `target remote ADDRESS:1234` connects.
+      With the box unticked again, the other machine is refused.
+- [ ] **Closing the window while stopped at a breakpoint** exits cleanly: no
+      crash report, and `z80cpmw.exe` is gone from Task Manager.
+- [ ] **ARM64.** The same, on an ARM64 build on an ARM64 machine, and `dumpbin
+      /headers` says `AA64 machine`.

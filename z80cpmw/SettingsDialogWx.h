@@ -105,6 +105,12 @@ struct WxEmulatorSettings {
     int scrollbackLines = 1000;             // Terminal scrollback history capacity (lines)
     bool bellEnabled = true;                // Whether BEL (0x07) sounds
 
+    // The GDB stub (docs/gdb.md): off by default, and off for the network by
+    // default. AppConfig::gdbEnabled, gdbPort, gdbAllowNetwork.
+    bool gdbEnabled = false;
+    int gdbPort = 1234;
+    bool gdbAllowNetwork = false;
+
     // The whole "keyboard.keys" object, carried in and back out. The dialog
     // does a read-modify-write of it, so what comes back includes every entry
     // that went in, including names the dialog could not read - see
@@ -148,6 +154,7 @@ private:
     // separating the two just means naming the same panel twice.
     void buildMachinePage();
     void buildTerminalPage();
+    void buildDebuggerPage();
     void buildKeyboardPage();
     void buildDiskImagesPage();
     // Rebuilds the ROM dropdown from the catalog's roms[] and leaves `selectId`
@@ -369,6 +376,7 @@ private:
     wxPanel* m_machinePage;
     wxPanel* m_terminalPage;
     wxPanel* m_keyboardPage;
+    wxPanel* m_debuggerPage;
     wxPanel* m_diskImagesPage;
 
     // Controls
@@ -381,6 +389,11 @@ private:
     wxCheckBox* m_warnManifestCheck;
     wxSpinCtrl* m_scrollbackSpin;
     wxCheckBox* m_bellCheck;
+
+    // Debugger page controls.
+    wxCheckBox* m_gdbCheck = nullptr;
+    wxSpinCtrl* m_gdbPortSpin = nullptr;
+    wxCheckBox* m_gdbNetworkCheck = nullptr;
 
     // Keyboard page controls.
     wxListCtrl* m_keyList;

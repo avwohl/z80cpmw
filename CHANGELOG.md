@@ -539,6 +539,65 @@ and the Cancel-path save have been compiled and never driven.
 
 ## [Unreleased]
 
+### The GDB stub, written and not yet run on Windows
+
+Settings > **Debugger** turns on a GDB remote stub: a debugger (GDB 18.1 with the
+Z80 target, or udb80 from um80 0.4.1) can stop the machine before its first
+instruction, step it, set breakpoints, and read and write memory. **Off by
+default**, port 1234. A second box, **Allow connections from the network**, is
+also off by default and moves the listener from 127.0.0.1 to 0.0.0.0; the page
+carries the warning in plain words (no password; anyone who can reach the port
+controls the machine; trusted networks, and only while debugging), and the
+status line shows the address to type into the debugger while the stub waits.
+`docs/gdb.md` has the steps, the Windows Firewall prompt, the SSH-tunnel
+alternative and the limits. Stored as `debugger.gdb`, `debugger.gdbPort` and
+`debugger.gdbAllowNetwork`.
+
+**The CPU moves to a thread of its own while the stub is on, and only then.**
+`Stub::serve()` does not return while the debugger holds the program, and
+`MainWindow::onTimer` runs the CPU on the UI thread, so calling it there would
+freeze the window. `EmulatorEngine::start()` starts a debug thread that owns the
+CPU (`GdbSession`): it waits in `accept()`, serves the debugger, and after a
+detach hands the CPU back to the timer. With the stub off nothing runs on that
+thread and `runBatch()` is the loop it was. While the thread owns the CPU the
+UI thread does not touch the machine: output is queued for the window, and the
+idle test, the periodic disk flush and the disk commands (load, close, save)
+stand down or refuse rather than race. Stop, Reset, Settings and closing the
+window end the session and join the thread. The wait in `accept()` and `recv()`
+wakes every 100 ms to look for that stop, which is why `Stop` does not hang on
+a debugger that never connects.
+
+**Nothing is vendored.** `z80cpmw.vcxproj` compiles cpmemu's `gdbstub.cc` and
+romwbw_emu's `romwbw_gdb.cc` out of the sibling checkouts, as it does qkz80 and
+the HBIOS files. The new files here are `GdbSession.{h,cpp}` (portable, no
+Windows header) and `gdb_platform_windows.cpp` (the `platform::` socket calls
+`gdbstub.cc` makes, in Winsock, taken from cpmemu's `os/windows/platform.cc`; no
+console, so the console calls answer "none").
+
+**Measured, on a Mac, 2026-11-05 (macOS 27 arm64, clang++ 17):**
+`tests/test_gdb_session.cpp` runs `GdbSession` with the real `gdbstub.cc` and
+`romwbw_gdb.cc` over TCP on 127.0.0.1, against a POSIX copy of the platform
+file (`tests/gdb_platform_posix.cpp`): 47 checks, 0 failed, and 0 data races
+under ThreadSanitizer. It covers connect with no instruction run, breakpoint,
+continue, step, register write, detach and the hand-back, stop while the guest
+runs (the debugger receives `W00`), stop while no debugger has connected,
+kill, a port already in use, listening on 0.0.0.0, and a second session.
+GDB 18.1 (Z80 target) and udb80 0.4.1 (`--wait-program`, `break`, `bt`) drove
+the same session, including from the LAN address of the Mac to a 0.0.0.0
+listener; a LAN client got "connection refused" from a 127.0.0.1 listener.
+`EmulatorEngine.cpp` passed `clang++ -fsyntax-only -Wall -Wextra` against a
+stand-in `pch.h`.
+
+**NOT measured: anything that needs Windows.** Nothing in this entry has been
+built with MSVC (x64 or ARM64): not `gdb_platform_windows.cpp`, not
+`gdbstub.cc` and `romwbw_gdb.cc` under `cl` (cpmemu builds `gdbstub.cc` with
+MSVC; `romwbw_gdb.cc` is not built with it anywhere else), not `MainWindow.cpp`,
+`SettingsDialogWx.cpp` and `Config.cpp`, and not the `test_config.cpp` checks
+for the new settings or `tests\run_tests.bat` with its new suite. No debugger
+has connected to z80cpmw itself. MANUAL_CHECKS.md section 16 and a `todo.txt`
+item name what a Windows machine has to do.
+
+
 ### The disks still did not follow the release, and the trigger was the reason
 
 1.0.37 moved the release picker to the Machine page and taught a release SWITCH

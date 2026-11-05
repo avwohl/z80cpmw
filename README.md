@@ -58,6 +58,7 @@ all four slots, each with its own Browse and New buttons.
 - [Using z80cpmw](docs/USAGE.md) - boot menu keys, keyboard, mouse copy/paste, R8/W8 file transfer
 - [Configuration](docs/CONFIGURATION.md) - `z80cpmw.json`, the keyboard map, escape syntax and default bindings
 - [File Transfer](docs/FILE_TRANSFER.md) - where R8/W8 files go on each platform
+- [GDB debugging](docs/gdb.md) - the GDB stub: turn it on, connect GDB or udb80, debug over the network, and the risk
 - [Building](docs/BUILDING.md) - requirements, sibling checkouts, tests and MSIX packaging
 - [Code Signing](docs/CODE_SIGNING.md) - how the sideload packages are signed
 - [CHANGELOG](CHANGELOG.md) - what changed in each version

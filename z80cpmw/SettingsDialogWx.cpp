@@ -297,15 +297,18 @@ void SettingsDialogWx::createControls() {
     m_terminalPage = new wxPanel(m_notebook, wxID_ANY);
     m_keyboardPage = new wxPanel(m_notebook, wxID_ANY);
     m_diskImagesPage = new wxPanel(m_notebook, wxID_ANY);
+    m_debuggerPage = new wxPanel(m_notebook, wxID_ANY);
     m_notebook->AddPage(m_machinePage, "Machine", true);
     m_notebook->AddPage(m_terminalPage, "Terminal");
     m_notebook->AddPage(m_keyboardPage, "Keyboard");
     m_notebook->AddPage(m_diskImagesPage, "Disk Images");
+    m_notebook->AddPage(m_debuggerPage, "Debugger");
 
     buildMachinePage();
     buildTerminalPage();
     buildKeyboardPage();
     buildDiskImagesPage();
+    buildDebuggerPage();
 
     // The status line is the one control that stays on the dialog. Its writers
     // do not share a page: onNewDisk is a Machine control's handler, while
@@ -667,6 +670,55 @@ void SettingsDialogWx::buildTerminalPage() {
     // capture of this page showed.
     bellNote->Wrap(kPageTextWrap);
     content->Add(bellNote, 0, wxLEFT | wxTOP, 22);
+
+    wxBoxSizer* pageSizer = new wxBoxSizer(wxVERTICAL);
+    pageSizer->Add(content, 1, wxEXPAND | wxALL, 15);
+    page->SetSizer(pageSizer);
+}
+
+// The GDB stub. Everything on this page is stored in AppConfig and read by
+// EmulatorEngine::start(), so a change takes effect when OK is pressed - the
+// dialog stops the machine while it is open and starts it again afterwards.
+// docs/gdb.md has what the user does with it.
+void SettingsDialogWx::buildDebuggerPage() {
+    wxWindow* page = m_debuggerPage;
+    wxBoxSizer* content = new wxBoxSizer(wxVERTICAL);
+
+    wxStaticText* intro = new wxStaticText(page, wxID_ANY,
+        "The GDB stub lets a debugger (GDB, or udb80 from the um80 package) stop the "
+        "emulated machine, step it, set breakpoints and read and write its memory. "
+        "When the stub is on, the machine waits for the debugger before it runs its "
+        "first instruction. The status line shows the address to connect to. "
+        "A change takes effect when you press OK, which restarts the machine.");
+    intro->Wrap(kPageTextWrap);
+    content->Add(intro, 0, wxBOTTOM, 12);
+
+    m_gdbCheck = new wxCheckBox(page, wxID_ANY, "Enable the GDB stub");
+    content->Add(m_gdbCheck, 0, wxBOTTOM, 8);
+
+    m_gdbPortSpin = new wxSpinCtrl(page, wxID_ANY, "1234", wxDefaultPosition,
+                                    wxSize(90, -1), wxSP_ARROW_KEYS, 1, 65535, 1234);
+    wxBoxSizer* portSizer = new wxBoxSizer(wxHORIZONTAL);
+    portSizer->Add(new wxStaticText(page, wxID_ANY, "Port:"),
+                   0, wxALIGN_CENTER_VERTICAL | wxRIGHT, 10);
+    portSizer->Add(m_gdbPortSpin, 0, wxALIGN_CENTER_VERTICAL);
+    content->Add(portSizer, 0, wxBOTTOM, 12);
+
+    m_gdbNetworkCheck = new wxCheckBox(page, wxID_ANY,
+        "Allow connections from the network");
+    content->Add(m_gdbNetworkCheck, 0);
+    // Off: the stub listens on 127.0.0.1, which only programs on this PC can
+    // reach. On: it listens on 0.0.0.0. The warning is next to the control and
+    // is plain words on purpose.
+    wxStaticText* warning = new wxStaticText(page, wxID_ANY,
+        "Warning: the debugger connection has no password. Anyone who can reach "
+        "the port can read and write the memory of the emulated machine and "
+        "control it. Use this only on a network that you trust, and only while "
+        "you debug. When this is off, only programs on this PC can connect. "
+        "When this is on, Windows Firewall may ask you to allow z80cpmw.");
+    warning->SetForegroundColour(wxColour(192, 0, 0));
+    warning->Wrap(kPageTextWrap);
+    content->Add(warning, 0, wxLEFT | wxTOP, 22);
 
     wxBoxSizer* pageSizer = new wxBoxSizer(wxVERTICAL);
     pageSizer->Add(content, 1, wxEXPAND | wxALL, 15);
@@ -1751,6 +1803,11 @@ void SettingsDialogWx::loadSettings() {
     // The bell
     m_bellCheck->SetValue(m_settings.bellEnabled);
 
+    // The GDB stub
+    m_gdbCheck->SetValue(m_settings.gdbEnabled);
+    m_gdbPortSpin->SetValue(m_settings.gdbPort);
+    m_gdbNetworkCheck->SetValue(m_settings.gdbAllowNetwork);
+
     // The app-shortcut keys, inverted: the config member says whether the key
     // goes to CP/M, the checkbox says whether the app keeps it.
     m_f1HelpCheck->SetValue(!m_settings.f1ToCpm);
@@ -1842,6 +1899,11 @@ void SettingsDialogWx::saveSettings() {
 
     // The bell
     m_settings.bellEnabled = m_bellCheck->GetValue();
+
+    // The GDB stub
+    m_settings.gdbEnabled = m_gdbCheck->GetValue();
+    m_settings.gdbPort = m_gdbPortSpin->GetValue();
+    m_settings.gdbAllowNetwork = m_gdbNetworkCheck->GetValue();
 
     // The app-shortcut keys, back into the config's own sense.
     m_settings.f1ToCpm = !m_f1HelpCheck->GetValue();

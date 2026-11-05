@@ -118,6 +118,11 @@ void to_json(json& j, const AppConfig& c) {
             {"scrollbackLines", c.scrollbackLines},
             {"bell", c.bellEnabled}
         }},
+        {"debugger", {
+            {"gdb", c.gdbEnabled},
+            {"gdbPort", c.gdbPort},
+            {"gdbAllowNetwork", c.gdbAllowNetwork}
+        }},
         {"keyboard", c.keyboard},
         {"window", c.window},
         {"hardware", {
@@ -262,6 +267,17 @@ void from_json(const json& j, AppConfig& c) {
         // structs themselves declare, which fails the moment any pair in this
         // function drifts - not just this one.
         c.bellEnabled = display.value("bell", true);
+    }
+
+    // The GDB stub. The literals agree with AppConfig's initialisers, and
+    // tests/test_config.cpp checks that an empty section equals the defaults.
+    // A port outside 1..65535 is a mistake and goes back to the default.
+    if (j.contains("debugger") && j["debugger"].is_object()) {
+        const auto& dbg = j["debugger"];
+        c.gdbEnabled = dbg.value("gdb", false);
+        c.gdbPort = dbg.value("gdbPort", 1234);
+        if (c.gdbPort < 1 || c.gdbPort > 65535) c.gdbPort = 1234;
+        c.gdbAllowNetwork = dbg.value("gdbAllowNetwork", false);
     }
 
     // Disks
