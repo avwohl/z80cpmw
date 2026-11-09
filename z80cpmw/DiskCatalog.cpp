@@ -1286,13 +1286,20 @@ bool DiskCatalog::downloadToFile(const std::wstring& url, const std::string& loc
         }
     }
 
-    // Get content length
+    // Get content length. NUMBER64, as HelpWindow::fetchTopic reads it: the
+    // 32-bit form fails outright on a length over 4 GB, totalSize stays 0, and
+    // the completeness check below - the one that refuses a short file - is
+    // skipped. No image is that size today; the two readers should still
+    // agree. A length size_t cannot hold is treated as no length, the same
+    // as a chunked response that sends none.
     {
-        DWORD contentLength = 0;
+        DWORD64 contentLength = 0;
         DWORD clSize = sizeof(contentLength);
-        if (WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER,
-                               nullptr, &contentLength, &clSize, nullptr)) {
-            totalSize = contentLength;
+        if (WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER64,
+                               WINHTTP_HEADER_NAME_BY_INDEX, &contentLength, &clSize,
+                               WINHTTP_NO_HEADER_INDEX)
+            && contentLength <= (DWORD64)SIZE_MAX) {
+            totalSize = (size_t)contentLength;
         }
     }
 

@@ -20,10 +20,6 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   RELEASE to the disks.  Pick one; make the other say so.  Only moving the
   release resolves a slot whose id the stored release retired.
 
-- DiskCatalog.cpp:1233 takes Content-Length as a 32-bit DWORD where
-  HelpWindow.cpp:1301 uses DWORD64 and says why.  Unreachable today; the
-  failure is a skipped completeness check.  Make them agree.
-
 - FEATURE_PARITY.md item 5 says "ioscpm and cpmdroid still name a tag in source"
   and its "Shared concern" bullet gives ioscpm an embedded ROM to match.  Both
   are false for ioscpm: no releaseTag since ed660d5, no bundled ROM since its
