@@ -359,7 +359,7 @@ public:
 
     // WHICH CATALOG INDEX TO FETCH, as Config::catalogIndexUrl holds it - the
     // raw setting, empty meaning "the index this build ships with", NOT a
-    // resolved URL. fetchIndex resolves it through catalogv0::indexUrl(), so
+    // resolved URL. fetchCatalogInto resolves it through catalogv0::indexUrl(), so
     // $ROMWBW_INDEX_URL still wins over whatever is set here and the precedence
     // is decided in one place.
     //
@@ -369,10 +369,18 @@ public:
     // configuration is not written until OK. MainWindow::applyConfig seeds it,
     // Settings pushes the field before each fetch, and Cancel puts it back.
     //
-    // Changing it invalidates nothing here. The images already in the data
-    // folder stay where they are and keep their ledger entries; what changes is
-    // which document the next fetch reads. The freshness column is what reports
-    // an image the new catalog does not vouch for.
+    // Changing it - the RESOLVED URL, so a change $ROMWBW_INDEX_URL overrides
+    // is no change - forgets everything the old catalog said: the index, the
+    // selected release, the entries with their freshness, the ROMs. Until the
+    // next fetch, getIndexVersions() is empty, which every reader already
+    // takes as "no index yet". It used to invalidate nothing, so after Refresh
+    // on a test URL and Cancel, or a profile with another catalogIndexUrl, the
+    // release picker, chooseVersion and the MountedDisk notice went on reading
+    // the other catalog's index. A fetch in flight across the change is
+    // dropped rather than written - see m_indexGeneration.
+    //
+    // The images already in the data folder stay where they are and keep
+    // their ledger entries.
     void setCatalogIndexUrl(const std::string& configured);
     std::string getCatalogIndexUrl() const;
 
@@ -391,15 +399,17 @@ public:
     std::string getPreferredRomId() const;
 
     // The RomWBW release the entries currently in hand were fetched for, or
-    // empty before any successful fetch. This is the answer to "what am I
+    // empty before any successful fetch and after a change of catalog index
+    // URL. This is the answer to "what am I
     // looking at", which the preference above is not: the two differ whenever
     // the preference could not be honoured.
     std::string getSelectedRomwbwVersion() const;
 
     // Every release the index publishes, in index order, as of the last
-    // successful fetch. Empty ONLY before one - fetchCatalog refuses an index
-    // that parses to no entries, so a successful fetch always leaves at least
-    // one here.
+    // successful fetch. Empty before one, and after setCatalogIndexUrl moves to
+    // another catalog until the next fetch lands - fetchCatalog refuses an
+    // index that parses to no entries, so a successful fetch always leaves at
+    // least one here.
     //
     // This was getRunnableVersions(), and the rename is the point rather than
     // tidying: it returned the subset the linked core's
@@ -693,6 +703,11 @@ private:
     // WORKER THREAD, called once by fetchCatalog inside its catch-all, so that
     // every early return there is an ordinary `return false` with an error
     // string and there is exactly one place the callback is invoked.
+    //
+    // If the catalog index URL changes while it runs, what it read is not
+    // written - or, if the change came after the write, not reported - and it
+    // fails with a message saying so. It is deliberately not retried: see
+    // fetchCatalog.
     bool fetchCatalogInto(std::string& error);
 
     // The whole of a ROM fetch, as a function that can FAIL rather than a
@@ -702,8 +717,10 @@ private:
     // downloadRom inside its catch-all.
     bool downloadRomInto(DownloadProgressCallback progressCb, std::string& error);
 
-    // Fetch and parse index-v0.json. WORKER THREAD.
-    bool fetchIndex(std::vector<catalogv0::IndexEntry>& entries, std::string& error);
+    // Fetch and parse index-v0.json from `url`, already resolved by the caller
+    // so the URL fetched is the URL fetchCatalogInto checks. WORKER THREAD.
+    bool fetchIndex(const std::string& url, std::vector<catalogv0::IndexEntry>& entries,
+                    std::string& error);
 
     // Fetch, VERIFY and parse one version's catalog. WORKER THREAD.
     //
@@ -778,4 +795,13 @@ private:
     std::string m_selectedVersion;
     std::vector<catalogv0::IndexEntry> m_indexVersions;
     bool m_showPrereleaseVersions = false;   // guarded by m_indexMutex
+
+    // Advanced by setCatalogIndexUrl when the resolved URL changes, BEFORE it
+    // clears the index fields (under m_indexMutex) and then the catalog fields
+    // (under m_catalogMutex). fetchCatalogInto reads it when it starts and
+    // re-checks it inside each of its two write blocks, under that block's
+    // own lock. So for each block either the fetch wrote first and the clear
+    // removes it, or the advance came first and the fetch skips the write -
+    // with no lock held across the other, which this class never does.
+    std::atomic<unsigned> m_indexGeneration{0};
 };

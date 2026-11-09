@@ -1522,7 +1522,15 @@ void SettingsDialogWx::updateRomwbwVersionNote() {
     // that is a real answer and the reason this is phrased as a count rather
     // than as a promise.
     const size_t romCount = m_catalog ? m_catalog->getCatalogRoms().size() : 0;
-    if (romCount > 0) {
+    // No catalog in hand at all - before the first fetch lands, or after the
+    // catalog index changed and its fetch failed - is not a catalog that
+    // publishes no ROM, and the sentence below would blame the release for a
+    // fetch that did not happen.
+    const bool haveCatalog = m_catalog && !m_catalog->getIndexVersions().empty();
+    if (!haveCatalog) {
+        note += "No catalog is loaded, so which ROMs this release offers is not "
+                "known yet. Refresh on the Disk Images page reads it again.";
+    } else if (romCount > 0) {
         // "The ROM in the app is kept as the offline fallback" stood at the end
         // of this sentence and outlived the files it described by a few hours:
         // the app ships no ROM. Nothing compiles a string literal, so the only
@@ -2050,7 +2058,21 @@ void SettingsDialogWx::onRefreshCatalog(wxCommandEvent& event) {
     // Refresh, look at what it publishes - fetched the BUILT-IN catalog, filled
     // the release dropdown and the disk list from it, and said "Catalog loaded".
     // Nothing on screen said the URL had been ignored. Cancel puts this back.
-    m_catalog->setCatalogIndexUrl(typedCatalogIndexUrl());
+    //
+    // ANOTHER CATALOG, NOT ANOTHER LOOK AT THIS ONE: if the typed URL resolves
+    // differently, setCatalogIndexUrl makes DiskCatalog forget the old index,
+    // entries and ROMs. A release-switch chain still downloading from the old
+    // entries would then fail on its next file with "the disk catalog has not
+    // been loaded", so it is stopped first; and the library list is emptied
+    // to match, rather than offering Update and Delete on the old catalog's
+    // rows until the new one lands. The four slots are NOT touched - they
+    // name files on disk, and OK must not be able to write them away.
+    const std::string typed = typedCatalogIndexUrl();
+    const bool otherCatalog =
+        catalogv0::indexUrl(typed) != catalogv0::indexUrl(m_catalog->getCatalogIndexUrl());
+    if (otherCatalog) abandonReleaseSwitchFetch();
+    m_catalog->setCatalogIndexUrl(typed);
+    if (otherCatalog) populateCatalog();
 
     m_statusText->SetLabel("Loading disk catalog...");
     m_refreshBtn->Enable(false);
@@ -2169,9 +2191,11 @@ void SettingsDialogWx::onCatalogLoaded(wxCommandEvent& event) {
         setSlotsSettling(false);
         // Refilled on the failure path too, and it does two things here.
         // getIndexVersions() is only ever written by a fetch that SUCCEEDED,
-        // so the list itself comes back unchanged - what moves is the
-        // SELECTION, which is put back onto getSelectedRomwbwVersion(), the
-        // release whose entries are actually in hand. So a switch to 3.6.0 that
+        // so the list itself comes back unchanged - unless this fetch was for
+        // a catalog index URL the user just changed, in which case it comes
+        // back empty and the control shows "(catalog not loaded)". What moves
+        // is the SELECTION, which is put back onto getSelectedRomwbwVersion(),
+        // the release whose entries are actually in hand. So a switch to 3.6.0 that
         // could not be fetched snaps the control back to 3.5.1, and OK then
         // writes 3.5.1 rather than storing a preference the user never got. It
         // is also what re-enables the control after onRefreshCatalog disabled
@@ -2185,6 +2209,11 @@ void SettingsDialogWx::onCatalogLoaded(wxCommandEvent& event) {
             const std::string keep = selectedRomId();
             populateROMList(keep.empty() ? m_settings.romFile : keep);
         }
+        // And the library list, which used to be left alone here for the same
+        // reason - and after a failed fetch of a CHANGED index URL is the old
+        // catalog's rows over a DiskCatalog that has forgotten them: "Update
+        // available" on a row whose Update button then says "not downloaded".
+        populateCatalog();
     }
 }
 

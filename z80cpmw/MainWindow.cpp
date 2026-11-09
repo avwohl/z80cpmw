@@ -3371,8 +3371,9 @@ void MainWindow::applyConfig() {
     // the reasons above: this function is what turns a configuration into
     // running state, and loading a PROFILE replaces the whole configuration,
     // this member included. It sets a preference and starts nothing;
-    // $ROMWBW_INDEX_URL still wins over it, because fetchIndex resolves the
-    // value through catalogv0::indexUrl() rather than using it raw.
+    // $ROMWBW_INDEX_URL still wins over it, because DiskCatalog resolves the
+    // value through catalogv0::indexUrl() rather than using it raw. A profile
+    // naming another catalog makes DiskCatalog forget the old one's index.
     m_diskCatalog->setCatalogIndexUrl(cfg.catalogIndexUrl);
 
     // Apply the ROM PREFERENCE, which is now an id and not a file to load.

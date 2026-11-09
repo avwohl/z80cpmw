@@ -151,8 +151,24 @@ void DiskCatalog::setDownloadDirectory(const std::string& dir) {
 }
 
 void DiskCatalog::setCatalogIndexUrl(const std::string& configured) {
-    std::lock_guard<std::mutex> lock(m_indexMutex);
-    m_catalogIndexUrl = configured;
+    // See DiskCatalog.h: a different catalog forgets what the old one said.
+    bool changed = false;
+    {
+        std::lock_guard<std::mutex> lock(m_indexMutex);
+        changed = catalogv0::indexUrl(configured) != catalogv0::indexUrl(m_catalogIndexUrl);
+        m_catalogIndexUrl = configured;
+        if (changed) {
+            m_indexGeneration.fetch_add(1);   // before either clear - see the header
+            m_indexVersions.clear();
+            m_selectedVersion.clear();
+        }
+    }
+    if (!changed) return;
+    std::lock_guard<std::mutex> lock(m_catalogMutex);
+    m_catalogEntries.clear();
+    m_catalogRoms.clear();
+    m_catalogBaseUrl.clear();
+    m_catalogRomwbwVersion.clear();
 }
 
 std::string DiskCatalog::getCatalogIndexUrl() const {
@@ -429,7 +445,8 @@ bool DiskCatalog::findDiskById(const std::string& id, DiskEntry& out) const {
     return false;
 }
 
-bool DiskCatalog::fetchIndex(std::vector<catalogv0::IndexEntry>& entries, std::string& error) {
+bool DiskCatalog::fetchIndex(const std::string& want,
+                             std::vector<catalogv0::IndexEntry>& entries, std::string& error) {
     // The index in use, which is catalogv0::INDEX_URL unless this machine has
     // been pointed somewhere else.
     //
@@ -443,8 +460,8 @@ bool DiskCatalog::fetchIndex(std::vector<catalogv0::IndexEntry>& entries, std::s
     // for. MainWindow::applyConfig seeds this, the dialog pushes the field, and
     // Cancel puts it back, exactly as they all do for the release preference.
     //
-    // This runs on the fetch worker; getCatalogIndexUrl takes m_indexMutex.
-    const std::string want = catalogv0::indexUrl(getCatalogIndexUrl());
+    // RESOLVED BY THE CALLER, fetchCatalogInto, under m_indexMutex together
+    // with the generation it checks before writing what this returns.
 
     std::wstring url;
     if (!widenUrl(want, url)) {
@@ -525,6 +542,11 @@ void DiskCatalog::fetchCatalog(CatalogLoadedCallback callback) {
         // does not care how carefully the parse was written.
         std::string error;
         bool ok = false;
+        // NOT RETRIED when the catalog index URL changed under it. The URL that
+        // changed it may be the Settings dialog's PREVIEW - Refresh on a typed
+        // URL pushes it here before OK - and a retry would hand an F5 fetch in
+        // flight a catalog the user can still Cancel. Failing reads nothing
+        // and writes nothing.
         try {
             ok = fetchCatalogInto(error);
         } catch (const std::exception& e) {
@@ -545,8 +567,18 @@ void DiskCatalog::fetchCatalog(CatalogLoadedCallback callback) {
 }
 
 bool DiskCatalog::fetchCatalogInto(std::string& error) {
+    // Which catalog this fetch is for, and the generation it belongs to, read
+    // together so a URL change cannot fall between them.
+    std::string from;
+    unsigned generation = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_indexMutex);
+        generation = m_indexGeneration.load();
+        from = catalogv0::indexUrl(m_catalogIndexUrl);
+    }
+
     std::vector<catalogv0::IndexEntry> index;
-    if (!fetchIndex(index, error)) return false;
+    if (!fetchIndex(from, index, error)) return false;
 
     // EVERY RELEASE THE INDEX PUBLISHES IS OFFERED. There was a filter here
     // until romwbw_emu v1.44 - catalogv0::runnableVersions putting each entry's
@@ -608,32 +640,49 @@ bool DiskCatalog::fetchCatalogInto(std::string& error) {
     // switching back and forth costs nothing. The value is parsed and reaches a
     // caller on the entries getIndexVersions() returns; nothing in this
     // application acts on it, and nothing may be made to delete on it.
+    // NOT WRITTEN IF THE CATALOG CHANGED UNDER US. The generation is checked in
+    // each block under that block's own lock; see m_indexGeneration for why
+    // that is enough without holding both.
+    bool superseded = false;
     {
         std::lock_guard<std::mutex> lock(m_catalogMutex);
-        m_catalogEntries = entries;
-        m_catalogRoms = catalog.roms;
-        // In the same critical section as the two above, because the ROM's URL
-        // is built from this base and checked against a hash out of these
-        // roms[]: three facts about one document that must never be readable in
-        // a mixture from two.
-        m_catalogBaseUrl = catalog.baseUrl;
-        // The INDEX entry's version, not the catalog document's own, though
-        // tools/verify_catalog.py fails a release where the two disagree. Two
-        // reasons to prefer it: parseIndex refuses an entry without one, so it
-        // cannot be empty, and it is the same string assigned to
-        // m_selectedVersion below - which makes "the release the catalog in
-        // hand is for" one answer rather than two that could be compared
-        // against each other and found different.
-        m_catalogRomwbwVersion = index[chosen].romwbwVersion;
+        if (m_indexGeneration.load() != generation) {
+            superseded = true;
+        } else {
+            m_catalogEntries = entries;
+            m_catalogRoms = catalog.roms;
+            // In the same critical section as the two above, because the ROM's URL
+            // is built from this base and checked against a hash out of these
+            // roms[]: three facts about one document that must never be readable in
+            // a mixture from two.
+            m_catalogBaseUrl = catalog.baseUrl;
+            // The INDEX entry's version, not the catalog document's own, though
+            // tools/verify_catalog.py fails a release where the two disagree. Two
+            // reasons to prefer it: parseIndex refuses an entry without one, so it
+            // cannot be empty, and it is the same string assigned to
+            // m_selectedVersion below - which makes "the release the catalog in
+            // hand is for" one answer rather than two that could be compared
+            // against each other and found different.
+            m_catalogRomwbwVersion = index[chosen].romwbwVersion;
+        }
     }
     {
         std::lock_guard<std::mutex> lock(m_indexMutex);
-        m_selectedVersion = index[chosen].romwbwVersion;
-        // The whole index, not a subset of it: there is nothing left to filter
-        // on. The Settings dialog fills its release picker from this, so every
-        // release the document names is selectable - none greyed out, none
-        // labelled as needing a newer build.
-        m_indexVersions = index;
+        if (m_indexGeneration.load() != generation) {
+            superseded = true;
+        } else {
+            m_selectedVersion = index[chosen].romwbwVersion;
+            // The whole index, not a subset of it: there is nothing left to filter
+            // on. The Settings dialog fills its release picker from this, so every
+            // release the document names is selectable - none greyed out, none
+            // labelled as needing a newer build.
+            m_indexVersions = index;
+        }
+    }
+    if (superseded) {
+        error = "The catalog index setting changed while the catalog was being "
+                "read, so what was read has not been used.";
+        return false;
     }
 
     updateDownloadedStatus();
@@ -643,6 +692,15 @@ bool DiskCatalog::fetchCatalogInto(std::string& error) {
     // setDownloadDirectory() on the UI thread, and hashing the library
     // inside the Settings dialog's OK handler would freeze it.
     updateFreshness();
+
+    // And once more on the way out: a change that landed after the writes has
+    // already cleared them, and reporting success over an empty catalog is the
+    // one answer worse than reporting nothing.
+    if (m_indexGeneration.load() != generation) {
+        error = "The catalog index setting changed while the catalog was being "
+                "read, so what was read has not been used.";
+        return false;
+    }
     return true;
 }
 

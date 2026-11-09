@@ -1931,7 +1931,7 @@ inventing one, so that a single set of instructions covers every client.
   `fnv1a32`, `indexUrlFromEnvironment` (the single reader of the variable) and
   `normalizedIndexSetting` (what a typed URL is stored as). `Config.h` —
   `catalogIndexUrl`. `DiskCatalog.h` — `setCatalogIndexUrl` /
-  `getCatalogIndexUrl`, with `fetchIndex` resolving through `indexUrl` so the
+  `getCatalogIndexUrl`, with `fetchCatalogInto` resolving through `indexUrl` so the
   variable still wins. `SettingsDialogWx.cpp` — `updateCatalogIndexNote`,
   `typedCatalogIndexUrl`, `onCatalogIndexUrlChanged`: the field, its live note,
   and the push into the catalog before every fetch. `MainWindow.cpp` —

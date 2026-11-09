@@ -44,9 +44,7 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
 
 - SettingsDialogWx's one-fetch-at-a-time guard covers only its own fetches: a
   MainWindow::fetchRomCatalog (F5) still in flight when Settings opens overlaps
-  the dialog's open-time fetch on the same DiskCatalog.
-
-- DiskCatalog keeps m_indexVersions from the last successful fetch whatever the
-  catalog URL now is: Refresh a test index URL and Cancel, or load a profile
-  with another core.catalogIndexUrl, and the picker, chooseVersion and the
-  MountedDisk notice read a different catalog's index until the next fetch.
+  the dialog's open-time fetch on the same DiskCatalog.  If Refresh there changes
+  the catalog URL, that F5 fetch now fails as superseded (by design: a retry
+  would read the dialog's uncommitted preview), but startWithDefaultsAfterCatalog
+  and offerRomChoice then add "check your network" advice that does not apply.
