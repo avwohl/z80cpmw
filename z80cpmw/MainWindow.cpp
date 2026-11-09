@@ -1443,7 +1443,25 @@ void MainWindow::onEmulatorReset() {
     updateMenuState();
 }
 
+// NOT WHILE F5 IS STILL FETCHING. The Settings dialog fetches the catalog when it
+// opens, and Refresh there pushes a typed URL before OK - into the same
+// DiskCatalog the F5 sequence is reading. Opened mid-sequence, the two fetches
+// overlapped, and a URL change failed the F5 one as superseded, which its
+// callers then reported with "check your network" advice. A profile load
+// changes the URL too. The dialog is modal, so once it is open F5 cannot start
+// a sequence under it; refusing to open during one closes the other side.
+bool MainWindow::refuseWhileStartFetches(const wchar_t* what) {
+    if (!m_downloadingDisks && !m_fetchingRom) return false;
+    std::wstring msg = std::wstring(what) +
+        L" is not available while the machine is fetching its catalog, ROM or "
+        L"disk images for Start.\n\nTry again once the machine has started, "
+        L"or once Start has said why it could not.";
+    MessageBoxW(m_hwnd, msg.c_str(), what, MB_OK | MB_ICONINFORMATION);
+    return true;
+}
+
 void MainWindow::onEmulatorSettings() {
+    if (refuseWhileStartFetches(L"Settings")) return;
     // Stop emulator while settings dialog is open
     bool wasRunning = m_emulator && m_emulator->isRunning();
     if (wasRunning) {
@@ -3566,6 +3584,7 @@ void MainWindow::updateConfigFromState() {
 }
 
 void MainWindow::onLoadProfile() {
+    if (refuseWhileStartFetches(L"Load Profile")) return;
     auto profiles = config::ConfigManager::instance().listProfiles();
     if (profiles.empty()) {
         MessageBoxW(m_hwnd, L"No saved profiles found.", L"Load Profile", MB_OK | MB_ICONINFORMATION);

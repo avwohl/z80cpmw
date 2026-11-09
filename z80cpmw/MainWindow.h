@@ -390,4 +390,11 @@ private:
     // while the answer to it is already in flight.
     bool m_fetchingRom = false;
 
+    // True, after telling the user why, while either flag above is set - the
+    // F5 start sequence is reading the catalog or downloading from it. Settings
+    // and Load Profile ask it first: both can change the catalog URL that
+    // sequence is reading, and Settings runs its own catalog fetch on the same
+    // DiskCatalog.
+    bool refuseWhileStartFetches(const wchar_t* what);
+
 };

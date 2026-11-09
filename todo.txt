@@ -41,10 +41,3 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   gdb_platform_windows.cpp, gdbstub.cc and romwbw_gdb.cc under cl, the wx Debugger
   page, or tests\run_tests.bat's new GDB suite (and the debugger.* checks in
   test_config.cpp) has run on Windows.  Then MANUAL_CHECKS section 16.
-
-- SettingsDialogWx's one-fetch-at-a-time guard covers only its own fetches: a
-  MainWindow::fetchRomCatalog (F5) still in flight when Settings opens overlaps
-  the dialog's open-time fetch on the same DiskCatalog.  If Refresh there changes
-  the catalog URL, that F5 fetch now fails as superseded (by design: a retry
-  would read the dialog's uncommitted preview), but startWithDefaultsAfterCatalog
-  and offerRomChoice then add "check your network" advice that does not apply.
