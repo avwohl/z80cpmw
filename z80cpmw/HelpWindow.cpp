@@ -386,10 +386,10 @@ images stay in the data folder.
 
 Every ROM and disk image comes from the romwbw_disks catalog at run time; this
 application ships none. core.catalogIndexUrl is WHICH catalog - the "Catalog
-index" field under the release picker on the Disk Images page. Set it to try a
-release before it is published, or to run your own catalog. Empty means the one
-this build ships with, and pasting that URL in is stored as empty so you cannot
-pin yourself to today's default by copying what the field shows you.
+index" field on the Disk Images page. Set it to try a release before it is
+published, or to run your own catalog. Empty means the one this build ships
+with, and pasting that URL in is stored as empty so you cannot pin yourself
+to today's default by copying what the field shows you.
 
 ROMWBW_INDEX_URL in the environment beats the setting, for that run only:
 

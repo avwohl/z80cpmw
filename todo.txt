@@ -42,12 +42,6 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   page, or tests\run_tests.bat's new GDB suite (and the debugger.* checks in
   test_config.cpp) has run on Windows.  Then MANUAL_CHECKS section 16.
 
-- Three texts still put the release picker on the Disk Images page, which it
-  left for Machine on 2026-09-18: romReadyToStart's "Cannot start" box ("Which
-  RomWBW release and which ROM is under ... Disk Images"), the no-catalog ROM
-  box ("Choose a release ... under ... Disk Images") and HelpWindow's
-  core.catalogIndexUrl row ("under the release picker on the Disk Images page").
-
 - Ticking "Show pre release" while a catalog fetch is in flight re-enables the
   release picker that onRefreshCatalog disabled (populateVersionList ends in
   Enable(true)), so a pick starts a second, overlapping fetch.

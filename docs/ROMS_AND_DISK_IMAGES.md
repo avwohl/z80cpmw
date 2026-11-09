@@ -20,7 +20,7 @@ risk worth the convenience.
 
 Three things are yours to choose, all under **Emulator → Settings**:
 
-- **Which RomWBW release** - the picker at the top of the **Disk Images** page.
+- **Which RomWBW release** - the picker at the top of the **Machine** page.
   That list is the index: every release `romwbw_disks` publishes is offered, and
   **a new RomWBW release reaches you with no new build of this application**,
   exactly as a new ROM or a new disk image does. Pre-releases are the one
@@ -51,7 +51,7 @@ Three things are yours to choose, all under **Emulator → Settings**:
   release's ROMs. Publishing a new ROM in `romwbw_disks`, into a release the
   picker already offers, makes it selectable with no new release of this
   application.
-- **Which catalog** - the *Catalog index* field under the release picker. Leave
+- **Which catalog** - the *Catalog index* field on the **Disk Images** page. Leave
   it empty for the catalog this build ships with, or point it at another
   `romwbw_disks` index to try a release before it is published.
   `ROMWBW_INDEX_URL` in the environment overrides it for one run and stores

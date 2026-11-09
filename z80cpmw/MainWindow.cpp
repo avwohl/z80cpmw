@@ -994,7 +994,7 @@ void MainWindow::startEmulator() {
         }
         msg += "The ROM is downloaded from the catalog on the first start.\n"
                "Check the network connection, then press F5 again. Which RomWBW\n"
-               "release and which ROM is under Emulator > Settings > Disk Images.";
+               "release and which ROM is under Emulator > Settings > Machine.";
         MessageBoxA(m_hwnd, msg.c_str(), "Cannot start", MB_OK | MB_ICONERROR);
         return;
     }
@@ -2962,8 +2962,8 @@ bool MainWindow::offerRomChoice(const std::string& want, const std::string& why,
         // with no network is most likely to see.
         msg += "A catalog that does not publish " + release + " cannot supply\n"
                "its ROM, however good the network is. Choose a release that\n"
-               "catalog does publish, or clear the catalog index, under\n"
-               "Emulator > Settings > Disk Images.";
+               "catalog does publish under Emulator > Settings > Machine, or\n"
+               "clear the Catalog index field on the Disk Images page.";
     } else {
         msg += "Check the network connection and press F5 again.";
     }
@@ -3124,7 +3124,7 @@ void MainWindow::loadDefaultROM() {
     setNotice(Notice::DefaultRom,
               "The RomWBW ROM is downloaded the first time the machine starts;\r\n"
               "this app does not ship one. Press F5 and it will be fetched and\r\n"
-              "checked against the catalog. Emulator > Settings > Disk Images\r\n"
+              "checked against the catalog. Emulator > Settings > Machine\r\n"
               "chooses which RomWBW release and which ROM.\r\n\r\n");
 }
 

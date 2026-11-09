@@ -406,9 +406,8 @@ the top of the *Disk Images* page.
 ## Reading a different catalog
 
 Everything above is read out of a document fetched at run time. `core.catalogIndexUrl`
-is which document — the **Catalog index** field under the release picker on the
-*Disk Images* page, and the one setting that changes what every other one can
-mean. Set it to try a `romwbw_disks` release before it is published, or to run
+is which document — the **Catalog index** field on the *Disk Images* page, and
+the one setting that changes what every other one can mean. Set it to try a `romwbw_disks` release before it is published, or to run
 your own catalog.
 
 Empty means the index this build ships with. That is deliberately **not** the
