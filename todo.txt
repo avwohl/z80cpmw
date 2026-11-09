@@ -42,9 +42,9 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   page, or tests\run_tests.bat's new GDB suite (and the debugger.* checks in
   test_config.cpp) has run on Windows.  Then MANUAL_CHECKS section 16.
 
-- Ticking "Show pre release" while a catalog fetch is in flight re-enables the
-  release picker that onRefreshCatalog disabled (populateVersionList ends in
-  Enable(true)), so a pick starts a second, overlapping fetch.
+- SettingsDialogWx's one-fetch-at-a-time guard covers only its own fetches: a
+  MainWindow::fetchRomCatalog (F5) still in flight when Settings opens overlaps
+  the dialog's open-time fetch on the same DiskCatalog.
 
 - DiskCatalog keeps m_indexVersions from the last successful fetch whatever the
   catalog URL now is: Refresh a test index URL and Cancel, or load a profile

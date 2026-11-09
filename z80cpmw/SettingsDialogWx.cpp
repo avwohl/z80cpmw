@@ -1375,7 +1375,10 @@ void SettingsDialogWx::populateVersionList() {
         return;
     }
 
-    m_romwbwVersionChoice->Enable(true);
+    // Not while a fetch is in flight: onCatalogLoaded enables it when that
+    // lands. Ticking "Show pre release" rebuilds this list mid-fetch, and the
+    // rows it adds should be visible, not pickable yet.
+    m_romwbwVersionChoice->Enable(!m_catalogFetchInFlight);
 
     // Selected on the version the catalog in hand was actually FETCHED for,
     // which is not always the one the user asked for: a preference the index no
@@ -1415,7 +1418,14 @@ void SettingsDialogWx::populateVersionList() {
     for (size_t i = 0; i < m_romwbwVersionIds.size() && idx < 0; i++) {
         if (!showing.empty() && m_romwbwVersionIds[i] == showing) idx = static_cast<int>(i);
     }
-    for (size_t i = 0; i < m_romwbwVersionIds.size() && idx < 0; i++) {
+    // NOT `selected` WHILE A FETCH IS IN FLIGHT: it is then the PREVIOUS fetch's
+    // answer, by definition. Pick 3.7.0-dev.16 from 3.5.1 and untick before
+    // that fetch lands: the snapshot row is gone, `selected` still says 3.5.1,
+    // and the picker showed 3.5.1 while the fetch landed the index default -
+    // after which `showing` kept 3.5.1 on screen and the reconcile moved the
+    // slots to 3.6.0. chooseVersion below computes what the fetch in flight
+    // will land, from the same inputs, so mid-fetch it is the better answer.
+    for (size_t i = 0; !m_catalogFetchInFlight && i < m_romwbwVersionIds.size() && idx < 0; i++) {
         if (!selected.empty() && m_romwbwVersionIds[i] == selected) idx = static_cast<int>(i);
     }
     // NEITHER IS A ROW, AND THAT IS NOT ONLY "AN INDEX THAT PUBLISHES NEITHER".
@@ -2016,6 +2026,19 @@ void SettingsDialogWx::onClearBootConfig(wxCommandEvent& event) {
 void SettingsDialogWx::onRefreshCatalog(wxCommandEvent& event) {
     if (!m_catalog) return;
 
+    // NOT A SECOND FETCH ON TOP OF THE FIRST - see the paragraph on the release
+    // control below for what two overlapping workers do. Disabling the button
+    // and the picker closed two of the ways in, and left a third: unticking
+    // "Show pre release" on a snapshot calls straight into here, and the box is
+    // never disabled. So the request is remembered rather than refused, and
+    // onCatalogLoaded makes it when the fetch in flight lands - with whatever
+    // URL, preference and flag are in force THEN, which is what was asked for.
+    if (m_catalogFetchInFlight) {
+        m_refetchAfterLoad = true;
+        return;
+    }
+    m_catalogFetchInFlight = true;
+
     // WHICH INDEX THIS FETCH IS FOR, pushed before it starts and taken from the
     // FIELD - the same thing onRomwbwVersionChanged does with the release a few
     // functions below, and for the identical reason: the list this fetch fills
@@ -2041,7 +2064,10 @@ void SettingsDialogWx::onRefreshCatalog(wxCommandEvent& event) {
     // under the other release's name. The downloads themselves stay honest
     // either way (the URL and the sha256 come out of the entry), but the label
     // above them would be lying. populateVersionList() re-enables it, and it is
-    // called from onCatalogLoaded on BOTH the success and the failure path.
+    // called from onCatalogLoaded on BOTH the success and the failure path -
+    // and ONLY from there while m_catalogFetchInFlight is set: ticking "Show pre
+    // release" mid-fetch also calls populateVersionList(), and that used to
+    // re-enable the picker here and let a pick start the second fetch.
     m_romwbwVersionChoice->Enable(false);
 
     // The raw dialog pointer is still what wxPostEvent needs, but it is no
@@ -2067,6 +2093,18 @@ void SettingsDialogWx::onRefreshCatalog(wxCommandEvent& event) {
 
 void SettingsDialogWx::onCatalogLoaded(wxCommandEvent& event) {
     m_refreshBtn->Enable(true);
+    m_catalogFetchInFlight = false;
+
+    // A refresh was asked for while this fetch was in flight, so what just
+    // landed was fetched with inputs that have since changed. Fetch again
+    // rather than populate from it: the reconcile below would otherwise move
+    // the slots toward a release the user has already left, and then the
+    // second fetch would move them back.
+    if (m_refetchAfterLoad) {
+        m_refetchAfterLoad = false;
+        onRefreshCatalog(event);
+        return;
+    }
 
     if (event.GetInt()) {
         // The version list first: everything below it is about the release it
@@ -2244,16 +2282,30 @@ void SettingsDialogWx::onShowPrereleaseChanged(wxCommandEvent& event) {
     // box does not silently jump back to a snapshot the user has left.
     if (!show && m_catalog) {
         bool onPrerelease = false;
+        // On one means the catalog's selection OR the preference names a
+        // pre-release. The selection alone was not enough: pick the snapshot
+        // and untick before that fetch lands, and the selection still names the
+        // previous release, so nothing moved back - while the fetch went on to
+        // land the snapshot and the reconcile moved the slots onto it.
         const std::string sel = m_catalog->getSelectedRomwbwVersion();
+        const std::string pref = m_catalog->getPreferredRomwbwVersion();
         for (const auto& e : m_catalog->getIndexVersions()) {
-            if (e.romwbwVersion == sel && e.prerelease) { onPrerelease = true; break; }
+            if ((e.romwbwVersion == sel || e.romwbwVersion == pref) && e.prerelease) {
+                onPrerelease = true;
+                break;
+            }
         }
         if (onPrerelease) {
             abandonReleaseSwitchFetch();
             m_catalog->setPreferredRomwbwVersion(std::string());
             setSlotsSettling(true);
             m_statusText->SetLabel("Leaving the pre-release...");
-            updateRomwbwVersionNote();
+            // The list now, not when the fetch lands: the fetch may be deferred
+            // behind one already in flight, and OK pressed meanwhile reads the
+            // picker. With the preference cleared, populateVersionList's
+            // chooseVersion candidate puts it on the index default - disabled
+            // while a fetch is in flight.
+            populateVersionList();
             // The fetch brings the default release's catalog, and the reconcile
             // in onCatalogLoaded moves the four slots onto its images.
             onRefreshCatalog(event);
@@ -2936,6 +2988,10 @@ void SettingsDialogWx::onOK(wxCommandEvent& event) {
     // read again. The images already placed are on disk and are what OK stores.
     abandonReleaseSwitchFetch();
     m_switchPlanPending = false;
+    // And no deferred catalog fetch: a load already queued can still reach
+    // onCatalogLoaded after EndModal, and must not start a fetch for a dialog
+    // that has closed.
+    m_refetchAfterLoad = false;
     saveSettings();
     EndModal(wxID_OK);
 }
@@ -2963,6 +3019,9 @@ void SettingsDialogWx::onCancel(wxCommandEvent& event) {
     // only OK reaches.
     abandonReleaseSwitchFetch();
     m_switchPlanPending = false;
+    // A deferred fetch would push the typed catalog URL back over the one
+    // restored below - see onOK.
+    m_refetchAfterLoad = false;
 
     if (m_catalog) {
         m_catalog->setPreferredRomwbwVersion(m_settings.romwbwVersion);

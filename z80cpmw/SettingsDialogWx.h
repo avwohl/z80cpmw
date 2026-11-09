@@ -292,6 +292,14 @@ private:
     // transfer lock is also free. Both conditions end in an event, so whichever
     // happens second calls this; nothing polls and nothing sleeps.
     bool m_switchPlanPending = false;
+    // ONE CATALOG FETCH AT A TIME. onRefreshCatalog sets the first and
+    // onCatalogLoaded clears it; populateVersionList leaves the release picker
+    // disabled while it is set. A refresh asked for while one is in flight -
+    // unticking "Show pre release" on a snapshot is the path that does - sets
+    // the second instead of starting an overlapping fetch, and onCatalogLoaded
+    // starts it when the first lands.
+    bool m_catalogFetchInFlight = false;
+    bool m_refetchAfterLoad = false;
     void tryStartReleaseSwitchFetch();
     // Resolve those ids in the catalog that just landed and start the chain.
     void beginReleaseSwitchFetch();
