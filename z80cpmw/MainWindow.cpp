@@ -2219,7 +2219,7 @@ void MainWindow::reportMountedDiskProvenance() {
     //
     // "AND STAYS MISMATCHED FOR EVER" USED TO END THAT SENTENCE, and it is no
     // longer true of the MACHINE - only of the stored value. Opening Settings
-    // runs the reconcile at SettingsDialogWx.cpp:2029-2037, which moves the
+    // runs the reconcile in SettingsDialogWx::onCatalogLoaded, which moves the
     // DISKS onto the stored release rather than the release onto the disks.
     // So the two surfaces resolve this state in opposite directions: this
     // notice advises moving the release to the disks, and merely opening
@@ -2312,14 +2312,58 @@ void MainWindow::reportMountedDiskProvenance() {
             // they meant to be running.
             block += "The mounted disks are not all from one release, so no "
                      "single choice\r\n"
-                     "  matches them all. Settings > Disk Images has the release "
+                     "  matches them all. Settings > Machine has the release "
                      "picker.\r\n";
         } else {
+            // SAY WHAT SETTINGS WILL DO, AND WHAT THE PICKER CAN REACH. This
+            // said "set it in Settings > Disk Images" for every release, and was
+            // wrong four ways. The picker moved to the Machine page on
+            // 2026-09-18. With "Show pre release" off the picker hides a
+            // snapshot, so a machine carrying -v0-3.7.0-dev.N disks was sent to
+            // a row that is not there. A release the index does not list -
+            // romwbw_disks replaced 3.7.0-dev.14 with 3.7.0-dev.16 on
+            // 2026-11-09 - is in no picker at all. And it never said that
+            // opening Settings, once its catalog loads, moves the slots onto
+            // the RUNNING release by itself (onCatalogLoaded's reconcile), so a
+            // user following it watched the disks leave first.
+            //
+            // So this names both directions as facts and picks neither as the
+            // fix, which the paragraph above this loop says is still open. The
+            // index in hand says which picker case applies; before the first
+            // fetch there is no index, and the plain case stands.
+            const std::vector<catalogv0::IndexEntry> published =
+                m_diskCatalog->getIndexVersions();
+            const catalogv0::IndexEntry* entry = nullptr;
+            for (const auto& e : published) {
+                if (e.romwbwVersion == disksAgreeOn) { entry = &e; break; }
+            }
             block += "Every mismatched disk here is a RomWBW " + disksAgreeOn +
-                     " image. If that is\r\n"
-                     "  the release you meant to run, set it in Settings > Disk "
-                     "Images; the next\r\n"
-                     "  Start will offer to fetch its ROM.\r\n";
+                     " image.\r\n";
+            const std::string settingsMoves =
+                "  Settings moves the slots to RomWBW " + running +
+                " images when its catalog\r\n"
+                "  loads, downloading what is missing";
+            if (!published.empty() && !entry) {
+                block += "  The catalog does not publish that release, so no "
+                         "setting matches these\r\n"
+                         "  disks. Open Settings and let it replace them.\r\n" +
+                         settingsMoves + ";\r\n"
+                         "  press OK to keep them.\r\n";
+            } else {
+                if (entry &&
+                    !catalogv0::isOffered(*entry,
+                                          m_diskCatalog->getShowPrereleaseVersions())) {
+                    block += "  That is a development snapshot, which the release "
+                             "picker hides. To run\r\n"
+                             "  it, tick \"Show pre release\" in Settings > Machine, "
+                             "then choose it there.\r\n";
+                } else {
+                    block += "  To run it, choose it in Settings > Machine.\r\n";
+                }
+                block += settingsMoves + "; choosing RomWBW " + disksAgreeOn +
+                         "\r\n"
+                         "  moves them back. The next Start fetches its ROM.\r\n";
+            }
         }
     }
 
