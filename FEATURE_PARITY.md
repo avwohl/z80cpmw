@@ -310,8 +310,9 @@ absence of a mention is not proof of absence.
 | Platform | Repo | Lang | Role |
 | --- | --- | --- | --- |
 | Windows | [`z80cpmw`](https://github.com/avwohl/z80cpmw) | C++ | GUI front-end (this repo — the parity reference) |
-| iOS / macOS | [`ioscpm`](https://github.com/avwohl/ioscpm) | Swift | GUI front-end. Also **hosts the shared disk-image + help release assets** (`disks.xml`, `hd1k_*.img`, `help_index.json`). |
+| iOS / macOS | [`ioscpm`](https://github.com/avwohl/ioscpm) | Swift | GUI front-end. Its old `v1.4.x` release tags held the shared disk images and help before the interface-v0 migration, and must stay live for clients built before it. |
 | Android | [`cpmdroid`](https://github.com/avwohl/cpmdroid) | Kotlin | GUI front-end |
+| Artifacts | [`romwbw_disks`](https://github.com/avwohl/romwbw_disks) | — | **Publishes what every client downloads**: the ROMs, disk images and help topics, behind `index-v0.json` on the release marked Latest. |
 | Linux / Web | [`romwbw_emu`](https://github.com/avwohl/romwbw_emu) | C++ | **Shared emulator core** + CLI (deb/rpm) + browser/WASM frontend (`web/`). CLI terminal UX is delegated to the host terminal; the web build has its own xterm.js UI. |
 
 `cpmemu` is a *different* family (BDOS/BIOS-to-Unix translation, not RomWBW HBIOS
@@ -991,12 +992,17 @@ copyrighted content.
   progress, track downloaded state, delete. *Cancel is in the spec because the
   ports need it, not because this port has it.*
 
-  **The pin is history on this port and still the spec on the others**, which is
-  why the heading no longer says "(pinned)". The rule was: pin to one explicit
-  release tag, never `latest`, so a new release cannot silently swap disk images
-  out from under an installed client and re-introduce an HBIOS/CBIOS version
-  mismatch. z80cpmw now gets that protection a different way — see below — and
-  ioscpm and cpmdroid still name a tag in source.
+  **The pin is history on all three GUI ports**, which is why the heading no
+  longer says "(pinned)". The rule was: pin to one explicit release tag, never
+  `latest`, so a new release cannot silently swap disk images out from under an
+  installed client and re-introduce an HBIOS/CBIOS version mismatch. Each port
+  now gets that protection a different way — see below for z80cpmw — and none
+  names a release tag in source: the one address each compiles in is
+  `romwbw_disks`' `releases/latest/download/index-v0.json` (ioscpm
+  `CatalogMigration.defaultIndexURL`, cpmdroid
+  `SettingsRepository.DEFAULT_INDEX_URL`; read 2026-11-09 at ioscpm `27e390e`
+  and cpmdroid `6b73c53`). That index names immutable per-release tags, so a
+  new RomWBW release is a new entry, not a swap.
 <!-- cites: z80cpmw -->
 - **Where:** `z80cpmw/DiskCatalog.{h,cpp}` for the transfer, the cache and the
   ledger, and `z80cpmw/CatalogV0.{h,cpp}` for parsing the documents and choosing
@@ -1055,13 +1061,13 @@ copyrighted content.
   catalog names. Cancel remains the shape cpmdroid's ◐ describes — it happens
   when the window dies, not from a button.
 <!-- /cites -->
-- **Shared concern, and it is no longer shared.** ioscpm and cpmdroid download
-  from `ioscpm` releases and should each pin to an explicit tag matching the
-  RomWBW version their embedded ROM was built from. z80cpmw downloads its disks
-  **and its ROM** from `avwohl/romwbw_disks`, and that advice does not apply to
-  it: it has no embedded ROM to match, and it checks the ROM it fetches against
-  the size and sha256 the catalog publishes before loading it. See this repo's
-  `WIP`/parity notes on the version-skew problem.
+- **Shared concern, and it is no longer shared.** The advice here was that
+  ioscpm and cpmdroid, downloading from `ioscpm` releases, should each pin to a
+  tag matching the RomWBW version of their embedded ROM. It applies to none of
+  the three now: all of them read `avwohl/romwbw_disks`' index, none of the
+  three trees tracks a ROM file (read 2026-11-09), and z80cpmw checks the ROM it
+  fetches against the size and sha256 the catalog publishes before loading it.
+  See this repo's `WIP`/parity notes on the version-skew problem.
 - **Verified port behaviour (2026-08-07):**
 <!-- cites: cpmdroid -->
   - **cpmdroid (Android)** *(re-read 2026-09-10 at `6848615`)* — **not pinned
