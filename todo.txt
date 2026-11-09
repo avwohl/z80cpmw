@@ -46,7 +46,3 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   catalogv0::isOffered(), so with "Show pre release" off it returns a snapshot
   chooseVersion() rejects - the disagreement its own comment says ends in a
   "Cannot start" box on every F5.  Apply the same isOffered() test.
-
-- REAL_INDEX in tests/test_catalogv0.cpp still lists 3.7.0-dev.14; romwbw_disks
-  retired it for 3.7.0-dev.16 on 2026-11-09 (romwbw_disks 14ef9d7), so the check
-  against a sibling ..\romwbw_disks checkout fails.  Refresh REAL_INDEX.

@@ -247,11 +247,11 @@ static const char* const REAL_INDEX = R"JSON({
       ]
     },
     {
-      "romwbw_version": "3.7.0-dev.14",
-      "label": "RomWBW 3.7.0-dev.14 (development snapshot)",
+      "romwbw_version": "3.7.0-dev.16",
+      "label": "RomWBW 3.7.0-dev.16 (development snapshot)",
       "status": "snapshot",
       "default": false,
-      "released": "2026-09-08",
+      "released": "2026-10-24",
       "hbios": {
         "major": 3,
         "minor": 7,
@@ -261,12 +261,12 @@ static const char* const REAL_INDEX = R"JSON({
         "upd_byte": "0x00",
         "sysver_de": "0x3700"
       },
-      "release_tag": "v0-romwbw-3.7.0-dev.14",
-      "catalog_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.14/catalog-v0-3.7.0-dev.14.json",
-      "catalog_sha256": "127e60953c8bdf4339d048a23744dfef0eee1b372c672824ec36303685461365",
+      "release_tag": "v0-romwbw-3.7.0-dev.16",
+      "catalog_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.16/catalog-v0-3.7.0-dev.16.json",
+      "catalog_sha256": "668ccfa5257b3030ca959b21153402a6be6c9d7dc170c2532ac1c43df96254ba",
       "catalog_size": 13262,
       "generation": 1,
-      "disks_xml_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.14/disks-v0-3.7.0-dev.14.xml",
+      "disks_xml_url": "https://github.com/avwohl/romwbw_disks/releases/download/v0-romwbw-3.7.0-dev.16/disks-v0-3.7.0-dev.16.xml",
       "rom_count": 2,
       "disk_count": 22,
       "notes": [],
@@ -720,8 +720,9 @@ static void test_real_index() {
     // It is parsed like any other entry and is NOT dropped: hiding it is a
     // decision for isOffered(), one layer up, and a parser that silently
     // discarded it would leave the checkbox with nothing to show.
-    checkStr(entries[2].romwbwVersion, "3.7.0-dev.14",
-             "the third is the 3.7.0-dev.14 snapshot, published 2026-09-18");
+    checkStr(entries[2].romwbwVersion, "3.7.0-dev.16",
+             "the third is the 3.7.0-dev.16 snapshot, which replaced 3.7.0-dev.14 "
+             "on 2026-11-09");
     checkTrue(entries[2].prerelease, "and it says so in `prerelease`");
     checkFalse(entries[2].isDefault,
                "never the default - the publisher refuses that combination in two checks");
@@ -869,7 +870,7 @@ static void test_a_snapshot_is_opt_in() {
         return;
     }
     const catalogv0::IndexEntry& stable = entries[1];       // 3.6.0, the default
-    const catalogv0::IndexEntry& snapshot = entries[2];     // 3.7.0-dev.14
+    const catalogv0::IndexEntry& snapshot = entries[2];     // 3.7.0-dev.16
 
     // A real release is offered whatever the setting says. The checkbox is about
     // pre-releases and must not become a second way to hide releases.
@@ -900,12 +901,22 @@ static void test_a_snapshot_is_opt_in() {
     // A STORED PRE-RELEASE PREFERENCE IS HONOURED ONLY WHILE THE BOX IS ON.
     // This is the reversal, and it is the check that would fail if somebody put
     // the old behaviour back: with the box off, a machine stored at
-    // 3.7.0-dev.14 returns to the index default rather than sitting on a
+    // 3.7.0-dev.16 returns to the index default rather than sitting on a
     // release its own Settings page will not show.
-    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14", true), 2,
+    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.16", true), 2,
              "a stored pre-release preference is honoured with the box on");
-    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14", false), 1,
+    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.16", false), 1,
              "and is NOT honoured with the box off - it falls to the index default");
+
+    // A STORED SNAPSHOT THE INDEX NO LONGER CARRIES goes to the default, not to
+    // the newer snapshot, even with the box on.  This is not hypothetical:
+    // romwbw_disks retired 3.7.0-dev.14 for 3.7.0-dev.16 on 2026-11-09, so
+    // every machine stored at dev.14 met it.  dev.16 is a different build the
+    // user never chose; romwbw_disks docs/CLIENT_MIGRATION.md step 7.
+    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14", true), 1,
+             "a retired snapshot falls to the index default with the box on");
+    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14", false), 1,
+             "and with it off");
 
     // A stored preference for an ORDINARY release is untouched by any of this.
     checkNum(catalogv0::chooseVersion(entries, "3.5.1", false), 0,
@@ -918,8 +929,8 @@ static void test_a_snapshot_is_opt_in() {
     // assumed: it is one word in a header and the safe behaviour rests on it.
     checkNum(catalogv0::chooseVersion(entries, ""), catalogv0::chooseVersion(entries, "", false),
              "the two-argument form means 'no pre-releases'");
-    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.14"),
-             catalogv0::chooseVersion(entries, "3.7.0-dev.14", false),
+    checkNum(catalogv0::chooseVersion(entries, "3.7.0-dev.16"),
+             catalogv0::chooseVersion(entries, "3.7.0-dev.16", false),
              "including when a pre-release is the stored preference");
 
     // An index of nothing but pre-releases still yields a release rather than
@@ -930,7 +941,7 @@ static void test_a_snapshot_is_opt_in() {
     onlySnapshots.push_back(snapshot);
     checkNum(catalogv0::chooseVersion(onlySnapshots, "", false), 0,
              "an index carrying only pre-releases still chooses one with the box off");
-    checkNum(catalogv0::chooseVersion(onlySnapshots, "3.7.0-dev.14", false), 0,
+    checkNum(catalogv0::chooseVersion(onlySnapshots, "3.7.0-dev.16", false), 0,
              "and so does one whose only entry is the stored preference");
 }
 
@@ -949,7 +960,7 @@ static void test_a_snapshot_says_so() {
     // status rule would spell the warning twice: "...(development snapshot)
     // (snapshot)". Measured against the real entry.
     checkStr(catalogv0::displayLabel(entries[2]),
-             "RomWBW 3.7.0-dev.14 (development snapshot)",
+             "RomWBW 3.7.0-dev.16 (development snapshot)",
              "the published label carries the warning and is not doubled by `status`");
 
     // And at least once. The marking is the publisher's to word and OURS to
