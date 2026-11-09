@@ -340,8 +340,10 @@ public:
     //
     // Held here for the same reason as the release preference above: the
     // Settings dialog flips it and refills its picker while the dialog is still
-    // open, and the configuration is not written until OK. MainWindow::applyConfig
-    // seeds it, Settings pushes it before each fetch, and Cancel puts it back.
+    // open. MainWindow::applyConfig seeds it and Settings pushes it when the box
+    // is toggled. Cancel does NOT put it back: toggling commits it, and
+    // MainWindow saves it on Cancel as well as OK (SettingsDialogWx's Cancel
+    // handler says why).
     //
     // It can change WHICH RELEASE IS CHOSEN, and that is deliberate as of
     // 2026-09-18: catalogv0::chooseVersion stops honouring a stored pre-release

@@ -97,18 +97,19 @@ private:
     // The RomWBW release this machine is being STARTED on, which is the release
     // its ROM has to be.
     //
-    //  1. what the user chose, when they chose one. It is a preference for the
-    //     catalog and a requirement for the ROM: someone who selected 3.6.0 is
-    //     asking for a 3.6.0 machine, and booting them on the bundled 3.5.1
-    //     because a fetch fell back is exactly the silent substitution the ROM
-    //     work exists to end.
-    //  2. otherwise the release the catalog in hand was fetched for, which is
-    //     what the disks about to be mounted were built for. This is the case
-    //     that matters today: with no stored preference the index's own
-    //     `default: true` selects 3.6.0, so the disks are 3.6.0's and the ROM
-    //     must be too.
-    //  3. otherwise the bundled ROM's release. A first launch with no network
-    //     and no configuration, which has to keep working offline.
+    //  1. what the user chose, while catalogv0::chooseVersion still picks it -
+    //     published, and not a pre-release with "Show pre release" off. It is
+    //     a preference for the catalog and a requirement for the ROM: someone
+    //     who selected 3.6.0 is asking for a 3.6.0 machine, and booting them on
+    //     the bundled 3.5.1 because a fetch fell back is exactly the silent
+    //     substitution the ROM work exists to end.
+    //  2. otherwise what chooseVersion picks in its place from the index in
+    //     hand - the index's own `default: true`, 3.6.0 today. The catalog the
+    //     disks come from is fetched with the same inputs, so the disks are
+    //     3.6.0's and the ROM must be too. A catalog fetched under older inputs
+    //     is a mismatch, and romReadyToStart() refetches.
+    //  3. otherwise nothing: there is no bundled ROM any more, and
+    //     romReadyToStart() decides by reading the index.
     std::string startRomwbwRelease() const;
 
     // THE ROM GATE. True when the machine may start; false when it may not, in

@@ -382,13 +382,12 @@ void SettingsDialogWx::buildMachinePage() {
     // the wording is the schema's rather than invented, so that a user reading
     // the repository and a user reading this dialog are told the same thing.
     //
-    // It is NOT a second release picker. Everything it does happens in
-    // populateVersionList(): rows appear and disappear. The release a machine
-    // runs is moved only by the choice above it, which is why unticking this
-    // cannot strand somebody on a snapshot whose images are mounted - the row
-    // for the selected release survives the filter. catalogv0::isOffered holds
-    // that rule, in one place, so this dialog and the automatic choice made
-    // during a fetch cannot disagree about one machine.
+    // Ticking it adds rows to populateVersionList(). Unticking it removes them
+    // and moves a machine that is on a snapshot to the index default, disks
+    // included - see onShowPrereleaseChanged. catalogv0::isOffered holds the
+    // rule, in one place, so this dialog, the automatic choice made during a
+    // fetch and MainWindow::startRomwbwRelease cannot disagree about one
+    // machine.
     m_showPrereleaseCheck = new wxCheckBox(page, ID_SHOW_PRERELEASE,
                                            "Show pre release");
     content->Add(m_showPrereleaseCheck, 0, wxBOTTOM, 6);
@@ -2176,9 +2175,10 @@ void SettingsDialogWx::onRomwbwVersionChanged(wxCommandEvent& event) {
 // leaving the box ticked and the list unchanged.
 //
 // The catalog is told too, so that a fetch started later by anything else -
-// Refresh, a release change, Start - applies the same rule. What it must NOT be
-// allowed to do is move the selection: catalogv0::chooseVersion honours a stored
-// preference for a snapshot whatever this says, for the reason written there.
+// Refresh, a release change, Start - applies the same rule. Turning it off
+// moves a machine that is on a snapshot to the index default: chooseVersion does
+// not honour a stored snapshot preference while the box is off, and neither does
+// MainWindow::startRomwbwRelease, which calls it.
 //
 // Nothing is stored until OK, like every other control on this page; Cancel puts
 // the catalog's copy back.

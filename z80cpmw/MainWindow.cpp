@@ -2552,29 +2552,47 @@ std::string MainWindow::startRomwbwRelease() const {
     // diskv0::releaseOfV0Name, which is string slicing and asks no one whether
     // the document still names the result.
     //
-    // ONE OF THE TWO WAYS A PREFERENCE COULD MISS IS GONE. It used to be "the
-    // index no longer carries it OR this core cannot boot it"; romwbw_emu v1.44
-    // deleted the release allowlist, so only the first remains and the loop below
-    // is now a published/not-published test. Nothing about the shape changes:
-    // what matters is that this function and chooseVersion apply the SAME test,
-    // so they cannot disagree about one machine.
+    // A PREFERENCE MISSES TWO WAYS: the index no longer carries it, or it is a
+    // pre-release and "Show pre release" is off. (A third, "this core cannot
+    // boot it", went with romwbw_emu v1.44's release allowlist.) What matters is
+    // that this function and chooseVersion apply the SAME test, so they cannot
+    // disagree about one machine - which is why the code below calls
+    // chooseVersion rather than restating it.
     //
     // ONLY ONCE A CATALOG HAS BEEN READ. getIndexVersions() is empty before the
     // first successful fetch, and that is exactly when the stored preference is
     // the only thing that knows which release this machine runs - so an empty
     // list means "cannot tell", never "not published".
-    if (!cfg.romwbwVersion.empty()) {
-        const std::vector<catalogv0::IndexEntry> published =
-            m_diskCatalog ? m_diskCatalog->getIndexVersions()
-                          : std::vector<catalogv0::IndexEntry>();
-        if (published.empty()) return cfg.romwbwVersion;
-        for (const auto& entry : published) {
-            if (entry.romwbwVersion == cfg.romwbwVersion) return cfg.romwbwVersion;
-        }
-        // Stored, but the index does not publish it any more. Fall through to
-        // what the catalog settled on - which is chooseVersion's answer for this
-        // same machine, so the two now agree by construction.
+    //
+    // THE SAME INPUTS, TOO: DiskCatalog's own preference and flag, which are
+    // what its fetch hands chooseVersion. cfg.romwbwVersion is not always that
+    // preference - Settings OK under $ROMWBW_INDEX_URL sets the catalog's and
+    // leaves cfg alone - and asking with different inputs is disagreeing by
+    // another route.
+    //
+    // AND ITS ANSWER, not the last fetch's. getSelectedRomwbwVersion() is what
+    // the last fetch chose, with the preference and flag in force THEN. A
+    // profile load or an offline untick changes those without a fetch, and the
+    // stale answer can be the snapshot the box now hides. Returning what
+    // chooseVersion says now makes a stale catalog a mismatch, and
+    // romReadyToStart() refetches on a mismatch.
+    const std::string preferred =
+        m_diskCatalog ? m_diskCatalog->getPreferredRomwbwVersion() : cfg.romwbwVersion;
+    const std::vector<catalogv0::IndexEntry> published =
+        m_diskCatalog ? m_diskCatalog->getIndexVersions()
+                      : std::vector<catalogv0::IndexEntry>();
+    if (!published.empty()) {
+        // chooseVersion ITSELF, not a copy of its rule. The copy this replaced
+        // was "is it published?", and chooseVersion also asks isOffered(): with
+        // "Show pre release" off, a stored snapshot is published and not
+        // offered. The copy returned it, the catalog had settled on the
+        // default, and F5 ended in the "Cannot start" box described above -
+        // every time, from a launch.
+        const size_t chosen = catalogv0::chooseVersion(
+            published, preferred, m_diskCatalog->getShowPrereleaseVersions());
+        if (chosen < published.size()) return published[chosen].romwbwVersion;
     }
+    if (!preferred.empty()) return preferred;
 
     if (!selected.empty()) return selected;
 
