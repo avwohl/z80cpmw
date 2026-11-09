@@ -1388,7 +1388,8 @@ void SettingsDialogWx::populateVersionList() {
     //
     // `selected` is computed above the loop, and `showing` - what the control
     // held before Clear() - wins over it while a fetch is still in flight.
-    // THREE CANDIDATES, IN ORDER, AND THE THIRD IS THE ONE THAT WAS WRONG.
+    // FOUR CANDIDATES, IN ORDER - `showing`, `selected`, chooseVersion's answer,
+    // and row 0 - AND ROW 0 IS THE ONE THAT WAS WRONG.
     //
     // `showing` - what the control held before Clear() - wins while it is still
     // a row, because a fetch the picker started leaves the catalog naming the
@@ -1417,8 +1418,29 @@ void SettingsDialogWx::populateVersionList() {
     for (size_t i = 0; i < m_romwbwVersionIds.size() && idx < 0; i++) {
         if (!selected.empty() && m_romwbwVersionIds[i] == selected) idx = static_cast<int>(i);
     }
-    // Neither is a row: an index that publishes neither the release in hand nor
-    // the one on screen. Row 0 is all that is left, and it is reached only here.
+    // NEITHER IS A ROW, AND THAT IS NOT ONLY "AN INDEX THAT PUBLISHES NEITHER".
+    // Untick the box on a snapshot while offline: onShowPrereleaseChanged
+    // clears the preference and starts a refresh, the refresh fails, and this
+    // runs from onCatalogLoaded with `showing` and `selected` both still the
+    // snapshot - the one row the filter just removed. Row 0 here was 3.5.1, and
+    // OK stored it: the same positional pick the paragraph above calls the
+    // defect, reached by the offline path. So ask chooseVersion, with the
+    // catalog's preference and the box as it stands - the answer the next fetch
+    // will give, which after an untick is the index's own `default: true`.
+    if (idx < 0) {
+        const std::string preferred = m_catalog ? m_catalog->getPreferredRomwbwVersion()
+                                                : m_settings.romwbwVersion;
+        const size_t chosen = catalogv0::chooseVersion(versions, preferred, showPrerelease);
+        for (size_t i = 0; chosen < versions.size() && i < m_romwbwVersionIds.size(); i++) {
+            if (m_romwbwVersionIds[i] == versions[chosen].romwbwVersion) {
+                idx = static_cast<int>(i);
+                break;
+            }
+        }
+    }
+    // Still nothing: chooseVersion named a row the filter removed, which only an
+    // index of nothing but snapshots can do, and that returned above. Row 0 is
+    // the last resort, and is reached only here.
     if (idx < 0) idx = 0;
     m_romwbwVersionChoice->SetSelection(idx);
     updateRomwbwVersionNote();

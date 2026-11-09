@@ -42,11 +42,6 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   page, or tests\run_tests.bat's new GDB suite (and the debugger.* checks in
   test_config.cpp) has run on Windows.  Then MANUAL_CHECKS section 16.
 
-- Unticking "Show pre release" on a snapshot while offline: the refresh fails,
-  populateVersionList() finds neither the shown nor the selected release (both
-  are the hidden snapshot) and falls to row 0 - 3.5.1, not the index default -
-  and OK stores it.  Ask chooseVersion() there instead of taking row 0.
-
 - The MountedDisk notice tells the user to choose the disks' release in
   Settings, but with "Show pre release" off the picker hides a snapshot, so the
   advice cannot be followed for -v0-3.7.0-dev.N disks.  Say to tick the box.
