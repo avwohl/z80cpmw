@@ -327,8 +327,9 @@ void DiskCatalog::downloadRom(DownloadProgressCallback progressCb,
     // exception would leave a UI thread that is waiting to start the machine
     // holding a callback that can never arrive - and m_downloadState stuck at
     // Downloading, so every later transfer would be refused with "Download
-    // already in progress". fetchCatalog and downloadDisk can let it propagate
-    // because nothing is gated on them; the header promises completeCb exactly
+    // already in progress". fetchCatalog and downloadDisk used to let it
+    // propagate, on the grounds that nothing was gated on them; both are now,
+    // and both catch it the same way. The header promises completeCb exactly
     // once on every path, and this is the path that promise would otherwise
     // miss.
     try {
@@ -528,42 +529,54 @@ void DiskCatalog::fetchCatalog(CatalogLoadedCallback callback) {
     // whenever it is invoked. What is NOT this function's to guarantee is what
     // the callback closes over - see the contract on fetchCatalog in
     // DiskCatalog.h.
-    std::thread([this, self = shared_from_this(), callback]() {
-        // THE CATCH-ALL IS LOAD-BEARING, and it is new with the JSON.
-        //
-        // This worker is detached, so an exception that leaves this lambda is
-        // std::terminate: no dump, no message, no callback, the app simply
-        // gone. That was already true of the XML parser this replaces - it
-        // called std::stoull on a <size> element straight out of the response,
-        // so one malformed catalog ended the process - and a JSON reader has
-        // more ways to throw, not fewer. CatalogV0.cpp is written so that it
-        // cannot throw on any document at all; this is here because "cannot" is
-        // a claim about code that will be edited, and because std::bad_alloc
-        // does not care how carefully the parse was written.
-        std::string error;
-        bool ok = false;
-        // NOT RETRIED when the catalog index URL changed under it. The URL that
-        // changed it may be the Settings dialog's PREVIEW - Refresh on a typed
-        // URL pushes it here before OK - and a retry would hand an F5 fetch in
-        // flight a catalog the user can still Cancel. Failing reads nothing
-        // and writes nothing.
-        try {
-            ok = fetchCatalogInto(error);
-        } catch (const std::exception& e) {
-            error = std::string("The disk catalog could not be read: ") + e.what();
-        } catch (...) {
-            error = "The disk catalog could not be read";
-        }
+    try {
+        std::thread([this, self = shared_from_this(), callback]() {
+            // THE CATCH-ALL IS LOAD-BEARING, and it is new with the JSON.
+            //
+            // This worker is detached, so an exception that leaves this lambda is
+            // std::terminate: no dump, no message, no callback, the app simply
+            // gone. That was already true of the XML parser this replaces - it
+            // called std::stoull on a <size> element straight out of the response,
+            // so one malformed catalog ended the process - and a JSON reader has
+            // more ways to throw, not fewer. CatalogV0.cpp is written so that it
+            // cannot throw on any document at all; this is here because "cannot" is
+            // a claim about code that will be edited, and because std::bad_alloc
+            // does not care how carefully the parse was written.
+            std::string error;
+            bool ok = false;
+            // NOT RETRIED when the catalog index URL changed under it. The URL that
+            // changed it may be the Settings dialog's PREVIEW - Refresh on a typed
+            // URL pushes it here before OK - and a retry would hand an F5 fetch in
+            // flight a catalog the user can still Cancel. Failing reads nothing
+            // and writes nothing.
+            try {
+                ok = fetchCatalogInto(error);
+            } catch (const std::exception& e) {
+                error = std::string("The disk catalog could not be read: ") + e.what();
+            } catch (...) {
+                error = "The disk catalog could not be read";
+            }
 
-        // Exactly one callback on every path, which is the rule that keeps the
-        // Settings dialog's Refresh button from being disabled for ever.
-        if (!callback) return;
-        if (!ok) {
-            callback(false, {}, error);
-            return;
+            // Exactly one callback on every path, which is the rule that keeps the
+            // Settings dialog's Refresh button from being disabled for ever.
+            if (!callback) return;
+            if (!ok) {
+                callback(false, {}, error);
+                return;
+            }
+            callback(true, getCatalogEntries(), "");
+        }).detach();
+    } catch (const std::exception& e) {
+        // No worker, so nothing else will ever call back - and callers gate
+        // on this: the Settings dialog's picker and Refresh stay disabled, and
+        // MainWindow's F5 flags (which also hold Settings and Load Profile
+        // closed) stay set, until it does. The same exactly-once promise
+        // downloadRom keeps; see there.
+        if (callback) {
+            callback(false, {}, std::string("The disk catalog fetch could not be started: ") +
+                                e.what());
         }
-        callback(true, getCatalogEntries(), "");
-    }).detach();
+    }
 }
 
 bool DiskCatalog::fetchCatalogInto(std::string& error) {
@@ -722,180 +735,191 @@ void DiskCatalog::downloadDisk(const std::string& filename,
     // m_cancelRequested once per 64KB block for the whole of a 49MB transfer,
     // so this worker is reading members continuously for tens of seconds rather
     // than for the few milliseconds a fetch spends outside WinHTTP.
-    std::thread([this, self = shared_from_this(), filename, progressCb, completeCb]() {
-        // ONE LOOKUP OF ONE SNAPSHOT, before anything is fetched, and both facts
-        // come out of it: where these bytes live and what they must hash to.
-        //
-        // Splitting those two is what left the first-run path unverified. The
-        // URL used to be built from a compile-time base, so a download could
-        // start with no catalog at all, and the sha256 was looked up separately
-        // AFTERWARDS - in an m_catalogEntries that was still empty, because
-        // MainWindow::downloadAndStartWithDefaults never fetched a catalog. The
-        // lookup found nothing, normalizedHash read the empty string as "this
-        // catalog carries no hash", and two images totalling 57 MB were written
-        // with no check and no ledger record on the most ordinary path in the
-        // application. Now there is no URL without an entry, so there is no
-        // download without the hash that goes with it.
-        DiskEntry wantedEntry;
-        bool haveEntry = false;
-        {
-            std::lock_guard<std::mutex> lock(m_catalogMutex);
-            for (const auto& entry : m_catalogEntries) {
-                if (entry.filename == filename) {
-                    wantedEntry = entry;
-                    haveEntry = true;
-                    break;
-                }
-            }
-        }
-        if (!haveEntry || wantedEntry.url.empty()) {
-            m_downloadState = DownloadState::Failed;
-            if (completeCb) {
-                completeCb(false, "The disk catalog has not been loaded, so there is "
-                                  "nowhere to download " + filename + " from");
-            }
-            return;
-        }
-
-        std::wstring url;
-        if (!widenUrl(wantedEntry.url, url)) {
-            m_downloadState = DownloadState::Failed;
-            if (completeCb) {
-                completeCb(false, "The catalog gives " + filename + " a download "
-                                  "address that cannot be used");
-            }
-            return;
-        }
-
-        // One read of the download directory for the whole of this transfer.
-        // Taken once rather than twice so the directory that is created and the
-        // path the bytes are written to cannot be two different strings if the
-        // Settings dialog moves the folder mid-download.
-        const std::string downloadDir = getDownloadDirectory();
-
-        // Create download directory if needed
-        CreateDirectoryA(downloadDir.c_str(), nullptr);
-
-        // The catalog's own filename, which is also the name the file takes in
-        // the data folder. Those were two different strings while the storage
-        // migration had renamed the images to their v0 names and the catalog had
-        // not, and a getLocalName() mapped between them here; the catalog serves
-        // v0 names now, so it mapped nothing and is gone. Still bound once
-        // rather than spelled twice, so that the path written to and the ledger
-        // key recorded below cannot be derived differently from each other.
-        const std::string localName = filename;
-        const std::string localPath = downloadDir + "\\" + localName;
-
-        // DOWNLOADED BESIDE THE REAL NAME and moved onto it only once every
-        // check that can be made has passed - the shape downloadRomInto and
-        // saveLedger already use, and for a stronger reason than either.
-        //
-        // This used to hand downloadToFile the real path. That truncates the
-        // file already there before a byte arrives, and every failure arm below
-        // then DeleteFileA()s it, so a cancelled download, a dead network, a
-        // short read or a checksum mismatch all destroyed whatever was under
-        // that name. The file under that name is NOT always a spare copy of the
-        // same image: with a custom catalog index two catalogs publish different
-        // bytes under one filename, and hd1k_combo-v0-3.6.0.img in the data
-        // folder may be a mounted volume the user has been writing to for
-        // months. Losing it to a failed transfer is not recoverable from the
-        // catalog, because the bytes that mattered were the user's.
-        const std::string tempPath = localPath + ".new";
-        std::string error;
-
-        bool success = downloadToFile(url, tempPath, progressCb, error);
-
-        if (m_cancelRequested) {
-            m_downloadState = DownloadState::Cancelled;
-            // Only ever the partial file. The user's copy was never opened.
-            DeleteFileA(tempPath.c_str());
-            if (completeCb) {
-                completeCb(false, "Download cancelled");
-            }
-        } else if (success) {
-            // What the catalog says these bytes should be, from the SAME entry
-            // the URL came from. Empty when the entry carries no sha256, which
-            // is a case that has to keep working: an older catalog than this
-            // build expects must still install.
-            std::string wanted;
-            const bool haveWanted = DiskLedger::normalizedHash(wantedEntry.sha256, wanted);
-            if (haveWanted) {
-                std::string actual;
-                if (!diskhash::sha256File(tempPath, actual)) {
-                    m_downloadState = DownloadState::Failed;
-                    DeleteFileA(tempPath.c_str());
-                    if (completeCb) {
-                        completeCb(false, "Downloaded file could not be read back");
+    try {
+        std::thread([this, self = shared_from_this(), filename, progressCb, completeCb]() {
+            // ONE LOOKUP OF ONE SNAPSHOT, before anything is fetched, and both facts
+            // come out of it: where these bytes live and what they must hash to.
+            //
+            // Splitting those two is what left the first-run path unverified. The
+            // URL used to be built from a compile-time base, so a download could
+            // start with no catalog at all, and the sha256 was looked up separately
+            // AFTERWARDS - in an m_catalogEntries that was still empty, because
+            // MainWindow::downloadAndStartWithDefaults never fetched a catalog. The
+            // lookup found nothing, normalizedHash read the empty string as "this
+            // catalog carries no hash", and two images totalling 57 MB were written
+            // with no check and no ledger record on the most ordinary path in the
+            // application. Now there is no URL without an entry, so there is no
+            // download without the hash that goes with it.
+            DiskEntry wantedEntry;
+            bool haveEntry = false;
+            {
+                std::lock_guard<std::mutex> lock(m_catalogMutex);
+                for (const auto& entry : m_catalogEntries) {
+                    if (entry.filename == filename) {
+                        wantedEntry = entry;
+                        haveEntry = true;
+                        break;
                     }
-                    return;
-                }
-                if (actual != wanted) {
-                    // The size check in downloadToFile passes on a transfer that
-                    // is the right length and the wrong bytes; this does not.
-                    // Keeping it would also poison the ledger, which records
-                    // provenance only for a download it VERIFIED - a recorded
-                    // hash these bytes never had would read as Current for ever.
-                    m_downloadState = DownloadState::Failed;
-                    DeleteFileA(tempPath.c_str());
-                    if (completeCb) {
-                        completeCb(false, "Downloaded image does not match the catalog checksum");
-                    }
-                    return;
                 }
             }
-
-            // Onto the real name, now that everything that could be checked has
-            // been. An entry the catalog gives no sha256 arrives here unchecked
-            // - that case has to keep working, an older catalog than this build
-            // expects must still install - but it still goes through the rename,
-            // so a transfer that DIED is never what replaces the user's copy.
-            if (!MoveFileExA(tempPath.c_str(), localPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
-                const DWORD err = GetLastError();
+            if (!haveEntry || wantedEntry.url.empty()) {
                 m_downloadState = DownloadState::Failed;
-                DeleteFileA(tempPath.c_str());
                 if (completeCb) {
-                    completeCb(false, "Could not put " + localName +
-                                      " into the data folder (error " +
-                                      std::to_string(err) + ")");
+                    completeCb(false, "The disk catalog has not been loaded, so there is "
+                                      "nowhere to download " + filename + " from");
                 }
                 return;
             }
 
-            if (haveWanted) {
-                // Verified AND in place. This is the one moment provenance can
-                // honestly be written: we know both which published image was
-                // asked for and that the bytes under that name are it. The stat
-                // is taken after the rename, because the facts have to describe
-                // the file that is there.
-                loadLedgerIfNeeded();
-                DiskFileFacts facts;
-                bool haveFacts = diskhash::statFile(localPath, facts);
-                DiskLedger updated;
-                {
-                    std::lock_guard<std::mutex> lock(m_ledgerMutex);
-                    // Keyed on the LOCAL name, like every other ledger key:
-                    // the record describes the file that is there.
-                    m_ledger.recordInstall(localName, wanted, haveFacts ? &facts : nullptr);
-                    updated = m_ledger;
+            std::wstring url;
+            if (!widenUrl(wantedEntry.url, url)) {
+                m_downloadState = DownloadState::Failed;
+                if (completeCb) {
+                    completeCb(false, "The catalog gives " + filename + " a download "
+                                      "address that cannot be used");
                 }
-                saveLedger(updated);
+                return;
             }
 
-            m_downloadState = DownloadState::Completed;
-            updateDownloadedStatus();
-            updateFreshness();
-            if (completeCb) {
-                completeCb(true, "");
+            // One read of the download directory for the whole of this transfer.
+            // Taken once rather than twice so the directory that is created and the
+            // path the bytes are written to cannot be two different strings if the
+            // Settings dialog moves the folder mid-download.
+            const std::string downloadDir = getDownloadDirectory();
+
+            // Create download directory if needed
+            CreateDirectoryA(downloadDir.c_str(), nullptr);
+
+            // The catalog's own filename, which is also the name the file takes in
+            // the data folder. Those were two different strings while the storage
+            // migration had renamed the images to their v0 names and the catalog had
+            // not, and a getLocalName() mapped between them here; the catalog serves
+            // v0 names now, so it mapped nothing and is gone. Still bound once
+            // rather than spelled twice, so that the path written to and the ledger
+            // key recorded below cannot be derived differently from each other.
+            const std::string localName = filename;
+            const std::string localPath = downloadDir + "\\" + localName;
+
+            // DOWNLOADED BESIDE THE REAL NAME and moved onto it only once every
+            // check that can be made has passed - the shape downloadRomInto and
+            // saveLedger already use, and for a stronger reason than either.
+            //
+            // This used to hand downloadToFile the real path. That truncates the
+            // file already there before a byte arrives, and every failure arm below
+            // then DeleteFileA()s it, so a cancelled download, a dead network, a
+            // short read or a checksum mismatch all destroyed whatever was under
+            // that name. The file under that name is NOT always a spare copy of the
+            // same image: with a custom catalog index two catalogs publish different
+            // bytes under one filename, and hd1k_combo-v0-3.6.0.img in the data
+            // folder may be a mounted volume the user has been writing to for
+            // months. Losing it to a failed transfer is not recoverable from the
+            // catalog, because the bytes that mattered were the user's.
+            const std::string tempPath = localPath + ".new";
+            std::string error;
+
+            bool success = downloadToFile(url, tempPath, progressCb, error);
+
+            if (m_cancelRequested) {
+                m_downloadState = DownloadState::Cancelled;
+                // Only ever the partial file. The user's copy was never opened.
+                DeleteFileA(tempPath.c_str());
+                if (completeCb) {
+                    completeCb(false, "Download cancelled");
+                }
+            } else if (success) {
+                // What the catalog says these bytes should be, from the SAME entry
+                // the URL came from. Empty when the entry carries no sha256, which
+                // is a case that has to keep working: an older catalog than this
+                // build expects must still install.
+                std::string wanted;
+                const bool haveWanted = DiskLedger::normalizedHash(wantedEntry.sha256, wanted);
+                if (haveWanted) {
+                    std::string actual;
+                    if (!diskhash::sha256File(tempPath, actual)) {
+                        m_downloadState = DownloadState::Failed;
+                        DeleteFileA(tempPath.c_str());
+                        if (completeCb) {
+                            completeCb(false, "Downloaded file could not be read back");
+                        }
+                        return;
+                    }
+                    if (actual != wanted) {
+                        // The size check in downloadToFile passes on a transfer that
+                        // is the right length and the wrong bytes; this does not.
+                        // Keeping it would also poison the ledger, which records
+                        // provenance only for a download it VERIFIED - a recorded
+                        // hash these bytes never had would read as Current for ever.
+                        m_downloadState = DownloadState::Failed;
+                        DeleteFileA(tempPath.c_str());
+                        if (completeCb) {
+                            completeCb(false, "Downloaded image does not match the catalog checksum");
+                        }
+                        return;
+                    }
+                }
+
+                // Onto the real name, now that everything that could be checked has
+                // been. An entry the catalog gives no sha256 arrives here unchecked
+                // - that case has to keep working, an older catalog than this build
+                // expects must still install - but it still goes through the rename,
+                // so a transfer that DIED is never what replaces the user's copy.
+                if (!MoveFileExA(tempPath.c_str(), localPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+                    const DWORD err = GetLastError();
+                    m_downloadState = DownloadState::Failed;
+                    DeleteFileA(tempPath.c_str());
+                    if (completeCb) {
+                        completeCb(false, "Could not put " + localName +
+                                          " into the data folder (error " +
+                                          std::to_string(err) + ")");
+                    }
+                    return;
+                }
+
+                if (haveWanted) {
+                    // Verified AND in place. This is the one moment provenance can
+                    // honestly be written: we know both which published image was
+                    // asked for and that the bytes under that name are it. The stat
+                    // is taken after the rename, because the facts have to describe
+                    // the file that is there.
+                    loadLedgerIfNeeded();
+                    DiskFileFacts facts;
+                    bool haveFacts = diskhash::statFile(localPath, facts);
+                    DiskLedger updated;
+                    {
+                        std::lock_guard<std::mutex> lock(m_ledgerMutex);
+                        // Keyed on the LOCAL name, like every other ledger key:
+                        // the record describes the file that is there.
+                        m_ledger.recordInstall(localName, wanted, haveFacts ? &facts : nullptr);
+                        updated = m_ledger;
+                    }
+                    saveLedger(updated);
+                }
+
+                m_downloadState = DownloadState::Completed;
+                updateDownloadedStatus();
+                updateFreshness();
+                if (completeCb) {
+                    completeCb(true, "");
+                }
+            } else {
+                m_downloadState = DownloadState::Failed;
+                // Only ever the partial file; see the note on tempPath above.
+                DeleteFileA(tempPath.c_str());
+                if (completeCb) {
+                    completeCb(false, error);
+                }
             }
-        } else {
-            m_downloadState = DownloadState::Failed;
-            // Only ever the partial file; see the note on tempPath above.
-            DeleteFileA(tempPath.c_str());
-            if (completeCb) {
-                completeCb(false, error);
-            }
+        }).detach();
+    } catch (const std::exception& e) {
+        // No worker: put the state back and answer, exactly as downloadRom
+        // does - a Downloading no thread will clear refuses every later
+        // transfer, and the F5 default-disk chain waits on this callback.
+        m_downloadState = DownloadState::Failed;
+        if (completeCb) {
+            completeCb(false, std::string("The disk download could not be started: ") +
+                              e.what());
         }
-    }).detach();
+    }
 }
 
 void DiskCatalog::cancelDownload() {
