@@ -199,7 +199,23 @@ stale. Five survived and are kept. This is the failure mode the whole document
 was rewritten to prevent, arriving through a port that changed underneath a
 cell nobody had re-read.
 
-**The iOS/macOS column was re-read on 2026-09-13, at `a68e320` — build 69,
+**The iOS/macOS column was re-read on 2026-11-09, at `552beff` — build 74,
+which is what the App Store serves as 1.6.2.** A number this time, not a
+bracket: `ioscpm/tools/check-store-version.sh` reports the Store on 1.6.2 and
+that tree's CHANGELOG names build 74 as its upload. The eight ioscpm cells
+(rows 1, 3, 4, 5, 8, 11, 13 and 14) were each re-read claim by claim against
+`552beff` by one reader and checked by a second. **One held (row 1) and seven
+changed**, and most of the corrections were already wrong at build 69 - a
+re-read that checks every claim, rather than the diff since the last one,
+finds those. What builds 70-74 themselves changed: row 5's compiled-in index
+is `releases/latest/download/index-v0.json` rather than the `catalog-v0` tag,
+the release filter is gone and a Show Development Snapshots opt-in is in, help
+is in the catalog, and the saved catalog carries a byte stamp; row 8's Catalyst
+build has been driven by hand; row 11's profiles gained a save hint and persist
+their slots; row 13's only change is `scrollDown`; row 14's downloads now land
+in the scoped folder.
+
+**The reading before that, on 2026-09-13, was at `a68e320` — build 69,
 inside the App Store's 1.6.1.** The Store moved to 1.6.1 on 2026-09-12 and the
 store gate went red, this block still recording build 61 as what shipped (in a
 `shipped:` field that no longer exists — see the block itself). 1.6.1 heads builds 67
@@ -431,7 +447,7 @@ written as termcap-style escape strings.
     to compete with `^R`, which `setupToolbar` now carries a comment to protect.
 <!-- /cites -->
 <!-- cites: ioscpm -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — ◐, and closer than it was.
+  - **ioscpm (iOS/macOS)** *(re-read 2026-11-09 at `552beff`, build 74 — what the Store serves as 1.6.2)* — ◐, and closer than it was.
     The map moved out to `iOSCPM/Views/KeyMap.swift` in build 51 and it has the
     same termcap escape schema (`KeyMap.expand`; it has no explicit `\^` case but
     its default arm emits the same literal `^`, so every documented escape
@@ -613,36 +629,48 @@ Drag to select terminal text, right-click for Copy/Paste.
 - **Verified port behaviour:**
 <!-- cites: ioscpm -->
 <!-- cites-withdrawn: selectionSpan -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — ✅ on both now: the Mac
+  - **ioscpm (iOS/macOS)** *(re-read 2026-11-09 at `552beff`, build 74 — what the Store serves as 1.6.2)* — ✅ on both now: the Mac
     pointer drag arrived in build 57 and iOS press-and-hold-then-drag in build
     61, which is what this entry used to record as the ◐. Before build 57 there
     was no selection at all - Copy All, ⌘C and ⌘V were all there,
     but `copyText` was the whole-screen copy and there was nothing to select.  A
-    pointer drag now runs `handleSelectPan`, which sets an anchor cell and a focus
-    cell.  Build 61 moved the state machine both platforms share into
+    pointer drag now runs `handleSelectPan`, which hands its gesture states on to
+    the code that sets an anchor cell and a focus cell.  Build 61 moved the state machine both platforms share into
     `driveSelection`, so the Mac's pointer drag and the iOS press-and-drag decide
-    the same states once instead of twice: a `TerminalSelection` holds the anchor,
-    `visibleSpan` orders it against the focus whichever way the drag went, and
+    the same states once instead of twice: a `TerminalSelection` holds the anchor
+    and the focus, its `span` orders them whichever way the drag went,
+    `visibleSpan` decides whether that span is painted (from the press on while
+    a gesture is live, afterwards only if the focus ended on a different cell
+    from the anchor), and
     `isSelected` tests membership.  (Read at build 58 this said `selectionSpan`,
-    which is the name build 61 retired.)  The span is **linear** - anchor cell to focus cell,
+    which is the name build 61 retired.)  The span is **linear** - anchor cell to focus cell, both included,
     wrapping at the row end - rather than rectangular, which is what makes copying
     a wrapped line give you the line.  The highlight is drawn over the cell's own
     background and under its glyph, as a translucent fill rather than this repo's
     inversion, so guest colours stay readable.  `copyText` copies `selectedText`
     when there is a selection and falls back to `copyAllText` when there is not;
-    ⌘C and the long-press menu both land there, and `selectedText` trims each
+    ⌘C and the long-press menu both land there, and `selectedText` (through
+    `TerminalSelection.text(from:)`) trims each
     row's trailing blanks and reads the cells that are on screen, so it copies out
     of scrollback.  Ctrl+C/Ctrl+V are left alone - they are `UIKeyCommand`s on
     Control that fold to `^C`/`^V`.
-    **The split is Mac-only, on purpose.** `handlePan` hands a touch-driven drag
+    **The pointer drag is Mac-only, on purpose.** `handlePan` hands a touch-driven drag
     to `handleSelectPan` only under `targetEnvironment(macCatalyst)`; on iOS a
-    finger drag is the only way to scroll, so it keeps that job and there is still
-    no selection there - the long-press menu offers **Copy All** alone.
-    Three gaps against the spec above, on both platforms.  The context menu has no
-    Paste - ⌘V is the only way in.  Paste is not gated on the emulator running.
-    And the CRLF normalisation is only half done: `pasteText` turns an LF into a
-    CR but passes a CR through untouched, so a pasted CRLF reaches CP/M as **two**
-    CRs.  Non-ASCII filtering is real - `sendKey` drops any character with no
+    finger drag is the only way to scroll, so it keeps that job, and selection is
+    a press-and-hold instead - `handleLongPress` feeds its states to
+    `driveSelection`, and on lift shows the menu: the system's Copy, **Copy All**,
+    and **Paste** whenever the pasteboard holds text (`hasStrings`).  The Mac's
+    long-press menu carries the same Paste, so ⌘V is not the only way in on
+    either platform.  (Read at build 69 this paragraph said iOS still had no
+    selection, that the menu offered **Copy All** alone and that it had no Paste;
+    build 61 had already changed all three.)
+    Two gaps against the spec above, on both platforms.  Paste is not gated on the
+    emulator running - `pasteText` checks nothing, and `sendKey` queues into a
+    stopped machine.  And the CRLF normalisation is only half done: `pasteText`
+    turns a lone LF into a CR and passes a lone CR through, but Swift iterates a
+    CRLF as **one** `Character`, which is not `"\n"`, and `sendKey` sends its
+    `asciiValue`, which Swift defines as 10 - so a pasted CRLF reaches CP/M as a
+    single LF and no CR.  Non-ASCII filtering is real - `sendKey` drops any character with no
     `asciiValue`.
 <!-- /cites -->
 <!-- cites: cpmdroid -->
@@ -753,7 +781,7 @@ to find them on every platform.
 <!-- /cites -->
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: emu_io_windows.cpp w8.com 98eb6a1 -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — `W8` always writes `Documents/Exports`, `R8` always reads
+  - **ioscpm (iOS/macOS)** *(re-read 2026-11-09 at `552beff`, build 74 — what the Store serves as 1.6.2)* — `W8` always writes `Documents/Exports`, `R8` always reads
     `Documents/Imports` (no per-transfer dialog). As of **v1.4.11 / build 41** an **Import File…** picker (enabled on
     iOS *and* Mac Catalyst) stages an arbitrary-location file into `Imports` for a
     later `R8`; the old opt-in per-transfer picker was removed. So arbitrary-path
@@ -789,7 +817,7 @@ to find them on every platform.
     while the old `w8.com` is what ships. Second, containment belongs in the
     layer the capability bit is about — `emu_host_path_caps()`, not the UI above
     it.
-    **Two changes at `15f48e9`** (2026-08-27), and a re-reading on 2026-09-02
+    **Two changes at `15f48e9`** (2026-08-26), and a re-reading on 2026-09-02
     at build 58 that supersedes half of one of them. `emu_io_ios.mm` defines
     `emu_host_file_get_read_name()`, which that port had to do or stop linking —
     `hbios_dispatch.cc` calls it unconditionally for `HBF_HOST_GETRNAME` and is
@@ -797,22 +825,36 @@ to find them on every platform.
     file there being touched, exactly as `emu_host_path_caps()` did before it.
     At `15f48e9` it returned `""` unconditionally, and this document called that
     the honest answer because the resolved source was known only in Swift.
-    **Build 55 stopped that being true.** `emu_host_file_load_named()` carries
+    **Build 55 stopped that being true.** `emu_host_file_load_named()` carried
     the absolute path the Swift layer really opened down beside the bytes; the
-    getter reports it while the state is `HOST_FILE_READING` and `""` at every
-    other moment, and the name is cleared on open, close and cancel. It is worth
-    having because the CCP uppercases the command line, so a file stored in
-    lower case is reached under a shouted name and the delegate's
-    case-insensitive scan of `Imports` is what actually finds it. **So this
-    row's cross-port contrast is gone**: `emu_io_windows.cpp` records what
-    `emu_host_file_open_read()` resolved and opened, that port now does the
-    same, and `cpmdroid` closed the identical gap in `167acbe`. What that port
-    measured, and wrote into its own source rather than leaving to be found, is
-    worth carrying here: with today's `R8` the answer is usually still `""`, and
-    correctly so, because `R8` prints its Reading: line between the open and the
-    first read, an open there only parks the request, and the guest is rewound
-    on `HBF_HOST_READ` until Swift answers — so the state is still
-    `WAITING_READ` at the moment the guest asks. And the **zero-byte `W8` export
+    getter reports the recorded path while the state is `HOST_FILE_READING` and
+    `""` at every other moment, and the name is cleared on open, close and
+    cancel. It is worth having because the CCP uppercases the command line, so a
+    file stored in lower case is reached under a shouted name and a
+    case-insensitive scan of `Imports` is what actually finds it — the
+    delegate's at build 55, and since build 61 the backend's own
+    `resolve_in_directory()`, which answers with the directory entry's own
+    spelling. **So this row's cross-port contrast is gone**: `emu_io_windows.cpp`
+    records what `emu_host_file_open_read()` resolved and opened, that port now
+    does the same — since build 61 inside `emu_host_file_open_read()` itself —
+    and `cpmdroid` closed the identical gap in `167acbe`. What that port
+    measured at build 55, and wrote into its own source rather than leaving to
+    be found, is worth carrying here: with that `R8` the answer was usually
+    still `""`, because `R8` prints its Reading: line between the open and the
+    first read, an open there only parked the request, and the guest was rewound
+    on `HBF_HOST_READ` until Swift answered — so the state was still
+    `WAITING_READ` at the moment the guest asked. **Build 61 closed that too**:
+    `emu_host_file_open_read()` is now synchronous on the emulator thread — it
+    resolves, `fstat`s (a directory or a file over 8 MB fails the open) and
+    reads the bytes before it returns — so the state is `HOST_FILE_READING` when
+    `R8` asks and the answer is the resolved absolute path. The Swift
+    `emulatorHostFileRequestRead` is failure-only now, and a name that is not in
+    `Imports` makes the open fail rather than leave a zero-byte CP/M file behind.
+    That is source-read, not watched: `Tests/CoreHostFileTests.cc` drives `R8`'s
+    sequence through a synchronous and a parking backend shape, but no suite
+    reaches the Objective-C++ that does the resolving; `MANUAL_CHECKS.md` §14 and
+    §15, which settle it on screen, are still unticked at build 74, and the
+    source comment still says it has not been run on a device. And the **zero-byte `W8` export
     bug is fixed** on iOS: `emu_host_file_close_write()` no longer requires a
     non-empty buffer to reach `WRITE_READY`, and `checkHostFileState()` no
     longer guards on the write-data pointer, which by the shared contract is
@@ -824,14 +866,19 @@ to find them on every platform.
     until build 55: a `Data` value's base address is nil when it is empty, and
     the hand-off
     sat inside the binding that unwrapped it, so an empty file in `Imports` left
-    the backend parked in `WAITING_READ`. This paragraph ended "neither change
-    has been compiled — that repo records it as NOT COMPILED, for want of
-    Xcode" until 2026-09-02, and that is now false rather than merely stale:
+    the backend parked in `WAITING_READ`; build 61's synchronous open sets
+    `HOST_FILE_READING` for an empty file as for any other. This paragraph ended
+    "neither change has been compiled — that repo records it as NOT COMPILED,
+    for want of Xcode" until 2026-09-02, and that is now false rather than
+    merely stale:
     build 53 was given a build number precisely because the section that had
     been sitting in that repo's CHANGELOG without one had at last been compiled,
-    and each of builds 53 to 58 records a clean build — 53 and 56 for the iPhone
-    17 Pro simulator and for Mac Catalyst, 54 and 55 for that simulator, 57 and
-    58 for Catalyst, those two launched and driven rather than merely built.
+    and each of builds 53 to 58 records a clean build — 53, 55 and 56 for the
+    iPhone 17 Pro simulator and for Mac Catalyst, 54 for that simulator alone,
+    57 and 58 for Catalyst, those two launched and driven rather than merely
+    built. None of builds 70 to 74 touches this path: `emu_io_ios.mm`,
+    `ExportPath.swift` and the Swift host-file handlers are unchanged from
+    `a68e320` to `552beff`.
 <!-- /cites -->
 <!-- cites: cpmdroid -->
 <!-- cites-elsewhere: 15f48e9 -->
@@ -1101,53 +1148,76 @@ copyrighted content.
 <!-- /cites -->
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: 1f70c6b -->
-<!-- cites-withdrawn: releaseBaseURL catalogCacheTagKey parseDiskCatalogXML checkCatalogVersionAndInvalidate -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — **this port is
+<!-- cites-withdrawn: releaseBaseURL catalogCacheTagKey parseDiskCatalogXML checkCatalogVersionAndInvalidate checkCatalogGenerationAndInvalidate -->
+  - **ioscpm (iOS/macOS)** *(re-read 2026-11-09 at `552beff`, build 74 — what the Store serves as 1.6.2)* — **this port is
     off this row's pin axis too, and the previous reading is kept below as the
     history it is rather than adjusted.** It read **pinned** to `v1.4.12`, one
     `releaseTag` at `EmulatorViewModel.swift:162` building both `catalogURL` and
-    a `releaseBaseURL`. All three are gone. `releaseTag` survives only in two
-    comments explaining its removal, `releaseBaseURL`, `catalogCacheTagKey` and
-    `parseDiskCatalogXML` are not in the tree at all, and the drift gate is what
+    a `releaseBaseURL`. All three are gone. `releaseTag` survives only in three
+    comments explaining its removal, two in `EmulatorViewModel.swift` and one in
+    `CatalogDocument.swift`; `releaseBaseURL`, `catalogCacheTagKey` and
+    `parseDiskCatalogXML` are in no Swift source at all, and the drift gate is what
     found them: at the new sha those four names stopped resolving, which is the
     whole reason this region is a citation.
     **What replaces the pin is two hops, and only the first is compiled in.**
     `CatalogMigration.defaultIndexURL` names
-    `romwbw_disks/releases/download/catalog-v0/index-v0.json` — an interface tag,
-    not a RomWBW release — and that index lists every release with an absolute
+    `romwbw_disks/releases/latest/download/index-v0.json`, which names no tag at
+    all — it was `releases/download/catalog-v0/index-v0.json`, an interface tag,
+    until `b51d56c`, which landed under build 69's number after the build 69
+    commit, so build 70 is the first build cut after it — and that
+    index lists every release with an absolute
     `catalogURL` and that catalog's own hash and size; the selected release's
     catalog is verified against both before it is parsed, and carries the
     `base_url` every asset URL is built from, so this app interpolates no tag
-    anywhere. The user picks the release in Settings, so which `r8.com` a Windows
+    anywhere. The user picks the release in Settings, from every release the index
+    publishes now that 1.6.2 deleted the compiled-in release filter, with
+    development snapshots listed only behind **Show Development Snapshots**, so
+    which `r8.com` a Windows
     or iOS user is running is a property of what `romwbw_disks` publishes for
     their selection and not of the build — the same sentence this row now makes
-    about z80cpmw. The old tags stay live regardless: every build already in
-    service is hardwired to `v1.4.12`, and a GitHub release asset URL cannot be
-    redirected.
+    about z80cpmw. The old tags stay live regardless: every build from before the
+    migration is hardwired to `v1.4.12`, builds 63 to 69 compile in `catalog-v0`
+    as their index (build 69 as a default the user can change), and a GitHub
+    release asset URL cannot be redirected.
     **The cache stamp is gone because the bug it guarded cannot happen now.**
     `catalogCacheURL(for:)` puts the release in the cache FILENAME and the cache
     holds the whole document, `base_url` included, so a cached catalog is
     self-consistent by construction rather than by a `UserDefaults` key that
     could drift from it; the old `catalogCacheTag` key is deliberately left
-    behind unread so a downgrade finds its settings intact. `checkCatalogVersionAndInvalidate` is gone
-    outright — build 66 deleted the wipe and the function with it — and
-    `catalogGenerationKey(for:)` only records what the last fetch saw. `deleteCatalogDisks` is still there and still removes only what
-    the new catalog lists.
+    behind unread so a downgrade finds its settings intact. 1.6.2 put a different
+    stamp back, of the bytes rather than the release: `catalogCacheStampKey(for:)`
+    and its size twin record what a verified fetch wrote, in `UserDefaults`
+    because the cache sits in the Files-shared `Documents/Disks`, and an unstamped
+    cache is adopted but marked `catalogIsUnverified`, which starts no download
+    until one fetch succeeds. `checkCatalogVersionAndInvalidate` is gone
+    outright — builds 63-64 renamed it `checkCatalogGenerationAndInvalidate`, and
+    build 66 deleted the wipe and that function with it — and
+    `catalogGenerationKey(for:)` only records what the last fetch saw. `deleteCatalogDisks` went in the same build 66,
+    so it was already gone at the previous reading: the comment where it stood
+    says it removed files without touching `diskLedger`, while the user's
+    `deleteDownloadedDisk` removes the file and its ledger record together.
     **The two spec items this row withheld from ioscpm are both present at build
-    69.** Delete is a swipe action calling `deleteDownloadedDisk`, and cancel is
+    74.** Delete is a menu item calling `deleteDownloadedDisk`, in the downloaded
+    row's menu beside "Update to Latest Version" and not the swipe action the
+    previous reading called it, and cancel is
     a button calling `cancelDownload`; at build 61 the row could say neither.
     Hash verification is unchanged from that reading — `downloadDiskFromSettings`
     hashes the temp file and moves it into place only on a match — and build 60's
-    `DiskLedger` Update control survives the migration, resolving by catalog id
-    rather than by exact filename.
-    **Help is the one thing that did not move**, and the previous reading's
-    clause stands: it deliberately stays on `releases/latest`, which item 6
-    explains is only safe behind a bundled fallback — and both ports have one,
-    `ioscpm` since build 51 and `cpmdroid` since `1f70c6b`. (That clause read
-    "unlike cpmdroid, without a bundled fallback" until 2026-08-29; both halves
-    of that contrast were already false then.) Build 70 moves help into the
-    catalog as well, and build 70 is not certainly what ships, so it is not
-    claimed here.
+    `DiskLedger` Update control survives the migration, because
+    `CatalogMigration.migrated` rekeys its provenance records from each legacy
+    filename to the `-v0-<release>` filename of the same catalog id rather than
+    dropping them.
+    **Help moved too, at build 70, and build 74 carries it.** The previous
+    reading's clause, that help deliberately stays on `releases/latest`, is no
+    longer true: `HelpViewModel.indexURL` is `CatalogMigration.indexURL`, the
+    topics are the `help` block of the same `index-v0.json`, and each fetched
+    topic is checked against the size and `sha256` the catalog publishes. Item 6's
+    point, that a floating help source is only safe behind a bundled fallback,
+    still stands — and both ports have one,
+    `ioscpm` since build 51 and `cpmdroid` since `1f70c6b`; here the bundled
+    `release_assets/` copies sit behind the cache as the last tier. (That clause
+    read "unlike cpmdroid, without a bundled fallback" until 2026-08-29; both
+    halves of that contrast were already false then.)
 <!-- /cites -->
 <!-- cites: romwbw_emu -->
 <!-- cites-elsewhere: disks.xml -->
@@ -1423,7 +1493,7 @@ In-app help fetched from GitHub, with offline bundled topics.
 <!-- /cites -->
 <!-- cites: ioscpm -->
 <!-- cites-withdrawn: NSUserActivity -->
-- **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — ◐ on Catalyst, no
+- **ioscpm (iOS/macOS)** *(re-read 2026-11-09 at `552beff`, build 74 — what the Store serves as 1.6.2)* — ◐ on Catalyst, no
   longer absent. `8e7587f` added `WindowFrame` and `CatalystWindow`: four numbers
   under a `catalystWindowFrame` default, saved when the scene deactivates and
   restored a runloop turn after `onAppear`, with a restored frame clamped to the
@@ -1431,8 +1501,10 @@ In-app help fetched from GitHub, with offline bundled topics.
   `sizeRestrictions`. Placement needs iOS 16's `requestGeometryUpdate` and
   `IPHONEOS_DEPLOYMENT_TARGET` is 15.0, so below that only the minimum applies.
   Tested only where it can be: `WindowFrame` has 34 checks, `CatalystWindow` has
-  none, and MANUAL_CHECKS §10's window boxes are unticked — it has never been
-  driven on a Mac. Font size is still a menu rather than a grid-derived size, so
+  none, and MANUAL_CHECKS §10's window boxes are unticked — build 74's Catalyst
+  build was driven by hand on 2026-09-21, but the window restore was not among
+  what that drive checked, so the restore has never been seen working on a Mac.
+  Font size is still a menu rather than a grid-derived size, so
   there is no auto-size-to-80×25, and there is no per-monitor DPI scaling.
   *(Superseding the 2026-08-24 reading, which found no stored frame at all.)*
 
@@ -1537,26 +1609,40 @@ Emulated retro graphics card in a separate window.
 
 <!-- /cites -->
 <!-- cites: ioscpm -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — ✅, and this row was
-    ⬜ for it until the re-read. `ProfileSection` in Settings is ungated, so iOS
+  - **ioscpm (iOS/macOS)** *(re-read 2026-11-09 at `552beff`, build 74 — what the Store serves as 1.6.2)* — ✅, and this row was
+    ⬜ for it until the 2026-09-13 re-read. `ProfileSection` in Settings is ungated, so iOS
     and Catalyst both have it: named `EmulatorProfile`s carrying ROM, four disk
     slots, boot string, key profile with its custom bindings, scrollback
     capacity, bell, manifest warning, key row and new-disk size, with save,
     tap-to-apply, swipe-to-delete and update-in-place, the whole `ProfileStore`
-    persisted as one JSON value under the `emulatorProfiles` default, and 66
-    checks in `EmulatorProfileTests` — a count that still holds, that suite being
-    one of the files builds 62-69 never touched. Build 69 adds `romwbwVersion` to
-    the record and matches ROM and disk slots by catalog id rather than by exact
-    filename, since a catalog name now carries the release; applying a profile
-    does not move the release, so a slot the current one does not publish is
-    reported as saved under another rather than as an unresolved name. It landed in `8e7587f`, which is still
-    stamped build 58 — the same number as the commit the previous reading was
-    taken at — which is how it went unrecorded. Font size is the one setting a
-    profile does not carry, living alone in `@AppStorage("terminalFontSize")`;
-    file-backed local disks are stored empty on purpose, a bookmark being a token
-    and not a name, at the cost that applying a profile can never detach one; and
-    `renameProfile` exists with no UI reaching it. So this row is ✅ on two of the
-    four ports, not one.
+    persisted as one JSON value under the `emulatorProfiles` default, and 68
+    checks in a passing run of `EmulatorProfileTests`. The 66 this row gave
+    before was a count of `check(` in the file, which takes in the function's
+    own definition and three calls that run only on a failure; the suite ran 62
+    until build 72 added six on the predicate behind the new Save hint. Builds
+    70-74 changed the profile feature twice. Build 72 put a line under the name
+    field that says why "Save Current" is off, or that a name already taken
+    saves as "Games 2" rather than replacing the old profile, plus a `Saved
+    "…".` confirmation, and Return in the field saves too. Build 74 makes
+    `applyProfile` record its four slots even in the window after a failed
+    release switch, when every other slot write is held back
+    (`slotsAwaitingCatalog`). Build 66 (`7b9feb3`), not build 69, added
+    `romwbwVersion` to the record and matches disk slots by catalog id rather
+    than by exact filename, as build 65 already did for the ROM, since a
+    catalog name now carries the release; applying a profile does not move the
+    release, so a slot the current one does not publish is reported as saved
+    under another rather than as a bare unresolved name. The feature itself landed in `8e7587f`, which is still
+    stamped build 58 — the same number as the commit the reading before
+    2026-09-13 was taken at — which is how the feature went unrecorded. Font
+    size is the one terminal setting a profile does not carry, living alone in
+    `@AppStorage("terminalFontSize")`; the catalog index URL and Show
+    Development Snapshots are not carried either. File-backed local disks are
+    stored empty on purpose, a bookmark being a token and not a name, at the
+    cost that a profile can never restore one, and a slot the profile saved
+    empty leaves whatever local file is bound there in place — applying a
+    profile detaches a local file only by putting a catalog disk in that slot.
+    `renameProfile` exists with no UI reaching it. So this row is ✅ on two of
+    the four ports, not one.
 <!-- /cites -->
 ### 12. Manifest-disk write warning
 - **Behaviour/spec:** warn before writing to a downloaded catalog ("manifest") disk,
@@ -1632,7 +1718,7 @@ extending it; that port's parser turned out to be the thinnest of the four.)
 - **Where (per port):**
 <!-- cites: ioscpm -->
 <!-- cites-elsewhere: cpmdroid TerminalView.kt c0b3bf7 978b623 -->
-  - **ioscpm** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* — `iOSCPM/Views/TerminalScreen.swift` since `8e7587f`, with the whole of SGR now in `TerminalRendition.swift`.
+  - **ioscpm** *(re-read 2026-11-09 at `552beff`, build 74 — what the Store serves as 1.6.2)* — `iOSCPM/Views/TerminalScreen.swift` since `8e7587f`, with the whole of SGR now in `TerminalRendition.swift`.
     The origin of the parser: full VT52, scrolling region, answerbacks, deferred
     autowrap, charset consumption. **Build 51 closed the gap this entry used to
     name.** `@` (ICH), `P` (DCH), `X` (ECH), `S` (SU) and `T` (SD) are all
@@ -1673,12 +1759,16 @@ extending it; that port's parser turned out to be the thinnest of the four.)
     three-bit reason this repo folds them; `CellFlags` carries bold, underline
     and blink with this repo's three values byte for byte; and
     `TerminalView.swift` paints them, through a bold `UIFont`, an underline
-    attribute and a 500 ms blink phase on the cursor's own timer. An erase there
+    attribute and a 500 ms blink phase on a timer of its own, which
+    `syncBlinkTimer` runs only while a blinking cell is on screen - the cursor
+    there is a solid block and does not blink. An erase there
     zeroes the flags and keeps the colours, as here - `blankCell` is built from
     `displayAttr`. `TerminalRenditionTests.swift` drives all of it headlessly,
-    which is the first unit test any part of that parser has had. `todo.txt`
-    carries neither item now; what it carries is that the faces have been
-    watched on the simulator and not yet on a device.
+    which is the first unit test the CSI parser has had - the older
+    `TerminalDialectTests.swift` covers only which dialect the parser is in.
+    `todo.txt` carries neither item now, and no item about the faces either;
+    what is left is `MANUAL_CHECKS.md` §4, five unticked boxes for faces that
+    have been watched on the simulator and not yet on a device.
     Parser input **is** bounded, since build 49: `maxCSIParams` 16 and
     `maxCSIParamDigits` 6, matching z80cpmw (`cpmdroid` had none until
     `c0b3bf7`, 2026-08-29, and arrived last of the three), with leading zeros dropped so
@@ -1967,13 +2057,14 @@ inventing one, so that a single set of instructions covers every client.
   should use the same hash so the folder names agree.
 - **Port status — BOTH siblings are read at a commit that carries this work,
   and the sentence that said otherwise was wrong.** `ioscpm` is re-read at
-  `a68e320`, which IS build 69. `cpmdroid` is read at `6848615` (2026-09-10,
+  `552beff`, build 74, and was at `a68e320`, build 69, when this was written;
+  both carry it. `cpmdroid` is read at `6848615` (2026-09-10,
   build 33), and that commit does NOT predate its version of this: checked on
   2026-09-18, it carries both the Settings field and the scoping callers. The
   claim that it predated them is what produced the bullet below, which said this
   port's own gap was cpmdroid's too.
 <!-- cites: ioscpm -->
-  - **ioscpm (iOS/macOS)** *(re-read 2026-09-13 at `a68e320`, build 69 — the floor of the shipped 1.6.1)* —
+  - **ioscpm (iOS/macOS)** *(re-read 2026-11-09 at `552beff`, build 74 — what the Store serves as 1.6.2)* —
     has the setting, a UI for it, and storage scoped per index, which is the
     thing this port lacks. `CatalogMigration.indexURL` resolves the same three
     levels in the same order — `ROMWBW_INDEX_URL`, then the stored
@@ -1982,10 +2073,13 @@ inventing one, so that a single set of instructions covers every client.
     here, so that pointing a device at a test catalog and back again cannot
     strand a library behind a name nothing reads. Unlike this port, it has
     callers: the scoping reaches the keys and the paths, which is the gap the
-    bullet above records against z80cpmw. It also restricts the URL's scheme —
-    `applyCatalogIndexURL` takes https and http only, and says iOS would refuse a
-    plain-http index under ATS anyway — where z80cpmw accepts `http://`, and that
-    is what makes a local test server usable on the desktop.
+    bullet above records against z80cpmw — and since build 74 that includes a
+    finished download, which `downloadDiskFromSettings` used to write to a
+    hand-built `Documents/Disks` outside the custom index's library. It also
+    restricts the URL's scheme — `applyCatalogIndexURL` takes https and file
+    only (`That is not an https:// or file:// URL.`), and says iOS would refuse
+    a plain-http index under ATS anyway — where z80cpmw accepts `http://`, and
+    that is what makes a local test server usable on the desktop.
 <!-- /cites -->
   - **cpmdroid (Android)** *(corrected 2026-09-18 against `6848615`, the anchor
     this column reads)* - has the resolution in its model, with the same
@@ -2025,7 +2119,9 @@ cancel. This supersedes the 2026-08-25 reading of the whole column (`9b68ab1`,
 made after the `c26aeb7` citations turned out to describe code that was never
 pushed), its 2026-08-27 re-verification at `c6756af`, and the 2026-08-29 re-read
 of rows 4, 6 and 13. See the note at the head of this file.
-The **iOS/macOS column was re-read from `ioscpm` source on 2026-09-13**, at
+The **iOS/macOS column was re-read from `ioscpm` source on 2026-11-09**, at
+**`552beff`, build 74**, what the App Store serves as 1.6.2; the readings block
+above has what moved. Before that it was re-read on **2026-09-13**, at
 **`a68e320`, build 69** — deliberately not at HEAD, because the App Store serves
 1.6.1 and builds 67-70 are what 1.6.1 heads; 69 is the floor the release notes
 narrow that bracket to. Rows 4, 5 and 11 moved and the other ten held; the detail
@@ -2107,7 +2203,7 @@ does that writes to a sibling.
 
 ```sibling-readings
 z80cpmw    9df0d01  2026-09-13
-ioscpm     a68e320  2026-09-13
+ioscpm     552beff  2026-11-09
 cpmdroid   6848615  2026-09-10
 romwbw_emu 653858f  2026-09-18
 ```
@@ -2115,8 +2211,14 @@ romwbw_emu 653858f  2026-09-18
 What each of those three readings is, because they are not the same kind of
 thing:
 
-- **`ioscpm` `a68e320`, build 69 — and the shipped build is a BRACKET this time,
-  not a number.** The line was advanced on 2026-09-13 because
+- **`ioscpm` `552beff`, build 74 — a number again.** Advanced on 2026-11-09:
+  `ioscpm/tools/check-store-version.sh` reports the App Store on **1.6.2**,
+  released 2026-09-21, and that tree's CHANGELOG names build 74 as the upload, so
+  there is no bracket to narrow. The tree is at build 75 (1.7.1) and is NOT what
+  this column describes. The headline paragraph above says what moved.
+
+- **The reading before: `ioscpm` `a68e320`, build 69 — and the shipped build was
+  a BRACKET that time, not a number.** The line was advanced on 2026-09-13 because
   `ioscpm/tools/check-store-version.sh` went red: the App Store had moved to
   **1.6.1**, released 2026-09-12, while this block still recorded build 61. That
   is the stale direction of the same error the z80cpmw line hit twice — users
@@ -2252,9 +2354,9 @@ thing:
 | --- | :---: | :---: | :---: |
 | 1. Configurable keymap (termcap) | ◐ (26 keys: F1–F12 since build 51, the four Ctrl+arrows since `0165dac`, and all 26 reachable without a hardware keyboard from a three-page on-screen key row since `8e7587f` — shipped in build 61, suppressible in Settings, and on Catalyst the only way to send Ctrl+arrow at all; no other modifier bindings, lower-camel names, WordStar default) | ⬜ (no map at all: no key-map source file, no bindings, no Settings → Keyboard Map — `handleKeyDown` is a fixed `when` over keycodes with the bytes compiled in. That table is the VT220 set: F1–F12 out of `sendFunctionKey` and the Ctrl `'@'`–`'_'` window out of `controlByteFor` since `a523d40`; the nav cluster and Ctrl+arrow out of `sendArrow` since `c0b3bf7` — **not** all three at `c0b3bf7`, which is what this cell said. Hardware keyboard only: the on-screen strip offers Ctrl, Esc and Tab as keys (its other two buttons are Copy and Paste), so with no keyboard attached no F-key, arrow or nav key is reachable at all. Four of the nav presses are the app's rather than the guest's, also since `c0b3bf7` — Ctrl+Home/End and Shift+PageUp/PageDown scroll history) | ➖ CLI (host terminal), and the delegation is real rather than a way of not answering: there is no map to configure — zero hits for keymap/termcap/keybinding under `src` at v1.38 — because `emu_io_init` in `src/emu_io_cli.cc` clears `ICRNL`, `IXON`, `IEXTEN`, `ISIG` and `ISTRIP` so the terminal's own bytes reach the guest untranslated and 8-bit clean, and the pty test `tests/cli_console.cc` asserts that key by key (Enter vs Ctrl+J, ^S/^Q, ^V/^O, ^C/^Z, an 8th-bit byte, the WordStar diamond). One key IS taken, which is this row's `ctrlRToCpm` question in CLI form: the `sim>` escape, default `^E` — WordStar cursor-up — latched by `emu_console_check_escape` and surrenderable with `--escape=none` or the settings file's `escape` (`parse_escape_char`, whose comment names z80cpmw's flag); nothing is reserved when stdin is a pipe, and the startup banner says which case you are in · ⬜ web, **not the ◐ this cell carried**: nothing about the map is configurable — no bindings, no key UI, no key option on `new Terminal`, and the six persisted `localStorage` values are ROM, boot string, two disks and two Don't-warn boxes — which is the same answer this row gives cpmdroid for a complete-but-compiled-in table. Read from the shipped deb's `web/romwbw.html`, which is v1.38's `web/romwbw.html-template` byte-for-byte after the three @VERSION@ substitutions, since `web/` has held no built wasm since `2096ea2` and `95d422a`. The bytes come from the vendored `web/vendor/xterm.js` 5.3.0 (`5920681`; the deb's copy is sha256-identical to the tag's) and its `evaluateKeyboardEvent` is this document's VT220 table: `\E[A`–`\E[D`, `\E[1;5A`–`\E[1;5D` for Ctrl+arrow, `\E[H`, `\E[F`, `\E[2~`, `\E[5~`, `\E[6~`, `\EOP`–`\EOS` then `\E[15~`…`\E[24~` skipping 16 and 22, and the whole Ctrl `@`–`_` window. Two divergences: Delete sends `\E[3~` where z80cpmw and cpmdroid send `^?`, the same split this row records against ioscpm's VT100/ANSI profile; and Shift+PageUp/PageDown are xterm's own scroll and never reach the guest. `term.onData` → `sendToGuest` → `_romwbw_key_input` forwards the rest unchanged, dropping only code points above 0xFF, and the one hand-written key decision is `attachCustomKeyEventHandler`: Ctrl+Shift+letter is cancelled and delivered as the plain control byte, except the ten in `BROWSER_OWNED_CTRL_SHIFT`, and only while there is a session to lose. No on-screen key row (six buttons, all emulator controls) and no auto-focus on `pointer: coarse` |
 | 2. Scrollback | ✅ since ioscpm build 57 (2026-09-02), cleared at both fresh-session paths since build 58 (⬜ before 57: the LF path called `scrollRegion`, which does not capture, so no line ever entered the buffer from build 42 on) | ✅ since `e9436a5` (2026-09-02), and right in the case it advertises only since `35873d0` — the shipped 1.25 (capacity choices incl. Off, capture at `scrollUp`, both chord pairs, the view anchors, the cursor hides, and history draws with the soft keyboard up; keeping history across a cold boot is deliberate there, not a defect). `e9436a5` added `maxScrollLines()` and then used it in only some of the paths that move the view: `scrollUp`'s follow-along anchor still clamped to `historyChars`, so above the history — the only range a fresh boot with the keyboard up has — the first captured line pulled the view *forward*; and dismissing the keyboard *grew* the viewport, which shrank `maxScrollLines()` past an offset nothing re-clamped, so the next captured line pinned the view to the oldest history line with the cursor suppressed, the terminal looking frozen while CP/M kept printing — with Ctrl+Home/End still measured the same wrong way, a no-op on a fresh boot and, from that state, landing on the clamped maximum rather than back at live. `35873d0` bounds all of those on `maxScrollLines()`, adds `clampScrollToViewport()` at the three places the geometry changes, and lifts `sendChar`'s snap-back out as a public `returnToLive()` that the Esc and Tab buttons call — the control strip being the nearest keyboard in exactly the case the feature exists for. Never watched on a screen either way: the windowing arithmetic was swept in a scratch model, not driven on a device | ➖ CLI (host terminal) · ◐ web (xterm.js default buffer, no option set) |
-| 3. Mouse/native Copy-Paste | ✅ iOS + Mac Catalyst, and still shipped at build 69 (`a68e320`, 1.6.1); read at build 61 (`af0b9b2`, 1.5.1) and unchanged since, `TerminalView.swift` not having been touched between them — Mac pointer drag since build 57, iOS press-and-hold-then-drag since 61 (before it `handleSelectPan`'s sole call site sat inside `#if targetEnvironment(macCatalyst)`, so no iOS gesture could set an anchor and the menu's Copy silently took the whole screen). Linear span incl. scrollback, ⌘C and the menu's Copy take the selection, Copy All is the no-selection fallback; 61 also made the span inclusive (57–60 copied one character short of the drag) and put Paste in the long-press menu, gated on `hasStrings`. Two gaps on both platforms: paste is not gated on the emulator running, and a pasted CRLF never becomes Enter — `pasteText` maps a bare LF to CR, but Swift iterates CRLF as ONE `Character` matching neither branch, so `sendKey`'s `asciiValue` folds it to 10 (LF), not the CR CP/M needs. The iOS gesture has never met a real finger: synthetic simulator events only, `MANUAL_CHECKS.md` §17 unticked, no grab handles and no autoscroll past an edge, so one gesture never selects more than a screen | ◐ (control strip; `copyScreenToClipboard` takes history and screen, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
-| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52; build 61 made `emu_host_file_open_read()` synchronous and moved the case-insensitive scan into it, so R8's `Reading:` line can at last carry the absolute path in the file's own spelling — but only for a disk carrying the `r8.com` that asks `0xEA`. At build 61 that was a pin question — the `v1.4.12` combo build 59 repinned to, and **not** the `v1.4.5` one every earlier build shipped. It is not a pin question at build 69, because there is no pin: it is a property of the image the user's selected release publishes, and **both published v0 combos qualify** — `MANUAL_CHECKS.md` §14 records the bytes `06 ea cf` occurring once in `hd1k_combo-v0-3.5.1.img` and once in `hd1k_combo-v0-3.6.0.img`, measured on the published files. An image carried over from a pre-v0 install with no ledger entry is still offered a lossy Update rather than refreshed, so a user upgrading onto an old image still sees the shouted name. Same edit: a missing name or a directory now fails the open instead of leaving a zero-byte CP/M file, and a new 8 MiB cap refuses an import build 58 took in full. Unrun either way — `MANUAL_CHECKS.md` §14/§15 unticked, and the core checks use their own fake backends) | ✅ (File transfer screen, save-as, share sheet, import picker and an inbound share target since `71465cb`; folders still fixed, import capped at 16 MiB) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
-| 5. Disk catalog + **pinned** tag | ✅ / ➖ **no pin any more** — read at build 69, where this port left the axis exactly as z80cpmw did. `releaseTag`, the `releaseBaseURL` built from it and the XML parser that rebuilt every URL from it are all deleted; the one address compiled in is `CatalogMigration.defaultIndexURL`, an interface tag (`catalog-v0`) and not a RomWBW release, and the user picks the release from the index in Settings. This cell said **pinned `v1.4.12`** when it was read at build 61, and that is history now rather than a correction — it was true of the build it was read at. What the downloader keeps across the migration: every download hashed against the catalog inside `downloadDiskFromSettings` before it replaces anything and refused outright when an entry carries no hash, and build 60's `DiskLedger` provenance with its Update control (allowed on any network, refused while the emulator holds the disk) and its automatic refresh of superseded images (deferred off Wi-Fi, on a constrained link, or while that disk is mounted), both now resolving by catalog id rather than by exact filename. What it gains: the cache is self-consistent by construction — the release is in the cache filename and the cached document carries its own `base_url` — so the pin-stamp/salvage machinery this cell used to describe has no job left, and **delete and cancel are both present**, which is the pair this row withheld from ioscpm at build 61. Help still floats on `releases/latest`, behind the bundled fallback of build 51; build 70 moves it into the catalog and is not certainly shipped | ◐ / ✅ pinned (`v1.4.5` — still, in the shipped `35873d0` = versionCode 27 = 1.25: one `RELEASE_TAG` in `DiskCatalogRepository.kt` builds both `CATALOG_URL` and `DOWNLOAD_BASE_URL`, with the RomWBW v3.5.1 reason in the comment above it. `642b3b0` repins to `v1.4.12` for the R8 `F_DELETE` wildcard fix and is **not** an ancestor of the shipped commit, so an installed client still fetches the v1.4.5 images that ioscpm repinned away from at build 59; the interface-v0 migration `41829cb` and the ROM-from-catalog work `bb0ac74` are later still and have shipped nowhere). ◐ rather than ✅ because two of this row's spec items are missing from the app, and were missing at 25 too: **delete** — `deleteDisk` and `deletePersistedDisk` have no caller anywhere under `app/`, there are no menu resources, `DiskCatalogAdapter` binds no long-press, and the Settings slot ✕ is `clearDiskSlot`, which unassigns the slot and leaves the image on the device with nothing in the app able to remove it — and **cancel**, which is only the side effect of the Activity dying (`ensureActive()` inside `downloadDisk`'s read loop); the Settings progress dialog is `setCancelable(false)` and the first-launch overlay has no button. The downloader itself is stronger than this cell ever admitted, and all of it is live: `downloadDisk` hashes the stream as it writes and refuses on a SHA-256 mismatch, refuses a short transfer against the catalog `size` and `contentLength()` separately, publishes by renaming a nonce-named scratch file and checks `renameTo`'s answer, sweeps abandoned scratch by age, and `claimDownload` is static so Settings and `MainActivity` cannot pull the same disk at once. Two gaps beside ioscpm: the hash gate is `diskInfo.sha256.isNotEmpty()`, so an entry carrying no hash installs unverified where ioscpm refuses outright, and there is no cached catalog to stamp with the pin — `cachedCatalog` is one in-memory field in `SettingsActivity` that dies with it, so no cache-tag mismatch and no version-bump invalidation exist to get wrong. No provenance ledger, no Update control. Help still floats on `releases/latest`, behind the bundled fallback of `1f70c6b` | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
+| 3. Mouse/native Copy-Paste | ✅ iOS + Mac Catalyst, and still shipped at build 74 (`552beff`, 1.6.2); read at build 61 (`af0b9b2`, 1.5.1) and unchanged since, `TerminalView.swift` not having been touched between them — Mac pointer drag since build 57, iOS press-and-hold-then-drag since 61 (before it `handleSelectPan`'s sole call site sat inside `#if targetEnvironment(macCatalyst)`, so no iOS gesture could set an anchor and the menu's Copy silently took the whole screen). Linear span incl. scrollback, ⌘C and the menu's Copy take the selection, Copy All is the no-selection fallback; 61 also made the span inclusive (57–60 copied one character short of the drag) and put Paste in the long-press menu, gated on `hasStrings`. Two gaps on both platforms: paste is not gated on the emulator running, and a pasted CRLF never becomes Enter — `pasteText` maps a bare LF to CR, but Swift iterates CRLF as ONE `Character` matching neither branch, so `sendKey`'s `asciiValue` folds it to 10 (LF), not the CR CP/M needs. The iOS gesture has never met a real finger: synthetic simulator events only, `MANUAL_CHECKS.md` §17 unticked, no grab handles and no autoscroll past an edge, so one gesture never selects more than a screen | ◐ (control strip; `copyScreenToClipboard` takes history and screen, no selection) | ➖ CLI (host terminal) · ✅ web (xterm.js selection) |
+| 4. R8/W8 arbitrary host paths | ◐ (R8 via Import File…; W8 fixed to `Exports`, and reports it since build 52; build 61 made `emu_host_file_open_read()` synchronous and moved the case-insensitive scan into it, so R8's `Reading:` line can at last carry the absolute path in the file's own spelling — but only for a disk carrying the `r8.com` that asks `0xEA`. At build 61 that was a pin question — the `v1.4.12` combo build 59 repinned to, and **not** the `v1.4.5` one every earlier build shipped. It is not a pin question at build 74, because there is no pin: it is a property of the image the user's selected release publishes, and **both published v0 combos qualify** — `MANUAL_CHECKS.md` §14 records the bytes `06 ea cf` occurring once in `hd1k_combo-v0-3.5.1.img` and once in `hd1k_combo-v0-3.6.0.img`, measured on the published files. An image carried over from a pre-v0 install with no ledger entry is still offered a lossy Update rather than refreshed, so a user upgrading onto an old image still sees the shouted name. Same edit: a missing name or a directory now fails the open instead of leaving a zero-byte CP/M file, and a new 8 MiB cap refuses an import build 58 took in full. Unrun either way — `MANUAL_CHECKS.md` §14/§15 unticked, and the core checks use their own fake backends) | ✅ (File transfer screen, save-as, share sheet, import picker and an inbound share target since `71465cb`; folders still fixed, import capped at 16 MiB) | ✅ CLI (R8 any path; W8 `<cpmname> [hostpath]` since `98eb6a1`) · ✅ web (picker/download) |
+| 5. Disk catalog + **pinned** tag | ✅ / ➖ **no pin any more** — read at build 74, where this port is off the axis exactly as z80cpmw is. `releaseTag`, the `releaseBaseURL` built from it and the XML parser that rebuilt every URL from it are all deleted; the one address compiled in is `CatalogMigration.defaultIndexURL`, `romwbw_disks`' `releases/latest/download/index-v0.json`, which names no tag at all (it named the interface tag `catalog-v0` until `b51d56c`), and the user picks the release from the index in Settings, with snapshots hidden until Show Development Snapshots is on. This cell said **pinned `v1.4.12`** when it was read at build 61, and that is history now rather than a correction — it was true of the build it was read at. What the downloader keeps across the migration: every download hashed against the catalog inside `downloadDiskFromSettings` before it replaces anything and refused outright when an entry carries no hash, and build 60's `DiskLedger` provenance with its Update control (allowed on any network, refused while the emulator holds the disk) and its automatic refresh of superseded images (deferred off Wi-Fi, on a constrained link, or while that disk is mounted), both keyed by case-folded filename, with the catalog id brought in by the migration's rekeying. What it gains: the cache is self-consistent by construction — the release is in the cache filename and the cached document carries its own `base_url` — so the pin-stamp/salvage machinery this cell used to describe has no job left, and **delete and cancel are both present**, which is the pair this row withheld from ioscpm at build 61. Help moved into the catalog at build 70 and build 74 carries it: each topic is checked against the size and sha256 the index publishes, with the bundled copy as the last fallback | ◐ / ✅ pinned (`v1.4.5` — still, in the shipped `35873d0` = versionCode 27 = 1.25: one `RELEASE_TAG` in `DiskCatalogRepository.kt` builds both `CATALOG_URL` and `DOWNLOAD_BASE_URL`, with the RomWBW v3.5.1 reason in the comment above it. `642b3b0` repins to `v1.4.12` for the R8 `F_DELETE` wildcard fix and is **not** an ancestor of the shipped commit, so an installed client still fetches the v1.4.5 images that ioscpm repinned away from at build 59; the interface-v0 migration `41829cb` and the ROM-from-catalog work `bb0ac74` are later still and have shipped nowhere). ◐ rather than ✅ because two of this row's spec items are missing from the app, and were missing at 25 too: **delete** — `deleteDisk` and `deletePersistedDisk` have no caller anywhere under `app/`, there are no menu resources, `DiskCatalogAdapter` binds no long-press, and the Settings slot ✕ is `clearDiskSlot`, which unassigns the slot and leaves the image on the device with nothing in the app able to remove it — and **cancel**, which is only the side effect of the Activity dying (`ensureActive()` inside `downloadDisk`'s read loop); the Settings progress dialog is `setCancelable(false)` and the first-launch overlay has no button. The downloader itself is stronger than this cell ever admitted, and all of it is live: `downloadDisk` hashes the stream as it writes and refuses on a SHA-256 mismatch, refuses a short transfer against the catalog `size` and `contentLength()` separately, publishes by renaming a nonce-named scratch file and checks `renameTo`'s answer, sweeps abandoned scratch by age, and `claimDownload` is static so Settings and `MainActivity` cannot pull the same disk at once. Two gaps beside ioscpm: the hash gate is `diskInfo.sha256.isNotEmpty()`, so an entry carrying no hash installs unverified where ioscpm refuses outright, and there is no cached catalog to stamp with the pin — `cachedCatalog` is one in-memory field in `SettingsActivity` that dies with it, so no cache-tag mismatch and no version-bump invalidation exist to get wrong. No provenance ledger, no Update control. Help still floats on `releases/latest`, behind the bundled fallback of `1f70c6b` | ➖ CLI (local paths only) · ⬜ web (no catalog and no tag: a hardcoded five-name `<select>` fetched beside the page, and nothing ships a single `.img` — neither deploy target nor the release workflow — so all five 404, both defaults included) |
 | 6. Help system + offline fallback | ✅ / ✅ bundled since build 51 (download, cache, then the shipped copy) | ✅ / ✅ bundled since `1f70c6b` (download, cache, then the shipped copy; all eight files in `assets/help/`) | ◐ CLI (two offline surfaces, no topics and nothing fetched: `print_usage`'s `--help`/`-h`, 75 lines, run out of the .deb's own binary rather than inferred, and `print_console_help`'s fourteen-command list behind the `--escape` key, which `emu_console_check_escape`'s `!stdin_is_tty` early return withholds on piped stdin. The one outward pointer in those 75 lines, `docs/CONFIGURATION.md`, is not in the package — 19 files, `README.md` and `LICENSE` under usr/share/doc and no docs/ directory, release.yml copying only those two, with the README's own `docs/CONFIGURATION.md` and `CHANGELOG.md` links dangling the same way and no man page. That is this row's trap one level down: help that points at a document the shipped copy has not got) · ◐ web (a static `.instructions` panel, six `<h3>` from Quick Start to Drive Letters, always rendered with no toggle and no topics — read out of the deb's own romwbw.html, the tree keeping no built web/ at all, and byte-identical to `web/romwbw.html-template` at the tag bar three `@VERSION@` substitutions). The `releases/latest` trap is structurally absent rather than merely unsprung: the emulator's own `src` links no HTTP client (it holds no URL of its own at all since `src/romwbw_pin.h` was deleted on 2026-09-17 — the comment in that header was the last one — the rest being vendored nlohmann banners; no curl, no sockets) and the shipped binary is static with no curl/socket/getaddrinfo symbols, while the page's only fetches are `fetchChecked`/`fetchWithProgress` at same-origin ROM and disk paths, with no absolute URL in the shipped `romwbw.js` or `romwbw.wasm` either. |
 | 7. NVRAM autoboot / bootString | ✅ NVRAM / ⬜ bootString (`setBootString` is in the vendored core and on the bridge; no Swift caller ever passes it a value, and there is no setting for one) | ✅ NVRAM / ⬜ bootString | ✅ CLI (`--boot`, NVRAM persisted) · ◐ web (set/clear, never read back) |
 | 8. Window state / DPI | ◐ Mac Catalyst (position and size remembered across quits since build 61, landed in `8e7587f`: `WindowFrame`/`CatalystWindow` keep four numbers under `catalystWindowFrame`, clamp a restored frame to the display, drag an off-screen one back on and hold a 640×480 minimum through `sizeRestrictions`; saved on `scenePhase` deactivate, restored a turn after `onAppear`. Placement needs iOS 16's `requestGeometryUpdate` and `IPHONEOS_DEPLOYMENT_TARGET` is 15.0, below which neither position nor size comes back and only the minimum applies. Only the testable half is tested: `WindowFrame` has 34 checks, `CatalystWindow` none, and MANUAL_CHECKS §10's move/quit/relaunch and off-screen-restore boxes are both unticked — compiled for Catalyst, never driven on a Mac. Still no auto-size to the 80×25 grid on a font change, font size being a fixed 14–28 pt menu, and no per-monitor DPI scaling) · ➖ iPhone/iPad | ➖ | ➖ |

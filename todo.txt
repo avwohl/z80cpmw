@@ -20,9 +20,6 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   RELEASE to the disks.  Pick one; make the other say so.  Only moving the
   release resolves a slot whose id the stored release retired.
 
-- FEATURE_PARITY.md's eight ioscpm cells are read at build 69, "the floor of the
-  shipped 1.6.1"; re-read them at build 74, which is exactly what 1.6.2 serves.
-
 - [WINDOWS] build the GDB stub with MSVC, x64 and ARM64, and run it: none of
   gdb_platform_windows.cpp, gdbstub.cc and romwbw_gdb.cc under cl, the wx Debugger
   page, or tests\run_tests.bat's new GDB suite (and the debugger.* checks in
