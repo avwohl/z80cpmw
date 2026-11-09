@@ -90,7 +90,7 @@ DiskCatalog::DiskCatalog() {
     // that is the one place it is safe: a constructor runs before any other
     // thread can hold a reference to the object, since the workers capture
     // shared_from_this() and there is no shared_ptr to share until this returns.
-    // Every other write goes through setDownloadDirectory().
+    // Every other write goes through applyDownloadDirectory().
     //
     // Default to user data directory\data (for Store app compatibility)
     // Will be overridden by MainWindow::loadSettings() with proper path
@@ -126,12 +126,36 @@ DiskCatalog::~DiskCatalog() {
     // MainWindow::onDestroy.
 }
 
+std::string DiskCatalog::getBaseDownloadDirectory() const {
+    std::lock_guard<std::mutex> lock(m_downloadDirMutex);
+    return m_baseDownloadDir.empty() ? m_downloadDir : m_baseDownloadDir;
+}
+
 void DiskCatalog::setDownloadDirectory(const std::string& dir) {
     {
         std::lock_guard<std::mutex> lock(m_downloadDirMutex);
+        m_baseDownloadDir = dir;
+    }
+    applyDownloadDirectory();
+}
+
+void DiskCatalog::applyDownloadDirectory() {
+    // THE INDEX SCOPE, computed here and nowhere else, so the folder and the
+    // catalog cannot be for two different indexes. Computed when the folder is
+    // set as well as when the index changes: $ROMWBW_INDEX_URL is in force from
+    // the first instruction, before any setCatalogIndexUrl could call it a
+    // change. Images already in the base folder are not moved - a slot keeps the
+    // absolute path it was given and still boots; only where new downloads land,
+    // and which files the library lists as downloaded, follow the index.
+    const std::string scope = catalogv0::indexScope(getCatalogIndexUrl());
+    std::string dir;
+    {
+        std::lock_guard<std::mutex> lock(m_downloadDirMutex);
+        if (m_baseDownloadDir.empty()) m_baseDownloadDir = m_downloadDir;
+        dir = m_baseDownloadDir + scope;
         m_downloadDir = dir;
     }
-    // Both calls below use the caller's own 'dir' rather than re-reading the
+    // Both calls below use the local 'dir' rather than re-reading the
     // member, and the lock is released before them on purpose:
     // updateDownloadedStatus() takes m_downloadDirMutex itself, and holding it
     // across a CreateDirectory would put a filesystem call inside the lock that
@@ -164,11 +188,15 @@ void DiskCatalog::setCatalogIndexUrl(const std::string& configured) {
         }
     }
     if (!changed) return;
-    std::lock_guard<std::mutex> lock(m_catalogMutex);
-    m_catalogEntries.clear();
-    m_catalogRoms.clear();
-    m_catalogBaseUrl.clear();
-    m_catalogRomwbwVersion.clear();
+    {
+        std::lock_guard<std::mutex> lock(m_catalogMutex);
+        m_catalogEntries.clear();
+        m_catalogRoms.clear();
+        m_catalogBaseUrl.clear();
+        m_catalogRomwbwVersion.clear();
+    }
+    // And its own folder: the index scope is part of where downloads land.
+    applyDownloadDirectory();
 }
 
 std::string DiskCatalog::getCatalogIndexUrl() const {
@@ -391,7 +419,10 @@ bool DiskCatalog::downloadRomInto(DownloadProgressCallback progressCb, std::stri
         return false;
     }
 
-    const std::string downloadDir = getDownloadDirectory();
+    // The folder req.localPath is in, not a second read of the folder in
+    // force: the catalog index can move that between getRomRequirement() and here,
+    // and the directory created must be the one the bytes are written to.
+    const std::string downloadDir = req.localPath.substr(0, req.localPath.find_last_of('\\'));
     CreateDirectoryA(downloadDir.c_str(), nullptr);
 
     // Downloaded beside the real name and moved onto it only after both checks
@@ -875,7 +906,14 @@ void DiskCatalog::downloadDisk(const std::string& filename,
                     return;
                 }
 
-                if (haveWanted) {
+                // NOT INTO ANOTHER FOLDER'S LEDGER. The catalog index - and with
+                // it the folder - can change while this transfer runs, and
+                // applyDownloadDirectory drops the ledger in hand; loading it
+                // again here would read the NEW folder's disk_ledger.json and
+                // record this old-folder file in it. The file is in place and
+                // verified either way; only its provenance is not written, so
+                // the old catalog sees it as an image it cannot vouch for.
+                if (haveWanted && getDownloadDirectory() == downloadDir) {
                     // Verified AND in place. This is the one moment provenance can
                     // honestly be written: we know both which published image was
                     // asked for and that the bytes under that name are it. The stat
@@ -1502,6 +1540,11 @@ void DiskCatalog::saveLedger(const DiskLedger& ledger) const {
 }
 
 void DiskCatalog::updateFreshness() {
+    // The folder this pass measures. If the catalog index moves it while the
+    // pass is hashing (seconds, for 200 MB), everything below describes files
+    // in a folder that is no longer this catalog's - see the check before the
+    // ledger is written.
+    const std::string startDir = getDownloadDirectory();
     loadLedgerIfNeeded();
 
     // Everything below works on copies, and each lock is taken and released on
@@ -1558,6 +1601,14 @@ void DiskCatalog::updateFreshness() {
 
         verdicts.emplace_back(entry.filename, verdict);
     }
+
+    // Moved under us: the verdicts and the records are about the old folder,
+    // and the ledger in hand - dropped and maybe reloaded - is the new one's.
+    // Writing would put another catalog's hashes into it under the same names.
+    // The window between this check and the save below is the length of one
+    // file write; closing it would mean holding m_ledgerMutex across
+    // m_downloadDirMutex, which this class never does.
+    if (getDownloadDirectory() != startDir) return;
 
     if (ledgerChanged) {
         DiskLedger toSave;

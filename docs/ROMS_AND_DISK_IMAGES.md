@@ -57,9 +57,10 @@ Three things are yours to choose, all under **Emulator → Settings**:
   `ROMWBW_INDEX_URL` in the environment overrides it for one run and stores
   nothing; the field is disabled and says so while it is set. The order -
   environment, then setting, then built-in - matches `romwbw_emu`'s
-  `romwbw-get`. Every catalog reads and writes the same data folder, so two
-  catalogs publishing an image under one name share one file;
-  [`docs/CONFIGURATION.md`](CONFIGURATION.md) has the details.
+  `romwbw-get`. A custom catalog keeps its disk images in a folder of its own
+  beside the data folder, so two catalogs that publish an image under one name
+  do not share a file. [`docs/CONFIGURATION.md`](CONFIGURATION.md) has the
+  details.
 
 ## The first run
 

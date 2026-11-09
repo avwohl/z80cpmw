@@ -396,12 +396,12 @@ ROMWBW_INDEX_URL in the environment beats the setting, for that run only:
     set ROMWBW_INDEX_URL=https://example.com/my-catalog/index-v0.json
     z80cpmw.exe
 
-Two things to know. Every catalog shares one data folder, so two catalogs that
-publish an image under the same name share one file - a failed download destroys
-nothing, and one that would replace a disk you have written to asks first, but if
-you say yes what was inside that disk is gone. And a catalog that does not
-publish the release you have selected cannot supply its ROM, however good the
-network is; the message says so and names the catalog.
+Two things to know. A custom catalog keeps its disk images in a folder of its
+own beside the data folder, named for the catalog (data@ and a tag), so it never
+replaces an image from another catalog; a disk already in a slot keeps its file.
+And a catalog that does not publish the release you have selected cannot supply
+its ROM, however good the network is; the message says so and names the
+catalog.
 
 Most of these are easier to change from Emulator > Settings.
 )DOC";

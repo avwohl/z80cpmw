@@ -299,6 +299,11 @@ private:
     // the second instead of starting an overlapping fetch, and onCatalogLoaded
     // starts it when the first lands.
     bool m_catalogFetchInFlight = false;
+    // The full path onRefreshCatalog pinned each slot to, exactly as built, in
+    // UTF-8. saveSettings hands this back while the slot still shows it rather
+    // than re-encoding the control's text, whose ToStdString() is the locale
+    // code page and would not round-trip a non-ASCII %LOCALAPPDATA%.
+    std::string m_pinnedSlotPath[4];
     bool m_refetchAfterLoad = false;
     void tryStartReleaseSwitchFetch();
     // Resolve those ids in the catalog that just landed and start the chain.

@@ -276,7 +276,16 @@ public:
     // object.
     ~DiskCatalog();
 
-    // Set the local directory for downloaded disks
+    // The base data folder, before the index scope - where the R8/W8 transfers
+    // and the built-in catalog's images live.
+    std::string getBaseDownloadDirectory() const;
+
+    // Set the BASE data folder. What downloads actually land in is this plus
+    // catalogv0::indexScope() of the catalog index in force - empty for the one
+    // this build ships with, so a default install's folder is exactly `dir` -
+    // and setCatalogIndexUrl re-points it when the index changes. Two catalogs
+    // publish different bytes under the same filenames; this is what stops a
+    // custom catalog's hd1k_combo-v0-3.6.0.img replacing romwbw_disks' one.
     void setDownloadDirectory(const std::string& dir);
     // Returns a copy, not a reference: the caller must not be handed a string
     // a worker can reassign under it.
@@ -735,8 +744,10 @@ private:
     // Update downloaded status for all entries
     void updateDownloadedStatus();
 
-    // Guards m_downloadDir. Written by setDownloadDirectory() from
-    // loadSettings() at startup and by the Settings dialog, and read by both
+    // Guards m_downloadDir. Written by applyDownloadDirectory(), reached from
+    // setDownloadDirectory() at startup and from setCatalogIndexUrl() whenever
+    // the resolved index changes (applyConfig, a profile load, the Settings
+    // dialog), and read by both
     // workers (downloadDisk builds its local path from it, updateDownloadedStatus
     // stats every entry against it) and by getDownloadDirectory() on the UI
     // thread. It was unsynchronised, and safe only because of when it happened
@@ -746,6 +757,17 @@ private:
     // so sharing would self-deadlock.
     mutable std::mutex m_downloadDirMutex;
     std::string m_downloadDir;
+    // The folder setDownloadDirectory was given, before the index scope is
+    // appended. Under m_downloadDirMutex with m_downloadDir.
+    std::string m_baseDownloadDir;
+    // Recompute m_downloadDir from m_baseDownloadDir and the index in force,
+    // and do what a new folder needs. UI THREAD. Takes m_indexMutex, then
+    // m_downloadDirMutex, then (through updateDownloadedStatus) m_catalogMutex
+    // and m_ledgerMutex - one at a time, never two at once. A worker already
+    // running when the folder moves keeps the folder it read: downloadDisk and
+    // updateFreshness each skip the ledger write if the folder is no longer
+    // the one they started in.
+    void applyDownloadDirectory();
     // Guards m_catalogEntries: it is written by the fetchCatalog worker thread
     // and read from the UI thread and the download worker.
     mutable std::mutex m_catalogMutex;
@@ -771,7 +793,7 @@ private:
     // above is: every user of it copies the ledger out, works on the copy, and
     // assigns it back, so there is no path on which two of these three locks are
     // held at once. m_ledgerLoaded exists so the file is read once rather than
-    // on every fetch; setDownloadDirectory clears it, because a different data
+    // on every fetch; applyDownloadDirectory clears it, because a different data
     // folder is a different ledger.
     mutable std::mutex m_ledgerMutex;
     DiskLedger m_ledger;

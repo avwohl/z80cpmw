@@ -430,13 +430,15 @@ supplied it.
 
 Two things to know before you use it:
 
-- **Every catalog shares one data folder.** Disk images are not kept apart per
-  catalog. Two catalogs that publish an image under the same name share one
-  file, so downloading from the second replaces the first. Nothing is destroyed
-  by a *failed* download — the file is fetched under a temporary name and moved
-  into place only after its SHA-256 matches — and a download that would replace
-  an image you have written to asks first. But if you say yes, what was inside
-  that disk is gone.
+- **A custom catalog has its own disk folder.** Its disk images and ROMs go in
+  a folder beside the data folder. The name of that folder is the data folder's
+  name, then `@`, then an eight-digit tag made from the index URL. An example is
+  `data@78f588f0`. ioscpm and cpmdroid make the same tag from the same URL. The
+  catalog this build ships with uses the data folder itself. So two catalogs
+  that publish an image under the same name do not share a file. Nothing moves
+  when you change the catalog: a disk that is already in a slot keeps its file
+  and still boots, and the *Disk Images* list shows only the new catalog's
+  folder.
 - **A release the catalog does not publish cannot start.** The ROM comes from
   the same catalog as the disks, so pointing at a catalog that carries only
   3.5.1 while `core.romwbwVersion` says `3.6.0` leaves nothing to boot. The

@@ -628,10 +628,10 @@ static std::string catalogIndexNoteText(bool haveEnv, bool custom) {
     if (custom) {
         // Said on BOTH custom paths, the environment one included.
         note += "Downloads are still checked against that catalog's own SHA-256, "
-                "but the catalog is the thing being trusted. Every catalog reads "
-                "and writes this one data folder, so downloading an image whose "
-                "name is already there replaces it - save your work out of a "
-                "downloaded disk first. ";
+                "but the catalog is the thing being trusted. Its disk images go in "
+                "a folder of their own beside the data folder, named for the "
+                "catalog, so they never replace the built-in catalog's. A disk "
+                "already in a slot keeps its file. ";
     }
     return note;
 }
@@ -1111,9 +1111,8 @@ void SettingsDialogWx::buildDiskImagesPage() {
     // promise and the one place on this page where being wrong costs a user
     // their work. A placeholder has to be a sentence that stays true.
     m_catalogIndexNote = new wxStaticText(page, wxID_ANY,
-        "Leave empty for the catalog this build ships with. Every catalog reads "
-        "and writes the same data folder, so an image published under a name "
-        "already there is replaced when you download it.");
+        "Leave empty for the catalog this build ships with. A custom catalog "
+        "keeps its disk images in a folder of its own.");
     m_catalogIndexNote->Wrap(kPageTextWrap);
     {
         const std::string longest =
@@ -1137,12 +1136,14 @@ void SettingsDialogWx::buildDiskImagesPage() {
     // whose %LOCALAPPDATA% writes are redirected into the package's LocalCache.
     const char* realDir = emu_io_get_data_folder_display();
     m_dataFolderPath = realDir ? realDir : "";
+    // The BASE folder, as the label says: the download folder itself is a
+    // custom catalog's own data@<tag> while one is in force.
     if (m_dataFolderPath.empty() && m_catalog) {
-        m_dataFolderPath = m_catalog->getDownloadDirectory();
+        m_dataFolderPath = m_catalog->getBaseDownloadDirectory();
     }
 
     m_diskDirLabel = new wxStaticText(page, wxID_ANY,
-        "Data folder (disks and R8/W8 transfers):");
+        "Data folder (R8/W8 transfers, and the built-in catalog's disks):");
     // Read-only text control so the user can select and copy the path.
     m_diskDirText = new wxTextCtrl(page, wxID_ANY, wxString::FromUTF8(m_dataFolderPath),
         wxDefaultPosition, wxDefaultSize, wxTE_READONLY);
@@ -1771,7 +1772,9 @@ void SettingsDialogWx::repopulateDiskLists() {
     std::string chosen[4];
     for (int i = 0; i < 4; i++) {
         int sel = m_diskChoices[i]->GetSelection();
-        if (sel > 0) chosen[i] = m_diskChoices[i]->GetString(sel).ToStdString();
+        // utf8_str(), not ToStdString(): that converts in the current locale,
+        // and the FromUTF8 below would then mangle a non-ASCII path.
+        if (sel > 0) chosen[i] = std::string(m_diskChoices[i]->GetString(sel).utf8_str());
     }
 
     populateDiskLists();
@@ -1910,7 +1913,16 @@ void SettingsDialogWx::saveSettings() {
     for (int i = 0; i < 4; i++) {
         int sel = m_diskChoices[i]->GetSelection();
         if (sel > 0) {
-            m_settings.diskFiles[i] = m_diskChoices[i]->GetString(sel).ToStdString();
+            const wxString shown = m_diskChoices[i]->GetString(sel);
+            // A pinned slot hands back the UTF-8 path it was pinned to; see
+            // m_pinnedSlotPath. Everything else keeps the conversion it had,
+            // which is what MainWindow's ANSI file calls open.
+            if (!m_pinnedSlotPath[i].empty() &&
+                shown == wxString::FromUTF8(m_pinnedSlotPath[i])) {
+                m_settings.diskFiles[i] = m_pinnedSlotPath[i];
+            } else {
+                m_settings.diskFiles[i] = shown.ToStdString();
+            }
         } else {
             m_settings.diskFiles[i] = "";
         }
@@ -2070,9 +2082,34 @@ void SettingsDialogWx::onRefreshCatalog(wxCommandEvent& event) {
     const std::string typed = typedCatalogIndexUrl();
     const bool otherCatalog =
         catalogv0::indexUrl(typed) != catalogv0::indexUrl(m_catalog->getCatalogIndexUrl());
-    if (otherCatalog) abandonReleaseSwitchFetch();
+    if (otherCatalog) {
+        abandonReleaseSwitchFetch();
+        // And the four slots are pinned to the files they name NOW. A slot
+        // holds a bare name for an image in the download folder, and the
+        // folder is about to become the other catalog's: from here a bare name
+        // means a file there, which can be a different image under the same
+        // name. So each bare selection becomes its full path in the folder it
+        // was picked from, before the folder moves - the write-back on OK
+        // takes a full path as it stands - and the lists are rebuilt, so
+        // until the new catalog lands they offer nothing from the old one.
+        const std::string oldDir = m_catalog->getDownloadDirectory();
+        for (int i = 0; i < 4; i++) {
+            if (!m_diskChoices[i]) continue;
+            const int sel = m_diskChoices[i]->GetSelection();
+            if (sel <= 0) continue;
+            const std::string name(m_diskChoices[i]->GetString(sel).utf8_str());
+            const bool absolute = (name.size() >= 2 && name[1] == ':') ||
+                                  (!name.empty() && (name[0] == '\\' || name[0] == '/'));
+            if (absolute) continue;
+            m_pinnedSlotPath[i] = oldDir + "\\" + name;
+            m_diskChoices[i]->SetString(sel, wxString::FromUTF8(m_pinnedSlotPath[i]));
+        }
+    }
     m_catalog->setCatalogIndexUrl(typed);
-    if (otherCatalog) populateCatalog();
+    if (otherCatalog) {
+        populateCatalog();
+        repopulateDiskLists();
+    }
 
     m_statusText->SetLabel("Loading disk catalog...");
     m_refreshBtn->Enable(false);
@@ -2484,7 +2521,9 @@ void SettingsDialogWx::captureSlotIds() {
         if (!m_diskChoices[i]) continue;
         const int sel = m_diskChoices[i]->GetSelection();
         if (sel <= 0) continue;              // 0 is "(None)"
-        const std::string name = m_diskChoices[i]->GetString(sel).ToStdString();
+        // utf8_str: only the basename is used, and a pinned slot carries the
+        // UTF-8 path of the data folder.
+        const std::string name(m_diskChoices[i]->GetString(sel).utf8_str());
         for (const auto& e : entries) {
             if (e.filename == name) { m_switchIds[i] = e.id; break; }
         }
@@ -2509,7 +2548,9 @@ bool SettingsDialogWx::slotsDisagreeWithRelease() const {
         if (!m_diskChoices[i]) continue;
         const int sel = m_diskChoices[i]->GetSelection();
         if (sel <= 0) continue;
-        const std::string name = m_diskChoices[i]->GetString(sel).ToStdString();
+        // utf8_str: only the basename is used, and a pinned slot carries the
+        // UTF-8 path of the data folder.
+        const std::string name(m_diskChoices[i]->GetString(sel).utf8_str());
         std::string release;
         // Only a v0 name can disagree. A file with no release in its name is the
         // user's own and is not this function's business.
@@ -2698,10 +2739,22 @@ void SettingsDialogWx::abandonReleaseSwitchFetch() {
 }
 
 bool SettingsDialogWx::diskIsInASlot(const std::string& filename) const {
+    // A library image is in a slot when the slot names it bare OR names its
+    // full path in the folder in force. The second form is real since the
+    // folder follows the catalog index: a slot seeded while another catalog's
+    // folder was in force carries the whole path, and comparing only the bare
+    // name missed it - so Update planned a replacement under a mounted disk.
     const wxString wanted = wxString::FromUTF8(filename);
+    const std::string dir = m_catalog ? m_catalog->getDownloadDirectory() : std::string();
     for (int i = 0; i < 4; ++i) {
         if (!m_diskChoices[i]) continue;
-        if (m_diskChoices[i]->GetStringSelection() == wanted) return true;
+        const wxString shown = m_diskChoices[i]->GetStringSelection();
+        if (shown == wanted) return true;
+        const std::string path(shown.utf8_str());   // UTF-8, as the folder is
+        if (!dir.empty() && diskv0::isDirectlyIn(path, dir) &&
+            _stricmp(diskv0::basenameOf(path).c_str(), filename.c_str()) == 0) {
+            return true;
+        }
     }
     return false;
 }

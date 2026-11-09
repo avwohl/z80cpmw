@@ -2042,15 +2042,14 @@ inventing one, so that a single set of instructions covers every client.
   ROM chosen from it. With the variable pointing at a second local index and a
   different URL stored in the field, the variable's catalog won and the field was
   disabled. Pressing OK under the variable left `core.romwbwVersion` untouched.
-- **THE STORAGE IS NOT SCOPED HERE, and that is the gap against `ioscpm`.**
-  `indexScope()` computes the per-index suffix, is tested, and **has no caller**:
-  every catalog reads and writes one data folder, so two catalogs publishing an
-  image under one name share one file. What has been done instead is to make the
-  sharing safe and visible — a download is fetched under a temporary name and
-  moved into place only after its SHA-256 matches, replacing an image whose bytes
-  have changed asks first, the Settings note says the folder is shared, and Start
-  reports a mounted image the catalog in hand does not vouch for. `todo.txt`
-  carries the scoping itself.
+- **The storage is scoped here since 2026-11-09, as in `ioscpm`.**
+  `DiskCatalog::applyDownloadDirectory` appends `indexScope()` to the base data
+  folder — `data@78f588f0` beside `data` — when the folder is set and whenever
+  the resolved index changes, so two catalogs publishing an image under one name
+  no longer share a file. The built-in index has no suffix and its folder did not
+  move. Nothing is migrated: a slot keeps the absolute path it had. Unlike
+  `ioscpm`, the settings keys are not scoped, and the R8/W8 transfer folder is
+  one folder for every catalog.
 - **Platform mapping:** adopt the three-level precedence verbatim; it is the part
   that has to match, because it is what the instructions describe. The scope hash
   matters only for a port that isolates storage, and a port that does isolate
@@ -2065,15 +2064,15 @@ inventing one, so that a single set of instructions covers every client.
   port's own gap was cpmdroid's too.
 <!-- cites: ioscpm -->
   - **ioscpm (iOS/macOS)** *(re-read 2026-11-09 at `552beff`, build 74 — what the Store serves as 1.6.2)* —
-    has the setting, a UI for it, and storage scoped per index, which is the
-    thing this port lacks. `CatalogMigration.indexURL` resolves the same three
+    has the setting, a UI for it, and storage scoped per index, which this port
+    has too since 2026-11-09. `CatalogMigration.indexURL` resolves the same three
     levels in the same order — `ROMWBW_INDEX_URL`, then the stored
     `indexURLOverrideKey`, then `defaultIndexURL` — and `indexScope` is the same
     FNV-1a tag, **empty for the built-in index** for the same reason it is empty
     here, so that pointing a device at a test catalog and back again cannot
-    strand a library behind a name nothing reads. Unlike this port, it has
-    callers: the scoping reaches the keys and the paths, which is the gap the
-    bullet above records against z80cpmw — and since build 74 that includes a
+    strand a library behind a name nothing reads. Its scoping reaches the keys
+    and the paths, where this port scopes only the paths, and since build 74 the
+    paths include a
     finished download, which `downloadDiskFromSettings` used to write to a
     hand-built `Documents/Disks` outside the custom index's library. It also
     restricts the URL's scheme — `applyCatalogIndexURL` takes https and file
@@ -2090,7 +2089,7 @@ inventing one, so that a single set of instructions covers every client.
     field is disabled when `$ROMWBW_INDEX_URL` is set, and
     `SettingsRepository.indexScope` reaches both `DiskDownloadManager`'s two
     directory names and the per-release key prefix - so two catalogs do NOT share
-    one data folder there, which is the gap this row records against z80cpmw.
+    one data folder there, and since 2026-11-09 they do not in z80cpmw either.
     It is **empty for the default index**, the same fold as `ioscpm`'s, and that
     emptiness is load-bearing rather than an oversight: making it uniform would
     strand an existing library behind a key nothing reads. The claim cited that

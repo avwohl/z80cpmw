@@ -184,52 +184,34 @@ struct AppConfig {
     // setting was written, where empty picks up a default that moves.
     //
     // Set this to test a romwbw_disks release before it is published, or to run
-    // your own. catalogv0::indexScope() then gives the downloads and the
-    // settings a namespace of their own, so the library this machine already
-    // has is neither read nor written by the other catalog - two catalogs
-    // publish different bytes under the same filenames, and hd1k_combo-v0-3.6.0
-    // means one thing in romwbw_disks and another in a fork.
+    // your own. catalogv0::indexScope() then gives the downloads a folder of
+    // their own (DiskCatalog::applyDownloadDirectory), so the library this
+    // machine already has is neither read nor written by the other catalog -
+    // two catalogs publish different bytes under the same filenames, and
+    // hd1k_combo-v0-3.6.0 means one thing in romwbw_disks and another in a fork.
+    // The SETTINGS are not scoped, unlike ioscpm's: a stored release the other
+    // index does not publish falls to its default through chooseVersion.
     //
     // $ROMWBW_INDEX_URL wins over this for one run, which is what a test uses.
     //
-    // NOT YET ISOLATED HERE, and that is the difference from ioscpm, which gives
-    // each index its own Disks folder and its own settings keys.
-    // catalogv0::indexScope() computes the suffix and is tested, but nothing
-    // calls it. See todo.txt.
+    // ISOLATED SINCE 2026-11-09. Until then indexScope() was computed, tested
+    // and called by nothing, and every catalog read and wrote one data folder.
+    // What was done:
+    //   - the folder is scoped and the R8/W8 transfer folder is NOT: the
+    //     emulator never resolves a disk through getDataFolder() (it fopen()s
+    //     the absolute path MainWindow::loadDisk builds with getDiskPath), so
+    //     the two can differ, which the note that stood here for the first
+    //     weeks had said was impossible;
+    //   - nothing is migrated. A slot keeps the absolute path it was given and
+    //     still boots; a custom catalog's library starts empty in its own
+    //     folder. The built-in index has no suffix, so a default install's
+    //     folder is where it always was;
+    //   - DiskCatalog computes the scope when the folder is set and again when
+    //     setCatalogIndexUrl sees the resolved index change, so the ordering in
+    //     loadSettings (folder first, configuration after) no longer matters and
+    //     $ROMWBW_INDEX_URL is honoured from launch.
     //
-    // THE OBSTACLE RECORDED HERE UNTIL 2026-09-13 WAS NOT REAL, and it was the
-    // reason nobody started. It said that scoping the catalog's download
-    // directory alone "would have the emulator read a folder the catalog does
-    // not write", because emu_io_windows.cpp's getDataFolder() is the R8/W8
-    // transfer folder as well as the catalog's. Measured, that is false: the
-    // emulator never resolves a disk through the data folder at all.
-    // emu_disk_open() fopen()s the path it is handed (emu_io_windows.cpp:527),
-    // and what hands it one is MainWindow::loadDisk with an ABSOLUTE path built
-    // by DiskCatalog::getDiskPath(). getDataFolder() has exactly two readers -
-    // resolveHostPath(), for a BARE R8/W8 filename, and
-    // emu_io_get_data_folder_display(), for the label on the Settings page - and
-    // neither is a disk. So the transfer folder can stay exactly where it is
-    // while the catalog's images move under a suffix, which is the split the old
-    // note said was impossible.
-    //
-    // What is genuinely left is smaller and is still work: existing installs
-    // have their images in the unscoped folder under absolute paths stored in
-    // this config, so a migration is needed; the Settings label says "disks and
-    // R8/W8 transfers" and would be naming two folders rather than one; and the
-    // per-index settings keys ioscpm also scopes are a separate decision from
-    // the files.
-    //
-    // The consequence: two catalogs publishing an image of the same name share
-    // one file, so downloading from the second replaces the first.
-    //
-    // "A mismatched image fails its sha256 and is re-fetched, so nothing wrong
-    // is ever booted" stood here and was WRONG. Every diskhash:: call is in
-    // DiskCatalog.cpp - the download path and the Settings status column - and
-    // the mount path does not hash at all, so a foreign image under a known name
-    // is mounted as it is. Nothing re-fetches a file already on disk except a
-    // user pressing Download.
-    //
-    // What is true instead, and what the sharing is now safe on:
+    // What makes a shared name safe anyway, still true and still worth having:
     //   - a download lands under <name>.new and is renamed on only after its
     //     sha256 matches, so a failed transfer destroys nothing;
     //   - replacing an image whose bytes have changed asks first;

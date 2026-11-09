@@ -9,11 +9,6 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
 - MANUAL_CHECKS section 15 has never been run - no guest has set a date past
   2038 in the running application, which is what 1.0.45 exists for.
 
-- catalogv0::indexScope() still has no caller; the plan is in Config.h.  Six
-  write sites, and loadSettings() calls setDownloadDirectory() (MainWindow.cpp
-  :3086) before cfgMgr.load() (:3090), so the setting is unread where it is
-  needed.  Nothing re-points the folder when the index changes at runtime.
-
 - [WINDOWS] build the GDB stub with MSVC, x64 and ARM64, and run it: none of
   gdb_platform_windows.cpp, gdbstub.cc and romwbw_gdb.cc under cl, the wx Debugger
   page, or tests\run_tests.bat's new GDB suite (and the debugger.* checks in

@@ -127,12 +127,14 @@ the variable.
 
 Two consequences worth knowing before answering a bug report:
 
-- **Every catalog shares one data folder.** `catalogv0::indexScope()` computes
-  the per-index suffix and **has no caller** — the isolation is not built. Two
-  catalogs publishing an image under one name share one file. Downloads are safe
-  (fetched beside the real name, renamed on only after the sha256 passes) and
-  Start says so when a mounted image is not the one the catalog names, but the
-  file is still shared. `todo.txt` carries the work.
+- **A custom catalog has its own disk folder, since 2026-11-09.**
+  `DiskCatalog::applyDownloadDirectory` appends `catalogv0::indexScope()` —
+  `@` and the FNV-1a tag ioscpm and cpmdroid compute for the same URL — to the
+  base data folder; the built-in index has no suffix, so a default install's
+  folder did not move. Nothing is migrated: a slot keeps the absolute path it
+  had. The R8/W8 transfer folder (`getDataFolder()`) is not scoped, and neither
+  are the settings keys — a stored release the custom index lacks falls to its
+  default through `chooseVersion`.
 - **A custom index is not a network fault.** A catalog that does not publish the
   selected release cannot supply its ROM however good the connection is, and the
   "Cannot start" dialog now names the index rather than blaming the network.

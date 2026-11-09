@@ -1567,13 +1567,24 @@ void MainWindow::onEmulatorSettings() {
     // <dataDir>\volume.img, which is not a file, so the slot was left behind by
     // the write-back and - with the dropdown carrying no such entry either -
     // erased by the "(None)" branch instead.
+    //
+    // WHAT WAS SEEDED IS KEPT, so the write-back can tell an untouched slot from
+    // a changed one. Since the download folder follows the catalog index, the
+    // dialog can move it - Refresh on a typed URL, or OK itself - and a bare
+    // name resolved afterwards would land in the OTHER catalog's folder, on a
+    // file of the same name and different bytes. An untouched slot keeps the
+    // path it had; see the write-back.
     const std::string dataDir = m_diskCatalog->getDownloadDirectory();
+    std::string seededSlot[4];
+    std::string seededPath[4];
     for (int i = 0; i < 4; i++) {
         if (!cfg.disks[i].has_value() || cfg.disks[i]->path.empty()) continue;
         const std::string& diskPath = cfg.disks[i]->path;
         settings.diskFiles[i] = diskv0::isDirectlyIn(diskPath, dataDir)
                                     ? diskv0::basenameOf(diskPath)
                                     : diskPath;
+        seededSlot[i] = settings.diskFiles[i];
+        seededPath[i] = diskPath;
     }
 
     // .get() rather than the shared_ptr, and that is not a hole: the dialog is
@@ -1653,6 +1664,10 @@ void MainWindow::onEmulatorSettings() {
         cfgMut.showPrereleaseVersions = settings.showPrereleaseVersions;
         m_diskCatalog->setPreferredRomwbwVersion(settings.romwbwVersion);
         m_diskCatalog->setShowPrereleaseVersions(settings.showPrereleaseVersions);
+        // The folder the dialog's lists described when OK was pressed - the
+        // one its last fetch read - taken BEFORE the line below can move it.
+        // A slot the user picked from those lists is a file in this folder.
+        const std::string slotDir = m_diskCatalog->getDownloadDirectory();
         // And the index the next fetch reads, so an OK that changed it does not
         // have to wait for a restart. The dialog pushed the typed value before
         // each of its own fetches; this is the one that outlives the dialog.
@@ -1689,8 +1704,46 @@ void MainWindow::onEmulatorSettings() {
                 bool isManifestDisk = false;
                 if (isAbsolute) {
                     diskPath = settings.diskFiles[i];
+                    // A full path can still be a catalog image: the dialog pins a
+                    // slot to its full path when Refresh moves to another catalog.
+                    // The slot it was keeps its own flag; any other full path is a
+                    // catalog image when it sits directly in the base data folder
+                    // or in a catalog's <base>@<tag> beside it.
+                    if (diskPath == seededPath[i]) {
+                        isManifestDisk = cfg.disks[i].has_value() && cfg.disks[i]->isManifest;
+                    } else {
+                        // Directly in the base folder, or directly in a sibling
+                        // of it named <base leaf>@... - not any folder whose name
+                        // merely starts that way, and not below one.
+                        const std::string base = m_diskCatalog->getBaseDownloadDirectory();
+                        auto parentOf = [](const std::string& p) {
+                            const size_t cut = p.find_last_of("\\/");
+                            return cut == std::string::npos ? std::string() : p.substr(0, cut);
+                        };
+                        const std::string dir = parentOf(diskPath);
+                        const std::string baseLeaf = diskv0::basenameOf(base) + "@";
+                        const std::string dirLeaf = diskv0::basenameOf(dir);
+                        isManifestDisk =
+                            !base.empty() &&
+                            (_stricmp(dir.c_str(), base.c_str()) == 0 ||
+                             (_stricmp(parentOf(dir).c_str(), parentOf(base).c_str()) == 0 &&
+                              dirLeaf.size() > baseLeaf.size() &&
+                              _strnicmp(dirLeaf.c_str(), baseLeaf.c_str(), baseLeaf.size()) == 0));
+                    }
+                } else if (settings.diskFiles[i] == seededSlot[i] && !seededPath[i].empty() &&
+                           diskv0::isDirectlyIn(seededPath[i], slotDir)) {
+                    // Untouched: the file it was. Only while the folder the
+                    // lists described is still the seed's - after a Refresh to
+                    // another catalog every bare name was picked from THAT
+                    // catalog's list (the dialog pinned the older ones to full
+                    // paths), and one equal to the seed is the other file.
+                    diskPath = seededPath[i];
+                    isManifestDisk = cfg.disks[i].has_value() && cfg.disks[i]->isManifest;
                 } else {
-                    diskPath = m_diskCatalog->getDiskPath(settings.diskFiles[i]);
+                    // getDiskPath maps a pre-v0 name onto its v0 one; the folder
+                    // is the one the user picked from, not the one OK moved to.
+                    diskPath = slotDir + "\\" +
+                               diskv0::basenameOf(m_diskCatalog->getDiskPath(settings.diskFiles[i]));
                     isManifestDisk = true;  // From catalog = manifest disk
                 }
                 if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
@@ -3280,6 +3333,18 @@ void MainWindow::loadSettings() {
 void MainWindow::migrateStorageToInterfaceV0(const std::string& dataDir) {
     auto& cfgMgr = config::ConfigManager::instance();
     if (cfgMgr.get().interfaceV0Migrated) return;
+
+    // NOT UNDER A CUSTOM INDEX. The images this pass renames are the built-in
+    // catalog's, in the base data folder, and it reads and writes the folder
+    // and the ledger in force - which $ROMWBW_INDEX_URL has already moved to
+    // <dataDir>@<tag> by now. Run there, it found nothing, rewrote nothing and
+    // marked itself done, so the legacy images were never renamed. Skipped
+    // instead, and NOT marked done: the slots keep their pre-v0 paths, which
+    // still mount, and the next launch without the variable finishes it. What
+    // this session loses is the pass's PRE_V0_ROMWBW release pin, so the test
+    // catalog's default release picks the ROM and a pre-v0 3.5.1 disk can
+    // report the HBIOS/CBIOS mismatch - for this one launch.
+    if (m_diskCatalog->getDownloadDirectory() != dataDir) return;
 
     // The files first: what the config and the profiles may be rewritten
     // against is what actually landed, never what could be mapped.
