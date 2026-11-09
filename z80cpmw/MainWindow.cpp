@@ -2197,6 +2197,41 @@ void MainWindow::terminalPrint(const std::string& text) {
     }
 }
 
+// Word-wrapped for the 80-column terminal the notices print to, which folds a
+// long line in the middle of a word: the first line flush, the rest indented two
+// like every other notice line, each ending in CRLF.
+static std::string wrapNotice(const std::string& text) {
+    const size_t cols = 78;
+    std::string out, line;
+    size_t start = 0;
+    while (start < text.size()) {
+        size_t end = text.find(' ', start);
+        if (end == std::string::npos) end = text.size();
+        const std::string word = text.substr(start, end - start);
+        const std::string indent = out.empty() ? "" : "  ";
+        if (!line.empty() && indent.size() + line.size() + 1 + word.size() > cols) {
+            out += indent + line + "\r\n";
+            line = word;
+        } else {
+            line = line.empty() ? word : line + " " + word;
+        }
+        start = end + 1;
+    }
+    if (!line.empty()) out += (out.empty() ? "" : "  ") + line + "\r\n";
+    return out;
+}
+
+// "Disk 0", "Disks 0 and 2", "Disks 0, 1 and 3".
+static std::string diskList(const std::vector<int>& units) {
+    if (units.size() == 1) return "Disk " + std::to_string(units[0]);
+    std::string s = "Disks ";
+    for (size_t i = 0; i < units.size(); i++) {
+        if (i > 0) s += (i + 1 == units.size()) ? " and " : ", ";
+        s += std::to_string(units[i]);
+    }
+    return s;
+}
+
 void MainWindow::reportMountedDiskProvenance() {
     if (!m_diskCatalog || !m_emulator) {
         clearNotice(Notice::MountedDisk);
@@ -2223,36 +2258,24 @@ void MainWindow::reportMountedDiskProvenance() {
     // says so; this just says it first, in a place the user can act on.
     const std::string running = startRomwbwRelease();
 
-    // WHAT THE MOUNTED DISKS THEMSELVES SAY, collected as the loop goes so the
-    // notice can offer a remedy instead of only naming a control.
+    // THE REMEDY IS WHAT SETTINGS DOES, because Settings is authoritative.
+    // Opening it runs the reconcile in SettingsDialogWx::onCatalogLoaded, which
+    // moves the DISKS onto the release this machine starts on - never the
+    // release onto the disks. This notice used to advise the opposite, naming
+    // the release the mismatched disks were built for and saying to choose it,
+    // so the two surfaces resolved one state in opposite directions. Decided
+    // 2026-11-09: Settings wins, and this says what it will do.
     //
-    // The old notice ended "Settings > Disk Images has the release picker",
-    // which tells a user where to go and not what to do when they get there -
-    // and the answer is knowable. If every disagreeing image is built for ONE
-    // release, that release is what this machine is actually carrying, and the
-    // stored preference is the thing that is wrong. Config's v0 back-fill sets
-    // core.romwbwVersion only while it is EMPTY, deliberately, so that it cannot
-    // undo a Settings choice - which also means it never CORRECTS a wrong one.
-    // Naming the release is what lets somebody fix it in one step.
-    //
-    // "AND STAYS MISMATCHED FOR EVER" USED TO END THAT SENTENCE, and it is no
-    // longer true of the MACHINE - only of the stored value. Opening Settings
-    // runs the reconcile in SettingsDialogWx::onCatalogLoaded, which moves the
-    // DISKS onto the stored release rather than the release onto the disks.
-    // So the two surfaces resolve this state in opposite directions: this
-    // notice advises moving the release to the disks, and merely opening
-    // Settings moves the disks to the release. Which one is authoritative is
-    // an open question in todo.txt; until it is answered, do not describe
-    // either one as the fix.
-    //
-    // Unanimity is the test, and two different releases mounted at once is a
-    // real state: there is then no single right answer, and the notice says so
-    // rather than picking one. cpmdroid reached the same shape in
-    // createReleaseMismatchNotice; the WORDING is this application's, because it
-    // has no "Settings > RomWBW Release" item and because its picker does not
-    // fetch a ROM - Start does.
-    std::string disksAgreeOn;
-    bool disksDisagree = false;
+    // The reconcile's rule, which this mirrors slot by slot: a slot's catalog
+    // id (from the catalog, else read off its v0 filename) moves to the image
+    // the running release publishes under that id, downloaded if missing; an
+    // id the running release does not publish is LEFT AS IT IS - hd1k_ws4 is
+    // 3.5.1's alone, and 3.7.0-dev.16 carries no hd1k_msxroms1. That slot has
+    // no fix in Settings but a different disk, so it gets its own line.
+    // A disk carrying no release in its name is the user's own and is never
+    // part of this, here or in the reconcile.
+    struct Mismatch { int unit; std::string name; };
+    std::vector<Mismatch> mismatched;
 
     std::string block;
     for (int unit = 0; unit < 4; unit++) {
@@ -2272,8 +2295,7 @@ void MainWindow::reportMountedDiskProvenance() {
                          "  is a RomWBW " + diskRelease + " image, and this machine is set to RomWBW " +
                          running + ".\r\n"
                          "  The guest will report an HBIOS/CBIOS version mismatch.\r\n";
-                if (disksAgreeOn.empty()) disksAgreeOn = diskRelease;
-                else if (disksAgreeOn != diskRelease) disksDisagree = true;
+                mismatched.push_back(Mismatch{ unit, diskv0::basenameOf(path) });
                 continue;   // said what matters about this slot
             }
         }
@@ -2319,68 +2341,79 @@ void MainWindow::reportMountedDiskProvenance() {
                  "  Settings > Disk Images can replace it, and says what that costs.\r\n";
     }
 
-    // THE REMEDY, once, after the per-slot lines rather than repeated in each of
-    // them. Only reached when at least one slot disagreed, because disksAgreeOn
-    // is set nowhere else.
-    if (!disksAgreeOn.empty()) {
-        if (disksDisagree) {
-            // Two releases mounted at once. There is no single right answer and
-            // this must not invent one: whichever release is chosen, some slot
-            // is still wrong, and the user is the only one who knows which disks
-            // they meant to be running.
-            block += "The mounted disks are not all from one release, so no "
-                     "single choice\r\n"
-                     "  matches them all. Settings > Machine has the release "
-                     "picker.\r\n";
-        } else {
-            // SAY WHAT SETTINGS WILL DO, AND WHAT THE PICKER CAN REACH. This
-            // said "set it in Settings > Disk Images" for every release, and was
-            // wrong four ways. The picker moved to the Machine page on
-            // 2026-09-18. With "Show pre release" off the picker hides a
-            // snapshot, so a machine carrying -v0-3.7.0-dev.N disks was sent to
-            // a row that is not there. A release the index does not list -
-            // romwbw_disks replaced 3.7.0-dev.14 with 3.7.0-dev.16 on
-            // 2026-11-09 - is in no picker at all. And it never said that
-            // opening Settings, once its catalog loads, moves the slots onto
-            // the RUNNING release by itself (onCatalogLoaded's reconcile), so a
-            // user following it watched the disks leave first.
-            //
-            // So this names both directions as facts and picks neither as the
-            // fix, which the paragraph above this loop says is still open. The
-            // index in hand says which picker case applies; before the first
-            // fetch there is no index, and the plain case stands.
-            const std::vector<catalogv0::IndexEntry> published =
-                m_diskCatalog->getIndexVersions();
-            const catalogv0::IndexEntry* entry = nullptr;
-            for (const auto& e : published) {
-                if (e.romwbwVersion == disksAgreeOn) { entry = &e; break; }
-            }
-            block += "Every mismatched disk here is a RomWBW " + disksAgreeOn +
-                     " image.\r\n";
-            const std::string settingsMoves =
-                "  Settings moves the slots to RomWBW " + running +
-                " images when its catalog\r\n"
-                "  loads, downloading what is missing";
-            if (!published.empty() && !entry) {
-                block += "  The catalog does not publish that release, so no "
-                         "setting matches these\r\n"
-                         "  disks. Open Settings and let it replace them.\r\n" +
-                         settingsMoves + ";\r\n"
-                         "  press OK to keep them.\r\n";
+    // THE REMEDY, once, after the per-slot lines - see the paragraph above the
+    // loop. Whether the running release carries a slot's id is known only once
+    // the catalog in hand IS the running release's; before that, the move is
+    // stated with the condition the reconcile will apply.
+    if (!mismatched.empty()) {
+        const bool haveRunningCatalog =
+            release == running && !m_diskCatalog->getCatalogEntries().empty();
+        std::vector<int> moves;
+        std::vector<std::pair<int, std::string>> stays;   // unit, retired id
+        std::vector<int> unnamed;    // a v0 name with no catalog id before the tag
+        for (const auto& m : mismatched) {
+            std::string id;
+            DiskEntry entry;
+            // captureSlotIds follows a slot only when idOfV0Name gives it an id,
+            // so one it cannot name is left exactly where it is.
+            if (!diskv0::idOfV0Name(m.name, id)) {
+                unnamed.push_back(m.unit);
+            } else if (haveRunningCatalog && !m_diskCatalog->findDiskById(id, entry)) {
+                stays.push_back({ m.unit, id });
             } else {
-                if (entry &&
-                    !catalogv0::isOffered(*entry,
-                                          m_diskCatalog->getShowPrereleaseVersions())) {
-                    block += "  That is a development snapshot, which the release "
-                             "picker hides. To run\r\n"
-                             "  it, tick \"Show pre release\" in Settings > Machine, "
-                             "then choose it there.\r\n";
-                } else {
-                    block += "  To run it, choose it in Settings > Machine.\r\n";
+                moves.push_back(m.unit);
+            }
+        }
+        if (!moves.empty()) {
+            const bool one = moves.size() == 1;
+            block += wrapNotice(
+                "Opening Settings moves " + diskList(moves) + " to " +
+                (one ? "its" : "their") + " RomWBW " + running + " image" +
+                (one ? "" : "s") +
+                (haveRunningCatalog ? "" : ", where that release publishes the same disk,") +
+                " once its catalog loads, downloading what is missing. When "
+                "Settings says the disks are ready, press OK to keep " +
+                (one ? "it" : "them") + ".");
+        }
+        for (const auto& st : stays) {
+            block += wrapNotice(
+                "RomWBW " + running + " publishes no " + st.second + ", so Settings "
+                "leaves Disk " + std::to_string(st.first) + " as it is. Choose "
+                "another disk for that drive in Settings > Machine.");
+        }
+        for (int unit : unnamed) {
+            block += wrapNotice(
+                "Settings leaves Disk " + std::to_string(unit) + " as it is: its "
+                "name carries no catalog disk to follow. Choose another disk for "
+                "that drive in Settings > Machine.");
+        }
+        // NOTHING CARRIES OVER: beginReleaseSwitchFetch then puts the default
+        // disks into Disk 0 and Disk 1 if they are empty, downloading them. It
+        // reads the slots from the configuration (the dialog's dropdowns are
+        // seeded from cfg.disks), so this does too. Only predictable when the
+        // catalog in hand is the running release's, and only when no slot -
+        // mismatched or not - names a disk that release publishes.
+        if (haveRunningCatalog && moves.empty()) {
+            const auto& cfg = config::ConfigManager::instance().get();
+            bool anyFollowed = false;
+            for (int i = 0; i < 4 && !anyFollowed; i++) {
+                if (!cfg.disks[i].has_value() || cfg.disks[i]->path.empty()) continue;
+                std::string id;
+                DiskEntry entry;
+                if (diskv0::idOfV0Name(diskv0::basenameOf(cfg.disks[i]->path), id) &&
+                    m_diskCatalog->findDiskById(id, entry)) {
+                    anyFollowed = true;
                 }
-                block += settingsMoves + "; choosing RomWBW " + disksAgreeOn +
-                         "\r\n"
-                         "  moves them back. The next Start fetches its ROM.\r\n";
+            }
+            std::vector<int> empty;
+            for (int d = 0; d < 2; d++) {
+                if (!cfg.disks[d].has_value() || cfg.disks[d]->path.empty()) empty.push_back(d);
+            }
+            if (!anyFollowed && !empty.empty()) {
+                block += wrapNotice(
+                    "No disk carries over, so Settings also puts the default disks "
+                    "for RomWBW " + running + " into the empty " + diskList(empty) +
+                    ", downloading them.");
             }
         }
     }

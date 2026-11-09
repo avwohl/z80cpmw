@@ -14,12 +14,6 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   :3086) before cfgMgr.load() (:3090), so the setting is unread where it is
   needed.  Nothing re-points the folder when the index changes at runtime.
 
-- Stored release vs mounted disks: opening Settings moves the DISKS to the
-  release (SettingsDialogWx::onCatalogLoaded's reconcile); the MountedDisk
-  notice in reportMountedDiskProvenance now says so, and still offers moving the
-  RELEASE to the disks.  Pick one; make the other say so.  Only moving the
-  release resolves a slot whose id the stored release retired.
-
 - [WINDOWS] build the GDB stub with MSVC, x64 and ARM64, and run it: none of
   gdb_platform_windows.cpp, gdbstub.cc and romwbw_gdb.cc under cl, the wx Debugger
   page, or tests\run_tests.bat's new GDB suite (and the debugger.* checks in
