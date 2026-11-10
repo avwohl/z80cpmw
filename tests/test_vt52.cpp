@@ -1710,6 +1710,65 @@ static void test_cell_at() {
 }
 
 //=============================================================================
+// 17. outputText(): host text in UTF-8
+//=============================================================================
+
+static void test_output_text() {
+    section("outputText (host UTF-8 text)");
+    auto wideAt = [](Term& t, int r, int c) { return (int)t.tv.cellAt(r, c).wide; };
+
+    // The startup line's case: a data folder under a user name with an accent.
+    { Term t; t.tv.outputText("Jos\xC3\xA9!");
+      CHECK_INT(wideAt(t, 0, 3), 0xE9, "a two-byte character takes one cell, as its wide glyph");
+      CHECK_INT((int)t.at(0, 3), (int)'?', "and the byte beside it is '?'");
+      CHECK_INT((int)t.at(0, 4), (int)'!', "the next character lands in the next column");
+      CHECK_INT(wideAt(t, 0, 0), 0, "ASCII cells carry no wide glyph");
+      CHECK_INT(t.col(), 6, "the cursor advances one column per character, not per byte"); }
+
+    { Term t; t.tv.outputText("\xE2\x82\xAC\xF0\x9F\x98\x80");
+      CHECK_INT(wideAt(t, 0, 0), 0x20AC, "a three-byte character decodes");
+      CHECK_INT(wideAt(t, 0, 1), 0xFFFD, "a character above U+FFFF is one U+FFFD");
+      CHECK_INT(t.col(), 3, "and takes one cell"); }
+
+    { Term t; t.tv.outputText("a\xE9" "b\xC3");
+      CHECK_INT(wideAt(t, 0, 1), 0xFFFD, "an ANSI byte that is not UTF-8 is U+FFFD");
+      CHECK_INT((int)t.at(0, 2), (int)'b', "and decoding resumes at the next byte");
+      CHECK_INT(wideAt(t, 0, 3), 0xFFFD, "a truncated sequence at the end is U+FFFD"); }
+
+    { Term t; t.tv.outputText("\xC0\xAF\xED\xA0\x80");
+      CHECK_INT(wideAt(t, 0, 0), 0xFFFD, "an overlong form is refused");
+      CHECK_INT(wideAt(t, 0, 2), 0xFFFD, "a surrogate is refused"); }
+
+    // The guest path is unchanged: outputChar still drops bytes from 0x80 up.
+    { Term t; t.send("Jos\xC3\xA9!");
+      CHECK_STR(t.line(0), "Jos!", "outputChar drops the guest's high bytes, as before");
+      CHECK_INT(wideAt(t, 0, 3), 0, "and stores no wide glyph"); }
+
+    // A guest write over a host glyph replaces it.
+    { Term t; t.tv.outputText("\xC3\xA9"); t.home(1, 1); t.send("x");
+      CHECK_INT(wideAt(t, 0, 0), 0, "a guest byte written over a wide cell clears the glyph");
+      CHECK_INT((int)t.at(0, 0), (int)'x', "and stores the byte"); }
+
+    { Term t; t.tv.outputText("\xC3\xA9"); t.send("\033[2J");
+      CHECK_INT(wideAt(t, 0, 0), 0, "an erase clears the glyph"); }
+
+    { Term t; t.tv.outputText("\xC3\xA9"); t.tv.writeChar(0, 0, 'y');
+      CHECK_INT(wideAt(t, 0, 0), 0, "writeChar clears the glyph"); }
+
+    // It wraps like any other printable cell.
+    { Term t; t.home(1, 80); t.tv.outputText("\xC3\xA9\xC3\xA8");
+      CHECK_INT(wideAt(t, 0, 79), 0xE9, "the last column takes a wide glyph");
+      CHECK_INT(wideAt(t, 1, 0), 0xE8, "and the next one wraps to the next row"); }
+
+    // Inside an escape sequence the parser gets the raw bytes, as outputChar
+    // would: ESC 0xC3 is no sequence this terminal knows, so it ends there, the
+    // 0xA9 is dropped as a guest high byte, and the text after it is ordinary.
+    { Term t; t.tv.outputText("\033\xC3\xA9Z");
+      CHECK_INT(wideAt(t, 0, 0), 0, "a character mid escape sequence is not drawn as a glyph");
+      CHECK_INT((int)t.at(0, 0), (int)'Z', "and the parser is back to normal after it"); }
+}
+
+//=============================================================================
 
 int main() {
     printf("TerminalView conformance suite\n");
@@ -1735,6 +1794,7 @@ int main() {
     test_keymap_names();
     test_sequence_validation();
     test_cell_at();
+    test_output_text();
 
     printf("\n==============================\n");
     printf("%d checks, %d failed\n", g_checks, g_failed);

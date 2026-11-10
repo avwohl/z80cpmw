@@ -170,12 +170,20 @@ inline void appendWrapped(std::string& out, const std::string& text,
     size_t pos = 0;
     do {
         size_t room = width > indent.size() ? width - indent.size() : 1;
-        size_t take = text.size() - pos;
-        if (take > room) {
+        // Columns, not bytes: a path is UTF-8, and a letter that takes two
+        // bytes takes one column. end is the byte just past `room` characters,
+        // so a hard break never splits a character.
+        size_t end = pos;
+        for (size_t cols = 0; end < text.size() && cols < room; ++cols) {
+            ++end;
+            while (end < text.size() && ((unsigned char)text[end] & 0xC0) == 0x80) ++end;
+        }
+        size_t take = end - pos;
+        if (end < text.size()) {
             // rfind from the last column that would still fit, so the break is
             // at the last space that fits rather than the first one that does.
-            size_t brk = text.rfind(' ', pos + room);
-            take = (brk != std::string::npos && brk > pos) ? brk - pos : room;
+            size_t brk = text.rfind(' ', end);
+            take = (brk != std::string::npos && brk > pos) ? brk - pos : end - pos;
         }
         out += indent;
         out += text.substr(pos, take);

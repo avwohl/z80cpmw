@@ -41,6 +41,12 @@ enum : uint8_t {
 // Terminal cell structure
 struct TerminalCell {
     char character = ' ';
+    // A glyph outside ASCII, drawn instead of character when non-zero. Only
+    // outputText() sets it - host text such as the data folder path, whose
+    // user name can hold an accented letter. The guest never does: its bytes
+    // from 0x80 up are dropped by the parser, as they always were. character
+    // holds '?' beside it, for anything that reads only the byte.
+    wchar_t wide = 0;
     uint8_t foreground = 7;  // White
     uint8_t background = 0;  // Black
     uint8_t flags = 0;       // TCELL_* bits; see the enum above
@@ -71,6 +77,10 @@ public:
 
     // Output a character with VT100 escape sequence processing
     void outputChar(uint8_t ch);
+    // Output host text in UTF-8. ASCII goes through outputChar exactly as
+    // before; a character outside ASCII takes one cell, as TerminalCell::wide.
+    // For the app's own lines, never for guest output.
+    void outputText(const std::string& utf8);
 
     // Read a cell of the live screen. The counterpart to writeChar(), and what
     // test_vt52.cpp checks the editing sequences against - the alternative was
@@ -172,6 +182,9 @@ private:
     // VT100 escape sequence processing
     void processChar(uint8_t ch);
     void processNormalChar(uint8_t ch);
+    // Write one printable cell at the cursor and advance, wrapping as a VT100
+    // does. wide is TerminalCell::wide: 0 for every guest byte.
+    void putPrintable(char ch, wchar_t wide);
     void processEscapeChar(uint8_t ch);
     void processCSIChar(uint8_t ch);
     void executeCSI(uint8_t finalChar);

@@ -68,6 +68,18 @@ inline std::string fromWide(const wchar_t* w) {
     return w ? fromWide(w, wcslen(w)) : std::string();
 }
 
+// ANSI code page to UTF-8, for the one kind of narrow text the OS still hands
+// back in it: MSVC's std::system_category().message(), which is FormatMessageA.
+inline std::string fromAnsi(const std::string& ansi) {
+    if (ansi.empty()) return std::string();
+    int needed = MultiByteToWideChar(CP_ACP, 0, ansi.data(), (int)ansi.size(), nullptr, 0);
+    if (needed <= 0) return std::string();
+    std::wstring w((size_t)needed, L'\0');
+    int written = MultiByteToWideChar(CP_ACP, 0, ansi.data(), (int)ansi.size(), &w[0], needed);
+    if (written <= 0) return std::string();
+    return fromWide(w.data(), (size_t)written);
+}
+
 // fopen with a UTF-8 path. The mode is ASCII ("rb", "r+b", "wb", "ab"...).
 inline FILE* fopen(const std::string& path, const char* mode) {
     std::wstring wmode;

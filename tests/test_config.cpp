@@ -2176,6 +2176,34 @@ static void test_render_block() {
         pos = nl + 2;
     }
     checkInt(longLines, 0, "no rendered line is wider than 78 columns");
+
+    // Columns, not bytes, and a hard break never splits a character. A path
+    // with no space in it, wider than the screen, under a user name with an
+    // accent; \xC3\xA9 is one column and must never be cut in two.
+    {
+        std::string path = "C:\\Users\\Jos\xC3\xA9\\AppData\\Local\\z80cpmw\\profiles\\";
+        while (path.size() < 75) path += "x";   // the lead byte of the accent lands at the 76th byte
+        path += "\xC3\xA9tude.json";
+        std::string out;
+        appendWrapped(out, path, "  ", "    ");
+        bool cut = false;
+        int widest = 0;
+        size_t at = 0;
+        while (at < out.size()) {
+            size_t nl = out.find("\r\n", at);
+            if (nl == std::string::npos) nl = out.size();
+            int cols = 0;
+            for (size_t k = at; k < nl; ++k) {
+                if (((unsigned char)out[k] & 0xC0) != 0x80) ++cols;
+            }
+            widest = std::max(widest, cols);
+            if (nl > at && ((unsigned char)out[nl - 1] & 0xE0) == 0xC0) cut = true;   // lead byte last
+            if (nl > at && ((unsigned char)out[at] & 0xC0) == 0x80) cut = true;       // continuation first
+            at = nl + 2;
+        }
+        checkTrue(!cut, "a hard break in a UTF-8 path falls between characters");
+        checkInt(widest, 78, "and the line it breaks is 78 columns, counting a two-byte letter once");
+    }
 }
 
 //=============================================================================

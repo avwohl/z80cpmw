@@ -992,6 +992,9 @@ the data folder, the catalog downloads, Settings and the file dialogs together.
       CP/M boots. `%LOCALAPPDATA%\z80cpmw\data` holds the files.
 - [ ] **About box.** Help > About shows the data folder with `José` spelled
       correctly.
+- [ ] **Terminal.** Before you press F5, the `Data folder:` line in the terminal
+      shows `José`, with the `é` in one column. The text after the name is in
+      the correct columns.
 - [ ] **Settings.** Open Emulator > Settings. The disk slots show the catalog
       disks. Change a slot, click OK, and stop and start. The slot keeps the
       disk you selected.

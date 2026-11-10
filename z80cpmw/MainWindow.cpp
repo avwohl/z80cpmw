@@ -2247,14 +2247,23 @@ std::string MainWindow::findResourceFile(const std::string& filename) {
 
 void MainWindow::terminalPrint(const std::string& text) {
     if (!m_terminal) return;
-    for (const char* p = text.c_str(); *p; ++p) {
-        m_terminal->outputChar(*p);
-    }
+    // The notices name disks and folders, so the text is UTF-8.
+    m_terminal->outputText(text);
 }
 
 // Word-wrapped for the 80-column terminal the notices print to, which folds a
 // long line in the middle of a word: the first line flush, the rest indented two
 // like every other notice line, each ending in CRLF.
+// Characters, not bytes: a path in a notice is UTF-8, and a letter that takes two
+// bytes still takes one column.
+static size_t columnsOf(const std::string& s) {
+    size_t n = 0;
+    for (unsigned char c : s) {
+        if ((c & 0xC0) != 0x80) ++n;
+    }
+    return n;
+}
+
 static std::string wrapNotice(const std::string& text) {
     const size_t cols = 78;
     std::string out, line;
@@ -2264,7 +2273,7 @@ static std::string wrapNotice(const std::string& text) {
         if (end == std::string::npos) end = text.size();
         const std::string word = text.substr(start, end - start);
         const std::string indent = out.empty() ? "" : "  ";
-        if (!line.empty() && indent.size() + line.size() + 1 + word.size() > cols) {
+        if (!line.empty() && indent.size() + columnsOf(line) + 1 + columnsOf(word) > cols) {
             out += indent + line + "\r\n";
             line = word;
         } else {
@@ -3267,8 +3276,9 @@ void MainWindow::showStartupInstructions() {
     // redirection) so bare-name R8/W8 transfers can actually be found on disk.
     const char* dataFolder = emu_io_get_data_folder_display();
     if (dataFolder && *dataFolder) {
-        std::string line = std::string("  Data folder: ") + dataFolder + "\r\n";
-        for (char c : line) m_terminal->outputChar((uint8_t)c);
+        // outputText, not outputChar: the path is UTF-8 and the user name in it
+        // can hold an accented letter, which outputChar would drop.
+        m_terminal->outputText(std::string("  Data folder: ") + dataFolder + "\r\n");
     }
 
     const char* tail =

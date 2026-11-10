@@ -798,7 +798,8 @@ static std::string quarantineUnreadable(const std::string& path,
         if (fs::exists(utf8path::fsPath(backup), ec)) continue;
         fs::rename(utf8path::fsPath(path), utf8path::fsPath(backup), ec);
         if (!ec) return backup;
-        whyNot = ec.message();
+        // The OS's message, in the ANSI code page; the report is UTF-8.
+        whyNot = utf8path::fromAnsi(ec.message());
         return std::string();
     }
     whyNot = utf8path::fromWide(utf8path::fsPath(path).filename().wstring()) +
@@ -1408,6 +1409,11 @@ V0MigrationReport ConfigManager::migrateToInterfaceV0(const std::string& dataDir
                 out << doc.dump(2);
             }
             fs::rename(utf8path::fsPath(tempPath), utf8path::fsPath(path));
+        } catch (const fs::filesystem_error& e) {
+            // Not what(): MSVC builds it in the ANSI code page, paths included,
+            // and the report is UTF-8. The profile is already named.
+            report.profileFailures.push_back(name + " (" + utf8path::fromAnsi(e.code().message()) + ")");
+            continue;
         } catch (const std::exception& e) {
             report.profileFailures.push_back(name + " (" + e.what() + ")");
             continue;

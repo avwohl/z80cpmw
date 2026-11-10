@@ -345,6 +345,7 @@ void TerminalView::setCursor(int row, int col) {
 void TerminalView::writeChar(int row, int col, char ch, uint8_t fg, uint8_t bg) {
     if (row >= 0 && row < ROWS && col >= 0 && col < COLS) {
         m_cells[row][col].character = ch;
+        m_cells[row][col].wide = 0;
         m_cells[row][col].foreground = fg;
         m_cells[row][col].background = bg;
         // Not m_currentFlags: this entry point takes the complete rendition as
@@ -462,6 +463,46 @@ void TerminalView::setAttr(uint8_t attr) {
 
 void TerminalView::outputChar(uint8_t ch) {
     processChar(ch);
+}
+
+void TerminalView::outputText(const std::string& utf8) {
+    const size_t n = utf8.size();
+    for (size_t i = 0; i < n; ) {
+        const uint8_t b = (uint8_t)utf8[i];
+        if (b < 0x80) {
+            processChar(b);
+            ++i;
+            continue;
+        }
+        // One UTF-8 sequence. Anything malformed - a stray continuation byte,
+        // a truncated or overlong sequence, a surrogate - is one U+FFFD for the
+        // lead byte, and decoding resumes at the next byte. A character above
+        // U+FFFF is U+FFFD too: a cell holds one UTF-16 unit.
+        const int len = (b >= 0xC2 && b <= 0xDF) ? 2
+                      : (b >= 0xE0 && b <= 0xEF) ? 3
+                      : (b >= 0xF0 && b <= 0xF4) ? 4 : 0;
+        uint32_t cp = len == 2 ? (b & 0x1F) : len == 3 ? (b & 0x0F) : (b & 0x07);
+        bool ok = len != 0 && i + len <= n;
+        for (int k = 1; ok && k < len; ++k) {
+            const uint8_t c = (uint8_t)utf8[i + k];
+            if ((c & 0xC0) != 0x80) ok = false;
+            cp = (cp << 6) | (c & 0x3F);
+        }
+        if (ok && ((len == 3 && cp < 0x800) || (len == 4 && cp < 0x10000) ||
+                   (cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF)) {
+            ok = false;
+        }
+        const size_t used = ok ? (size_t)len : 1;
+        // Mid escape sequence the parser is owed bytes, not a cell: give it the
+        // raw bytes, so an unfinished guest sequence ends exactly as it did when
+        // host text went through outputChar.
+        if (m_escapeState != EscapeState::Normal) {
+            for (size_t k = 0; k < used; ++k) processChar((uint8_t)utf8[i + k]);
+        } else {
+            putPrintable('?', (ok && cp <= 0xFFFF) ? (wchar_t)cp : (wchar_t)0xFFFD);
+        }
+        i += used;
+    }
 }
 
 const TerminalCell& TerminalView::cellAt(int row, int col) const {
@@ -755,9 +796,13 @@ void TerminalView::paint(HDC hdc) {
             SetBkColor(memDC, bg);
 
             // Draw character
-            char ch = cell.character;
-            if (ch < 32) ch = ' ';
-            TextOutA(memDC, x, y, &ch, 1);
+            if (cell.wide) {
+                TextOutW(memDC, x, y, &cell.wide, 1);
+            } else {
+                char ch = cell.character;
+                if (ch < 32) ch = ' ';
+                TextOutA(memDC, x, y, &ch, 1);
+            }
         }
     }
 
@@ -980,8 +1025,10 @@ void TerminalView::copySelectionToClipboard() {
         int ce = (row == r1) ? c1 : COLS - 1;
         std::wstring line;
         for (int col = cs; col <= ce; ++col) {
-            char ch = visibleCell(row, col).character;
-            line += (ch >= 32 && (unsigned char)ch < 127) ? (wchar_t)ch : L' ';
+            const TerminalCell& cell = visibleCell(row, col);
+            char ch = cell.character;
+            line += cell.wide ? cell.wide
+                  : (ch >= 32 && (unsigned char)ch < 127) ? (wchar_t)ch : L' ';
         }
         while (!line.empty() && line.back() == L' ') {
             line.pop_back();  // trim trailing spaces
@@ -1246,41 +1293,46 @@ void TerminalView::processNormalChar(uint8_t ch) {
     default:
         // Printable character
         if (ch >= 0x20 && ch <= 0x7E) {
-            // Resolve a wrap armed by the previous last-column write.
-            if (m_pendingWrap) {
-                m_cursorCol = 0;
-                lineFeed();
-                m_pendingWrap = false;
-            }
-            // Reverse video is resolved here, at the write, and nowhere else.
-            // m_currentAttr always holds the un-reversed rendition.
-            const uint8_t attr = m_reverse ? swapAttrNibbles(m_currentAttr)
-                                           : m_currentAttr;
-            m_cells[m_cursorRow][m_cursorCol].character = (char)ch;
-            m_cells[m_cursorRow][m_cursorCol].foreground = attr & 0x0F;
-            m_cells[m_cursorRow][m_cursorCol].background = (attr >> 4) & 0x07;
-            // The rest of the rendition - underline, blink, and the bold flag
-            // that survives the swap above. This site and writeChar() are the
-            // only two in this file that assign a cell's fields one at a time;
-            // everywhere else copies a whole TerminalCell or assigns
-            // blankCell(), so the new field travels for free.
-            m_cells[m_cursorRow][m_cursorCol].flags = m_currentFlags;
-
-            if (m_cursorCol >= COLS - 1) {
-                // At the rightmost column: arm the wrap rather than taking it,
-                // as a real VT100 does. Writing the bottom-right cell used to
-                // scroll the screen there and then, which corrupts every
-                // full-screen layout that draws into the corner.
-                if (m_autoWrap) {
-                    m_pendingWrap = true;
-                }
-            } else {
-                m_cursorCol++;
-            }
-            invalidate();
+            putPrintable((char)ch, 0);
         }
         break;
     }
+}
+
+void TerminalView::putPrintable(char ch, wchar_t wide) {
+    // Resolve a wrap armed by the previous last-column write.
+    if (m_pendingWrap) {
+        m_cursorCol = 0;
+        lineFeed();
+        m_pendingWrap = false;
+    }
+    // Reverse video is resolved here, at the write, and nowhere else.
+    // m_currentAttr always holds the un-reversed rendition.
+    const uint8_t attr = m_reverse ? swapAttrNibbles(m_currentAttr)
+                                   : m_currentAttr;
+    m_cells[m_cursorRow][m_cursorCol].character = ch;
+    m_cells[m_cursorRow][m_cursorCol].wide = wide;
+    m_cells[m_cursorRow][m_cursorCol].foreground = attr & 0x0F;
+    m_cells[m_cursorRow][m_cursorCol].background = (attr >> 4) & 0x07;
+    // The rest of the rendition - underline, blink, and the bold flag
+    // that survives the swap above. This site and writeChar() are the
+    // only two in this file that assign a cell's fields one at a time;
+    // everywhere else copies a whole TerminalCell or assigns
+    // blankCell(), so a new field travels for free.
+    m_cells[m_cursorRow][m_cursorCol].flags = m_currentFlags;
+
+    if (m_cursorCol >= COLS - 1) {
+        // At the rightmost column: arm the wrap rather than taking it,
+        // as a real VT100 does. Writing the bottom-right cell used to
+        // scroll the screen there and then, which corrupts every
+        // full-screen layout that draws into the corner.
+        if (m_autoWrap) {
+            m_pendingWrap = true;
+        }
+    } else {
+        m_cursorCol++;
+    }
+    invalidate();
 }
 
 void TerminalView::processEscapeChar(uint8_t ch) {
