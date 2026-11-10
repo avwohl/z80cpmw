@@ -13,3 +13,11 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   gdb_platform_windows.cpp, gdbstub.cc and romwbw_gdb.cc under cl, the wx Debugger
   page, or tests\run_tests.bat's new GDB suite (and the debugger.* checks in
   test_config.cpp) has run on Windows.  Then MANUAL_CHECKS section 16.
+
+- [WINDOWS] build with MSVC, x64 and ARM64, and run tests\run_tests.bat: commits
+  6a76c8b..a1ce5ff (the catalog, Settings and Utf8Path.h work of 2026-11-09/10)
+  have only passed a mingw-w64 -fsyntax-only check, never cl or a suite run.
+
+- MANUAL_CHECKS section 17 has never been run - no Windows account with an
+  accented user name has started the app since a1ce5ff moved every path to the
+  wide API.
