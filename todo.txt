@@ -15,7 +15,7 @@ that a closed item is deleted rather than annotated - are in CLAUDE.md.
   test_config.cpp) has run on Windows.  Then MANUAL_CHECKS section 16.
 
 - [WINDOWS] build with MSVC, x64 and ARM64, and run tests\run_tests.bat: commits
-  6a76c8b..a1ce5ff (the catalog, Settings and Utf8Path.h work of 2026-11-09/10)
+  6a76c8b..8c9b3dc (the catalog, Settings, Utf8Path.h and terminal work of 2026-11-09/10)
   have only passed a mingw-w64 -fsyntax-only check, never cl or a suite run.
 
 - MANUAL_CHECKS section 17 has never been run - no Windows account with an
