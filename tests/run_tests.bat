@@ -2,7 +2,7 @@
 REM Build and run the headless test suites.
 REM
 REM Nothing here needs wxWidgets or the vcpkg tree: TerminalView.cpp and
-REM emu_io_windows.cpp both include only pch.h (Win32 + the standard library),
+REM emu_io_windows.cpp include only pch.h and the header-only Utf8Path.h (Win32 + the standard library),
 REM so these suites compile against the SDK alone and run without a window.
 REM That is the point of them - they can be run on any machine with a compiler,
 REM including one that cannot build the app itself.

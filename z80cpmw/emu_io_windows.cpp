@@ -12,7 +12,8 @@
  * the next build with nothing to do. emu_io_common.cc is the one exception:
  * z80cpmw.vcxproj references it nowhere, because these versions use 64-bit
  * Win32-flavoured stdio (_fseeki64, MoveFileEx) rather than the portable FILE*
- * code it holds.
+ * code it holds, and they open every path, which is UTF-8, through the wide API
+ * (Utf8Path.h).
  *
  * The cost of that split is that nothing reports the drift. Twelve functions
  * are duplicated between the two files and have to be kept in step by hand:
@@ -28,6 +29,7 @@
  */
 
 #include "pch.h"
+#include "Utf8Path.h"
 #include "emu_io.h"
 #include <queue>
 #include <mutex>
@@ -198,7 +200,7 @@ void emu_printer_set_file(const char* path) {
         g_printerFile = nullptr;
     }
     if (path && *path) {
-        g_printerFile = fopen(path, "w");
+        g_printerFile = utf8path::fopen(path, "w");
     }
 }
 
@@ -219,7 +221,7 @@ void emu_aux_set_input_file(const char* path) {
         g_auxInFile = nullptr;
     }
     if (path && *path) {
-        g_auxInFile = fopen(path, "r");
+        g_auxInFile = utf8path::fopen(path, "r");
     }
 }
 
@@ -229,7 +231,7 @@ void emu_aux_set_output_file(const char* path) {
         g_auxOutFile = nullptr;
     }
     if (path && *path) {
-        g_auxOutFile = fopen(path, "w");
+        g_auxOutFile = utf8path::fopen(path, "w");
     }
 }
 
@@ -262,8 +264,10 @@ void emu_set_debug(bool enable) {
 // invisible to them). Path is set once at startup by wWinMain. The handle is
 // kept open (debug mode can log from inside the 10ms emulator batch, so no
 // fopen per message); at the size cap the file rotates to .old so recent
-// history survives.
-static char g_logPath[MAX_PATH] = {};
+// history survives. The path is UTF-8, which is why it is a std::string and not
+// a MAX_PATH char array: a character outside ASCII takes two or three bytes, so
+// a byte limit of MAX_PATH could cut a path that is shorter than MAX_PATH.
+static std::string g_logPath;
 static FILE* g_logFile = nullptr;
 static long g_logBytes = 0;
 static std::mutex g_logMutex;
@@ -276,21 +280,20 @@ extern "C" void emu_io_set_log_path(const char* path) {
         g_logFile = nullptr;
     }
     if (!path) {
-        g_logPath[0] = '\0';
+        g_logPath.clear();
         return;
     }
-    strncpy(g_logPath, path, sizeof(g_logPath) - 1);
-    g_logPath[sizeof(g_logPath) - 1] = '\0';
+    g_logPath = path;
 }
 
 static void logToFile(const char* text) {
     std::lock_guard<std::mutex> lock(g_logMutex);
-    if (!g_logPath[0]) return;
+    if (g_logPath.empty()) return;
 
     if (!g_logFile) {
-        g_logFile = fopen(g_logPath, "a");
+        g_logFile = utf8path::fopen(g_logPath, "a");
         if (!g_logFile) {
-            g_logPath[0] = '\0';  // don't retry on every message
+            g_logPath.clear();  // don't retry on every message
             return;
         }
         fseek(g_logFile, 0, SEEK_END);
@@ -300,12 +303,12 @@ static void logToFile(const char* text) {
 
     if (g_logBytes > LOG_MAX_BYTES) {
         fclose(g_logFile);
-        std::string oldPath = std::string(g_logPath) + ".old";
-        remove(oldPath.c_str());
-        rename(g_logPath, oldPath.c_str());
-        g_logFile = fopen(g_logPath, "w");
+        std::string oldPath = g_logPath + ".old";
+        _wremove(utf8path::wide(oldPath).c_str());
+        _wrename(utf8path::wide(g_logPath).c_str(), utf8path::wide(oldPath).c_str());
+        g_logFile = utf8path::fopen(g_logPath, "w");
         if (!g_logFile) {
-            g_logPath[0] = '\0';
+            g_logPath.clear();
             return;
         }
         g_logBytes = 0;
@@ -351,7 +354,8 @@ void emu_error(const char* fmt, ...) {
     va_end(args);
 
     logToFile(buffer);
-    MessageBoxA(nullptr, buffer, "Fatal Error", MB_OK | MB_ICONERROR);
+    MessageBoxW(nullptr, utf8path::wide(buffer).c_str(), L"Fatal Error",
+                MB_OK | MB_ICONERROR);
     ExitProcess(1);
 }
 
@@ -390,7 +394,7 @@ static bool measureStream(FILE* f, long long* outSize) {
 }
 
 bool emu_file_load(const std::string& path, std::vector<uint8_t>& data) {
-    FILE* f = fopen(path.c_str(), "rb");
+    FILE* f = utf8path::fopen(path, "rb");
     if (!f) {
         data.clear();
         return false;
@@ -416,7 +420,7 @@ bool emu_file_load(const std::string& path, std::vector<uint8_t>& data) {
 
 size_t emu_file_load_to_mem(const std::string& path, uint8_t* mem,
                             size_t mem_size, size_t offset) {
-    FILE* f = fopen(path.c_str(), "rb");
+    FILE* f = utf8path::fopen(path, "rb");
     if (!f) return 0;
 
     // measureStream, not the bare 32-bit fseek/ftell pair this used: MSVC's
@@ -445,12 +449,14 @@ size_t emu_file_load_to_mem(const std::string& path, uint8_t* mem,
 
 // Rename `from` over `to`, replacing `to` if it exists (emu_io.h). ISO C
 // leaves rename() undefined when the target exists and the MSVC CRT refuses it
-// outright, so this port has always used MoveFileExA directly; the core now
+// outright, so this port has always used MoveFileEx directly; the core now
 // declares the shim, so define it here and route the local caller through it
 // rather than leave a declaration with no definition in a file that is the
 // Windows half of emu_io_common.cc.
 int emu_rename(const char* from, const char* to) {
-    return MoveFileExA(from, to, MOVEFILE_REPLACE_EXISTING) ? 0 : -1;
+    if (!from || !to) return -1;
+    return MoveFileExW(utf8path::wide(from).c_str(), utf8path::wide(to).c_str(),
+                       MOVEFILE_REPLACE_EXISTING) ? 0 : -1;
 }
 
 bool emu_file_save(const std::string& path, const std::vector<uint8_t>& data) {
@@ -460,7 +466,7 @@ bool emu_file_save(const std::string& path, const std::vector<uint8_t>& data) {
     // truncated. fclose is checked because stdio buffering can surface a
     // write error only at the final flush.
     std::string tempPath = path + ".tmp";
-    FILE* f = fopen(tempPath.c_str(), "wb");
+    FILE* f = utf8path::fopen(tempPath, "wb");
     if (!f) return false;
 
     size_t written = data.empty() ? 0 : fwrite(data.data(), 1, data.size(), f);
@@ -468,20 +474,21 @@ bool emu_file_save(const std::string& path, const std::vector<uint8_t>& data) {
     if (fclose(f) != 0) ok = false;
 
     if (!ok || emu_rename(tempPath.c_str(), path.c_str()) != 0) {
-        remove(tempPath.c_str());
+        _wremove(utf8path::wide(tempPath).c_str());
         return false;
     }
     return true;
 }
 
 bool emu_file_exists(const std::string& path) {
-    DWORD attrs = GetFileAttributesA(path.c_str());
+    DWORD attrs = GetFileAttributesW(utf8path::wide(path).c_str());
     return attrs != INVALID_FILE_ATTRIBUTES;
 }
 
 size_t emu_file_size(const std::string& path) {
     WIN32_FILE_ATTRIBUTE_DATA attrs;
-    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &attrs)) {
+    if (!GetFileAttributesExW(utf8path::wide(path).c_str(), GetFileExInfoStandard,
+                              &attrs)) {
         return 0;
     }
     LARGE_INTEGER size;
@@ -531,9 +538,9 @@ emu_disk_handle emu_disk_open(const std::string& path, const char* mode) {
     } else if (strcmp(mode, "rw") == 0) {
         fmode = "r+b";
     } else if (strcmp(mode, "rw+") == 0) {
-        FILE* f = fopen(path.c_str(), "r+b");
+        FILE* f = utf8path::fopen(path, "r+b");
         if (!f) {
-            f = fopen(path.c_str(), "w+b");
+            f = utf8path::fopen(path, "w+b");
         }
         if (!f) return nullptr;
         return makeDiskHandle(f);
@@ -541,7 +548,7 @@ emu_disk_handle emu_disk_open(const std::string& path, const char* mode) {
         return nullptr;
     }
 
-    FILE* f = fopen(path.c_str(), fmode);
+    FILE* f = utf8path::fopen(path, fmode);
     if (!f) return nullptr;
     return makeDiskHandle(f);
 }
@@ -827,8 +834,8 @@ static std::string getDataFolder() {
 
     // Ensure directory exists
     if (!dataDir.empty()) {
-        CreateDirectoryA((dataDir.substr(0, dataDir.length() - 5)).c_str(), nullptr);  // Create z80cpmw
-        CreateDirectoryA(dataDir.c_str(), nullptr);  // Create data
+        CreateDirectoryW(utf8path::wide(dataDir.substr(0, dataDir.length() - 5)).c_str(), nullptr);  // Create z80cpmw
+        CreateDirectoryW(utf8path::wide(dataDir).c_str(), nullptr);  // Create data
     }
 
     return dataDir;
@@ -866,19 +873,20 @@ static std::string resolveHostPath(const std::string& filename) {
 static std::string resolveRealPathExisting(const std::string& path) {
     if (path.empty()) return path;
 
-    HANDLE h = CreateFileA(path.c_str(), 0,
+    HANDLE h = CreateFileW(utf8path::wide(path).c_str(), 0,
                            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                            nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if (h == INVALID_HANDLE_VALUE) return path;
 
-    char buf[1024] = {};
-    DWORD n = GetFinalPathNameByHandleA(h, buf, (DWORD)sizeof(buf),
+    wchar_t buf[1024] = {};
+    DWORD n = GetFinalPathNameByHandleW(h, buf, (DWORD)(sizeof(buf) / sizeof(buf[0])),
                                         FILE_NAME_NORMALIZED | VOLUME_NAME_DOS);
     CloseHandle(h);
 
-    if (n == 0 || n >= sizeof(buf)) return path;
+    if (n == 0 || n >= sizeof(buf) / sizeof(buf[0])) return path;
 
-    std::string real(buf, n);
+    std::string real = utf8path::fromWide(buf, n);
+    if (real.empty()) return path;
     // Drop the \\?\ prefix GetFinalPathNameByHandle prepends.
     if (real.rfind("\\\\?\\", 0) == 0) {
         real = real.substr(4);
@@ -889,7 +897,7 @@ static std::string resolveRealPathExisting(const std::string& path) {
 // Same, for a directory we own and may create on demand (the data folder).
 static std::string resolveRealPath(const std::string& path) {
     if (path.empty()) return path;
-    CreateDirectoryA(path.c_str(), nullptr);  // must exist to open a handle
+    CreateDirectoryW(utf8path::wide(path).c_str(), nullptr);  // must exist to open a handle
     return resolveRealPathExisting(path);
 }
 
@@ -946,7 +954,7 @@ bool emu_host_file_open_read(const char* filename) {
     }
 
     // Read the file
-    FILE* f = fopen(fullPath.c_str(), "rb");
+    FILE* f = utf8path::fopen(fullPath, "rb");
     if (f) {
         // Reject unmeasurable files (devices, ftell failure) and anything
         // larger than the biggest disk image: the whole file is buffered in
@@ -1040,7 +1048,7 @@ bool emu_host_file_close_write() {
 
         // A false return tells the guest (via HBF_HOST_CLOSE) that the export
         // is missing or truncated; W8 reports it to the CP/M user.
-        FILE* f = fullPath.empty() ? nullptr : fopen(fullPath.c_str(), "wb");
+        FILE* f = fullPath.empty() ? nullptr : utf8path::fopen(fullPath, "wb");
         if (f) {
             size_t written = g_hostWriteBuffer.empty() ? 0
                 : fwrite(g_hostWriteBuffer.data(), 1, g_hostWriteBuffer.size(), f);

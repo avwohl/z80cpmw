@@ -41,6 +41,7 @@
 // emulator core. DOWNSTREAM.md's "Reporting a version" says it in one line:
 // report the one that was LOADED, not a constant.
 #include "emu_init.h"
+#include "Utf8Path.h"
 
 // External function to set main window for host file dialogs
 extern "C" void emu_io_set_main_window(HWND hwnd);
@@ -804,8 +805,9 @@ void MainWindow::onFileLoadDisk(int unit) {
     ofn.lpstrTitle = unit == 0 ? L"Load Disk 0" : L"Load Disk 1";
 
     if (GetOpenFileNameW(&ofn)) {
-        char path[MAX_PATH];
-        WideCharToMultiByte(CP_UTF8, 0, filename, -1, path, MAX_PATH, nullptr, nullptr);
+        // No MAX_PATH byte buffer: a path of MAX_PATH characters can need
+        // more bytes than that once it is UTF-8.
+        const std::string path = utf8path::fromWide(filename);
 
         if (m_emulator->loadDisk(unit, path)) {
             // Update config with new disk path
@@ -837,8 +839,7 @@ void MainWindow::onFileSaveDisk(int unit) {
     ofn.lpstrDefExt = L"img";
 
     if (GetSaveFileNameW(&ofn)) {
-        char path[MAX_PATH];
-        WideCharToMultiByte(CP_UTF8, 0, filename, -1, path, MAX_PATH, nullptr, nullptr);
+        const std::string path = utf8path::fromWide(filename);
 
         if (m_emulator->saveDisk(unit, path)) {
             m_statusText = "Saved disk " + std::to_string(unit);
@@ -912,7 +913,7 @@ void MainWindow::onEmulatorStart() {
 // every later boot. All default images are >= 8 MB.
 static bool diskFileLooksComplete(const std::string& path) {
     WIN32_FILE_ATTRIBUTE_DATA fad = {};
-    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fad)) {
+    if (!GetFileAttributesExW(utf8path::wide(path).c_str(), GetFileExInfoStandard, &fad)) {
         return false;
     }
     ULONGLONG size = ((ULONGLONG)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
@@ -995,7 +996,7 @@ void MainWindow::startEmulator() {
         msg += "The ROM is downloaded from the catalog on the first start.\n"
                "Check the network connection, then press F5 again. Which RomWBW\n"
                "release and which ROM is under Emulator > Settings > Machine.";
-        MessageBoxA(m_hwnd, msg.c_str(), "Cannot start", MB_OK | MB_ICONERROR);
+        MessageBoxW(m_hwnd, utf8path::wide(msg).c_str(), L"Cannot start", MB_OK | MB_ICONERROR);
         return;
     }
 
@@ -1746,7 +1747,7 @@ void MainWindow::onEmulatorSettings() {
                                diskv0::basenameOf(m_diskCatalog->getDiskPath(settings.diskFiles[i]));
                     isManifestDisk = true;  // From catalog = manifest disk
                 }
-                if (GetFileAttributesA(diskPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+                if (GetFileAttributesW(utf8path::wide(diskPath).c_str()) != INVALID_FILE_ATTRIBUTES) {
                     m_emulator->loadDisk(i, diskPath);
                     m_emulator->setDiskIsManifest(i, isManifestDisk);
                     // Update config
@@ -2040,7 +2041,7 @@ void MainWindow::onHelpAbout() {
     // un-redirected base path, which does not exist for a packaged install.
     const char* realDir = emu_io_get_data_folder_display();
     std::string dataDir = realDir ? realDir : "";
-    std::wstring dataDirW(dataDir.begin(), dataDir.end());
+    std::wstring dataDirW = utf8path::wide(dataDir);
 
     // Convert version string to wide
     std::string verStr = VERSION_STRING;
@@ -2057,7 +2058,8 @@ void MainWindow::onHelpAbout() {
     // openable before that. There is no honest substitute for it, so the line is
     // omitted rather than filled with a default - the core itself reports 0.0.0
     // and logs loudly in the same situation, for the same reason. ASCII digits
-    // and dots, so the byte-wise widen the two strings above use is correct here.
+    // and dots, so the byte-wise widen the version string above uses is correct
+    // here.
     const std::string romwbwRel = loadedRomwbwRelease();
     const std::wstring romwbwRelW(romwbwRel.begin(), romwbwRel.end());
     // A DEVELOPMENT SNAPSHOT CANNOT SAY SO HERE, and the honest thing is to say
@@ -2075,7 +2077,7 @@ void MainWindow::onHelpAbout() {
     if (!romwbwRel.empty()) {
         const std::string want = startRomwbwRelease();
         if (!want.empty() && want != romwbwRel && catalogv0::romServes(want, romwbwRel)) {
-            const std::wstring wantW(want.begin(), want.end());
+            const std::wstring wantW = utf8path::wide(want);
             romwbwSuffix = L"This machine is set to RomWBW " + wantW +
                            L", a development snapshot;\nthe ROM's own version bytes cannot "
                            L"spell the suffix.\n";
@@ -2167,7 +2169,7 @@ void MainWindow::updateMenuAccelHints() {
 
 void MainWindow::updateStatusBar() {
     if (m_statusBar) {
-        std::wstring wstatus(m_statusText.begin(), m_statusText.end());
+        std::wstring wstatus = utf8path::wide(m_statusText);
         SendMessageW(m_statusBar, SB_SETTEXTW, 0, (LPARAM)wstatus.c_str());
     }
 }
@@ -2235,7 +2237,7 @@ std::string MainWindow::findResourceFile(const std::string& filename) {
     }
 
     for (const auto& path : paths) {
-        if (GetFileAttributesA(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        if (GetFileAttributesW(utf8path::wide(path).c_str()) != INVALID_FILE_ATTRIBUTES) {
             return path;
         }
     }
@@ -3022,7 +3024,7 @@ bool MainWindow::offerRomChoice(const std::string& want, const std::string& why,
                "Yes\tdownload it and start\n"
                "No\tdo not start";
 
-        if (MessageBoxA(m_hwnd, msg.c_str(), "ROM needed",
+        if (MessageBoxW(m_hwnd, utf8path::wide(msg).c_str(), L"ROM needed",
                         MB_YESNO | MB_ICONWARNING) == IDYES) {
             // Comes back through startEmulator() when the ROM lands, so this
             // start does not continue. The transfer, not the catalog: this
@@ -3071,7 +3073,7 @@ bool MainWindow::offerRomChoice(const std::string& want, const std::string& why,
     } else {
         msg += "Check the network connection and press F5 again.";
     }
-    MessageBoxA(m_hwnd, msg.c_str(), "Cannot start", MB_OK | MB_ICONERROR);
+    MessageBoxW(m_hwnd, utf8path::wide(msg).c_str(), L"Cannot start", MB_OK | MB_ICONERROR);
     return false;
 }
 
@@ -3286,7 +3288,7 @@ void MainWindow::loadSettings() {
     // Set up data directory for disks and file transfers
     std::string userDir = EmulatorEngine::getUserDataDirectory();
     std::string dataDir = userDir + "\\data";
-    CreateDirectoryA(dataDir.c_str(), nullptr);
+    CreateDirectoryW(utf8path::wide(dataDir).c_str(), nullptr);
     m_diskCatalog->setDownloadDirectory(dataDir);
 
     // Load configuration (handles migration from old INI format automatically)
@@ -3575,7 +3577,7 @@ void MainWindow::applyConfig() {
             if (inDownloadCache && !diskFileLooksComplete(disk.path)) {
                 continue;
             }
-            if (GetFileAttributesA(disk.path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            if (GetFileAttributesW(utf8path::wide(disk.path).c_str()) != INVALID_FILE_ATTRIBUTES) {
                 m_emulator->loadDisk(i, disk.path);
                 m_emulator->setDiskIsManifest(i, disk.isManifest);
             }
@@ -3691,11 +3693,7 @@ void MainWindow::onLoadProfile() {
 
     // Simple file dialog to select profile
     wchar_t filename[MAX_PATH] = {};
-    // Keep the returned-by-value string alive in a named local: building the
-    // wstring from two separate getProfilesDir() calls mixed iterators of two
-    // different temporaries (undefined behavior, intermittent crash).
-    const std::string profilesDirA = config::ConfigManager::instance().getProfilesDir();
-    std::wstring profilesDir(profilesDirA.begin(), profilesDirA.end());
+    std::wstring profilesDir = utf8path::wide(config::ConfigManager::instance().getProfilesDir());
 
     OPENFILENAMEW ofn = {};
     ofn.lStructSize = sizeof(ofn);
@@ -3809,9 +3807,7 @@ void MainWindow::onLoadProfile() {
 
 void MainWindow::onSaveProfileAs() {
     wchar_t filename[MAX_PATH] = {};
-    // Named local for the same iterator-pair reason as onLoadProfile().
-    const std::string profilesDirA = config::ConfigManager::instance().getProfilesDir();
-    std::wstring profilesDir(profilesDirA.begin(), profilesDirA.end());
+    std::wstring profilesDir = utf8path::wide(config::ConfigManager::instance().getProfilesDir());
 
     // Ensure profiles directory exists
     CreateDirectoryW(profilesDir.c_str(), nullptr);

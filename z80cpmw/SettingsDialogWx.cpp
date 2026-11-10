@@ -4,6 +4,7 @@
 
 #include "pch.h"
 #include "SettingsDialogWx.h"
+#include "Utf8Path.h"
 #include "DiskCatalog.h"
 #include "Keymap.h"
 // diskv0::idOfV0Name and diskv0::releaseOfV0Name: the release switch reads a
@@ -1915,13 +1916,13 @@ void SettingsDialogWx::saveSettings() {
         if (sel > 0) {
             const wxString shown = m_diskChoices[i]->GetString(sel);
             // A pinned slot hands back the UTF-8 path it was pinned to; see
-            // m_pinnedSlotPath. Everything else keeps the conversion it had,
-            // which is what MainWindow's ANSI file calls open.
+            // m_pinnedSlotPath. Everything else is read back with utf8_str(),
+            // the encoding every path in the configuration is held in.
             if (!m_pinnedSlotPath[i].empty() &&
                 shown == wxString::FromUTF8(m_pinnedSlotPath[i])) {
                 m_settings.diskFiles[i] = m_pinnedSlotPath[i];
             } else {
-                m_settings.diskFiles[i] = shown.ToStdString();
+                m_settings.diskFiles[i] = std::string(shown.utf8_str());
             }
         } else {
             m_settings.diskFiles[i] = "";
@@ -3007,7 +3008,7 @@ void SettingsDialogWx::onKeySequenceChanged(wxCommandEvent& event) {
 
     // keymap::decode() has no failure path: everything reaches the guest as
     // bytes, correct or not. This is where a mistake is caught instead.
-    if (const char* why = keymap::validateSequence(m_keySeqText->GetValue().ToStdString())) {
+    if (const char* why = keymap::validateSequence(std::string(m_keySeqText->GetValue().utf8_str()))) {
         setKeySeqValid(false);
         m_keyHintText->SetLabel(wxString::FromUTF8(why));
         return;
@@ -3027,7 +3028,7 @@ void SettingsDialogWx::commitPendingKeySequence() {
     if (!m_keySeqValid) return;
     if (m_keySelectedRow < 0 || (size_t)m_keySelectedRow >= m_keyRows.size()) return;
     if (m_keyRows[m_keySelectedRow].purpose) return;
-    applyKeySequenceToRow(m_keySeqText->GetValue().ToStdString());
+    applyKeySequenceToRow(std::string(m_keySeqText->GetValue().utf8_str()));
 }
 
 void SettingsDialogWx::onKeyRestoreDefault(wxCommandEvent& event) {
@@ -3217,7 +3218,9 @@ static bool ShowWxSettingsDialogInternal(DiskCatalog* catalog, WxEmulatorSetting
         OutputDebugStringA("[Settings] Exception: ");
         OutputDebugStringA(e.what());
         OutputDebugStringA("\n");
-        MessageBoxA(nullptr, e.what(), "Settings Exception", MB_OK | MB_ICONERROR);
+        // what() can carry a UTF-8 path or catalog text.
+        MessageBoxW(nullptr, utf8path::wide(e.what()).c_str(), L"Settings Exception",
+                    MB_OK | MB_ICONERROR);
     }
     catch (...) {
         s_openSettingsDialog = nullptr;

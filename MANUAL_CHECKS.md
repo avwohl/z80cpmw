@@ -975,3 +975,31 @@ the vcxproj, not in a copy.
       crash report, and `z80cpmw.exe` is gone from Task Manager.
 - [ ] **ARM64.** The same, on an ARM64 build on an ARM64 machine, and `dumpbin
       /headers` says `AA64 machine`.
+
+## 17. A Windows user name with an accented letter
+
+The data folder is under `%LOCALAPPDATA%`, so the Windows user name is part of
+every disk and ROM path. Before `Utf8Path.h`, the app kept these paths in UTF-8
+but opened them with calls that read the ANSI code page. A user name such as
+`José` gave a data folder that the app could not create or open. Now each path
+goes to Windows through the wide (UTF-16) API. The suites check this with a
+scratch folder named `café` (`tests\test_hostfile.cpp`). Only the app can check
+the data folder, the catalog downloads, Settings and the file dialogs together.
+
+- [ ] Make a local Windows account with an accented letter in its name, for
+      example `José`. Sign in as that account. Install the package and start it.
+- [ ] **Downloads.** Press F5. The ROM and the default disks download, and
+      CP/M boots. `%LOCALAPPDATA%\z80cpmw\data` holds the files.
+- [ ] **About box.** Help > About shows the data folder with `José` spelled
+      correctly.
+- [ ] **Settings.** Open Emulator > Settings. The disk slots show the catalog
+      disks. Change a slot, click OK, and stop and start. The slot keeps the
+      disk you selected.
+- [ ] **File dialogs.** Use File > Load Disk 0 to load an `.img` from a folder with
+      an accented name, such as `Documents\Café`. CP/M reads the disk. Use File >
+      Save Disk 0 to save to the same folder. The file is there.
+- [ ] **Configuration.** Close the app and start it again. The disk from the
+      accented folder is still mounted. `z80cpmw.json` shows the path with
+      `Café` in it. It must not show `CafÃ©`, a `?` or a replacement character.
+- [ ] **R8 and W8.** Copy a file from the data folder into CP/M with `R8`, and
+      copy it back with `W8`. Both work.

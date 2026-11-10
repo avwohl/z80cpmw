@@ -389,6 +389,7 @@
     <ClInclude Include="DiskCatalog.h" />
     <ClInclude Include="CatalogV0.h" />
     <ClInclude Include="DiskMigrationV0.h" />
+    <ClInclude Include="Utf8Path.h" />
     <ClInclude Include="HelpAssets.h" />
     <ClInclude Include="HelpWindow.h" />
     <ClInclude Include="Dazzler.h" />

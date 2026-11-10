@@ -300,9 +300,9 @@ private:
     // starts it when the first lands.
     bool m_catalogFetchInFlight = false;
     // The full path onRefreshCatalog pinned each slot to, exactly as built, in
-    // UTF-8. saveSettings hands this back while the slot still shows it rather
-    // than re-encoding the control's text, whose ToStdString() is the locale
-    // code page and would not round-trip a non-ASCII %LOCALAPPDATA%.
+    // UTF-8. saveSettings hands this back while the slot still shows it, so the
+    // path stored is the one built here, byte for byte, rather than one
+    // re-encoded from the control's text.
     std::string m_pinnedSlotPath[4];
     bool m_refetchAfterLoad = false;
     void tryStartReleaseSwitchFetch();

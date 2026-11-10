@@ -35,6 +35,7 @@
 #include "DiskLedger.h"
 #include "DiskHash.h"
 #include "DiskMigrationV0.h"
+#include "Utf8Path.h"
 
 #include <windows.h>
 #include <bcrypt.h>
@@ -861,7 +862,7 @@ static std::string g_dir;
 
 static std::string writeTempFile(const char* name, const std::string& bytes) {
     const std::string path = g_dir + "\\" + name;
-    FILE* f = fopen(path.c_str(), "wb");
+    FILE* f = utf8path::fopen(path, "wb");
     if (!f) return "";
     if (!bytes.empty()) fwrite(bytes.data(), 1, bytes.size(), f);
     fclose(f);
@@ -1021,11 +1022,13 @@ static void test_measurement_end_to_end() {
 //=============================================================================
 
 int main() {
-    const char* tmp = std::getenv("TEMP");
-    if (!tmp || !*tmp) tmp = std::getenv("TMP");
-    if (!tmp || !*tmp) tmp = ".";
-    g_dir = std::string(tmp) + "\\z80cpmw_test_ledger";
-    CreateDirectoryA(g_dir.c_str(), nullptr);
+    // UTF-8, the encoding DiskHash.cpp reads a path in, so a non-ASCII %TEMP%
+    // names the same folder on both sides.
+    const wchar_t* tmp = _wgetenv(L"TEMP");
+    if (!tmp || !*tmp) tmp = _wgetenv(L"TMP");
+    if (!tmp || !*tmp) tmp = L".";
+    g_dir = utf8path::fromWide(tmp) + "\\z80cpmw_test_ledger";
+    CreateDirectoryW(utf8path::wide(g_dir).c_str(), nullptr);
 
     printf("=== Disk provenance suite ===\n");
 
@@ -1047,16 +1050,17 @@ int main() {
     test_measurement_end_to_end();
 
     // Leave nothing behind; the files above are a few hundred KB in %TEMP%.
-    WIN32_FIND_DATAA found = {};
-    HANDLE search = FindFirstFileA((g_dir + "\\*").c_str(), &found);
+    const std::wstring dirW = utf8path::wide(g_dir);
+    WIN32_FIND_DATAW found = {};
+    HANDLE search = FindFirstFileW((dirW + L"\\*").c_str(), &found);
     if (search != INVALID_HANDLE_VALUE) {
         do {
             if (found.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
-            DeleteFileA((g_dir + "\\" + found.cFileName).c_str());
-        } while (FindNextFileA(search, &found));
+            DeleteFileW((dirW + L"\\" + found.cFileName).c_str());
+        } while (FindNextFileW(search, &found));
         FindClose(search);
     }
-    RemoveDirectoryA(g_dir.c_str());
+    RemoveDirectoryW(dirW.c_str());
 
     printf("\n===============================\n");
     printf("%d checks, %d failed\n", g_checks, g_failed);

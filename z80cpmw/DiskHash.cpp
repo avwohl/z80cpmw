@@ -3,6 +3,7 @@
  */
 
 #include "DiskHash.h"
+#include "Utf8Path.h"
 
 #include <windows.h>
 #include <bcrypt.h>
@@ -76,7 +77,7 @@ bool sha256File(const std::string& path, std::string& hexOut) {
     Sha256Hasher hasher;
     if (!hasher.begin()) return false;
 
-    std::unique_ptr<FILE, int (*)(FILE*)> file(fopen(path.c_str(), "rb"), &fclose);
+    std::unique_ptr<FILE, int (*)(FILE*)> file(utf8path::fopen(path, "rb"), &fclose);
     if (!file) return false;
 
     // The same 64KB block the download loop reads in.
@@ -118,7 +119,7 @@ bool sha256Bytes(const void* data, size_t size, std::string& hexOut) {
 
 bool statFile(const std::string& path, DiskFileFacts& out) {
     WIN32_FILE_ATTRIBUTE_DATA fad = {};
-    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fad)) return false;
+    if (!GetFileAttributesExW(utf8path::wide(path).c_str(), GetFileExInfoStandard, &fad)) return false;
     if (fad.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) return false;
 
     out.size = (static_cast<uint64_t>(fad.nFileSizeHigh) << 32) | fad.nFileSizeLow;

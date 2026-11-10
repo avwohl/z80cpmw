@@ -6,6 +6,7 @@
 #include "Config.h"
 #include "EmulatorEngine.h"
 #include "Keymap.h"
+#include "Utf8Path.h"
 #include "include/nlohmann/json.hpp"
 #include <cctype>
 #include <cerrno>
@@ -794,13 +795,14 @@ static std::string quarantineUnreadable(const std::string& path,
         std::string backup = path + ".bad" +
                              (n == 1 ? std::string() : std::to_string(n));
         std::error_code ec;
-        if (fs::exists(backup, ec)) continue;
-        fs::rename(path, backup, ec);
+        if (fs::exists(utf8path::fsPath(backup), ec)) continue;
+        fs::rename(utf8path::fsPath(path), utf8path::fsPath(backup), ec);
         if (!ec) return backup;
         whyNot = ec.message();
         return std::string();
     }
-    whyNot = fs::path(path).filename().string() + ".bad and .bad2 through .bad" +
+    whyNot = utf8path::fromWide(utf8path::fsPath(path).filename().wstring()) +
+             ".bad and .bad2 through .bad" +
              std::to_string(maxBackups) + " are all taken";
     return std::string();
 }
@@ -837,13 +839,13 @@ bool ConfigManager::load() {
     bool ok = true;
     bool needSave = false;
 
-    if (fs::exists(jsonPath)) {
+    if (fs::exists(utf8path::fsPath(jsonPath))) {
         // Try JSON config first
         ok = loadFromFile(jsonPath);
-    } else if (fs::exists(iniPath) && migrateFromINI()) {
+    } else if (fs::exists(utf8path::fsPath(iniPath)) && migrateFromINI()) {
         // Migrated from old INI format; back up the original
         try {
-            fs::rename(iniPath, iniPath + ".bak");
+            fs::rename(utf8path::fsPath(iniPath), utf8path::fsPath(iniPath + ".bak"));
         } catch (...) {
             // Ignore backup errors
         }
@@ -976,7 +978,7 @@ bool ConfigManager::loadFromFile(const std::string& path) {
         // "permission denied" at least tells the reader which half of the
         // report to believe, where a bare "could not be read" does not.
         errno = 0;
-        std::ifstream file(path);
+        std::ifstream file(utf8path::fsPath(path));
         if (!file.is_open()) {
             Diagnostic d;
             d.problem = Problem::UnreadableFile;
@@ -1089,7 +1091,7 @@ bool ConfigManager::loadFromFile(const std::string& path) {
 bool ConfigManager::saveToFile(const std::string& path) const {
     try {
         // Ensure directory exists
-        fs::path filePath(path);
+        fs::path filePath = utf8path::fsPath(path);
         fs::create_directories(filePath.parent_path());
 
         // A CARRIED SECTION GOES BACK TO THE FILE IT CAME FROM AND NOWHERE
@@ -1134,7 +1136,7 @@ bool ConfigManager::saveToFile(const std::string& path) const {
         // Write to temp file first, then rename (atomic write)
         std::string tempPath = path + ".tmp";
         {
-            std::ofstream file(tempPath);
+            std::ofstream file(utf8path::fsPath(tempPath));
             if (!file.is_open()) return false;
 
             json j = forThisFile;
@@ -1162,13 +1164,13 @@ bool ConfigManager::saveToFile(const std::string& path) const {
                 // exactly when this matters.
                 file.close();
                 std::error_code ec;
-                fs::remove(tempPath, ec);
+                fs::remove(utf8path::fsPath(tempPath), ec);
                 return false;
             }
         }
 
         // Rename temp to final (atomic on most filesystems)
-        fs::rename(tempPath, path);
+        fs::rename(utf8path::fsPath(tempPath), utf8path::fsPath(path));
         return true;
     } catch (const std::exception&) {
         // The temp file does not survive the failure. It used to: every failed
@@ -1177,7 +1179,7 @@ bool ConfigManager::saveToFile(const std::string& path) const {
         // orphan stayed for ever looking like a configuration somebody might
         // fix. Nothing reads it and nothing else deletes it.
         std::error_code ec;
-        fs::remove(path + ".tmp", ec);
+        fs::remove(utf8path::fsPath(path + ".tmp"), ec);
         return false;
     }
 }
@@ -1322,7 +1324,7 @@ V0MigrationReport ConfigManager::migrateToInterfaceV0(const std::string& dataDir
 
         std::string text;
         {
-            std::ifstream file(path, std::ios::binary);
+            std::ifstream file(utf8path::fsPath(path), std::ios::binary);
             if (!file.is_open()) {
                 report.profileFailures.push_back(name + " (could not be opened)");
                 continue;
@@ -1398,14 +1400,14 @@ V0MigrationReport ConfigManager::migrateToInterfaceV0(const std::string& dataDir
         try {
             const std::string tempPath = path + ".tmp";
             {
-                std::ofstream out(tempPath);
+                std::ofstream out(utf8path::fsPath(tempPath));
                 if (!out.is_open()) {
                     report.profileFailures.push_back(name + " (could not be written)");
                     continue;
                 }
                 out << doc.dump(2);
             }
-            fs::rename(tempPath, path);
+            fs::rename(utf8path::fsPath(tempPath), utf8path::fsPath(path));
         } catch (const std::exception& e) {
             report.profileFailures.push_back(name + " (" + e.what() + ")");
             continue;
@@ -1449,7 +1451,7 @@ bool ConfigManager::migrateFromINI() {
 }
 
 bool ConfigManager::parseOldINI(const std::string& path) {
-    FILE* f = fopen(path.c_str(), "r");
+    FILE* f = utf8path::fopen(path, "r");
     if (!f) return false;
 
     m_config = AppConfig{};  // Start with defaults
@@ -1499,13 +1501,13 @@ std::vector<std::string> ConfigManager::listProfiles() const {
     std::string profilesDir = getProfilesDir();
 
     try {
-        if (!fs::exists(profilesDir)) {
+        if (!fs::exists(utf8path::fsPath(profilesDir))) {
             return profiles;
         }
 
-        for (const auto& entry : fs::directory_iterator(profilesDir)) {
+        for (const auto& entry : fs::directory_iterator(utf8path::fsPath(profilesDir))) {
             if (entry.is_regular_file() && entry.path().extension() == ".json") {
-                profiles.push_back(entry.path().stem().string());
+                profiles.push_back(utf8path::fromWide(entry.path().stem().wstring()));
             }
         }
     } catch (...) {
@@ -1517,7 +1519,7 @@ std::vector<std::string> ConfigManager::listProfiles() const {
 
 bool ConfigManager::loadProfile(const std::string& name) {
     std::string path = getProfilePath(name);
-    if (!fs::exists(path)) {
+    if (!fs::exists(utf8path::fsPath(path))) {
         return false;
     }
 
@@ -1586,7 +1588,7 @@ bool ConfigManager::saveAsProfile(const std::string& name) {
     // Create profiles directory if needed
     std::string profilesDir = getProfilesDir();
     try {
-        fs::create_directories(profilesDir);
+        fs::create_directories(utf8path::fsPath(profilesDir));
     } catch (...) {
         return false;
     }
@@ -1602,8 +1604,8 @@ bool ConfigManager::saveAsProfile(const std::string& name) {
 bool ConfigManager::deleteProfile(const std::string& name) {
     std::string path = getProfilePath(name);
     try {
-        if (fs::exists(path)) {
-            fs::remove(path);
+        if (fs::exists(utf8path::fsPath(path))) {
+            fs::remove(utf8path::fsPath(path));
             if (m_currentProfile == name) {
                 m_currentProfile.clear();
             }

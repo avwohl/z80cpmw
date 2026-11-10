@@ -59,6 +59,7 @@
 #include "include/nlohmann/json.hpp"
 #include "EmulatorEngine.h"
 #include "Keymap.h"
+#include "Utf8Path.h"
 
 #include <windows.h>
 
@@ -227,20 +228,20 @@ std::string EmulatorEngine::getUserDataDirectory() {
 static std::string configPath() { return g_dir + "\\z80cpmw.json"; }
 
 static void writeFile(const std::string& path, const std::string& body) {
-    std::ofstream f(path, std::ios::binary);
+    std::ofstream f(utf8path::fsPath(path), std::ios::binary);
     f << body;
 }
 
 static std::string readFile(const std::string& path) {
-    std::ifstream f(path, std::ios::binary);
+    std::ifstream f(utf8path::fsPath(path), std::ios::binary);
     return std::string((std::istreambuf_iterator<char>(f)),
                        std::istreambuf_iterator<char>());
 }
 
 static void resetDir() {
     std::error_code ec;
-    fs::remove_all(g_dir, ec);
-    fs::create_directories(g_dir, ec);
+    fs::remove_all(utf8path::fsPath(g_dir), ec);
+    fs::create_directories(utf8path::fsPath(g_dir), ec);
 }
 
 //=============================================================================
@@ -671,7 +672,7 @@ static void test_load_reports() {
     checkInt(cm.get().fontSize, 18, "and its value is the one in force");
     check(cm.diagnostics().empty(), "and reports nothing",
           describe(cm.diagnostics()), "(none)");
-    checkTrue(!fs::exists(configPath() + ".bad"), "and is not moved aside");
+    checkTrue(!fs::exists(utf8path::fsPath(configPath() + ".bad")), "and is not moved aside");
 
     resetDir();
     writeFile(configPath(), R"({"display":{"fontSize":18,"fontsize":9}})");
@@ -705,7 +706,7 @@ static void test_unreadable_file_is_kept() {
     checkTrue(!cm.load(), "a truncated file does not load");
 
     const std::string bad = configPath() + ".bad";
-    checkTrue(fs::exists(bad), "the original is kept as z80cpmw.json.bad");
+    checkTrue(fs::exists(utf8path::fsPath(bad)), "the original is kept as z80cpmw.json.bad");
     checkStr(readFile(bad), truncated, "byte for byte");
 
     checkStr(soleOf(cm.diagnostics(), Problem::UnreadableFile), configPath(),
@@ -721,7 +722,7 @@ static void test_unreadable_file_is_kept() {
     // that, and it was one failed rename away from being nothing. Nothing is
     // saved automatically after a file we could not read, so there is no new
     // file here at all - the next explicit save writes one.
-    checkTrue(!fs::exists(configPath()),
+    checkTrue(!fs::exists(utf8path::fsPath(configPath())),
               "and load() writes nothing in its place");
     checkStr(readFile(bad), truncated, "so the kept copy is untouched");
 }
@@ -741,7 +742,7 @@ static void test_file_that_cannot_be_opened() {
     writeFile(configPath(), mine);
 
     // dwShareMode 0: nothing else may read this file while the handle is open.
-    HANDLE h = CreateFileA(configPath().c_str(), GENERIC_READ, 0, nullptr,
+    HANDLE h = CreateFileW(utf8path::wide(configPath()).c_str(), GENERIC_READ, 0, nullptr,
                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     checkTrue(h != INVALID_HANDLE_VALUE, "the file can be locked for the test");
     if (h == INVALID_HANDLE_VALUE) return;
@@ -783,7 +784,7 @@ static void test_file_that_cannot_be_opened() {
     // a .tmp sitting here is the fingerprint of a save that was attempted and
     // merely thwarted. Nothing but the original in this directory is the
     // fingerprint of a save that was never started.
-    checkTrue(!fs::exists(configPath() + ".tmp"),
+    checkTrue(!fs::exists(utf8path::fsPath(configPath() + ".tmp")),
               "and no save was attempted at all");
 }
 
@@ -816,7 +817,7 @@ static void test_backup_does_not_clobber() {
     writeFile(configPath(), R"({"a third: )");
     cm.load();
     checkStr(readFile(configPath() + ".bad"), first, "a third leaves .bad alone");
-    checkTrue(fs::exists(configPath() + ".bad3"), "and lands on .bad3");
+    checkTrue(fs::exists(utf8path::fsPath(configPath() + ".bad3")), "and lands on .bad3");
 }
 
 // At the cap the file is left where it is rather than overwriting the last
@@ -866,7 +867,7 @@ static void test_type_mismatch_suppresses_save() {
              "but the section is reported rather than passed over");
     checkStr(readFile(configPath()), mine,
              "and the file is byte for byte what the user wrote");
-    checkTrue(!fs::exists(configPath() + ".bad"),
+    checkTrue(!fs::exists(utf8path::fsPath(configPath() + ".bad")),
               "nothing is quarantined - the file parses, it is just wrong");
 
     // The fill loop really did want to save; the suppression is what stopped
@@ -1143,7 +1144,7 @@ static void test_carry_matches_what_the_loader_skips() {
         checkTrue(!cm.load(), std::string("not readable: ") + text);
         checkInt((long)countOf(cm.diagnostics(), Problem::UnreadableFile), 1,
                  std::string("reported as unreadable rather than carried: ") + text);
-        checkTrue(fs::exists(configPath() + ".bad"),
+        checkTrue(fs::exists(utf8path::fsPath(configPath() + ".bad")),
                   std::string("and moved aside instead: ") + text);
         checkInt((long)cm.get().unreadSections.size(), 0,
                  std::string("with nothing carried out of it: ") + text);
@@ -1295,7 +1296,7 @@ static void test_fifth_disk() {
 static void writeProfile(ConfigManager& cm, const std::string& name,
                          const std::string& body) {
     std::error_code ec;
-    fs::create_directories(cm.getProfilesDir(), ec);
+    fs::create_directories(utf8path::fsPath(cm.getProfilesDir()), ec);
     writeFile(cm.getProfilePath(name), body);
 }
 
@@ -1330,7 +1331,7 @@ static void test_failed_profile_keeps_the_report() {
              "with the failed profile named behind it");
     checkInt((long)cm.diagnostics().size(), 2,
              "the report is those two things and nothing else");
-    checkTrue(fs::exists(cm.getProfilePath("broken") + ".bad"),
+    checkTrue(fs::exists(utf8path::fsPath(cm.getProfilePath("broken") + ".bad")),
               "the profile was quarantined like any other unreadable file");
 
     // A name with no file at all returns before any of that, which is what the
@@ -1365,7 +1366,7 @@ static void test_retrying_a_profile_does_not_double_the_report() {
     writeProfile(cm, "locked", R"({"display":{"fontSize":9}})");
 
     const std::string path = cm.getProfilePath("locked");
-    HANDLE h = CreateFileA(path.c_str(), GENERIC_READ, 0, nullptr,
+    HANDLE h = CreateFileW(utf8path::wide(path).c_str(), GENERIC_READ, 0, nullptr,
                            OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     checkTrue(h != INVALID_HANDLE_VALUE, "the profile can be locked for the test");
     if (h == INVALID_HANDLE_VALUE) return;
@@ -1667,7 +1668,7 @@ static void test_v0_migration_end_to_end() {
     checkTrue(!cm.get().interfaceV0Migrated, "and the flag is not set");
     checkStr(readFile(cm.getProfilePath("broken")), broken,
              "the unreadable profile is untouched, byte for byte");
-    checkTrue(!fs::exists(cm.getProfilePath("broken") + ".bad"),
+    checkTrue(!fs::exists(utf8path::fsPath(cm.getProfilePath("broken") + ".bad")),
               "and NOT quarantined - reading it was never asked for");
 
     json rewritten = json::parse(readFile(cm.getProfilePath("gaming")));
@@ -2231,10 +2232,12 @@ static void test_gdb_settings() {
 //=============================================================================
 
 int main() {
-    const char* tmp = std::getenv("TEMP");
-    if (!tmp || !*tmp) tmp = std::getenv("TMP");
-    if (!tmp || !*tmp) tmp = ".";
-    g_dir = std::string(tmp) + "\\z80cpmw_test_config";
+    // UTF-8, the encoding Config.cpp reads a path in, so a non-ASCII %TEMP%
+    // names the same folder on both sides.
+    const wchar_t* tmp = _wgetenv(L"TEMP");
+    if (!tmp || !*tmp) tmp = _wgetenv(L"TMP");
+    if (!tmp || !*tmp) tmp = L".";
+    g_dir = utf8path::fromWide(tmp) + "\\z80cpmw_test_config";
 
     printf("Configuration diagnostics suite\n");
     printf("===============================\n");
@@ -2276,7 +2279,7 @@ int main() {
     test_gdb_settings();
 
     std::error_code ec;
-    fs::remove_all(g_dir, ec);
+    fs::remove_all(utf8path::fsPath(g_dir), ec);
 
     printf("\n===============================\n");
     printf("%d checks, %d failed\n", g_checks, g_failed);

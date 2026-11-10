@@ -48,6 +48,7 @@
 #include "romwbw_mem.h"
 #include "hbios_dispatch.h"
 #include "emu_io.h"
+#include "Utf8Path.h"
 
 static int g_checks = 0;
 static int g_failures = 0;
@@ -150,18 +151,19 @@ struct Machine {
     }
 };
 
+// Paths here are UTF-8, as emu_io_windows.cpp reads them; see test_hostfile.cpp.
 static bool fileExists(const std::string& p) {
-    DWORD a = GetFileAttributesA(p.c_str());
+    DWORD a = GetFileAttributesW(utf8path::wide(p).c_str());
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
 static std::string scratchDir() {
-    char tmp[MAX_PATH];
-    DWORD n = GetTempPathA((DWORD)sizeof(tmp), tmp);
-    if (n == 0 || n >= sizeof(tmp)) return std::string();
-    std::string dir = std::string(tmp) + "z80cpmw_hbios_test";
-    CreateDirectoryA(dir.c_str(), nullptr);
-    return dir;
+    wchar_t tmp[MAX_PATH];
+    DWORD n = GetTempPathW(MAX_PATH, tmp);
+    if (n == 0 || n >= MAX_PATH) return std::string();
+    std::wstring dir = std::wstring(tmp, n) + L"z80cpmw_hbios_test";
+    CreateDirectoryW(dir.c_str(), nullptr);
+    return utf8path::fromWide(dir);
 }
 
 //=============================================================================
@@ -197,7 +199,7 @@ static void test_getname_reports_the_real_destination() {
     check(!dir.empty(), "scratch directory created");
     if (dir.empty()) return;
     std::string requested = dir + "\\hbios_getname.txt";
-    DeleteFileA(requested.c_str());
+    DeleteFileW(utf8path::wide(requested).c_str());
 
     // Before an open there is nothing to report, and the guest's buffer - which
     // still holds the path it typed - must not be disturbed.
@@ -236,7 +238,7 @@ static void test_getname_reports_the_real_destination() {
     checkEq(std::to_string((int)m.call(0xE8, 200, BUF_ADDR)), "255",
             "A = 0xFF again after close");
 
-    DeleteFileA(requested.c_str());
+    DeleteFileW(utf8path::wide(requested).c_str());
 }
 
 static void test_getname_buffer_bounds() {
@@ -287,7 +289,7 @@ static void test_getname_buffer_bounds() {
 
     std::string reported = full;
     checkEq(std::to_string((int)m.call(0xE5, 1)), "0", "HBF_HOST_CLOSE succeeded");
-    DeleteFileA(reported.c_str());
+    DeleteFileW(utf8path::wide(reported).c_str());
 }
 
 static void test_failed_open_reports_nothing() {

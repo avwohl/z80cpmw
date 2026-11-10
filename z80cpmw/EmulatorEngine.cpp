@@ -6,6 +6,7 @@
 
 #include "pch.h"
 #include "EmulatorEngine.h"
+#include "Utf8Path.h"
 #include "hbios_cpu.h"
 #include "romwbw_mem.h"
 #include "hbios_dispatch.h"
@@ -567,11 +568,11 @@ void EmulatorEngine::processChar(uint8_t ch) {
 }
 
 std::string EmulatorEngine::getAppDirectory() {
-    char path[MAX_PATH];
-    GetModuleFileNameA(nullptr, path, MAX_PATH);
-    char* lastSlash = strrchr(path, '\\');
-    if (lastSlash) *lastSlash = '\0';
-    return std::string(path);
+    wchar_t path[MAX_PATH];
+    GetModuleFileNameW(nullptr, path, MAX_PATH);
+    wchar_t* lastSlash = wcsrchr(path, L'\\');
+    if (lastSlash) *lastSlash = L'\0';
+    return utf8path::fromWide(path);
 }
 
 std::string EmulatorEngine::getUserDataDirectory() {
@@ -597,7 +598,7 @@ std::string EmulatorEngine::getUserDataDirectory() {
     }
 
     // Ensure directory exists
-    CreateDirectoryA(userDir.c_str(), nullptr);
+    CreateDirectoryW(utf8path::wide(userDir).c_str(), nullptr);
 
     return userDir;
 }

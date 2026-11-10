@@ -3,8 +3,9 @@
  *
  * Built and run by tests\run_tests.bat. Like the terminal suite, it needs
  * neither wxWidgets nor the vcpkg tree: emu_io_windows.cpp includes only pch.h
- * (Win32 + the standard library) and emu_io.h from ..\romwbw_emu\src, so this
- * compiles against the SDK and the sibling core checkout alone.
+ * and Utf8Path.h (Win32 + the standard library) and emu_io.h from
+ * ..\romwbw_emu\src, so this compiles against the SDK and the sibling core
+ * checkout alone.
  *
  * What it is here to hold down, from docs/DOWNSTREAM_2026-08-25.md in
  * romwbw_emu (core v1.36):
@@ -21,14 +22,21 @@
  *   - Answering the query creates nothing. The redirection is followed through
  *     the parent directory precisely so a query cannot leave a directory behind
  *     named after the file that is about to be written.
+ *
+ * Every path the core hands the backend is UTF-8, and so is every path here:
+ * the helpers below go through the wide API, as the backend does, so that the
+ * suite still means something on a machine whose temp folder or data folder
+ * has a character outside ASCII in it.
  */
 
 #include <windows.h>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <vector>
 
 #include "emu_io.h"
+#include "Utf8Path.h"
 
 // Declared where its callers declare it (MainWindow.cpp, SettingsDialogWx.cpp)
 // rather than in a header - it is this port's own, not part of emu_io.h.
@@ -65,17 +73,21 @@ static bool endsWithNoCase(const std::string& s, const std::string& tail) {
 }
 
 static bool fileExists(const std::string& p) {
-    DWORD a = GetFileAttributesA(p.c_str());
+    DWORD a = GetFileAttributesW(utf8path::wide(p).c_str());
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
 static bool dirExists(const std::string& p) {
-    DWORD a = GetFileAttributesA(p.c_str());
+    DWORD a = GetFileAttributesW(utf8path::wide(p).c_str());
     return a != INVALID_FILE_ATTRIBUTES && (a & FILE_ATTRIBUTE_DIRECTORY);
 }
 
+static void deleteFile(const std::string& p) {
+    DeleteFileW(utf8path::wide(p).c_str());
+}
+
 static std::string readWholeFile(const std::string& p) {
-    FILE* f = fopen(p.c_str(), "rb");
+    FILE* f = utf8path::fopen(p, "rb");
     if (!f) return std::string();
     std::string out;
     char buf[512];
@@ -101,13 +113,14 @@ static void writeBytes(const char* s) {
 
 // A scratch directory of our own, so the absolute-path checks do not touch
 // anything the user cares about.
-static std::string makeScratchDir() {
-    char tmp[MAX_PATH];
-    DWORD n = GetTempPathA((DWORD)sizeof(tmp), tmp);
-    if (n == 0 || n >= sizeof(tmp)) return std::string();
-    std::string dir = std::string(tmp) + "z80cpmw_hostfile_test";
-    CreateDirectoryA(dir.c_str(), nullptr);
-    return dirExists(dir) ? dir : std::string();
+static std::string makeScratchDir(const wchar_t* name = L"z80cpmw_hostfile_test") {
+    wchar_t tmp[MAX_PATH];
+    DWORD n = GetTempPathW(MAX_PATH, tmp);
+    if (n == 0 || n >= MAX_PATH) return std::string();
+    std::wstring dir = std::wstring(tmp, n) + name;
+    CreateDirectoryW(dir.c_str(), nullptr);
+    std::string utf8 = utf8path::fromWide(dir);
+    return dirExists(utf8) ? utf8 : std::string();
 }
 
 //=============================================================================
@@ -147,7 +160,7 @@ static void test_name_window() {
     checkEq(writeName(), "", "nothing to report after close");
     check(emu_host_file_get_state() == HOST_FILE_IDLE, "idle after close");
 
-    DeleteFileA(reported.c_str());
+    deleteFile(reported);
 }
 
 static void test_bare_name_reports_the_data_folder() {
@@ -182,7 +195,7 @@ static void test_bare_name_reports_the_data_folder() {
     check(fileExists(reported), "a file exists at the reported path");
     checkEq(readWholeFile(reported), "bare", "it holds the exported bytes");
 
-    DeleteFileA(reported.c_str());
+    deleteFile(reported);
 }
 
 static void test_absolute_path_is_honoured_and_reported() {
@@ -193,7 +206,7 @@ static void test_absolute_path_is_honoured_and_reported() {
     if (dir.empty()) return;
 
     std::string requested = dir + "\\hostfile_abs_test.txt";
-    DeleteFileA(requested.c_str());
+    deleteFile(requested);
 
     check(emu_host_file_open_write(requested.c_str()), "open_write succeeded");
     std::string reported = writeName();
@@ -212,7 +225,7 @@ static void test_absolute_path_is_honoured_and_reported() {
     check(fileExists(reported), "a file exists at the reported path");
     checkEq(readWholeFile(reported), "absolute", "it holds the exported bytes");
 
-    DeleteFileA(requested.c_str());
+    deleteFile(requested);
 }
 
 static void test_the_query_creates_nothing() {
@@ -223,15 +236,15 @@ static void test_the_query_creates_nothing() {
     if (dir.empty()) return;
 
     std::string requested = dir + "\\hostfile_nocreate.txt";
-    DeleteFileA(requested.c_str());
-    RemoveDirectoryA(requested.c_str());
+    deleteFile(requested);
+    RemoveDirectoryW(utf8path::wide(requested).c_str());
 
     check(emu_host_file_open_write(requested.c_str()), "open_write succeeded");
     (void)writeName();
 
     // Following the MSIX redirection means opening a handle, and a handle needs
     // something that exists. Resolving the FILE path would have to create the
-    // file - and CreateDirectoryA on it would create a DIRECTORY with the file's
+    // file - and CreateDirectoryW on it would create a DIRECTORY with the file's
     // name, after which the export's own fopen(..., "wb") fails. So the parent
     // is what gets resolved, and neither of these may appear yet.
     check(!dirExists(requested), "no directory was created for the file name");
@@ -240,7 +253,7 @@ static void test_the_query_creates_nothing() {
     check(emu_host_file_close_write(), "close_write succeeded");
     check(fileExists(requested), "the file appears at close");
 
-    DeleteFileA(requested.c_str());
+    deleteFile(requested);
 }
 
 static void test_nonexistent_parent_still_reports_something() {
@@ -279,7 +292,7 @@ static void test_null_and_empty_names() {
     writeBytes("n");
     check(emu_host_file_close_write(), "close_write succeeded");
     check(fileExists(reportedNull), "the fallback file exists where reported");
-    DeleteFileA(reportedNull.c_str());
+    deleteFile(reportedNull);
 
     check(emu_host_file_open_write(""), "open_write(\"\") succeeded");
     std::string reportedEmpty = writeName();
@@ -289,7 +302,7 @@ static void test_null_and_empty_names() {
     check(emu_host_file_close_write(), "close_write succeeded");
     check(fileExists(reportedEmpty), "the fallback file exists where reported");
     checkEq(reportedNull, reportedEmpty, "both fallbacks name the same file");
-    DeleteFileA(reportedEmpty.c_str());
+    deleteFile(reportedEmpty);
 }
 
 static void test_emu_rename() {
@@ -301,10 +314,10 @@ static void test_emu_rename() {
     std::string from = dir + "\\rename_from.tmp";
     std::string to = dir + "\\rename_to.tmp";
 
-    FILE* f = fopen(from.c_str(), "wb");
+    FILE* f = utf8path::fopen(from, "wb");
     check(f != nullptr, "source created");
     if (f) { fputs("new", f); fclose(f); }
-    f = fopen(to.c_str(), "wb");
+    f = utf8path::fopen(to, "wb");
     check(f != nullptr, "target created");
     if (f) { fputs("old", f); fclose(f); }
 
@@ -321,7 +334,55 @@ static void test_emu_rename() {
     check(emu_rename((dir + "\\no_such_source.tmp").c_str(), to.c_str()) != 0,
           "emu_rename reports failure for a missing source");
 
-    DeleteFileA(to.c_str());
+    deleteFile(to);
+}
+
+static void test_non_ascii_folder() {
+    printf("--- a folder named outside ASCII holds a working disk image ---\n");
+
+    // The failure this guards: the data folder is under the Windows user name,
+    // and a user name with an accented letter put a non-ASCII byte into every
+    // path. fopen and the -A calls read a narrow path in the ANSI code page,
+    // not UTF-8, so every disk and ROM in the folder failed to open. The name
+    // is spelt with an escape so this file stays ASCII.
+    std::string dir = makeScratchDir(L"z80cpmw_caf\u00e9");
+    check(!dir.empty(), "scratch directory created");
+    if (dir.empty()) return;
+    check(dir.find("caf\xC3\xA9") != std::string::npos,
+          "the directory name reaches the backend as UTF-8");
+
+    std::string image = dir + "\\image.img";
+    deleteFile(image);
+
+    std::vector<uint8_t> data(1024);
+    for (size_t i = 0; i < data.size(); i++) data[i] = (uint8_t)(i * 7 + 1);
+
+    check(emu_file_save(image, data), "emu_file_save writes the file");
+    check(!fileExists(image + ".tmp"), "emu_file_save leaves no temp file behind");
+    check(emu_file_exists(image), "emu_file_exists finds it");
+    checkEq(std::to_string(emu_file_size(image)), "1024",
+            "emu_file_size measures it");
+
+    std::vector<uint8_t> back;
+    check(emu_file_load(image, back), "emu_file_load reads it");
+    check(back == data, "emu_file_load returns the bytes that were saved");
+
+    emu_disk_handle disk = emu_disk_open(image, "r");
+    check(disk != nullptr, "emu_disk_open opens it");
+    if (disk) {
+        checkEq(std::to_string(emu_disk_size(disk)), "1024",
+                "emu_disk_size measures it");
+        uint8_t sector[128] = {};
+        checkEq(std::to_string(emu_disk_read(disk, 512, sector, sizeof(sector))),
+                "128", "emu_disk_read reads a whole sector");
+        check(memcmp(sector, data.data() + 512, sizeof(sector)) == 0,
+              "the sector holds the bytes saved at that offset");
+        emu_disk_close(disk);
+    }
+
+    deleteFile(image);
+    RemoveDirectoryW(utf8path::wide(dir).c_str());
+    check(!dirExists(dir), "scratch directory removed");
 }
 
 int main() {
@@ -335,6 +396,7 @@ int main() {
     test_nonexistent_parent_still_reports_something();
     test_null_and_empty_names();
     test_emu_rename();
+    test_non_ascii_folder();
 
     printf("\n%d checks, %d failures\n", g_checks, g_failures);
     return g_failures == 0 ? 0 : 1;

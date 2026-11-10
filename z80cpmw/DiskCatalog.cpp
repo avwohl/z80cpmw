@@ -5,6 +5,7 @@
 #include "pch.h"
 #include "DiskCatalog.h"
 #include "Version.h"
+#include "Utf8Path.h"
 #include <thread>
 #include <sstream>
 #include <vector>
@@ -107,11 +108,11 @@ DiskCatalog::DiskCatalog() {
 
     // Fallback to app directory if LocalAppData fails
     if (m_downloadDir.empty()) {
-        char path[MAX_PATH];
-        GetModuleFileNameA(nullptr, path, MAX_PATH);
-        char* lastSlash = strrchr(path, '\\');
-        if (lastSlash) *lastSlash = '\0';
-        m_downloadDir = std::string(path) + "\\data";
+        wchar_t path[MAX_PATH];
+        GetModuleFileNameW(nullptr, path, MAX_PATH);
+        wchar_t* lastSlash = wcsrchr(path, L'\\');
+        if (lastSlash) *lastSlash = L'\0';
+        m_downloadDir = utf8path::fromWide(path) + "\\data";
     }
 }
 
@@ -160,7 +161,7 @@ void DiskCatalog::applyDownloadDirectory() {
     // updateDownloadedStatus() takes m_downloadDirMutex itself, and holding it
     // across a CreateDirectory would put a filesystem call inside the lock that
     // every worker read contends on.
-    CreateDirectoryA(dir.c_str(), nullptr);
+    CreateDirectoryW(utf8path::wide(dir).c_str(), nullptr);
     updateDownloadedStatus();
 
     // A different data folder is a different ledger, so the one in hand stops
@@ -423,7 +424,7 @@ bool DiskCatalog::downloadRomInto(DownloadProgressCallback progressCb, std::stri
     // force: the catalog index can move that between getRomRequirement() and here,
     // and the directory created must be the one the bytes are written to.
     const std::string downloadDir = req.localPath.substr(0, req.localPath.find_last_of('\\'));
-    CreateDirectoryA(downloadDir.c_str(), nullptr);
+    CreateDirectoryW(utf8path::wide(downloadDir).c_str(), nullptr);
 
     // Downloaded beside the real name and moved onto it only after both checks
     // pass. Written this way round because the file it may be replacing is not
@@ -435,19 +436,19 @@ bool DiskCatalog::downloadRomInto(DownloadProgressCallback progressCb, std::stri
     const std::string tempPath = finalPath + ".new";
 
     if (!downloadToFile(url, tempPath, progressCb, error)) {
-        DeleteFileA(tempPath.c_str());
+        DeleteFileW(utf8path::wide(tempPath).c_str());
         if (m_cancelRequested) error = "Download cancelled";
         return false;
     }
     if (m_cancelRequested) {
-        DeleteFileA(tempPath.c_str());
+        DeleteFileW(utf8path::wide(tempPath).c_str());
         error = "Download cancelled";
         return false;
     }
 
     std::string reason;
     if (!verifyRom(tempPath, req.rom, reason)) {
-        DeleteFileA(tempPath.c_str());
+        DeleteFileW(utf8path::wide(tempPath).c_str());
         // Named as what it is - the file that arrived, not the file that was
         // asked for - because the two are different objects here and the user's
         // copy is still on disk.
@@ -456,9 +457,9 @@ bool DiskCatalog::downloadRomInto(DownloadProgressCallback progressCb, std::stri
         return false;
     }
 
-    if (!MoveFileExA(tempPath.c_str(), finalPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+    if (!MoveFileExW(utf8path::wide(tempPath).c_str(), utf8path::wide(finalPath).c_str(), MOVEFILE_REPLACE_EXISTING)) {
         const DWORD err = GetLastError();
-        DeleteFileA(tempPath.c_str());
+        DeleteFileW(utf8path::wide(tempPath).c_str());
         error = "Could not put " + req.rom.filename + " into the data folder (error " +
                 std::to_string(err) + ")";
         return false;
@@ -819,7 +820,7 @@ void DiskCatalog::downloadDisk(const std::string& filename,
             const std::string downloadDir = getDownloadDirectory();
 
             // Create download directory if needed
-            CreateDirectoryA(downloadDir.c_str(), nullptr);
+            CreateDirectoryW(utf8path::wide(downloadDir).c_str(), nullptr);
 
             // The catalog's own filename, which is also the name the file takes in
             // the data folder. Those were two different strings while the storage
@@ -837,7 +838,7 @@ void DiskCatalog::downloadDisk(const std::string& filename,
             //
             // This used to hand downloadToFile the real path. That truncates the
             // file already there before a byte arrives, and every failure arm below
-            // then DeleteFileA()s it, so a cancelled download, a dead network, a
+            // then DeleteFileW()s it, so a cancelled download, a dead network, a
             // short read or a checksum mismatch all destroyed whatever was under
             // that name. The file under that name is NOT always a spare copy of the
             // same image: with a custom catalog index two catalogs publish different
@@ -853,7 +854,7 @@ void DiskCatalog::downloadDisk(const std::string& filename,
             if (m_cancelRequested) {
                 m_downloadState = DownloadState::Cancelled;
                 // Only ever the partial file. The user's copy was never opened.
-                DeleteFileA(tempPath.c_str());
+                DeleteFileW(utf8path::wide(tempPath).c_str());
                 if (completeCb) {
                     completeCb(false, "Download cancelled");
                 }
@@ -868,7 +869,7 @@ void DiskCatalog::downloadDisk(const std::string& filename,
                     std::string actual;
                     if (!diskhash::sha256File(tempPath, actual)) {
                         m_downloadState = DownloadState::Failed;
-                        DeleteFileA(tempPath.c_str());
+                        DeleteFileW(utf8path::wide(tempPath).c_str());
                         if (completeCb) {
                             completeCb(false, "Downloaded file could not be read back");
                         }
@@ -881,7 +882,7 @@ void DiskCatalog::downloadDisk(const std::string& filename,
                         // provenance only for a download it VERIFIED - a recorded
                         // hash these bytes never had would read as Current for ever.
                         m_downloadState = DownloadState::Failed;
-                        DeleteFileA(tempPath.c_str());
+                        DeleteFileW(utf8path::wide(tempPath).c_str());
                         if (completeCb) {
                             completeCb(false, "Downloaded image does not match the catalog checksum");
                         }
@@ -894,10 +895,10 @@ void DiskCatalog::downloadDisk(const std::string& filename,
                 // - that case has to keep working, an older catalog than this build
                 // expects must still install - but it still goes through the rename,
                 // so a transfer that DIED is never what replaces the user's copy.
-                if (!MoveFileExA(tempPath.c_str(), localPath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+                if (!MoveFileExW(utf8path::wide(tempPath).c_str(), utf8path::wide(localPath).c_str(), MOVEFILE_REPLACE_EXISTING)) {
                     const DWORD err = GetLastError();
                     m_downloadState = DownloadState::Failed;
-                    DeleteFileA(tempPath.c_str());
+                    DeleteFileW(utf8path::wide(tempPath).c_str());
                     if (completeCb) {
                         completeCb(false, "Could not put " + localName +
                                           " into the data folder (error " +
@@ -942,7 +943,7 @@ void DiskCatalog::downloadDisk(const std::string& filename,
             } else {
                 m_downloadState = DownloadState::Failed;
                 // Only ever the partial file; see the note on tempPath above.
-                DeleteFileA(tempPath.c_str());
+                DeleteFileW(utf8path::wide(tempPath).c_str());
                 if (completeCb) {
                     completeCb(false, error);
                 }
@@ -982,7 +983,7 @@ bool DiskCatalog::isDiskDownloaded(const std::string& filename) const {
 
     std::string path = getDiskPath(filename);
     WIN32_FILE_ATTRIBUTE_DATA fad = {};
-    if (!GetFileAttributesExA(path.c_str(), GetFileExInfoStandard, &fad)) {
+    if (!GetFileAttributesExW(utf8path::wide(path).c_str(), GetFileExInfoStandard, &fad)) {
         return false;
     }
     ULONGLONG size = ((ULONGLONG)fad.nFileSizeHigh << 32) | fad.nFileSizeLow;
@@ -999,7 +1000,7 @@ bool DiskCatalog::isDiskDownloaded(const std::string& filename) const {
 
 bool DiskCatalog::deleteDownloadedDisk(const std::string& filename) {
     std::string path = getDiskPath(filename);
-    if (DeleteFileA(path.c_str())) {
+    if (DeleteFileW(utf8path::wide(path).c_str())) {
         {
             // Update status
             std::lock_guard<std::mutex> lock(m_catalogMutex);
@@ -1061,16 +1062,16 @@ DiskCatalog::V0FileMigration DiskCatalog::migrateFilesToInterfaceV0() {
         const std::string oldPath = dir + "\\" + legacy;
         const std::string newPath = dir + "\\" + v0;
 
-        if (GetFileAttributesA(newPath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        if (GetFileAttributesW(utf8path::wide(newPath).c_str()) != INVALID_FILE_ATTRIBUTES) {
             // Already there - the pass has run before, or the user fetched it
             // by hand. Keep it, and leave whatever is under the old name
             // exactly where it is: this migration deletes nothing.
             result.landed[DiskLedger::fold(legacy)] = v0;
             continue;
         }
-        if (GetFileAttributesA(oldPath.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+        if (GetFileAttributesW(utf8path::wide(oldPath).c_str()) == INVALID_FILE_ATTRIBUTES) continue;
 
-        // MoveFileExA with NO flags, and both halves of that are deliberate.
+        // MoveFileExW with NO flags, and both halves of that are deliberate.
         // MOVEFILE_REPLACE_EXISTING would delete a file this code has just
         // established is not there and, if it appeared in between, is not ours
         // to remove. MOVEFILE_COPY_ALLOWED would let a failed rename become a
@@ -1078,7 +1079,7 @@ DiskCatalog::V0FileMigration DiskCatalog::migrateFilesToInterfaceV0() {
         // measurement - 211 MB of re-hashing to save one call - and cannot
         // happen anyway, since both names are in one directory and therefore on
         // one volume.
-        if (MoveFileExA(oldPath.c_str(), newPath.c_str(), 0)) {
+        if (MoveFileExW(utf8path::wide(oldPath).c_str(), utf8path::wide(newPath).c_str(), 0)) {
             result.landed[DiskLedger::fold(legacy)] = v0;
             result.renamed++;
         } else {
@@ -1366,7 +1367,7 @@ bool DiskCatalog::downloadToFile(const std::wstring& url, const std::string& loc
     }
 
     // Open output file
-    file = fopen(localPath.c_str(), "wb");
+    file = utf8path::fopen(localPath, "wb");
     if (!file) {
         error = "Failed to create local file";
         goto cleanup;
@@ -1432,7 +1433,7 @@ cleanup:
         // Never leave a partial file behind: any later existence check would
         // treat it as a completed download.
         if (!success) {
-            remove(localPath.c_str());
+            _wremove(utf8path::wide(localPath).c_str());
         }
     }
     if (hRequest) WinHttpCloseHandle(hRequest);
@@ -1502,7 +1503,7 @@ void DiskCatalog::loadLedgerIfNeeded() {
     // that must not wait on one.
     std::string text;
     const std::string path = ledgerPath();
-    std::unique_ptr<FILE, int (*)(FILE*)> file(fopen(path.c_str(), "rb"), &fclose);
+    std::unique_ptr<FILE, int (*)(FILE*)> file(utf8path::fopen(path, "rb"), &fclose);
     if (file) {
         char buffer[4096];
         size_t read = 0;
@@ -1532,11 +1533,11 @@ void DiskCatalog::saveLedger(const DiskLedger& ledger) const {
     // reason to accept that when a rename is atomic.
     const std::string temp = path + ".new";
     {
-        std::unique_ptr<FILE, int (*)(FILE*)> file(fopen(temp.c_str(), "wb"), &fclose);
+        std::unique_ptr<FILE, int (*)(FILE*)> file(utf8path::fopen(temp, "wb"), &fclose);
         if (!file) return;
         if (fwrite(text.data(), 1, text.size(), file.get()) != text.size()) return;
     }
-    MoveFileExA(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING);
+    MoveFileExW(utf8path::wide(temp).c_str(), utf8path::wide(path).c_str(), MOVEFILE_REPLACE_EXISTING);
 }
 
 void DiskCatalog::updateFreshness() {
